@@ -78,7 +78,7 @@ function sliceCurveToDateWindow(series, days = TOPK_NAV_CHART_WINDOW_DAYS) {
 
 /** Quant domain: backtest */
 export function installBacktest(q) {
-  const { on, els, state, ctx, escapeHtml, apiFetch, setQuantMeta, setBusyText, btSimScoreTips, watchingNameFromEl, readHoldoutTradingDays } = q;
+  const { on, els, state, ctx, escapeHtml, apiFetch, setQuantMeta, setBusyText, btSimScoreTips, watchingNameFromEl } = q;
   const { fmtPct, metricClass, renderMetricCards, renderBtScopeNote, renderRobustnessPanel, buildPortfolioBacktestCards, BT_SCOPE_LIVE, BT_SCOPE_FROZEN, readHorizonDays, quantBtBusyIds } = q;
   const { renderAttributionTablesHtml, renderScoreIcHtml, renderReplayStockContribHtml } = q;
   const { researchGridHtml, metricCell } = q;
@@ -981,10 +981,6 @@ export function installBacktest(q) {
     }
     const predTiers = readPredictabilityTiers();
     const usePred = predTiers.length > 0;
-    const holdoutDays =
-      typeof readHoldoutTradingDays === "function"
-        ? Math.max(2, Math.min(60, Number(readHoldoutTradingDays("oo")) || 20))
-        : 20;
     return {
       lookback,
       score_model_role: readScoreModelRole("quant-score-model-role"),
@@ -998,8 +994,7 @@ export function installBacktest(q) {
       fill_clock: readFillClock(),
       use_predictability_tiers: usePred,
       predictability_tiers: usePred ? predTiers : null,
-      // 勾了分档时把 ŷ_oo 卡片 Holdout 传给后端做一致性校验；回测天数仍用 lookback
-      holdout_trading_days: usePred ? holdoutDays : null,
+      // 分档 Holdout 与 ŷ_oo 拟合卡解耦；回测只复用枢纽 last，不再对齐拟合卡 Holdout
       predictability_head: "oo",
       price_space_gate: readPriceSpaceGate(),
       ...readReplayLots(),
@@ -1514,29 +1509,8 @@ export function installBacktest(q) {
         lot_strong_amount,
         use_predictability_tiers,
         predictability_tiers,
-        holdout_trading_days,
         price_space_gate,
       } = readPortfolioBtParams();
-      if (use_predictability_tiers && holdout_trading_days != null) {
-        const { ok: tierOk, data: tierLast } = await apiFetch(
-          "/api/quant/research-universe/predictability-tiers/last?slim=1"
-        );
-        const lastHold =
-          tierOk && tierLast && tierLast.success && tierLast.holdout_n != null
-            ? Number(tierLast.holdout_n)
-            : null;
-        if (
-          lastHold != null &&
-          Number.isFinite(lastHold) &&
-          Number(lastHold) !== Number(holdout_trading_days)
-        ) {
-          const failMsg =
-            `ŷ_oo Holdout=${holdout_trading_days} 与枢纽分档 Holdout=${lastHold} 不一致；` +
-            "请先在研究枢纽用当前 Holdout 重跑「观察池分档」再回测。";
-          paintPortfolioBacktestFail(failMsg);
-          return { success: false, error: failMsg };
-        }
-      }
       const enterThresh = fuse_enter;
       const strongThresh =
         fuse_strong != null ? fuse_strong : enterThresh;
@@ -1585,34 +1559,41 @@ export function installBacktest(q) {
         predictability_tiers: use_predictability_tiers
           ? predictability_tiers || ["A"]
           : null,
-        holdout_trading_days: use_predictability_tiers
-          ? holdout_trading_days
-          : null,
         predictability_head: "oo",
         price_space_gate,
         include_benchmark: true,
       };
-      const ctrl = typeof AbortController !== "undefined" ? new AbortController() : null;
-      const timer = ctrl ? setTimeout(() => ctrl.abort(), 30000) : null;
+      // 入队接口本身应较快；勿用 30s 硬打断（后台 Job 可能已开跑）
       let res;
       try {
         res = await fetch("/api/quant/portfolio-backtest", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(payload),
-          signal: ctrl ? ctrl.signal : undefined,
         });
       } catch (err) {
-        const aborted = Boolean(
-          err && (err.name === "AbortError" || /abort/i.test(String(err)))
-        );
-        const failMsg = aborted
-          ? "回测入队失败或连接中断。服务刚重启时请稍候刷新再试"
-          : String((err && err.message) || err || "回测请求失败");
+        const failMsg = String((err && err.message) || err || "回测请求失败");
+        // 连接中断时尝试接上已在跑的 Job
+        try {
+          const snap = await apiFetch("/api/jobs/portfolio-backtest?progress=1");
+          const job = snap?.data?.job || snap?.data;
+          if (snap?.ok && String(job?.status || "") === "running") {
+            const jobId = job.id;
+            const jobStart = jobStartedMs(job, started);
+            lastHint = "接上运行中的组合回测";
+            refreshBusy();
+            const done = await awaitPortfolioBacktestJob(jobId, jobStart, ctx, (hint) => {
+              lastHint = hint || ctx;
+              refreshBusy();
+            });
+            await applyFinishedPortfolioJob(done, jobStart);
+            return (done && done.result) || { success: true, background: true };
+          }
+        } catch (_) {
+          /* fall through */
+        }
         paintPortfolioBacktestFail(failMsg);
         return { success: false, error: failMsg };
-      } finally {
-        if (timer) clearTimeout(timer);
       }
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {

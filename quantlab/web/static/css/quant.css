@@ -12469,3 +12469,705 @@ body[data-page="quant"] .quant-page .quant-ru-tier-table td.quant-ru-f1-cell.is-
   }
 }
 
+/* 滚动验证 · walk-forward desk */
+.quant-page .quant-rg-body {
+  display: flex;
+  flex-direction: column;
+  gap: 0.9rem;
+}
+
+.quant-page .quant-rg-tools {
+  align-items: center;
+  gap: 0.45rem;
+}
+
+.quant-page .quant-rg-progress.quant-bars-progress {
+  margin: 0;
+}
+
+.quant-page .quant-rg-progress-head {
+  display: flex;
+  align-items: baseline;
+  gap: 0.45rem 0.65rem;
+  flex-wrap: wrap;
+}
+
+.quant-page .quant-rg-progress-label {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--ink);
+  letter-spacing: 0.01em;
+}
+
+.quant-page .quant-rg-fold-track {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  margin: 0 0 0.45rem;
+}
+
+.quant-page .quant-rg-fold-pill {
+  flex: 1 1 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 1.35rem;
+  border-radius: 2px;
+  border: 1px solid color-mix(in srgb, var(--line) 80%, transparent);
+  background: color-mix(in srgb, var(--bg) 50%, var(--surface));
+  transition: background 0.2s ease, border-color 0.2s ease, color 0.2s ease;
+}
+
+.quant-page .quant-rg-fold-pill-n {
+  font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+  font-size: 0.68rem;
+  font-weight: 650;
+  font-variant-numeric: tabular-nums;
+  color: var(--ink-3);
+}
+
+.quant-page .quant-rg-fold-pill.is-pending {
+  opacity: 0.72;
+}
+
+.quant-page .quant-rg-fold-pill.is-active {
+  border-color: color-mix(in srgb, var(--accent, #2563eb) 45%, var(--line));
+  background: color-mix(in srgb, var(--accent, #2563eb) 14%, var(--surface));
+  box-shadow: inset 0 -2px 0 color-mix(in srgb, var(--accent, #2563eb) 55%, transparent);
+  animation: quant-rg-pill-pulse 1.6s ease-in-out infinite;
+}
+
+@keyframes quant-rg-pill-pulse {
+  0%,
+  100% {
+    filter: brightness(1);
+  }
+  50% {
+    filter: brightness(1.06);
+  }
+}
+
+.quant-page .quant-rg-fold-pill.is-active .quant-rg-fold-pill-n {
+  color: var(--accent, #2563eb);
+}
+
+.quant-page .quant-rg-fold-pill.is-done {
+  border-color: color-mix(in srgb, var(--ok, #16a34a) 40%, var(--line));
+  background: color-mix(in srgb, var(--ok, #16a34a) 12%, var(--surface));
+}
+
+.quant-page .quant-rg-fold-pill.is-done .quant-rg-fold-pill-n {
+  color: var(--ok, #16a34a);
+}
+
+.quant-page .quant-rg-progress.is-prep .quant-bars-progress-fill,
+.quant-page .quant-rg-progress.is-fit .quant-bars-progress-fill {
+  background: repeating-linear-gradient(
+    -45deg,
+    color-mix(in srgb, var(--accent) 70%, var(--ink-3)),
+    color-mix(in srgb, var(--accent) 70%, var(--ink-3)) 6px,
+    color-mix(in srgb, var(--accent) 45%, var(--surface)) 6px,
+    color-mix(in srgb, var(--accent) 45%, var(--surface)) 12px
+  );
+  background-size: 16px 16px;
+  animation: quant-rg-prep-slide 0.9s linear infinite;
+}
+
+@keyframes quant-rg-prep-slide {
+  from {
+    background-position: 0 0;
+  }
+  to {
+    background-position: 16px 0;
+  }
+}
+
+.quant-page .quant-rg-pulse {
+  display: inline-block;
+  width: 0.45rem;
+  height: 0.45rem;
+  margin-left: 0.4rem;
+  border-radius: 50%;
+  background: var(--accent, #2563eb);
+  vertical-align: 0.05rem;
+  animation: quant-rg-dot 1.1s ease-in-out infinite;
+}
+
+@keyframes quant-rg-dot {
+  0%,
+  100% {
+    opacity: 0.35;
+    transform: scale(0.85);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+.quant-page .quant-rg-alive {
+  color: var(--accent, #2563eb);
+  font-weight: 650;
+}
+
+.quant-page .quant-rg-progress-hint {
+  margin-top: 0.3rem;
+  font-size: 0.7rem;
+  color: var(--ink-3, var(--ink-2));
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .quant-page .quant-rg-progress.is-prep .quant-bars-progress-fill,
+  .quant-page .quant-rg-progress.is-fit .quant-bars-progress-fill,
+  .quant-page .quant-rg-fold-pill.is-active,
+  .quant-page .quant-rg-pulse {
+    animation: none;
+  }
+}
+
+.quant-page .quant-rg-progress-msg {
+  margin-top: 0.35rem;
+  font-size: 0.72rem;
+  font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+  color: var(--ink-2);
+  word-break: break-word;
+}
+
+.quant-page .quant-rg-protocol {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.2rem 0.35rem;
+  max-width: min(100%, 28rem);
+  padding: 0.2rem 0.5rem;
+  border: 1px solid color-mix(in srgb, var(--line) 75%, transparent);
+  border-radius: 3px;
+  background: color-mix(in srgb, var(--bg) 55%, var(--surface));
+  font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+  font-size: 0.72rem;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.35;
+  color: var(--ink-2);
+}
+
+.quant-page .quant-rg-kv {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 0.22rem;
+  white-space: nowrap;
+}
+
+.quant-page .quant-rg-k {
+  color: var(--ink-3, var(--ink-2));
+  font-weight: 500;
+  letter-spacing: 0.02em;
+}
+
+.quant-page .quant-rg-v {
+  color: var(--ink);
+  font-weight: 600;
+}
+
+.quant-page .quant-rg-sep {
+  color: var(--ink-3, var(--ink-2));
+  opacity: 0.7;
+  user-select: none;
+}
+
+.quant-page .quant-rg-window {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  align-items: center;
+}
+
+.quant-page .quant-rg-window-chip {
+  font-size: 0.72rem;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.01em;
+  color: var(--ink-2);
+  background: color-mix(in srgb, var(--line) 35%, var(--surface));
+  border: 1px solid color-mix(in srgb, var(--line) 70%, transparent);
+  border-radius: 3px;
+  padding: 0.18rem 0.45rem;
+}
+
+.quant-page .quant-rg-arms {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.75rem;
+}
+
+.quant-page .quant-rg-arm {
+  border: 1px solid color-mix(in srgb, var(--line) 80%, transparent);
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--surface) 92%, var(--bg));
+  overflow: hidden;
+}
+
+.quant-page .quant-rg-arm-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.5rem;
+  padding: 0.45rem 0.65rem;
+  border-bottom: 1px solid color-mix(in srgb, var(--line) 70%, transparent);
+  background: color-mix(in srgb, var(--bg) 55%, var(--surface));
+}
+
+.quant-page .quant-rg-arm-tag {
+  font-size: 0.78rem;
+  font-weight: 650;
+  letter-spacing: 0.04em;
+  color: var(--ink);
+}
+
+.quant-page .quant-rg-arm-meta {
+  font-size: 0.68rem;
+  color: var(--ink-3, var(--ink-2));
+  font-variant-numeric: tabular-nums;
+}
+
+.quant-page .quant-rg-arm-kpis {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.quant-page .quant-rg-kpi {
+  border-right: 1px solid color-mix(in srgb, var(--line) 55%, transparent);
+  min-height: 5.2rem;
+}
+
+.quant-page .quant-rg-kpi:last-child {
+  border-right: none;
+}
+
+.quant-page .quant-rg-meter,
+.quant-page .quant-rg-hitbar {
+  position: relative;
+  display: block;
+  height: 6px;
+  margin: 0.35rem 0 0.15rem;
+  border-radius: 2px;
+  background: color-mix(in srgb, var(--line) 45%, transparent);
+  overflow: hidden;
+}
+
+.quant-page .quant-rg-meter-fill,
+.quant-page .quant-rg-hitbar-fill {
+  position: absolute;
+  inset: 0 auto 0 0;
+  border-radius: 2px;
+  background: color-mix(in srgb, var(--ink-3) 55%, var(--line));
+  transition: width 0.35s ease;
+}
+
+.quant-page .quant-rg-meter.is-ok .quant-rg-meter-fill,
+.quant-page .quant-rg-hitbar.is-ok .quant-rg-hitbar-fill {
+  background: color-mix(in srgb, var(--ok, #16a34a) 78%, #fff);
+}
+
+.quant-page .quant-rg-meter.is-danger .quant-rg-meter-fill,
+.quant-page .quant-rg-hitbar.is-danger .quant-rg-hitbar-fill {
+  background: color-mix(in srgb, var(--danger, #b42318) 78%, #fff);
+}
+
+.quant-page .quant-rg-meter-base,
+.quant-page .quant-rg-hitbar-base {
+  position: absolute;
+  top: -2px;
+  bottom: -2px;
+  left: 50%;
+  width: 1px;
+  background: color-mix(in srgb, var(--ink) 45%, transparent);
+  z-index: 1;
+}
+
+.quant-page .quant-rg-block-label {
+  display: flex;
+  align-items: baseline;
+  gap: 0.5rem;
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--ink-2);
+  margin-bottom: 0.45rem;
+}
+
+.quant-page .quant-rg-block-hint {
+  font-weight: 400;
+  font-size: 0.7rem;
+  color: var(--ink-3, var(--ink-2));
+}
+
+.quant-page .quant-rg-fold-chart {
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+  margin-bottom: 0.65rem;
+  padding: 0.55rem 0.65rem;
+  border: 1px solid color-mix(in srgb, var(--line) 75%, transparent);
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--bg) 40%, var(--surface));
+}
+
+.quant-page .quant-rg-fold-row {
+  display: grid;
+  grid-template-columns: 5.5rem minmax(0, 1fr);
+  gap: 0.55rem;
+  align-items: center;
+}
+
+.quant-page .quant-rg-fold-lab {
+  font-size: 0.75rem;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+}
+
+.quant-page .quant-rg-fold-bars {
+  display: flex;
+  flex-direction: column;
+  gap: 0.28rem;
+}
+
+.quant-page .quant-rg-fold-barline {
+  display: grid;
+  grid-template-columns: 1.6rem minmax(0, 1fr) 3.2rem;
+  gap: 0.4rem;
+  align-items: center;
+}
+
+.quant-page .quant-rg-fold-arm {
+  font-size: 0.65rem;
+  color: var(--ink-3);
+  letter-spacing: 0.02em;
+}
+
+.quant-page .quant-rg-fold-pct {
+  font-size: 0.72rem;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
+.quant-page .quant-rg-hitcell {
+  min-width: 7.5rem;
+}
+
+.quant-page .quant-rg-hitcell-txt {
+  font-size: 0.78rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.quant-page .quant-rg-fold-table .quant-rg-fold-idx {
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.quant-page .quant-rg-fold-table .quant-rg-fold-win {
+  font-size: 0.78rem;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.quant-page .quant-rg-days-toolbar {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.75rem 1rem;
+  margin: 0.55rem 0 0.45rem;
+  flex-wrap: wrap;
+}
+
+.quant-page .quant-rg-days-tabs {
+  display: inline-flex;
+  flex-shrink: 0;
+  padding: 2px;
+  gap: 2px;
+  border: 1px solid color-mix(in srgb, var(--line) 80%, transparent);
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--panel, #fff) 88%, var(--ink-3));
+}
+
+.quant-page .quant-rg-day-tab {
+  appearance: none;
+  margin: 0;
+  border: 0;
+  border-radius: 4px;
+  padding: 0.22rem 0.7rem;
+  font: inherit;
+  font-size: 0.78rem;
+  font-variant-numeric: tabular-nums;
+  color: var(--ink-3);
+  background: transparent;
+  cursor: pointer;
+  line-height: 1.3;
+}
+
+.quant-page .quant-rg-day-tab:hover {
+  color: var(--ink);
+}
+
+.quant-page .quant-rg-day-tab.is-active {
+  color: var(--ink);
+  background: var(--panel, #fff);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--line) 70%, transparent);
+  font-weight: 600;
+}
+
+.quant-page .quant-rg-day-strip {
+  flex: 1 1 12rem;
+  min-width: 0;
+}
+
+.quant-page .quant-rg-dot-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 3px;
+}
+
+.quant-page .quant-rg-dot {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  padding: 0;
+  border: 0;
+  border-radius: 1.5px;
+  background: color-mix(in srgb, var(--line) 70%, var(--ink-3));
+  vertical-align: middle;
+}
+
+button.quant-rg-dot {
+  cursor: pointer;
+}
+
+button.quant-rg-dot:hover,
+button.quant-rg-dot:focus-visible {
+  outline: 1px solid color-mix(in srgb, var(--accent, #2563eb) 55%, transparent);
+  outline-offset: 1px;
+}
+
+.quant-page .quant-rg-dot.is-hit {
+  background: color-mix(in srgb, var(--ok, #16a34a) 85%, #fff);
+}
+
+.quant-page .quant-rg-dot.is-miss {
+  background: color-mix(in srgb, var(--danger, #b42318) 80%, #fff);
+}
+
+.quant-page .quant-rg-dot.is-empty {
+  background: color-mix(in srgb, var(--line) 55%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--ink-3) 35%, transparent);
+}
+
+.quant-page .quant-rg-dot-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  margin-top: 0.35rem;
+  font-size: 0.68rem;
+  color: var(--ink-3);
+}
+
+.quant-page .quant-rg-dot-legend .quant-rg-dot {
+  margin-right: 0.25rem;
+  vertical-align: -1px;
+}
+
+.quant-page .quant-rg-day-wrap {
+  max-height: 22rem;
+  overflow: auto;
+  border: 1px solid color-mix(in srgb, var(--line) 70%, transparent);
+  border-radius: 6px;
+  background: var(--panel, #fff);
+}
+
+.quant-page .quant-rg-day-wrap:has(.quant-empty) {
+  border: 0;
+  background: transparent;
+  max-height: none;
+}
+
+.quant-page .quant-rg-day-table {
+  margin: 0;
+  font-size: 0.8rem;
+  border-collapse: separate;
+  border-spacing: 0;
+}
+
+.quant-page .quant-rg-day-table thead th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: color-mix(in srgb, var(--panel, #fff) 92%, var(--ink-3));
+  box-shadow: inset 0 -1px 0 color-mix(in srgb, var(--line) 75%, transparent);
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: var(--ink-3);
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+}
+
+.quant-page .quant-rg-day-table th,
+.quant-page .quant-rg-day-table td {
+  padding: 0.28rem 0.45rem;
+  vertical-align: middle;
+}
+
+.quant-page .quant-rg-day-table .quant-rg-day-fold {
+  width: 2.4rem;
+  color: var(--ink-3);
+  font-variant-numeric: tabular-nums;
+  font-size: 0.72rem;
+}
+
+.quant-page .quant-rg-day-table .quant-rg-day-date {
+  width: 3.4rem;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.quant-page .quant-rg-day-table .quant-rg-day-out {
+  width: 4.6rem;
+}
+
+.quant-page .quant-rg-day-table .quant-rg-day-code {
+  width: 5.2rem;
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.01em;
+}
+
+.quant-page .quant-rg-day-table .quant-rg-day-y,
+.quant-page .quant-rg-day-table .quant-rg-day-ret {
+  width: 4.8rem;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 0.76rem;
+}
+
+.quant-page .quant-rg-day-table .quant-rg-day-note {
+  min-width: 4rem;
+}
+
+.quant-page .quant-rg-day-table tbody tr.is-hit td:first-child {
+  box-shadow: inset 2px 0 0 color-mix(in srgb, var(--ok, #16a34a) 70%, transparent);
+}
+
+.quant-page .quant-rg-day-table tbody tr.is-miss td:first-child {
+  box-shadow: inset 2px 0 0 color-mix(in srgb, var(--danger, #b42318) 65%, transparent);
+}
+
+.quant-page .quant-rg-day-table tbody tr.is-empty-day {
+  color: var(--ink-3);
+}
+
+.quant-page .quant-rg-day-table tbody tr.is-empty-day td:first-child {
+  box-shadow: inset 2px 0 0 color-mix(in srgb, var(--line) 80%, transparent);
+}
+
+.quant-page .quant-rg-day-table tbody tr.is-fold-break td {
+  border-top: 1px solid color-mix(in srgb, var(--line) 85%, transparent);
+}
+
+.quant-page .quant-rg-day-table tbody tr.is-flash {
+  background: color-mix(in srgb, var(--accent, #2563eb) 12%, transparent);
+  transition: background 0.9s ease;
+}
+
+.quant-page .quant-rg-out {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 2.6rem;
+  padding: 0.08rem 0.38rem;
+  border-radius: 999px;
+  font-size: 0.68rem;
+  font-weight: 600;
+  line-height: 1.25;
+  white-space: nowrap;
+}
+
+.quant-page .quant-rg-out--hit {
+  color: var(--ok, #16a34a);
+  background: color-mix(in srgb, var(--ok, #16a34a) 14%, transparent);
+}
+
+.quant-page .quant-rg-out--miss {
+  color: var(--danger, #b42318);
+  background: color-mix(in srgb, var(--danger, #b42318) 12%, transparent);
+}
+
+.quant-page .quant-rg-out--empty {
+  color: var(--ink-3);
+  background: color-mix(in srgb, var(--ink-3) 8%, transparent);
+  font-weight: 500;
+}
+
+.quant-page .quant-rg-note {
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 0.72rem;
+  color: var(--ink-3);
+}
+
+.quant-page .quant-rg-card .quant-pro-kpi-value.is-ok,
+.quant-page .quant-rg-fold-table .is-ok,
+.quant-page .quant-rg-fold-pct.is-ok,
+.quant-page .quant-rg-card .is-ok {
+  color: var(--ok, #16a34a);
+}
+
+.quant-page .quant-rg-card .quant-pro-kpi-value.is-danger,
+.quant-page .quant-rg-fold-table .is-danger,
+.quant-page .quant-rg-fold-pct.is-danger,
+.quant-page .quant-rg-card .is-danger {
+  color: var(--danger, #b42318);
+}
+
+.quant-page .quant-rg-card .quant-pro-kpi-value.is-up,
+.quant-page .quant-rg-fold-table .is-up,
+.quant-page .quant-rg-card .is-up {
+  color: var(--quant-up, #dc2626);
+}
+
+.quant-page .quant-rg-card .quant-pro-kpi-value.is-down,
+.quant-page .quant-rg-fold-table .is-down,
+.quant-page .quant-rg-card .is-down {
+  color: var(--quant-down, #16a34a);
+}
+
+.quant-page .quant-rg-card .muted,
+.quant-page .quant-rg-card .quant-empty {
+  color: var(--ink-3, var(--ink-2));
+  font-size: 0.85em;
+}
+
+@media (max-width: 960px) {
+  .quant-page .quant-rg-arms {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 640px) {
+  .quant-page .quant-rg-arm-kpis {
+    grid-template-columns: 1fr;
+  }
+
+  .quant-page .quant-rg-kpi {
+    border-right: none;
+    border-bottom: 1px solid color-mix(in srgb, var(--line) 55%, transparent);
+  }
+
+  .quant-page .quant-rg-kpi:last-child {
+    border-bottom: none;
+  }
+
+  .quant-page .quant-rg-fold-row {
+    grid-template-columns: 1fr;
+  }
+}
+

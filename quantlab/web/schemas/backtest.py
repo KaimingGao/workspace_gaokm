@@ -139,7 +139,11 @@ class PaperReplayBacktestRequest(BaseModel):
         default=None,
         ge=2,
         le=90,
-        description="ŷ_oo 卡片 Holdout；须与枢纽 last.holdout_n 一致，否则拒跑并提示重跑「观察池分档」。回测天数仍用 lookback。",
+        description=(
+            "可选：若传入则须与枢纽分档 last.holdout_n 一致。"
+            "分档 Holdout 已与 ŷ_oo 拟合卡解耦；前端默认不传，回测直接复用 last。"
+            "回测天数仍用 lookback。"
+        ),
     )
     predictability_head: str = Field(
         default="oo",

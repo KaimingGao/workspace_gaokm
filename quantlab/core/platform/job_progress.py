@@ -117,6 +117,13 @@ _SLOT_STALE_POLICY: Dict[str, Dict[str, Any]] = {
         "allow_zero_progress": True,
         "label": "物化",
     },
+    # 全池 500×3 折 Ridge+LambdaRank：单折拟合可数十分钟无 current 递增
+    "roll-gate-top1": {
+        "stale_sec": 7200.0,
+        "stuck_start_sec": 7200.0,
+        "allow_zero_progress": True,
+        "label": "滚动验证",
+    },
 }
 _DEFAULT_STALE_POLICY = {
     "stale_sec": 300.0,
@@ -881,6 +888,7 @@ class JobRegistry:
             "t0-backtest",
             "portfolio-backtest",
             "materialize-l1l2",
+            "roll-gate-top1",
         ):
             self.slot(name)
         with self._lock:
@@ -906,6 +914,7 @@ try:
         CO_RIDGE_JOB_PATH,
         T0_BACKTEST_JOB_PATH,
         PORTFOLIO_BACKTEST_JOB_PATH,
+        ROLL_GATE_TOP1_JOB_PATH,
     )
 
     paper_job = job_registry.slot("paper", persist_path=PAPER_JOB_PATH)
@@ -933,6 +942,9 @@ try:
     portfolio_backtest_job = job_registry.slot(
         "portfolio-backtest", persist_path=PORTFOLIO_BACKTEST_JOB_PATH
     )
+    roll_gate_top1_job = job_registry.slot(
+        "roll-gate-top1", persist_path=ROLL_GATE_TOP1_JOB_PATH
+    )
 except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
     paper_job = job_registry.slot("paper")
     quant_ols_clusters_job = job_registry.slot("quant-ols-clusters")
@@ -949,6 +961,7 @@ except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流
     co_ridge_job = job_registry.slot("co-ridge")
     t0_backtest_job = job_registry.slot("t0-backtest")
     portfolio_backtest_job = job_registry.slot("portfolio-backtest")
+    roll_gate_top1_job = job_registry.slot("roll-gate-top1")
 
 
 def public_refresh_job_snapshot(

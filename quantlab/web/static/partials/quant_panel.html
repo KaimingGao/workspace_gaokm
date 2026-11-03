@@ -30,6 +30,8 @@
       →
       <a class="quant-hero-link" href="#quant-section-t90">ŷ_τ90</a>
       →
+      <a class="quant-hero-link" href="#quant-section-roll-gate">滚动验证</a>
+      →
       <a class="quant-hero-link" href="/follow">交易执行</a>
       · 不写生产配置
     </p>
@@ -154,7 +156,26 @@
               </p>
             </div>
           </details>
-          <span class="quant-ru-a-gate" role="group" aria-label="分档数量">
+          <span class="quant-ru-a-gate" role="group" aria-label="分档参数">
+            <span class="quant-ru-gate-group">
+              <span class="quant-ru-gate-k">评测</span>
+              <label
+                class="quant-inline-num quant-inline-num--frac"
+                title="分档专用 Holdout（交易日）：标题 Lift_Score / 等权买持评测窗。与 ŷ_oo 拟合 Holdout 独立。默认 60（2～90）。改完后需再点「观察池分档」。"
+              >
+                <span>Holdout</span>
+                <input
+                  id="quant-ru-holdout"
+                  type="number"
+                  min="2"
+                  max="90"
+                  step="1"
+                  value="60"
+                  inputmode="numeric"
+                  aria-label="观察池分档 Holdout 交易日数"
+                />
+              </label>
+            </span>
             <span class="quant-ru-gate-group">
               <span class="quant-ru-gate-k">数量</span>
               <label
@@ -191,7 +212,7 @@
               </label>
             </span>
           </span>
-          <button type="button" id="quant-ru-tiers" class="dialog-btn secondary quant-ru-run" title="用 Holdout 前 60 日的猜涨 lift 分档：说涨精度减去上涨日比例。定档模型不覆盖研究套。Holdout 整段只评测">观察池分档</button>
+          <button type="button" id="quant-ru-tiers" class="dialog-btn secondary quant-ru-run" title="定档窗固定 Holdout 前 60 日猜涨 lift；评测用本卡 Holdout（默认 60，与 ŷ_oo 拟合无关）。定档模型不覆盖研究套。">观察池分档</button>
         </div>
       </div>
       <div class="quant-pro-card-body quant-ru-body">
@@ -489,7 +510,7 @@
           </label>
           <label
             class="quant-inline-num quant-inline-num--sm"
-            title="近 N 个交易日不进本头研究套训练。观察池分档仍读 ŷ_oo 这张卡的 Holdout。回测天数用 /replay「窗口」。默认 20（1～60）。"
+            title="近 N 个交易日不进本头研究套训练。与观察池分档 Holdout 独立（分档卡另有配置，默认 60）。回测天数用 /replay「窗口」。默认 20（1～60）。"
           >
             <span>Holdout</span>
             <input id="quant-holdout-days" type="number" min="1" max="60" step="1" value="20" inputmode="numeric" aria-label="Holdout 交易日数" />
@@ -1230,16 +1251,125 @@
   </section>
 
 
+  <!-- 滚动验证：walk-forward Top1 · 全池 500 / 10×3 · 不入库；默认收起（壳对齐 ŷ_τ90） -->
+  <section class="dashboard-section quant-section" id="quant-section-roll-gate" aria-labelledby="quant-section-roll-gate-title">
+    <details class="quant-primary-fold">
+      <summary class="quant-primary-fold-sum dashboard-section-head quant-section-head">
+        <h3 id="quant-section-roll-gate-title" class="dashboard-section-title">滚动验证</h3>
+      </summary>
+    <div class="dashboard-card quant-pro-card quant-rg-card">
+      <div class="dashboard-card-head quant-pro-card-head quant-card-head--tools">
+        <div id="quant-rg-strip" class="quant-desk-status-strip quant-bars-desk-status quant-card-head-status" aria-live="polite">
+          <span id="quant-rg-chip" class="quant-pro-status-chip" data-state="idle">—</span>
+          <span id="quant-rg-msg" class="quant-desk-status-msg">加载上次结果…</span>
+        </div>
+        <div class="dashboard-card-tools quant-pro-card-tools quant-rg-tools" role="group" aria-label="滚动验证操作">
+          <details class="quant-help-fold quant-pro-help-fold">
+            <summary class="quant-pro-help-summary"><span class="quant-pro-help-icon" aria-hidden="true">?</span></summary>
+            <div class="quant-help-body quant-pro-help-body">
+              <p>
+                定长 lookback <strong>500</strong> 交易日训练，holdout <strong>10</strong> 日 × 连续 <strong>3</strong> 折；
+                每折 embargo=1 后重训（非冻当前 research 权重）。全观察池、无 A/B/C。
+                oo：<code>ŷ_oo &gt; 0.2%</code> ∧ <code>oo_rank=1</code>（LambdaRank）；
+                τc：开盘钟 <code>ŷ_τc &gt; 0.2%</code> ∧ <code>τc_rank=1</code>。
+                空仓/未过闸不进命中分母。基线 50%。不写模型、不入库。可能数十分钟。
+              </p>
+            </div>
+          </details>
+          <div class="quant-rg-protocol" aria-label="固定协议">
+            <span class="quant-rg-kv" title="训练窗交易日"><span class="quant-rg-k">LB</span><span class="quant-rg-v">500</span></span>
+            <span class="quant-rg-sep" aria-hidden="true">·</span>
+            <span class="quant-rg-kv" title="holdout×折数"><span class="quant-rg-k">HO</span><span class="quant-rg-v">10×3</span></span>
+            <span class="quant-rg-sep" aria-hidden="true">·</span>
+            <span class="quant-rg-kv" title="ŷ 门槛 ∧ 全池 rank=1"><span class="quant-rg-v">ŷ&gt;0.2% ∧ rank=1</span></span>
+            <span class="quant-rg-sep" aria-hidden="true">·</span>
+            <span class="quant-rg-kv" title="宇宙"><span class="quant-rg-v">全池</span></span>
+          </div>
+          <button type="button" id="quant-rg-run" class="dialog-btn secondary" title="全池 walk-forward Top1 闸门命中（后台，不写模型）">运行</button>
+        </div>
+      </div>
+      <div class="quant-pro-card-body quant-rg-body">
+        <div id="quant-rg-progress" class="quant-bars-progress quant-rg-progress" hidden aria-live="polite" aria-label="滚动验证进度"></div>
+        <div id="quant-rg-window" class="quant-rg-window" hidden aria-live="polite"></div>
+        <div class="quant-rg-arms" id="quant-rg-kpis" aria-label="滚动验证综合 KPI">
+          <div class="quant-rg-arm" data-arm="oo">
+            <div class="quant-rg-arm-head">
+              <span class="quant-rg-arm-tag">oo</span>
+              <span class="quant-rg-arm-meta">open→open · ŷ_oo ∧ oo_rank</span>
+            </div>
+            <div class="quant-rg-arm-kpis">
+              <div class="dashboard-kpi-card quant-pro-kpi-card quant-kpi-card quant-rg-kpi is-empty" data-rg="oo-hit">
+                <div class="dashboard-kpi-label quant-pro-kpi-label">有仓命中</div>
+                <div class="dashboard-kpi-value quant-pro-kpi-value" id="quant-rg-kpi-oo-hit">—</div>
+                <div class="quant-rg-meter" id="quant-rg-meter-oo" aria-hidden="true"><span class="quant-rg-meter-fill"></span><span class="quant-rg-meter-base" title="50% 基线"></span></div>
+                <div class="dashboard-kpi-sub quant-pro-kpi-sub" id="quant-rg-kpi-oo-hit-sub">vs 50% 基线</div>
+              </div>
+              <div class="dashboard-kpi-card quant-pro-kpi-card quant-kpi-card quant-rg-kpi is-empty" data-rg="oo-empty">
+                <div class="dashboard-kpi-label quant-pro-kpi-label">空/闸</div>
+                <div class="dashboard-kpi-value quant-pro-kpi-value" id="quant-rg-kpi-oo-empty">—</div>
+                <div class="dashboard-kpi-sub quant-pro-kpi-sub" id="quant-rg-kpi-oo-empty-sub">不计命中分母</div>
+              </div>
+              <div class="dashboard-kpi-card quant-pro-kpi-card quant-kpi-card quant-rg-kpi is-empty is-signed" data-rg="oo-ret">
+                <div class="dashboard-kpi-label quant-pro-kpi-label">日均 label</div>
+                <div class="dashboard-kpi-value quant-pro-kpi-value" id="quant-rg-kpi-oo-ret">—</div>
+                <div class="dashboard-kpi-sub quant-pro-kpi-sub" id="quant-rg-kpi-oo-ret-sub">open→open</div>
+              </div>
+            </div>
+          </div>
+          <div class="quant-rg-arm" data-arm="tc">
+            <div class="quant-rg-arm-head">
+              <span class="quant-rg-arm-tag">τc</span>
+              <span class="quant-rg-arm-meta">τ→close · ŷ_τc ∧ τc_rank</span>
+            </div>
+            <div class="quant-rg-arm-kpis">
+              <div class="dashboard-kpi-card quant-pro-kpi-card quant-kpi-card quant-rg-kpi is-empty" data-rg="tc-hit">
+                <div class="dashboard-kpi-label quant-pro-kpi-label">有仓命中</div>
+                <div class="dashboard-kpi-value quant-pro-kpi-value" id="quant-rg-kpi-tc-hit">—</div>
+                <div class="quant-rg-meter" id="quant-rg-meter-tc" aria-hidden="true"><span class="quant-rg-meter-fill"></span><span class="quant-rg-meter-base" title="50% 基线"></span></div>
+                <div class="dashboard-kpi-sub quant-pro-kpi-sub" id="quant-rg-kpi-tc-hit-sub">vs 50% 基线</div>
+              </div>
+              <div class="dashboard-kpi-card quant-pro-kpi-card quant-kpi-card quant-rg-kpi is-empty" data-rg="tc-empty">
+                <div class="dashboard-kpi-label quant-pro-kpi-label">空/闸</div>
+                <div class="dashboard-kpi-value quant-pro-kpi-value" id="quant-rg-kpi-tc-empty">—</div>
+                <div class="dashboard-kpi-sub quant-pro-kpi-sub" id="quant-rg-kpi-tc-empty-sub">不计命中分母</div>
+              </div>
+              <div class="dashboard-kpi-card quant-pro-kpi-card quant-kpi-card quant-rg-kpi is-empty is-signed" data-rg="tc-ret">
+                <div class="dashboard-kpi-label quant-pro-kpi-label">日均 label</div>
+                <div class="dashboard-kpi-value quant-pro-kpi-value" id="quant-rg-kpi-tc-ret">—</div>
+                <div class="dashboard-kpi-sub quant-pro-kpi-sub" id="quant-rg-kpi-tc-ret-sub">τ→close</div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="quant-rg-fold-block">
+          <div class="quant-rg-block-label">分折对照 <span class="quant-rg-block-hint">相对 50% 基线</span></div>
+          <div id="quant-rg-fold-chart" class="quant-rg-fold-chart" aria-hidden="true"></div>
+          <div id="quant-rg-fold-table" class="quant-weight-table-wrap" aria-label="分折结果表"></div>
+        </div>
+        <details class="quant-integrity quant-rg-days" id="quant-rg-days-fold">
+          <summary>
+            <span>逐日轨迹</span>
+            <span class="quant-rg-block-hint" id="quant-rg-days-hint">有仓 / 空闸序列</span>
+          </summary>
+          <div class="quant-rg-days-toolbar">
+            <div id="quant-rg-day-strip" class="quant-rg-day-strip" aria-hidden="true"></div>
+            <div class="quant-rg-days-tabs" role="tablist" aria-label="逐日臂">
+              <button type="button" class="quant-rg-day-tab is-active" data-arm="oo" role="tab" aria-selected="true">oo</button>
+              <button type="button" class="quant-rg-day-tab" data-arm="tc" role="tab" aria-selected="false">τc</button>
+            </div>
+          </div>
+          <div id="quant-rg-day-table" class="quant-weight-table-wrap quant-rg-day-wrap quant-integrity-body" aria-label="逐日命中明细" aria-live="polite"></div>
+        </details>
+      </div>
+    </div>
+    </details>
+  </section>
 
-
-
-
-  <!-- 公式试算：手写一行 DSL，看本票时序与截面 Rank IC；默认收起 -->
-  <section class="dashboard-section quant-section quant-section-secondary" id="quant-section-expr" aria-labelledby="quant-section-expr-title">
-    <details class="quant-secondary-fold">
-      <summary class="quant-secondary-fold-sum">
+  <!-- 公式试算：手写一行 DSL，看本票时序与截面 Rank IC；默认收起（壳对齐 ŷ_τ90） -->
+  <section class="dashboard-section quant-section" id="quant-section-expr" aria-labelledby="quant-section-expr-title">
+    <details class="quant-primary-fold">
+      <summary class="quant-primary-fold-sum dashboard-section-head quant-section-head">
         <h3 id="quant-section-expr-title" class="dashboard-section-title">公式试算</h3>
-        <p class="dashboard-section-desc quant-section-desc">一行公式 · 本票时序 · 观察池截面 Rank IC</p>
       </summary>
       <div class="dashboard-card quant-pro-card">
         <div class="dashboard-card-head quant-pro-card-head quant-card-head--tools">
@@ -1317,12 +1447,11 @@
     </details>
   </section>
 
-  <!-- 实验记录（吸收 Qlib Recorder 思想） -->
-  <section class="dashboard-section quant-section quant-section-secondary" id="quant-section-experiments" aria-labelledby="quant-section-experiments-title">
-    <details class="quant-secondary-fold">
-      <summary class="quant-secondary-fold-sum">
+  <!-- 实验记录（吸收 Qlib Recorder 思想）；默认收起（壳对齐 ŷ_τ90） -->
+  <section class="dashboard-section quant-section" id="quant-section-experiments" aria-labelledby="quant-section-experiments-title">
+    <details class="quant-primary-fold">
+      <summary class="quant-primary-fold-sum dashboard-section-head quant-section-head">
         <h3 id="quant-section-experiments-title" class="dashboard-section-title">实验记录</h3>
-        <p class="dashboard-section-desc quant-section-desc" id="quant-experiments-summary">每次 fit 写入 · fit_end · 样本外 IC · Holdout 前训</p>
       </summary>
       <div class="dashboard-card quant-pro-card">
         <div class="dashboard-card-head quant-pro-card-head quant-card-head--tools">

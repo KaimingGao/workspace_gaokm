@@ -1,7 +1,7 @@
 /**
  * Top-K / 组合回测结果区 HTML 与指标卡渲染。
  */
-import { escapeHtml } from "../shared.js";
+import { escapeHtml, formatApiDetail } from "../shared.js";
 
 export function fmtPct(v) {
   if (v === null || v === undefined || v === "") return "—";
@@ -478,10 +478,9 @@ export function buildPortfolioBacktestFailText(data, resStatus) {
     .map((d) => d.stock_code || d)
     .filter(Boolean);
   const dropNote = dropped.length ? ` · 已排除短序列 ${dropped.join("/")}` : "";
-  return (
-    (data && (data.error || data.detail)) ||
-    `失败 HTTP ${resStatus}` + dropNote
-  );
+  const raw = data && (data.error != null ? data.error : data.detail);
+  const head = formatApiDetail(raw, `失败 HTTP ${resStatus}`);
+  return head + dropNote;
 }
 
 /**

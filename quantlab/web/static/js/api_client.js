@@ -1,5 +1,7 @@
 /** Shared API client: degrade banner + JSON fetch. */
 
+import { formatApiDetail } from "./shared.js";
+
 let _failStreak = 0;
 let _lastOkAt = null;
 
@@ -58,13 +60,12 @@ export async function apiFetch(url, opts = {}) {
       noteApiSuccess();
       return { ok: true, status: res.status, data };
     }
-    const detail =
-      (typeof data.detail === "string" && data.detail) ||
-      data.error ||
-      res.statusText ||
-      `HTTP ${res.status}`;
-    noteApiFailure(String(detail));
-    return { ok: false, status: res.status, data, error: String(detail) };
+    const detail = formatApiDetail(
+      data.detail != null ? data.detail : data.error,
+      res.statusText || `HTTP ${res.status}`
+    );
+    noteApiFailure(detail);
+    return { ok: false, status: res.status, data, error: detail };
   } catch (err) {
     const msg = err && err.message ? err.message : String(err);
     noteApiFailure(msg);

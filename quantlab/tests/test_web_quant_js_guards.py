@@ -538,6 +538,12 @@ class TestWebQuantJsGuards(unittest.TestCase):
         self.assertNotIn("A档门槛", panel)
         self.assertNotIn("Y_oo 门槛", panel)
         self.assertNotIn("Y_τc 门槛", panel)
+        self.assertIn('id="quant-ru-holdout"', panel)
+        self.assertRegex(
+            panel,
+            r'id="quant-ru-holdout"[\s\S]*?min="2"[\s\S]*?max="90"[\s\S]*?value="60"',
+        )
+        self.assertIn('aria-label="观察池分档 Holdout 交易日数"', panel)
         self.assertIn('id="quant-ru-a-count"', panel)
         self.assertIn('id="quant-ru-b-count"', panel)
         self.assertIn('aria-label="A 档数量"', panel)
@@ -571,14 +577,21 @@ class TestWebQuantJsGuards(unittest.TestCase):
         bt_js = self._read("web", "static", "js", "quant", "domain_backtest.js")
         self.assertIn("/api/quant/research-universe/predictability-tiers", ru_js)
         self.assertIn("holdout=", ru_js)
+        self.assertIn("quant-ru-holdout", ru_js)
+        self.assertIn("HOLDOUT_DEFAULT = 60", ru_js)
+        self.assertIn("quant.researchUniverse.holdout.v2", ru_js)
         self.assertIn("holdoutMismatch", ru_js)
         self.assertIn("Holdout 不一致", ru_js)
-        self.assertIn('on("quant-holdout-days", "change"', ru_js)
-        self.assertIn(
-            "predictability-tiers/last?slim=1",
-            bt_js,
-        )
-        self.assertIn("ŷ_oo Holdout=", bt_js)
+        self.assertIn("wireHoldoutClamp", ru_js)
+        self.assertIn("clampHoldout", ru_js)
+        # Holdout 不得被 last 报告 holdout_n 回写（否则改 60 会被旧 20 弹回）
+        self.assertNotIn("writeStoredCount(HOLDOUT_STORAGE_KEY, h)", ru_js)
+        self.assertNotIn("input.value = String(h)", ru_js)
+        self.assertNotIn('on("quant-holdout-days", "change"', ru_js)
+        self.assertNotIn('readHoldoutTradingDays("oo")', ru_js)
+        self.assertNotIn("ŷ_oo Holdout=", bt_js)
+        self.assertNotIn("与枢纽分档 Holdout=", bt_js)
+        self.assertNotIn("holdout_trading_days", bt_js)
         self.assertNotIn("a_f1=", ru_js)
         self.assertNotIn("tau_a_f1=", ru_js)
         self.assertNotIn("a_hit=", ru_js)
@@ -665,9 +678,11 @@ class TestWebQuantJsGuards(unittest.TestCase):
         self.assertIn("predictability-tiers/live-sync", bt_js)
         self.assertIn("syncLivePredTiersFromDesk", bt_js)
         ru_py = self._read("web", "routers", "quant_research.py")
-        self.assertIn("tau_a_f1", ru_py)
-        self.assertIn("a_f1", ru_py)
-        self.assertIn("clamp_f1_floor", ru_py)
+        self.assertNotIn("tau_a_f1", ru_py)
+        self.assertNotIn("a_f1", ru_py)
+        self.assertNotIn("require_oo_r_pos", ru_py)
+        self.assertNotIn("require_tc_r_pos", ru_py)
+        self.assertNotIn("clamp_f1_floor", ru_py)
         self.assertNotIn("tau_a_hit", ru_py)
         self.assertNotIn("clamp_tau_a_hit", ru_py)
         self.assertNotIn("min_n:", ru_py)
@@ -685,6 +700,7 @@ class TestWebQuantJsGuards(unittest.TestCase):
         self.assertNotIn("ŷ_oo Holdout OOS", ru_js)
         self.assertNotIn("上次 Holdout OOS 分档", ru_js)
         self.assertIn("oo_pre_holdout_refit", ru_js)
+        self.assertNotIn("oo_holdout_oos_refit", ru_js)
         self.assertNotIn("quant-ru-list-note", ru_js)
         self.assertIn("quant-ru-stock-name", ru_js)
         self.assertIn("quant-ru-kpis", ru_js)
@@ -3762,13 +3778,16 @@ class TestWebQuantJsGuards(unittest.TestCase):
 
     def test_hub_shadow_and_bypass_heads_are_folded(self):
         panel = self._read("web", "static", "partials", "quant_panel.html")
-        # τ30…90：布局对齐 ŷ_oo（无 secondary 外壳）+ 主卡折叠（quant-primary-fold，默认收起）
+        # τ30…90 / 滚动验证 / 公式试算 / 实验记录：无 secondary 外壳 + quant-primary-fold（默认收起）
         for sid in (
             "quant-section-t30",
             "quant-section-t45",
             "quant-section-t60",
             "quant-section-t75",
             "quant-section-t90",
+            "quant-section-roll-gate",
+            "quant-section-expr",
+            "quant-section-experiments",
         ):
             self.assertRegex(
                 panel,
@@ -3782,16 +3801,11 @@ class TestWebQuantJsGuards(unittest.TestCase):
                 panel,
                 rf'id="{sid}"[^>]*quant-section-secondary',
             )
-        # 表达式：次要折叠；τ*_tree 独立卡已删除
-        for sid in ("quant-section-expr",):
-            self.assertRegex(
+            self.assertNotRegex(
                 panel,
-                rf'class="dashboard-section quant-section quant-section-secondary" id="{sid}"',
+                rf'id="{sid}"[^>]*>\s*<details class="quant-primary-fold" open>',
             )
-            self.assertRegex(
-                panel,
-                rf'id="{sid}"[^>]*>\s*<details class="quant-secondary-fold">',
-            )
+        # τ*_tree 独立卡已删除
         for sid in (
             "quant-section-t30-tree",
             "quant-section-t45-tree",
@@ -3834,10 +3848,62 @@ class TestWebQuantJsGuards(unittest.TestCase):
             "quant-section-t60",
             "quant-section-t75",
             "quant-section-t90",
+            "quant-section-roll-gate",
+            "quant-section-expr",
+            "quant-section-experiments",
         ]
         idxs = [panel.find(f'id="{sid}"') for sid in order]
         self.assertTrue(all(i >= 0 for i in idxs), idxs)
         self.assertEqual(idxs, sorted(idxs))
+        self.assertIn('href="#quant-section-roll-gate">滚动验证</a>', panel)
+        self.assertIn(
+            'id="quant-section-roll-gate-title" class="dashboard-section-title">滚动验证</h3>',
+            panel,
+        )
+        self.assertNotIn("闸门 Top1 滚动验证", panel)
+        # 滚动验证 / 公式试算 / 实验记录：标题旁无小字副标题
+        for sid, title in (
+            ("quant-section-roll-gate", "滚动验证"),
+            ("quant-section-expr", "公式试算"),
+            ("quant-section-experiments", "实验记录"),
+        ):
+            i = panel.find(f'id="{sid}"')
+            self.assertGreaterEqual(i, 0, sid)
+            chunk = panel[i : i + 900]
+            self.assertIn(
+                f'class="dashboard-section-title">{title}</h3>',
+                chunk,
+            )
+            self.assertNotIn("dashboard-section-desc", chunk)
+            self.assertNotIn("quant-section-desc", chunk)
+        self.assertIn("quant-rg-protocol", panel)
+        self.assertIn('id="quant-rg-run"', panel)
+        self.assertIn('id="quant-rg-fold-chart"', panel)
+        self.assertIn('id="quant-rg-day-strip"', panel)
+        self.assertIn("quant-rg-days-toolbar", panel)
+        self.assertIn("quant-rg-day-wrap", panel)
+        rg_js = self._read("web", "static", "js", "quant", "roll_gate_ui.js")
+        self.assertIn(">折</th><th>日期</th><th>结果</th>", rg_js)
+        self.assertIn("quant-rg-out quant-rg-out--${out.kind}", rg_js)
+        self.assertIn("DAY_REASON_LABEL", rg_js)
+        self.assertIn("y_gate: \"ŷ 门槛\"", rg_js)
+        self.assertIn("/api/quant/roll-gate-top1", rg_js)
+        self.assertIn("/api/quant/roll-gate-top1/last", rg_js)
+        self.assertIn("sameRunDoc", rg_js)
+        self.assertIn("进度暂失", rg_js)
+        self.assertIn("job_id", rg_js)
+        self.assertIn("POLL_FAIL_LIMIT", rg_js)
+        self.assertIn("轮询中断", rg_js)
+        self.assertIn("显式空数组", rg_js)
+        self.assertIn("缺 Holdout", self._read("web", "static", "js", "quant", "research_universe_ui.js"))
+        self.assertIn("formatApiDetail", self._read("web", "static", "js", "api_client.js"))
+        self.assertNotIn("setTimeout(() => ctrl.abort(), 30000)", self._read("web", "static", "js", "quant", "domain_backtest.js"))
+        quant_js = self._read("web", "static", "js", "quant.js")
+        self.assertIn("installRollGateUi", quant_js)
+        self.assertIn("roll_gate_ui.js", quant_js)
+        self.assertNotIn("q.researchUniverse", quant_js)
+        self.assertNotIn("q.rollGateUi", quant_js)
+        self.assertIn("oo：<code>ŷ_oo", panel)
 
     def test_t90_coef_table_title_is_not_tau_c(self):
         ic = self._read("web", "static", "js", "quant", "factor_ic_ui.js")
@@ -3965,7 +4031,7 @@ class TestWebQuantJsGuards(unittest.TestCase):
         self.assertNotIn("分组已退役", cluster)
         self.assertNotIn("cluster_retired", cluster)
         bt = self._read("web", "static", "js", "quant", "domain_backtest.js")
-        self.assertIn("holdout_trading_days", bt)
+        self.assertNotIn("holdout_trading_days", bt)
         self.assertNotIn("three_window_holdout_days", bt)
         self.assertNotIn("universe_fit_tiers", bt)  # 前端不再发送
         self.assertNotIn("readUniverseFitTiers", bt)

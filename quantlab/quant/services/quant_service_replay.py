@@ -188,11 +188,16 @@ class QuantReplayMixin:
             n_before = len(candidates)
             filtered = [c for c in candidates if c in keep]
             tradable_codes = set(filtered)
-            hold_n = (
-                int(last_hold)
-                if last_hold is not None
-                else (int(hold_n_req) if hold_n_req is not None else 20)
-            )
+            try:
+                hold_n = (
+                    int(last_hold)
+                    if last_hold is not None
+                    else (
+                        int(hold_n_req) if hold_n_req is not None else None
+                    )
+                )
+            except (TypeError, ValueError):
+                hold_n = None
             tier_dates = [
                 str(d).strip()[:10]
                 for d in (tier_rep.get("tier_dates") or [])

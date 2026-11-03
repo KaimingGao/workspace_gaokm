@@ -94,6 +94,9 @@ const { installBarsIntegrityUi } = await import(
 const { installResearchUniverseUi } = await import(
   `./quant/research_universe_ui.js?v=${encodeURIComponent(_QV)}`
 );
+const { installRollGateUi } = await import(
+  `./quant/roll_gate_ui.js?v=${encodeURIComponent(_QV)}`
+);
 const { createFactorIcUi } = await import(
   `./quant/factor_ic_ui.js?v=${encodeURIComponent(_QV)}`
 );
@@ -257,7 +260,8 @@ export function initQuant(ctx) {
   const cluster = installClusterProbe(q);
   const suggest = installSuggest(q);
   // 先 hydrate 观察池只数，日线/5m Coverage 首刷 await watchingPoolLimitReady
-  const researchUniverse = installResearchUniverseUi(q);
+  installResearchUniverseUi(q);
+  installRollGateUi(q);
   q.installMaterializeUi = installMaterializeUi;
   q.installMinuteMaterializeUi = installMinuteMaterializeUi;
   const barsUi = installBarsUi(q);
@@ -271,7 +275,6 @@ export function initQuant(ctx) {
   q.suggest = suggest;
   q.barsUi = barsUi;
   q.minuteUi = minuteUi;
-  q.researchUniverse = researchUniverse;
   q.strategy = strategy;
   q.exportDomain = exportDomain;
 

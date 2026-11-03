@@ -116,7 +116,7 @@ def _meets_f1_floor(raw: Any, floor: float) -> bool:
 
 
 DEFAULT_LIVE_ALLOWED = ("A",)
-DEFAULT_HOLDOUT_N = 20
+DEFAULT_HOLDOUT_N = 60
 DEFAULT_PANEL_LOOKBACK = 120
 DEFAULT_HORIZON_DAYS = 1
 DEFAULT_RIDGE_LAMBDA = 1.0
@@ -232,8 +232,8 @@ def validate_predictability_tiers_report(
             return {
                 "ok": False,
                 "error": (
-                    f"ŷ_oo Holdout={req} 但分档报告无 holdout_n；"
-                    "请先在研究枢纽用当前 Holdout 重跑「观察池分档」。"
+                    f"请求分档 Holdout={req} 但报告无 holdout_n；"
+                    "请先在研究枢纽重跑「观察池分档」。"
                 ),
                 "holdout_n_req": req,
             }
@@ -241,8 +241,8 @@ def validate_predictability_tiers_report(
             return {
                 "ok": False,
                 "error": (
-                    f"ŷ_oo Holdout={req} 与枢纽分档 Holdout={last_hold} 不一致；"
-                    "请先在研究枢纽用当前 Holdout 重跑「观察池分档」。"
+                    f"请求分档 Holdout={req} 与枢纽分档 Holdout={last_hold} 不一致；"
+                    "请先在研究枢纽用当前分档 Holdout 重跑「观察池分档」。"
                 ),
                 "holdout_n": last_hold,
                 "holdout_n_req": req,
@@ -3310,10 +3310,6 @@ def build_predictability_tiers(
     pool: str = DEFAULT_POOL,
     a_count: int = DEFAULT_A_COUNT,
     b_count: int = DEFAULT_B_COUNT,
-    a_f1: Optional[float] = None,
-    tau_a_f1: Optional[float] = None,
-    require_oo_r_pos: bool = DEFAULT_REQUIRE_OO_R_POS,
-    require_tc_r_pos: bool = DEFAULT_REQUIRE_TC_R_POS,
     head: str = HEAD_OO,
     watching_codes: Optional[Sequence[str]] = None,
     codes: Optional[Sequence[str]] = None,
@@ -3327,15 +3323,10 @@ def build_predictability_tiers(
 
     lift = 说涨精度 − 该票上涨日比例（收益头 abs / 排序头截面中位）。
     表内四头 lift + Lift_Score；档标题 Holdout Lift_Score 与等权买持看 Holdout。
-    ``a_f1`` / ``tau_a_f1`` / ``require_*_r_pos`` 仍接受，不再参与排队。
     有分数者按 lift 降序取 top ``a_count``→A、接着 ``b_count``→B、其余→C。
     落盘 last；回测 / live：截面 z 不缩小，ŷ 与名次只写允许档，档外不开仓。
     ``lookback``：面板长度；``holdout_n``：评测窗。
     """
-    if a_f1 is None:
-        a_f1 = DEFAULT_A_F1
-    if tau_a_f1 is None:
-        tau_a_f1 = DEFAULT_TAU_A_F1
     head_n = _normalize_head(head)
     if head_n == HEAD_TAU:
         return {

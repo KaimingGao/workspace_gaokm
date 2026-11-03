@@ -252,6 +252,103 @@ def quant_tc_rank_model() -> Dict[str, Any]:
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e)) from e
 
+
+@router.post("/api/quant/roll-gate-top1")
+def quant_roll_gate_top1() -> Dict[str, Any]:
+    """滚动验证：全池 lookback500 · holdout10×3 · oo/τc 两臂；后台 Job，不写模型。
+
+    轮询 ``GET /api/jobs/roll-gate-top1?progress=1``；折表读 ``GET /api/quant/roll-gate-top1/last``。
+    """
+    from core.research.roll_gate_top1 import start_roll_gate_top1_job
+
+    try:
+        return start_roll_gate_top1_job()
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e)) from e
+
+
+@router.get("/api/quant/roll-gate-top1/progress")
+def quant_roll_gate_top1_progress() -> Dict[str, Any]:
+    """滚动验证进度（内存快照 + Job 槽）。"""
+    from core.job_progress import roll_gate_top1_job
+    from core.research.roll_gate_top1 import progress_snapshot
+
+    try:
+        roll_gate_top1_job.reclaim_if_stale()
+    except Exception:  # noqa: BLE001
+        pass
+    job = roll_gate_top1_job.get()
+    snap = progress_snapshot()
+    # 进度轮询不附逐日明细，避免大 JSON
+    slim = {
+        "status": snap.get("status"),
+        "message": snap.get("message"),
+        "fold": snap.get("fold"),
+        "folds": snap.get("folds"),
+        "job_id": snap.get("job_id"),
+    }
+    partial = snap.get("partial")
+    if isinstance(partial, dict):
+        slim["partial"] = {
+            "success": partial.get("success"),
+            "partial": partial.get("partial"),
+            "job_id": partial.get("job_id") or snap.get("job_id"),
+            "params": partial.get("params"),
+            "window": partial.get("window"),
+            "summary": partial.get("summary"),
+            "folds": [
+                {
+                    "fold": f.get("fold"),
+                    "eval_start": f.get("eval_start"),
+                    "eval_end": f.get("eval_end"),
+                    "fit_end": f.get("fit_end"),
+                    "ok": f.get("ok"),
+                    "error": f.get("error"),
+                    "elapsed_s": f.get("elapsed_s"),
+                    "oo": {
+                        k: v
+                        for k, v in (f.get("oo") or {}).items()
+                        if k != "days"
+                    }
+                    if isinstance(f.get("oo"), dict)
+                    else f.get("oo"),
+                    "tc": {
+                        k: v
+                        for k, v in (f.get("tc") or {}).items()
+                        if k != "days"
+                    }
+                    if isinstance(f.get("tc"), dict)
+                    else f.get("tc"),
+                }
+                for f in (partial.get("folds") or [])
+                if isinstance(f, dict)
+            ],
+        }
+    return {"ok": True, "progress": slim, "job": job}
+
+
+@router.get("/api/quant/roll-gate-top1/last")
+def quant_roll_gate_top1_last() -> Dict[str, Any]:
+    """读取上次滚动验证结果（含逐日明细）。"""
+    from core.research.roll_gate_top1 import last_path, load_last
+
+    try:
+        last = load_last()
+        if not last:
+            return {
+                "success": False,
+                "exists": False,
+                "path": last_path(),
+                "note": "尚无滚动验证结果；请点「滚动验证」",
+            }
+        out = dict(last)
+        out["exists"] = True
+        out["path"] = last_path()
+        return out
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e)) from e
+
+
 @router.get("/api/quant/research-universe")
 
 def quant_research_universe_get(coverage: bool = False) -> Dict[str, Any]:
@@ -266,7 +363,12 @@ def quant_research_universe_get(coverage: bool = False) -> Dict[str, Any]:
 @router.get("/api/quant/research-universe/predictability-tiers")
 
 def quant_research_universe_predictability_tiers(
-    holdout: int = 20,
+    holdout: int = Query(
+        60,
+        ge=2,
+        le=90,
+        description="分档专用 Holdout 交易日数（评测窗；与 ŷ_oo 拟合 Holdout 独立；默认 60）",
+    ),
     head: str = "oo",
     pool: str = "watching",
     lookback: int = 120,
@@ -276,33 +378,12 @@ def quant_research_universe_predictability_tiers(
     b_count: int = Query(
         300, ge=0, le=5000, description="B 档：接着取的数量（默认 300；其余为 C）"
     ),
-    a_f1: float = Query(
-        0.2,
-        ge=0,
-        le=100,
-        description="A 档 OO_F1 门槛。0–1 为比例，大于 1 为百分数（默认 0.2）",
-    ),
-    tau_a_f1: float = Query(
-        0.2,
-        ge=0,
-        le=100,
-        description="A 档 TC_F1 门槛。0–1 为比例，大于 1 为百分数（默认 0.2；无研究套时不生效）",
-    ),
-    require_oo_r_pos: bool = Query(
-        True,
-        description="A 档另须 OO_R+>0（训练窗 mean(y_oo|ŷ_oo>ε)；默认开）",
-    ),
-    require_tc_r_pos: bool = Query(
-        True,
-        description="A 档另须 TC_R+>0（训练窗 mean(y_τc|ŷ_τc>ε)；有 ŷ_τc 研究套时生效；默认开）",
-    ),
 ) -> Dict[str, Any]:
     """观察池分档：Holdout 前 60 日猜涨 lift（说涨精度 − 上涨日比例），落盘 last。
 
     表内四头 lift + Lift_Score；档标题 Holdout Lift_Score 均值与等权买持看 Holdout。
-    holdout: ŷ_oo 卡片 Holdout 交易日数（评测窗，不参与定档）。
+    holdout: 分档专用评测窗（默认 60），与 ŷ_oo 拟合卡 Holdout 独立；不参与定档训练。
     lookback: 面板长度。定档模型只拟合定档窗之前，不覆盖研究套。
-    a_f1 / tau_a_f1 / require_*_r_pos 仍接受，不再参与排队。
     有分数者 top a_count→A、接着 b_count→B、其余→C。
     回测天数由回测页 lookback 独立设置。
     """
@@ -310,22 +391,17 @@ def quant_research_universe_predictability_tiers(
         build_predictability_tiers,
         clamp_a_count,
         clamp_b_count,
-        clamp_f1_floor,
         live_tier_status,
     )
 
     try:
         rep = build_predictability_tiers(
-            holdout_n=max(2, min(int(holdout or 20), 90)),
+            holdout_n=max(2, min(int(holdout or 60), 90)),
             pool=str(pool or "watching"),
             head=str(head or "oo"),
             lookback=max(100, min(int(lookback or 120), 1000)),
             a_count=clamp_a_count(a_count),
             b_count=clamp_b_count(b_count),
-            a_f1=clamp_f1_floor(a_f1),
-            tau_a_f1=clamp_f1_floor(tau_a_f1),
-            require_oo_r_pos=bool(require_oo_r_pos),
-            require_tc_r_pos=bool(require_tc_r_pos),
             persist=True,
         )
         if isinstance(rep, dict):

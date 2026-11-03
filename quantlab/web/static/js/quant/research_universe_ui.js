@@ -12,25 +12,31 @@ import {
 } from "./params.js";
 
 export function installResearchUniverseUi(q) {
-  const { on, apiFetch, escapeHtml, readHoldoutTradingDays, readFitLookbackDays } = q;
+  const { on, apiFetch, escapeHtml, readFitLookbackDays } = q;
   let lastTiers = null;
   let liveStatus = null;
   const f1Tips = createScoreTooltipController();
 
   const A_COUNT_STORAGE_KEY = "quant.researchUniverse.aCount";
   const B_COUNT_STORAGE_KEY = "quant.researchUniverse.bCount";
+  // v2：与报告解耦后换键，避免旧版把 last.holdout_n=20 写进 localStorage 后卡住
+  const HOLDOUT_STORAGE_KEY = "quant.researchUniverse.holdout.v2";
   const A_COUNT_DEFAULT = 100;
   const B_COUNT_DEFAULT = 300;
+  const HOLDOUT_DEFAULT = 60;
   const A_COUNT_MIN = 1;
   const A_COUNT_MAX = 2000;
   const B_COUNT_MIN = 0;
   const B_COUNT_MAX = 5000;
+  const HOLDOUT_MIN = 2;
+  const HOLDOUT_MAX = 90;
 
   const el = {
     chip: () => document.getElementById("quant-ru-chip"),
     msg: () => document.getElementById("quant-ru-msg"),
     strip: () => document.getElementById("quant-ru-strip"),
     tierTable: () => document.getElementById("quant-ru-tier-table"),
+    holdout: () => document.getElementById("quant-ru-holdout"),
     aCount: () => document.getElementById("quant-ru-a-count"),
     bCount: () => document.getElementById("quant-ru-b-count"),
     maxSize: () => document.getElementById("quant-watching-max-size"),
@@ -48,6 +54,12 @@ export function installResearchUniverseUi(q) {
     const n = Number(raw);
     if (!Number.isFinite(n)) return B_COUNT_DEFAULT;
     return Math.max(B_COUNT_MIN, Math.min(B_COUNT_MAX, Math.round(n)));
+  }
+
+  function clampHoldout(raw) {
+    const n = Number(raw);
+    if (!Number.isFinite(n)) return HOLDOUT_DEFAULT;
+    return Math.max(HOLDOUT_MIN, Math.min(HOLDOUT_MAX, Math.round(n)));
   }
 
   function readStoredCount(key, fallback) {
@@ -94,19 +106,21 @@ export function installResearchUniverseUi(q) {
 
   function paintCountFromReport(rep) {
     const thr = rep && rep.thresholds;
-    if (!thr) return;
-    if (thr.a_count != null && Number.isFinite(Number(thr.a_count))) {
-      const aCount = clampACount(thr.a_count);
-      const input = el.aCount();
-      if (input) input.value = String(aCount);
-      writeStoredCount(A_COUNT_STORAGE_KEY, aCount);
+    if (thr) {
+      if (thr.a_count != null && Number.isFinite(Number(thr.a_count))) {
+        const aCount = clampACount(thr.a_count);
+        const input = el.aCount();
+        if (input) input.value = String(aCount);
+        writeStoredCount(A_COUNT_STORAGE_KEY, aCount);
+      }
+      if (thr.b_count != null && Number.isFinite(Number(thr.b_count))) {
+        const bCount = clampBCount(thr.b_count);
+        const input = el.bCount();
+        if (input) input.value = String(bCount);
+        writeStoredCount(B_COUNT_STORAGE_KEY, bCount);
+      }
     }
-    if (thr.b_count != null && Number.isFinite(Number(thr.b_count))) {
-      const bCount = clampBCount(thr.b_count);
-      const input = el.bCount();
-      if (input) input.value = String(bCount);
-      writeStoredCount(B_COUNT_STORAGE_KEY, bCount);
-    }
+    // Holdout 是下次定档控件，不跟 last 报告回写；不一致由 holdoutMismatch 提示重跑
   }
 
   function tierMetaFor(aCount, bCount) {
@@ -117,11 +131,17 @@ export function installResearchUniverseUi(q) {
     };
   }
 
+  /** 分档专用 Holdout（与 ŷ_oo 拟合卡独立；默认 60）。 */
   function holdoutN() {
-    if (typeof readHoldoutTradingDays === "function") {
-      return Math.max(2, Math.min(90, Number(readHoldoutTradingDays("oo")) || 20));
-    }
-    return 20;
+    const input = el.holdout();
+    const raw =
+      input && input.value !== "" && input.value != null
+        ? input.value
+        : readStoredCount(HOLDOUT_STORAGE_KEY, HOLDOUT_DEFAULT);
+    const n = clampHoldout(raw);
+    if (input && String(input.value) !== String(n)) input.value = String(n);
+    writeStoredCount(HOLDOUT_STORAGE_KEY, n);
+    return n;
   }
 
   function ooLookbackN() {
@@ -190,9 +210,7 @@ export function installResearchUniverseUi(q) {
     const src =
       rep && rep.source === "oo_research_model"
         ? "标题指标读研究套"
-        : rep &&
-            (rep.source === "oo_pre_holdout_refit" ||
-              rep.source === "oo_holdout_oos_refit")
+        : rep && rep.source === "oo_pre_holdout_refit"
           ? "无研究套，标题指标用 Holdout 前现训"
           : "标题指标读 ŷ_oo";
     return `Holdout ${when}（${n} 日）只评测，研究套 ŷ_oo / ŷ_τc 未改写 · ${src}`;
@@ -660,22 +678,29 @@ export function installResearchUniverseUi(q) {
       const stale =
         String(lastTiers.protocol || "").trim() !== "tier60_quad_uplift_holdout_eval";
       const mm = holdoutMismatch(lastTiers);
-      if (stale || mm) {
+      const missingHold =
+        !stale &&
+        (lastTiers.holdout_n == null ||
+          !Number.isFinite(Number(lastTiers.holdout_n)));
+      if (stale || mm || missingHold) {
         const bits = [];
         if (stale) {
           bits.push(
             "这份报告不是四头猜涨 lift 定档。请再点「观察池分档」：当场拟合 oo / oo_rank / τc / τc_rank（不改研究套 ŷ_oo / ŷ_τc），有样本头等权，用说涨精度减去上涨日比例重写 A/B/C"
           );
         }
+        if (missingHold) {
+          bits.push("报告缺 Holdout 元数据，请重跑「观察池分档」");
+        }
         if (mm) {
           bits.push(
-            `ŷ_oo 卡片 Holdout=${mm.cur} 与这份报告的 Holdout=${mm.last} 不一致，重跑后标题评测才对齐`
+            `分档 Holdout=${mm.cur} 与这份报告的 Holdout=${mm.last} 不一致，请重跑「观察池分档」`
           );
         }
         if (!stale) bits.push(tierStatusShort(lastTiers));
         setStatus(
           "error",
-          stale ? "需重跑" : "Holdout 不一致",
+          stale ? "需重跑" : missingHold ? "缺 Holdout" : "Holdout 不一致",
           bits.join("。"),
           tierStatusLine(lastTiers)
         );
@@ -778,15 +803,37 @@ export function installResearchUniverseUi(q) {
     e.preventDefault();
     void loadTiers({ useLast: false });
   });
-  on("quant-holdout-days", "change", () => {
-    if (lastTiers) applyTiers(lastTiers);
-  });
+  function wireHoldoutClamp() {
+    const input = el.holdout();
+    if (!input || input.dataset.rgHoldoutWired === "1") return;
+    input.dataset.rgHoldoutWired = "1";
+    const sync = () => {
+      holdoutN();
+      if (lastTiers) applyTiers(lastTiers);
+    };
+    input.addEventListener("change", sync);
+    input.addEventListener("blur", sync);
+    // 粘贴/滚轮出界后立刻夹紧，避免脏值入请求
+    input.addEventListener("input", () => {
+      const raw = input.value;
+      if (raw === "" || raw == null) return;
+      const n = Number(raw);
+      if (!Number.isFinite(n)) return;
+      const clamped = clampHoldout(n);
+      if (String(input.value) !== String(clamped) && (n < HOLDOUT_MIN || n > HOLDOUT_MAX)) {
+        input.value = String(clamped);
+      }
+    });
+  }
+  // 旧 on("quant-ru-holdout") 会重复绑；改走 wire
+  wireHoldoutClamp();
   on("quant-ru-a-count", "change", () => {
     readTierCounts();
   });
   on("quant-ru-b-count", "change", () => {
     readTierCounts();
   });
+  holdoutN();
   readTierCounts();
 
   function clampWatchingMaxSize(v) {

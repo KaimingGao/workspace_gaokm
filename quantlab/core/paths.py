@@ -56,6 +56,7 @@ RETURN_SCORE_MODEL_ACTIVE_PATH = os.path.join(LIVE_DIR, "return_score_model_acti
 # 可预测性分档：影子 last vs 调仓闸 active（档位跟随历史回测勾选）
 PREDICTABILITY_TIERS_LAST_PATH = os.path.join(LIVE_DIR, "predictability_tiers_last.json")
 PREDICTABILITY_TIERS_ACTIVE_PATH = os.path.join(LIVE_DIR, "predictability_tiers_active.json")
+ROLL_GATE_TOP1_LAST_PATH = os.path.join(LIVE_DIR, "roll_gate_top1_last.json")
 # 研究套：供历史回测；与 active（执行套）分离，对齐 τ / co 的 *_research.json
 RETURN_SCORE_MODEL_RESEARCH_PATH = os.path.join(LIVE_DIR, "return_score_model_research.json")
 DAILY_LAST_RUN_PATH = os.path.join(DATA_DIR, "daily_last_run.json")
@@ -103,4 +104,5 @@ T75_RIDGE_JOB_PATH = os.path.join(JOBS_DIR, "t75_ridge.json")
 T90_RIDGE_JOB_PATH = os.path.join(JOBS_DIR, "t90_ridge.json")
 TAU_RIDGE_JOB_PATH = os.path.join(JOBS_DIR, "tau_ridge.json")
 CO_RIDGE_JOB_PATH = os.path.join(JOBS_DIR, "co_ridge.json")
+ROLL_GATE_TOP1_JOB_PATH = os.path.join(JOBS_DIR, "roll_gate_top1.json")
 
