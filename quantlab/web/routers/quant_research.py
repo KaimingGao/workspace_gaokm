@@ -296,6 +296,8 @@ def quant_roll_gate_top1_progress() -> Dict[str, Any]:
             "params": partial.get("params"),
             "window": partial.get("window"),
             "summary": partial.get("summary"),
+            "finished_at": partial.get("finished_at"),
+            "updated_at": partial.get("updated_at"),
             "folds": [
                 {
                     "fold": f.get("fold"),
@@ -330,20 +332,21 @@ def quant_roll_gate_top1_progress() -> Dict[str, Any]:
 @router.get("/api/quant/roll-gate-top1/last")
 def quant_roll_gate_top1_last() -> Dict[str, Any]:
     """读取上次滚动验证结果（含逐日明细）。"""
-    from core.research.roll_gate_top1 import last_path, load_last
+    from core.research.roll_gate_top1 import attach_saved_at, last_path, load_last
 
     try:
+        path = last_path()
         last = load_last()
         if not last:
             return {
                 "success": False,
                 "exists": False,
-                "path": last_path(),
+                "path": path,
                 "note": "尚无滚动验证结果；请点「滚动验证」",
             }
-        out = dict(last)
+        out = attach_saved_at(dict(last), path)
         out["exists"] = True
-        out["path"] = last_path()
+        out["path"] = path
         return out
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e)) from e

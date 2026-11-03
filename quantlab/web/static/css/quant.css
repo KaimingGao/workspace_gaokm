@@ -12481,6 +12481,24 @@ body[data-page="quant"] .quant-page .quant-ru-tier-table td.quant-ru-f1-cell.is-
   gap: 0.45rem;
 }
 
+.quant-page .quant-rg-ran {
+  display: inline-flex;
+  align-items: center;
+  box-sizing: border-box;
+  height: 28px;
+  padding: 0 0.55rem;
+  border: 1px solid color-mix(in srgb, var(--line) 75%, transparent);
+  border-radius: 3px;
+  background: color-mix(in srgb, var(--bg) 55%, var(--surface));
+  font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+  font-size: 0.72rem;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+  color: var(--ink);
+  white-space: nowrap;
+}
+
 .quant-page .quant-rg-progress.quant-bars-progress {
   margin: 0;
 }

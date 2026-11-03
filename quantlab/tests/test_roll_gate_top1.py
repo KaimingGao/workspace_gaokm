@@ -31,6 +31,28 @@ class TestRollGateTop1Hardening(unittest.TestCase):
                 # NaN/Inf 不得让 json.load 失败；json_safe 后应为可序列化值
                 self.assertTrue(doc.get("success"))
 
+    def test_attach_saved_at_keeps_finished_and_fills_mtime(self):
+        from core.research.roll_gate_top1 import attach_saved_at
+
+        stamped = attach_saved_at(
+            {"finished_at": "2026-11-03T04:14:00+00:00"}, "/no/such.json"
+        )
+        self.assertEqual(stamped.get("finished_at"), "2026-11-03T04:14:00+00:00")
+        self.assertNotIn("saved_at", stamped)
+
+        with tempfile.TemporaryDirectory() as td:
+            path = os.path.join(td, "last.json")
+            with open(path, "w", encoding="utf-8") as f:
+                json.dump({"success": True}, f)
+            out = attach_saved_at({"success": True}, path)
+            self.assertTrue(str(out.get("saved_at") or "").strip())
+            kept = attach_saved_at(
+                {"success": True, "updated_at": "2026-11-03T01:00:00+00:00"},
+                path,
+            )
+            self.assertNotIn("saved_at", kept)
+            self.assertEqual(kept.get("updated_at"), "2026-11-03T01:00:00+00:00")
+
     def test_start_job_clears_partial(self):
         from core.research import roll_gate_top1 as rg
 

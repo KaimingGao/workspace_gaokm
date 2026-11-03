@@ -84,6 +84,23 @@ def _atomic_write(path: str, payload: Dict[str, Any]) -> None:
         raise
 
 
+def attach_saved_at(doc: Dict[str, Any], path: str) -> Dict[str, Any]:
+    """无完成/写入时刻时，用结果文件 mtime 补 ``saved_at``（不改盘）。"""
+    if not isinstance(doc, dict):
+        return doc
+    if doc.get("finished_at") or doc.get("updated_at"):
+        return doc
+    if not path or not os.path.isfile(path):
+        return doc
+    try:
+        mt = os.path.getmtime(path)
+    except OSError:
+        return doc
+    out = dict(doc)
+    out["saved_at"] = datetime.fromtimestamp(mt, tz=timezone.utc).isoformat()
+    return out
+
+
 def persist_last(doc: Dict[str, Any]) -> str:
     path = last_path()
     payload = dict(doc) if isinstance(doc, dict) else {"success": False}
@@ -579,6 +596,7 @@ def run_roll_gate_top1(
                 "oo": _sum_arm(fold_rows, "oo"),
                 "tc": _sum_arm(fold_rows, "tc"),
             },
+            "updated_at": datetime.now(timezone.utc).isoformat(),
         }
         if run_id:
             partial["job_id"] = run_id

@@ -11,6 +11,7 @@ export function installRollGateUi(q) {
   const { on, apiFetch, escapeHtml } = q;
   const chip = document.getElementById("quant-rg-chip");
   const msgEl = document.getElementById("quant-rg-msg");
+  const ranEl = document.getElementById("quant-rg-ran");
   const btn = document.getElementById("quant-rg-run");
   const progressEl = document.getElementById("quant-rg-progress");
   const windowEl = document.getElementById("quant-rg-window");
@@ -31,11 +32,58 @@ export function installRollGateUi(q) {
   let lastDoc = null;
   let dayArm = "oo";
   let pollFailStreak = 0;
+  /** 任务槽 started_at；结果文件没有完成时刻时，用它显示上次执行。 */
+  let liveStartedIso = "";
   const POLL_FAIL_LIMIT = 8;
 
   function setStatus(state, shortLabel, detail) {
     setProStatusChip(chip, state, shortLabel);
     msgEl.textContent = detail || shortLabel || "";
+  }
+
+  function ranIso(doc) {
+    if (!doc || typeof doc !== "object") return "";
+    return String(doc.finished_at || doc.updated_at || doc.saved_at || "").trim();
+  }
+
+  function noteJobClock(job) {
+    const st = String(job?.status || "").toLowerCase();
+    const started = Number(job?.started_at);
+    if (
+      (st === "running" || st === "done" || st === "failed" || st === "error") &&
+      Number.isFinite(started) &&
+      started > 1e9
+    ) {
+      liveStartedIso = new Date(started * 1000).toISOString();
+      return;
+    }
+    if (st === "idle" || st === "empty") liveStartedIso = "";
+  }
+
+  /** 上次执行：完成时刻优先，否则最近落盘；本地时区，精确到分。 */
+  function fmtRanLocal(iso) {
+    const raw = String(iso || "").trim();
+    if (!raw) return "";
+    const d = new Date(raw);
+    if (Number.isNaN(d.getTime())) {
+      return raw.replace("T", " ").replace(/\.\d+.*$/, "").slice(0, 16);
+    }
+    const p = (n) => String(n).padStart(2, "0");
+    return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`;
+  }
+
+  function paintRan(doc, { keep = false } = {}) {
+    if (!ranEl) return;
+    const iso = ranIso(doc) || liveStartedIso;
+    if (!iso) {
+      if (keep) return;
+      ranEl.textContent = "上次 —";
+      ranEl.title = "尚无执行记录";
+      return;
+    }
+    const text = fmtRanLocal(iso);
+    ranEl.textContent = `上次 ${text}`;
+    ranEl.title = `上次执行 ${text}`;
   }
 
   function setBusy(on) {
@@ -667,6 +715,7 @@ export function installRollGateUi(q) {
         paintKpis(null);
         paintFoldTable(null);
         paintDayTable(null);
+        paintRan(null);
       }
       return;
     }
@@ -715,6 +764,7 @@ export function installRollGateUi(q) {
     paintKpis(doc);
     paintFoldTable(doc);
     paintDayTable(doc);
+    paintRan(doc, { keep: fromPartial && !ranIso(doc) });
   }
 
   function stopPoll() {
@@ -777,6 +827,7 @@ export function installRollGateUi(q) {
       pollFailStreak = 0;
       const job = unwrapJobSnap(prog) || prog?.job;
       const status = String(job?.status || prog?.progress?.status || "");
+      noteJobClock(job);
       if (!status) {
         if (busy) {
           pollFailStreak += 1;
@@ -889,6 +940,7 @@ export function installRollGateUi(q) {
       const prog = await fetchProgress();
       const job = unwrapJobSnap(prog) || prog?.job;
       const status = String(job?.status || "");
+      noteJobClock(job);
       if (status === "running") {
         setBusy(true);
         setStatus("busy", "运行中", String(job?.message || "恢复进度…"));
@@ -902,6 +954,7 @@ export function installRollGateUi(q) {
         }
         const last = await fetchLast();
         if (last && sameRunDoc(last, job)) applyDoc(last, { fromPartial: true });
+        else paintRan(lastDoc);
         return last && sameRunDoc(last, job) ? last : null;
       }
       const last = await fetchLast();
