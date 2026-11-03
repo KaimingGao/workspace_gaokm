@@ -583,7 +583,16 @@ class TestWebQuantJsGuards(unittest.TestCase):
         self.assertIn("holdoutMismatch", ru_js)
         self.assertIn("Holdout 不一致", ru_js)
         self.assertIn("wireHoldoutClamp", ru_js)
+        self.assertIn("hydrateHoldout", ru_js)
+        self.assertIn("hydrateTierCounts", ru_js)
         self.assertIn("clampHoldout", ru_js)
+        # 刷新时 HTML 默认值不得盖掉已存分档参数：先 hydrate 再读
+        wire_at = ru_js.find("wireHoldoutClamp();")
+        self.assertGreater(wire_at, 0)
+        after_wire = ru_js[wire_at:]
+        self.assertLess(after_wire.find("hydrateHoldout();"), after_wire.find("holdoutN();"))
+        self.assertLess(after_wire.find("hydrateTierCounts();"), after_wire.find("readTierCounts();"))
+        self.assertGreater(after_wire.find("holdoutN();"), 0)
         self.assertIn("上次更新", ru_js)
         self.assertIn("updated_at", ru_js)
         self.assertIn("saved_at", ru_js)

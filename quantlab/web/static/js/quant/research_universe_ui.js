@@ -131,6 +131,29 @@ export function installResearchUniverseUi(q) {
     };
   }
 
+  /** 先把已存数字灌进输入框。这些框的 HTML 默认值非空，直接读会被当成用户值写回存储。 */
+  function hydrateStoredCount(key, input, clamp) {
+    if (!input) return;
+    try {
+      const saved = localStorage.getItem(key);
+      if (saved == null || saved === "") return;
+      const n = Number(saved);
+      if (!Number.isFinite(n)) return;
+      input.value = String(clamp(n));
+    } catch (_) {
+      /* ignore */
+    }
+  }
+
+  function hydrateHoldout() {
+    hydrateStoredCount(HOLDOUT_STORAGE_KEY, el.holdout(), clampHoldout);
+  }
+
+  function hydrateTierCounts() {
+    hydrateStoredCount(A_COUNT_STORAGE_KEY, el.aCount(), clampACount);
+    hydrateStoredCount(B_COUNT_STORAGE_KEY, el.bCount(), clampBCount);
+  }
+
   /** 分档专用 Holdout（与 ŷ_oo 拟合卡独立；默认 60）。 */
   function holdoutN() {
     const input = el.holdout();
@@ -865,6 +888,9 @@ export function installResearchUniverseUi(q) {
   }
   // 旧 on("quant-ru-holdout") 会重复绑；改走 wire
   wireHoldoutClamp();
+  // HTML 默认 60 / 100 / 300 非空；先灌存储再读，否则刷新会写回默认值
+  hydrateHoldout();
+  hydrateTierCounts();
   on("quant-ru-a-count", "change", () => {
     readTierCounts();
   });
