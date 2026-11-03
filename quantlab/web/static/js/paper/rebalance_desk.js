@@ -32,7 +32,7 @@ function actionLabel(action) {
   return "—";
 }
 
-function actionCell(action) {
+function actionCell(action, row) {
   const a = String(action || "").toLowerCase();
   if (a === "open" || a === "add") {
     return `<td class="paper-t0-col-dir"><span class="paper-t0-desk-dir is-buy-then-sell" title="${
@@ -44,6 +44,9 @@ function actionCell(action) {
   }
   if (a === "reduce") {
     return `<td class="paper-t0-col-dir"><span class="paper-t0-desk-dir is-sell-then-buy" title="减仓">减</span></td>`;
+  }
+  if (a === "skip" && isMorphGateSkip(row)) {
+    return `<td class="paper-t0-col-dir"><span class="paper-t0-desk-dir is-morph" title="形态闸跳过，未下单">跳</span></td>`;
   }
   return `<td class="paper-t0-col-dir"><span class="paper-t0-desk-dir is-none">${escapeHtml(
     actionLabel(a)
@@ -90,10 +93,17 @@ function isDeskSkip(r) {
   );
 }
 
-/** 明细只留已落账的清 / 开 / 加。 */
+/** 已落账的清 / 开 / 加。形态闸跳过不在这里，由 isMorphGateSkip 另拼进明细。 */
 function isDeskFill(r) {
   const action = String((r && r.action) || "").toLowerCase();
   return action === "exit" || action === "open" || action === "add";
+}
+
+/** 形态闸跳过才进明细。认 morph_gate，或原因以前缀「形态闸」开头。 */
+function isMorphGateSkip(r) {
+  if (!isDeskSkip(r)) return false;
+  if (r && r.morph_gate === true) return true;
+  return String((r && r.reason) || "").trim().startsWith("形态闸");
 }
 
 function fmtAmt(v) {
@@ -197,7 +207,8 @@ export function renderPaperRebalanceWorkerDesk(el, desk) {
   const keepOpen = prevFold ? !!prevFold.open : false;
   const counts = desk.counts || {};
   const covered = desk.rows.filter((r) => !isDeskSkip(r));
-  const rows = covered.filter((r) => isDeskFill(r));
+  const morphSkips = desk.rows.filter((r) => isMorphGateSkip(r));
+  const rows = covered.filter((r) => isDeskFill(r)).concat(morphSkips);
   const n = covered.length;
   const sess = desk.session_date || desk.state_session_date || "—";
   const chips =
@@ -206,7 +217,8 @@ export function renderPaperRebalanceWorkerDesk(el, desk) {
     deskChip("is-leg1", "开/加", desk.open_count) +
     deskChip("is-done", "完成", counts.done) +
     deskChip("is-legs", "清仓", desk.exit_count) +
-    deskChip("is-legs", "减仓", desk.reduce_count);
+    deskChip("is-legs", "减仓", desk.reduce_count) +
+    deskChip("is-locked", "形态闸", morphSkips.length);
   const openAttr = keepOpen ? " open" : "";
   const sessLine = `<span class="paper-t0-desk-sess" title="交易日会话">${escapeHtml(
     String(sess)
@@ -250,7 +262,7 @@ export function renderPaperRebalanceWorkerDesk(el, desk) {
         )}" data-code="${escapeHtml(String(r.stock_code || ""))}">` +
         stockCellHtml(r) +
         timeCell(r.ts) +
-        actionCell(r.action) +
+        actionCell(r.action, r) +
         `<td class="num paper-t0-col-legs">${escapeHtml(fmtShares(r.shares))}</td>` +
         `<td class="num paper-rb-col-px" title="${escapeHtml(pxTip)}">${escapeHtml(
           fmtFillPx(r.price)
@@ -287,6 +299,7 @@ export function renderPaperRebalanceWorkerDesk(el, desk) {
         hm,
         amtBits.join(" / "),
         "成交价为落账价；悬停说明看 y_oo / y_τc / 昨收",
+        morphSkips.length ? "形态闸行未下单，成交列为当时现价" : "",
         "过 10:00 不补跑",
       ]
     : [

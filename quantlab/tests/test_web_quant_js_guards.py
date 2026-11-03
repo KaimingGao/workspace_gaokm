@@ -4373,6 +4373,11 @@ class TestWebQuantJsGuards(unittest.TestCase):
         self.assertIn("return n.toFixed(2);", desk_js)
         self.assertIn("function isDeskSkip", desk_js)
         self.assertIn("function isDeskFill", desk_js)
+        self.assertIn("function isMorphGateSkip", desk_js)
+        self.assertIn('r.morph_gate === true', desk_js)
+        self.assertIn('trim().startsWith("形态闸")', desk_js)
+        self.assertNotIn('includes("形态闸")', desk_js)
+        self.assertIn('deskChip("is-locked", "形态闸"', desk_js)
         self.assertIn('action === "exit"', desk_js)
         self.assertIn('action === "open"', desk_js)
         self.assertIn('action === "add"', desk_js)
@@ -4388,6 +4393,8 @@ class TestWebQuantJsGuards(unittest.TestCase):
         self.assertIn("last_run_ts", paper)
         self.assertIn(" · 卖 ${", paper)
         css = self._read("web", "static", "css", "follow.css")
+        self.assertIn(".paper-rb-desk-table .paper-t0-desk-reason", css)
+        self.assertIn(".paper-t0-desk-dir.is-morph", css)
         self.assertNotIn(
             ".follow-rebalance-section .paper-t0-worker-panel",
             css,

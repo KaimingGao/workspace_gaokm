@@ -23,6 +23,8 @@ _A1_ABS_MAX = 0.5
 MORPH_VOL_PCTL = 0.9
 MORPH_A1_MAX = 0.0  # 高波腿：须 a1 < 0
 MORPH_GAP_MAX = 0.08  # 异常低开：a1 ≤ −8%
+# 跳过原因固定前缀。盯盘认行用这个，不靠句子中部碰巧出现「形态闸」。
+MORPH_GATE_REASON_PREFIX = "形态闸"
 
 
 def morph_gate_enabled(cfg: Optional[Mapping[str, Any]]) -> bool:
@@ -284,6 +286,20 @@ def stamp_morph_cs_on_items(
         _clear_morph_vol_p(rows)
 
 
+def is_morph_gate_reason(reason: Any) -> bool:
+    """跳过文案是否为形态闸。只认前缀，句子中部提到不算。"""
+    return str(reason or "").strip().startswith(MORPH_GATE_REASON_PREFIX)
+
+
+def row_is_morph_gate(row: Optional[Mapping[str, Any]]) -> bool:
+    """盯盘行是否为形态闸跳过。显式标记或原因前缀均可，缺一不漏。"""
+    if not isinstance(row, Mapping):
+        return False
+    if row.get("morph_gate") is True:
+        return True
+    return is_morph_gate_reason(row.get("reason"))
+
+
 def morph_gate_skip_reason(
     item: Optional[dict],
     cfg: Optional[Mapping[str, Any]],
@@ -462,7 +478,10 @@ def try_stamp_morph_from_opens(
 __all__ = [
     "MORPH_A1_MAX",
     "MORPH_GAP_MAX",
+    "MORPH_GATE_REASON_PREFIX",
     "MORPH_VOL_PCTL",
+    "is_morph_gate_reason",
+    "row_is_morph_gate",
     "a1_from_open_prev_close",
     "metrics_from_bars",
     "morph_gate_enabled",

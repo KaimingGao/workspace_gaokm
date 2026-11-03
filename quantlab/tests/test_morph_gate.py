@@ -6,6 +6,22 @@ import unittest
 
 
 class MorphGateUnitTests(unittest.TestCase):
+    def test_reason_marker_is_prefix_only(self):
+        from core.paper.rebalance.morph_gate import is_morph_gate_reason, row_is_morph_gate
+
+        self.assertTrue(
+            is_morph_gate_reason(
+                "形态闸·高波弱开(vol_p=0.97≥0.9, a1=-2.29% < 0.00%)"
+            )
+        )
+        self.assertTrue(is_morph_gate_reason("  形态闸·异常低开(a1=-8.00% ≤ −8.00%)"))
+        self.assertFalse(is_morph_gate_reason("fuse 未过入场，不是形态闸"))
+        self.assertFalse(is_morph_gate_reason(""))
+        self.assertFalse(is_morph_gate_reason(None))
+        self.assertTrue(row_is_morph_gate({"morph_gate": True, "reason": "fuse<入场"}))
+        self.assertFalse(row_is_morph_gate({"morph_gate": False, "reason": "提到形态闸"}))
+        self.assertFalse(row_is_morph_gate(None))
+
     def test_skip_when_high_vol_and_weak_open(self):
         from core.paper.rebalance.morph_gate import morph_gate_skip_reason
 

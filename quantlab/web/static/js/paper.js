@@ -58,7 +58,7 @@ import {
   renderPaperT0WorkerTrades as renderPaperT0WorkerTradesUi,
   renderPaperT0WorkerDesk as renderPaperT0WorkerDeskUi,
 } from "./paper/t0_ui.js?v=p3319";
-import { renderPaperRebalanceWorkerDesk as renderPaperRebalanceWorkerDeskUi } from "./paper/rebalance_desk.js?v=p3370";
+import { renderPaperRebalanceWorkerDesk as renderPaperRebalanceWorkerDeskUi } from "./paper/rebalance_desk.js?v=p3527";
 import { wireT0SkipTips } from "./paper/t0_viz.js?v=p2746";
 import { wireT0ProcessTips, wireT0DayDebugExpand } from "./paper/t0_table.js?v=p2746";
 import { wireHoldingsChgTips } from "./paper/holding_chg_tip.js?v=p2746";

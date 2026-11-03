@@ -10287,6 +10287,18 @@ body[data-page="follow"] .paper-t0-desk-table .paper-t0-col-reason {
   min-width: 12rem;
 }
 
+body[data-page="follow"] .paper-rb-desk-table .paper-t0-col-reason {
+  width: 16rem;
+  min-width: 16rem;
+}
+
+body[data-page="follow"] .paper-rb-desk-table .paper-t0-desk-reason {
+  white-space: normal;
+  overflow: visible;
+  text-overflow: clip;
+  line-height: 1.35;
+}
+
 body[data-page="follow"] .paper-t0-desk-dir {
   display: inline-block;
   min-width: 2.1rem;
@@ -10312,6 +10324,12 @@ body[data-page="follow"] .paper-t0-desk-dir.is-buy-then-sell {
 
 body[data-page="follow"] .paper-t0-desk-dir.is-none {
   color: var(--ink-3, #94a3b8);
+}
+
+body[data-page="follow"] .paper-t0-desk-dir.is-morph {
+  color: var(--warn, #b45309);
+  border-color: color-mix(in srgb, var(--warn, #b45309) 40%, var(--border));
+  background: color-mix(in srgb, var(--warn, #b45309) 10%, var(--surface));
 }
 
 body[data-page="follow"] .paper-t0-desk-table tr.is-locked td {

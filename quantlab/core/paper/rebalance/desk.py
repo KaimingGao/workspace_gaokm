@@ -5,6 +5,8 @@ from __future__ import annotations
 import logging
 from typing import Any, Dict, List, Optional, Tuple
 
+from core.paper.rebalance.morph_gate import row_is_morph_gate
+
 logger = logging.getLogger(__name__)
 
 PHASE_STOPPED = "stopped"
@@ -148,6 +150,8 @@ def _compact_row(
     side_s = str(side or "").strip().lower()
     if side_s in ("buy", "sell"):
         out["side"] = side_s
+    if row_is_morph_gate(out):
+        out["morph_gate"] = True
     return out
 
 
@@ -164,6 +168,31 @@ def _phase_for_action(action: Optional[str], *, filled: bool) -> str:
     return PHASE_DONE
 
 
+def _cap_desk_rows(rows: List[dict], *, limit: int = DESK_ROW_HARD_CAP) -> List[dict]:
+    """普通行遵守上限。形态闸跳过始终留下，不够位置时挤掉队尾普通行。"""
+    morph: List[dict] = []
+    rest: List[dict] = []
+    for r in rows or []:
+        if not isinstance(r, dict):
+            continue
+        if row_is_morph_gate(r):
+            morph.append(r)
+        else:
+            rest.append(r)
+    cap = limit if isinstance(limit, int) and limit > 0 else DESK_ROW_HARD_CAP
+    if len(morph) >= cap:
+        out = morph
+    else:
+        out = rest[: cap - len(morph)] + morph
+    out.sort(
+        key=lambda r: (
+            _ACTION_RANK.get(str(r.get("action") or "watch"), 9),
+            str(r.get("stock_code") or ""),
+        )
+    )
+    return out
+
+
 def _is_tier_block_skip(row: dict) -> bool:
     """不在允许档里的硬拒分。这些行按代码排序会占满 80 行上限，把 A 档挤出盯盘。"""
     if str(row.get("action") or "") != "skip":
@@ -176,12 +205,10 @@ def _trim_desk_rows(rows: List[dict]) -> List[dict]:
     """档内成交/跳过全部保留。硬拒分只在档内行还不满旧上限时补位。"""
     keep = [r for r in rows if not _is_tier_block_skip(r)]
     blocked = [r for r in rows if _is_tier_block_skip(r)]
-    if len(keep) >= DESK_ROW_HARD_CAP:
-        return keep[:DESK_ROW_HARD_CAP]
     if len(keep) >= MAX_DESK_ROWS:
-        return keep
+        return _cap_desk_rows(keep)
     room = MAX_DESK_ROWS - len(keep)
-    return keep + blocked[:room]
+    return _cap_desk_rows(keep + blocked[:room])
 
 
 def _allowed_tier_directory() -> Dict[str, str]:
@@ -248,13 +275,7 @@ def cover_allowed_tier_rows(rows: List[dict]) -> Tuple[List[dict], bool]:
             )
         )
         have.add(code)
-    kept.sort(
-        key=lambda r: (
-            _ACTION_RANK.get(str(r.get("action") or "watch"), 9),
-            str(r.get("stock_code") or ""),
-        )
-    )
-    return kept[:DESK_ROW_HARD_CAP], True
+    return _cap_desk_rows(kept), True
 
 
 def desk_rows_from_result(result: Optional[dict], *, filled: bool = True) -> List[dict]:
@@ -662,8 +683,7 @@ def save_last_desk(
                 side=r.get("side"),
             )
         )
-        if len(compact) >= DESK_ROW_HARD_CAP:
-            break
+    compact = _cap_desk_rows(compact)
     _save_state(
         {
             "last_desk": {
@@ -815,6 +835,9 @@ def build_rebalance_desk_status(
     if state_aligned and (filled_today or phase == PHASE_DONE):
         # 今开只补已落账行。补齐的 A 档不逐票打行情，避免每次刷新扫完整档。
         rows, tier_covered = cover_allowed_tier_rows(rows)
+    for r in rows:
+        if isinstance(r, dict) and row_is_morph_gate(r):
+            r["morph_gate"] = True
 
     counts = _counts(rows)
     buy_amt = 0.0

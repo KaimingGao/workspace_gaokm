@@ -1025,6 +1025,40 @@ class TestRebalanceDesk(unittest.TestCase):
         self.assertEqual(len(rows), 90)
         self.assertTrue(all(str(r.get("stock_code") or "").startswith("6") for r in rows))
 
+    def test_cap_keeps_late_morph_gate_skip(self):
+        from core.paper.rebalance.desk import DESK_ROW_HARD_CAP, desk_rows_from_result
+
+        report = [
+            {
+                "stock_code": f"{i:06d}",
+                "action": "skip",
+                "reason": "fuse<入场 未过入场",
+            }
+            for i in range(1, DESK_ROW_HARD_CAP + 1)
+        ]
+        report.append(
+            {
+                "stock_code": "688498",
+                "stock_name": "源杰科技",
+                "action": "skip",
+                "reason": "形态闸·高波弱开(vol_p=0.97≥0.9, a1=-2.29% < 0.00%)",
+            }
+        )
+        report.append(
+            {
+                "stock_code": "000000",
+                "action": "skip",
+                "reason": "说明里提到形态闸但不是闸",
+            }
+        )
+        rows = desk_rows_from_result({"rebalance_report": report})
+        by = {str(r.get("stock_code") or ""): r for r in rows}
+        self.assertIn("688498", by)
+        self.assertTrue(by["688498"].get("morph_gate"))
+        self.assertIn("000000", by)
+        self.assertNotIn("morph_gate", by["000000"])
+        self.assertLessEqual(len(rows), DESK_ROW_HARD_CAP)
+
     def test_cover_fills_missing_a_tier_names(self):
         from core.paper.rebalance.desk import cover_allowed_tier_rows
 
