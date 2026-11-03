@@ -11692,6 +11692,13 @@ body[data-page="quant"] .quant-page .quant-ru-card .quant-pro-card-tools {
   row-gap: 8px;
 }
 
+.quant-page .quant-ru-ran-row {
+  display: inline-flex;
+  align-items: center;
+  flex-wrap: nowrap;
+  gap: 8px;
+}
+
 .quant-ru-a-gate {
   display: inline-flex;
   align-items: center;
@@ -12481,7 +12488,8 @@ body[data-page="quant"] .quant-page .quant-ru-tier-table td.quant-ru-f1-cell.is-
   gap: 0.45rem;
 }
 
-.quant-page .quant-rg-ran {
+.quant-page .quant-rg-ran,
+.quant-page .quant-ru-ran {
   display: inline-flex;
   align-items: center;
   box-sizing: border-box;
@@ -12782,14 +12790,15 @@ body[data-page="quant"] .quant-page .quant-ru-tier-table td.quant-ru-f1-cell.is-
   transition: width 0.35s ease;
 }
 
+/* 高于 50% 基线 = 红涨；低于 = 绿跌 */
 .quant-page .quant-rg-meter.is-ok .quant-rg-meter-fill,
 .quant-page .quant-rg-hitbar.is-ok .quant-rg-hitbar-fill {
-  background: color-mix(in srgb, var(--ok, #16a34a) 78%, #fff);
+  background: color-mix(in srgb, var(--quant-up, #dc2626) 78%, #fff);
 }
 
 .quant-page .quant-rg-meter.is-danger .quant-rg-meter-fill,
 .quant-page .quant-rg-hitbar.is-danger .quant-rg-hitbar-fill {
-  background: color-mix(in srgb, var(--danger, #b42318) 78%, #fff);
+  background: color-mix(in srgb, var(--quant-down, #16a34a) 78%, #fff);
 }
 
 .quant-page .quant-rg-meter-base,
@@ -12969,11 +12978,11 @@ button.quant-rg-dot:focus-visible {
 }
 
 .quant-page .quant-rg-dot.is-hit {
-  background: color-mix(in srgb, var(--ok, #16a34a) 85%, #fff);
+  background: color-mix(in srgb, var(--quant-up, #dc2626) 85%, #fff);
 }
 
 .quant-page .quant-rg-dot.is-miss {
-  background: color-mix(in srgb, var(--danger, #b42318) 80%, #fff);
+  background: color-mix(in srgb, var(--quant-down, #16a34a) 80%, #fff);
 }
 
 .quant-page .quant-rg-dot.is-empty {
@@ -13073,11 +13082,11 @@ button.quant-rg-dot:focus-visible {
 }
 
 .quant-page .quant-rg-day-table tbody tr.is-hit td:first-child {
-  box-shadow: inset 2px 0 0 color-mix(in srgb, var(--ok, #16a34a) 70%, transparent);
+  box-shadow: inset 2px 0 0 color-mix(in srgb, var(--quant-up, #dc2626) 70%, transparent);
 }
 
 .quant-page .quant-rg-day-table tbody tr.is-miss td:first-child {
-  box-shadow: inset 2px 0 0 color-mix(in srgb, var(--danger, #b42318) 65%, transparent);
+  box-shadow: inset 2px 0 0 color-mix(in srgb, var(--quant-down, #16a34a) 65%, transparent);
 }
 
 .quant-page .quant-rg-day-table tbody tr.is-empty-day {
@@ -13111,13 +13120,13 @@ button.quant-rg-dot:focus-visible {
 }
 
 .quant-page .quant-rg-out--hit {
-  color: var(--ok, #16a34a);
-  background: color-mix(in srgb, var(--ok, #16a34a) 14%, transparent);
+  color: var(--quant-up, #dc2626);
+  background: color-mix(in srgb, var(--quant-up, #dc2626) 14%, transparent);
 }
 
 .quant-page .quant-rg-out--miss {
-  color: var(--danger, #b42318);
-  background: color-mix(in srgb, var(--danger, #b42318) 12%, transparent);
+  color: var(--quant-down, #16a34a);
+  background: color-mix(in srgb, var(--quant-down, #16a34a) 12%, transparent);
 }
 
 .quant-page .quant-rg-out--empty {
@@ -13136,14 +13145,23 @@ button.quant-rg-dot:focus-visible {
 .quant-page .quant-rg-fold-table .is-ok,
 .quant-page .quant-rg-fold-pct.is-ok,
 .quant-page .quant-rg-card .is-ok {
-  color: var(--ok, #16a34a);
+  color: var(--quant-up, #dc2626);
 }
 
 .quant-page .quant-rg-card .quant-pro-kpi-value.is-danger,
 .quant-page .quant-rg-fold-table .is-danger,
 .quant-page .quant-rg-fold-pct.is-danger,
 .quant-page .quant-rg-card .is-danger {
-  color: var(--danger, #b42318);
+  color: var(--quant-down, #16a34a);
+}
+
+/* 盖过研究页质量色（好=绿）。滚动验证：高于基线红、低于基线绿 */
+body[data-page="quant"] .quant-page .quant-rg-card .quant-rg-kpi.is-good .quant-pro-kpi-value {
+  color: var(--quant-up, #dc2626) !important;
+}
+
+body[data-page="quant"] .quant-page .quant-rg-card .quant-rg-kpi.is-bad .quant-pro-kpi-value {
+  color: var(--quant-down, #16a34a) !important;
 }
 
 .quant-page .quant-rg-card .quant-pro-kpi-value.is-up,

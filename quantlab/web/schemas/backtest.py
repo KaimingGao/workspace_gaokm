@@ -76,7 +76,8 @@ class PaperReplayBacktestRequest(BaseModel):
     morph_gate_enabled: bool = Field(
         default=False,
         description=(
-            "开=形态闸总开关；门槛写死：高波弱开(vol_p≥0.9∧a1<0) OR 异常低开(a1≤−8%)。"
+            "开=形态闸总开关；门槛写死：高波弱开(vol_p≥0.9∧a1<0) OR 异常低开(a1≤−8%) "
+            "OR 涨停开盘（主板≥9.5% / 创业科创≥19.5% / ST≥4.5%）。"
             "缺数据不拦；已持仓不清仓。默认关。"
         ),
     )

@@ -527,6 +527,15 @@ class TestWebQuantJsGuards(unittest.TestCase):
         self.assertNotIn('aria-label="A 档须 TC_R+大于 0"', panel)
         self.assertIn("quant-ru-gate-group", panel)
         self.assertIn("quant-ru-run", panel)
+        ru_head = panel[
+            panel.find('id="quant-section-research-universe"') : panel.find(
+                'id="quant-section-bars"'
+            )
+        ]
+        self.assertIn('id="quant-ru-ran"', ru_head)
+        self.assertLess(ru_head.find("quant-ru-a-gate"), ru_head.find('id="quant-ru-ran"'))
+        self.assertLess(ru_head.find('id="quant-ru-ran"'), ru_head.find('id="quant-ru-tiers"'))
+        self.assertNotIn("quant-ru-ran", ru_head[: ru_head.find("quant-ru-a-gate")])
         self.assertIn(".quant-ru-run.dialog-btn", css)
         self.assertIn(
             ".quant-ru-a-gate {\n  display: inline-flex;\n  align-items: center;\n  flex-wrap: wrap;\n  gap: 6px;\n  font-family: inherit;\n  font-size: var(--q-fs-caption, 12px);",
@@ -584,6 +593,9 @@ class TestWebQuantJsGuards(unittest.TestCase):
         self.assertIn("Holdout 不一致", ru_js)
         self.assertIn("wireHoldoutClamp", ru_js)
         self.assertIn("clampHoldout", ru_js)
+        self.assertIn("上次更新", ru_js)
+        self.assertIn("updated_at", ru_js)
+        self.assertIn("saved_at", ru_js)
         # Holdout 不得被 last 报告 holdout_n 回写（否则改 60 会被旧 20 弹回）
         self.assertNotIn("writeStoredCount(HOLDOUT_STORAGE_KEY, h)", ru_js)
         self.assertNotIn("input.value = String(h)", ru_js)
@@ -3602,6 +3614,23 @@ class TestWebQuantJsGuards(unittest.TestCase):
         self.assertGreater(panel.index('id="quant-holdout-days-co"'), panel.index('id="quant-section-co"'))
         self.assertIn("holdout_trading_days", js)
         self.assertIn("readHoldoutTradingDays", js)
+        # 卡头 Holdout 是 1～60；排序头按输入值提交
+        self.assertIn(
+            'holdout_trading_days: readHoldoutTradingDays("oo_rank")', js
+        )
+        self.assertIn(
+            'holdout_trading_days: readHoldoutTradingDays("tc_rank")', js
+        )
+        self.assertNotIn(
+            'Math.max(20, readHoldoutTradingDays("oo_rank"))', js
+        )
+        self.assertNotIn(
+            'Math.max(20, readHoldoutTradingDays("tc_rank"))', js
+        )
+        self.assertNotIn("HOLDOUT_DAYS_STORAGE_KEY =", params_js)
+        self.assertNotIn("getItem(HOLDOUT_DAYS_STORAGE_KEY)", params_js)
+        self.assertIn('removeItem("quant_holdout_trading_days")', params_js)
+        self.assertNotIn("RANK_Z_UNIV_A_STORAGE_KEYS", params_js)
         self.assertIn("readHoldoutTradingDays", params_js)
         self.assertIn("readCrossSectionFitParams", params_js)
         self.assertIn("formatCrossSectionZBit", params_js)
@@ -3629,7 +3658,8 @@ class TestWebQuantJsGuards(unittest.TestCase):
         self.assertIn("60 日", ru_js)
         self.assertIn("猜涨 lift ", ru_js)
         self.assertNotIn("无研究套才吃训练窗", ru_js)
-        self.assertIn("ŷ_oo 这张卡的 Holdout", panel)
+        self.assertIn("与观察池分档 Holdout 独立", panel)
+        self.assertNotIn("ŷ_oo 这张卡的 Holdout", panel)
         # 研究套短窗「Holdout+暖窗」面板文案已下线：分档改在训练窗
         self.assertNotIn("Holdout+暖窗", panel)
         self.assertNotIn("整池拉面板约需数分钟", ru_js)
@@ -3898,6 +3928,11 @@ class TestWebQuantJsGuards(unittest.TestCase):
         self.assertIn("noteJobClock", rg_js)
         self.assertIn("started_at", rg_js)
         self.assertIn("上次执行", rg_js)
+        rg_css = self._read("web", "static", "css", "quant.css")
+        hit_css = rg_css[rg_css.find(".quant-page .quant-rg-out--hit") :]
+        miss_css = rg_css[rg_css.find(".quant-page .quant-rg-out--miss") :]
+        self.assertIn("--quant-up", hit_css[:220])
+        self.assertIn("--quant-down", miss_css[:220])
         self.assertIn("sameRunDoc", rg_js)
         self.assertIn("进度暂失", rg_js)
         self.assertIn("job_id", rg_js)
@@ -4496,8 +4531,20 @@ class TestWebQuantJsGuards(unittest.TestCase):
         self.assertIn('pct > 0 ? " is-up" : " is-down"', report)
         self.assertNotIn('title="相对昨收的当日涨跌幅 · 点击排序">涨跌', report)
         self.assertNotIn("rebalance-chg", report)
-        self.assertLess(report.find(">股票</div>"), report.find(">分档</div>"))
+        self.assertLess(report.find(">股票</div>"), report.find(">动作</div>"))
+        self.assertLess(report.find(">动作</div>"), report.find(">分档</div>"))
         self.assertLess(report.find(">分档</div>"), report.find(">昨收</div>"))
+        self.assertIn("function rebalanceActionView", report)
+        self.assertIn('label: "通过"', report)
+        self.assertIn('label: "跳过"', report)
+        self.assertIn('reason === "无有效报价" && action === "skip"', report)
+        self.assertLess(
+            report.find('reason === "无有效报价"'),
+            report.find('label: "跳过"'),
+        )
+        self.assertNotIn('label = "清"', report)
+        self.assertNotIn('label = "开"', report)
+        self.assertIn('if (a === "open") return "开"', desk_js)
         self.assertLess(report.find(">昨收</div>"), report.find(">开盘</div>"))
         self.assertLess(report.find(">开盘</div>"), report.find('data-rank-sort="px"'))
         self.assertIn('data-rank-sort="fuse" title="fuse', report)
@@ -4540,7 +4587,7 @@ class TestWebQuantJsGuards(unittest.TestCase):
         self.assertNotIn('title="ŷ_hl · 极值序">y_hl</div>', report)
         css = self._read("web", "static", "css", "base.css")
         self.assertIn(
-            "minmax(0, 1.28fr) minmax(0, 0.4fr) minmax(0, 0.78fr) minmax(0, 0.78fr) minmax(0, 1.78fr) repeat(6, minmax(0, 0.88fr));",
+            "minmax(0, 1.28fr) minmax(3.4rem, 0.5fr) minmax(0, 0.4fr) minmax(0, 0.78fr) minmax(0, 0.78fr) minmax(0, 1.78fr) repeat(6, minmax(0, 0.88fr));",
             css,
         )
         self.assertIn(".rebalance-row > .rebalance-px.is-up", css)
@@ -4551,7 +4598,7 @@ class TestWebQuantJsGuards(unittest.TestCase):
         self.assertNotIn(".rebalance-reason", css)
         follow_css = self._read("web", "static", "css", "follow.css")
         self.assertIn(
-            "minmax(0, 1.28fr) minmax(0, 0.4fr) minmax(0, 0.78fr) minmax(0, 0.78fr) minmax(0, 1.78fr) repeat(6, minmax(0, 0.88fr));",
+            "minmax(0, 1.28fr) minmax(3.4rem, 0.5fr) minmax(0, 0.4fr) minmax(0, 0.78fr) minmax(0, 0.78fr) minmax(0, 1.78fr) repeat(6, minmax(0, 0.88fr));",
             follow_css,
         )
         self.assertNotIn("minmax(8.75rem, 1.2fr)", follow_css)

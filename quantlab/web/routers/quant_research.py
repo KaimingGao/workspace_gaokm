@@ -430,6 +430,7 @@ def quant_research_universe_predictability_tiers_last(
     """读取上次可预测性分档影子报告 + live 闸状态（档位随历史回测勾选）。"""
     from core.research.predictability_tiers import (
         live_tier_status,
+        attach_saved_at,
         load_predictability_tiers_last,
         predictability_tiers_last_path,
         slim_tier_rows,
@@ -470,6 +471,7 @@ def quant_research_universe_predictability_tiers_last(
             out["slim"] = True
         out["exists"] = True
         out["path"] = predictability_tiers_last_path()
+        out = attach_saved_at(out, out["path"])
         out["live"] = live
         return out
     except Exception as e:

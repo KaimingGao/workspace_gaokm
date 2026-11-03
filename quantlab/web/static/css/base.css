@@ -3663,8 +3663,8 @@ html[data-density="compact"] .table-pager {
 }
 
 .rebalance-table {
-  /* 股票 / 分档 / 昨收 / 开盘 / 现价(含相对开盘%) / 六列分数；吃满容器，禁止横向滚动 */
-  --rebalance-cols: minmax(0, 1.28fr) minmax(0, 0.4fr) minmax(0, 0.78fr) minmax(0, 0.78fr) minmax(0, 1.78fr) repeat(6, minmax(0, 0.88fr));
+  /* 股票 / 动作 / 分档 / 昨收 / 开盘 / 现价(含相对开盘%) / 六列分数；吃满容器，禁止横向滚动 */
+  --rebalance-cols: minmax(0, 1.28fr) minmax(3.4rem, 0.5fr) minmax(0, 0.4fr) minmax(0, 0.78fr) minmax(0, 0.78fr) minmax(0, 1.78fr) repeat(6, minmax(0, 0.88fr));
   width: 100%;
   max-width: 100%;
   min-width: 0;
@@ -3705,6 +3705,17 @@ html[data-density="compact"] .table-pager {
   overflow: hidden;
   text-overflow: ellipsis;
   box-sizing: border-box;
+}
+
+.rebalance-th-act,
+.rebalance-row > .rebalance-act {
+  text-align: center;
+  justify-self: center;
+}
+
+.rebalance-row > .rebalance-act .paper-t0-desk-dir {
+  min-width: 2.8rem;
+  letter-spacing: 0;
 }
 
 .rebalance-th.num,

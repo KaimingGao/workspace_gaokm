@@ -2014,5 +2014,49 @@ class TestPredictabilityTiers(unittest.TestCase):
                 self.assertIn("600000", kept)
                 self.assertEqual(meta.get("force_exit_held"), ["600000"])
 
+    def test_save_stamps_updated_at_and_attach_fills_mtime(self):
+        import json
+
+        from core.research.predictability_tiers import (
+            attach_saved_at,
+            save_predictability_tiers_last,
+        )
+
+        stamped = attach_saved_at(
+            {"finished_at": "2026-11-03T04:14:00+00:00"}, "/no/such.json"
+        )
+        self.assertEqual(stamped.get("finished_at"), "2026-11-03T04:14:00+00:00")
+        self.assertNotIn("saved_at", stamped)
+
+        with tempfile.TemporaryDirectory() as td:
+            path = os.path.join(td, "predictability_tiers_last.json")
+            with open(path, "w", encoding="utf-8") as f:
+                json.dump({"success": True}, f)
+            filled = attach_saved_at({"success": True}, path)
+            self.assertTrue(str(filled.get("saved_at") or "").strip())
+            kept = attach_saved_at(
+                {"success": True, "updated_at": "2026-11-03T01:00:00+00:00"},
+                path,
+            )
+            self.assertNotIn("saved_at", kept)
+
+            with patch(
+                "core.research.predictability_tiers.predictability_tiers_last_path",
+                return_value=path,
+            ), patch(
+                "core.research.predictability_tiers.load_predictability_tiers_active",
+                return_value=None,
+            ):
+                report = {"success": True, "protocol": "tier60_quad_uplift_holdout_eval"}
+                save_predictability_tiers_last(report)
+            self.assertTrue(str(report.get("updated_at") or "").strip())
+            with open(path, encoding="utf-8") as f:
+                disk = json.load(f)
+            self.assertEqual(disk.get("updated_at"), report.get("updated_at"))
+            skipped = {"success": False}
+            save_predictability_tiers_last(skipped)
+            self.assertNotIn("updated_at", skipped)
+
+
 if __name__ == "__main__":
     unittest.main()

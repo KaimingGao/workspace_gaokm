@@ -166,6 +166,38 @@ export function installResearchUniverseUi(q) {
     if (s) s.classList.toggle("is-busy", state === "busy");
   }
 
+  function ranIso(rep) {
+    if (!rep || typeof rep !== "object") return "";
+    return String(rep.finished_at || rep.updated_at || rep.saved_at || "").trim();
+  }
+
+  /** 上次更新：写入时刻优先，否则结果文件 mtime；本地时区，精确到分。 */
+  function fmtRanLocal(iso) {
+    const raw = String(iso || "").trim();
+    if (!raw) return "";
+    const d = new Date(raw);
+    if (Number.isNaN(d.getTime())) {
+      return raw.replace("T", " ").replace(/\.\d+.*$/, "").slice(0, 16);
+    }
+    const p = (n) => String(n).padStart(2, "0");
+    return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`;
+  }
+
+  function paintRan(rep, { keep = false } = {}) {
+    const node = document.getElementById("quant-ru-ran");
+    if (!node) return;
+    const iso = ranIso(rep);
+    if (!iso) {
+      if (keep) return;
+      node.textContent = "上次 —";
+      node.title = "尚无更新记录";
+      return;
+    }
+    const text = fmtRanLocal(iso);
+    node.textContent = `上次 ${text}`;
+    node.title = `上次更新 ${text}`;
+  }
+
   function ymd(v) {
     const s = String(v || "").trim().slice(0, 10);
     return /^\d{4}-\d{2}-\d{2}$/.test(s) ? s : "";
@@ -672,7 +704,10 @@ export function installResearchUniverseUi(q) {
   function applyTiers(rep) {
     lastTiers = rep && rep.success ? rep : null;
     if (rep && rep.live) applyLive(rep.live);
-    if (lastTiers) paintCountFromReport(lastTiers);
+    if (lastTiers) {
+      paintCountFromReport(lastTiers);
+      paintRan(lastTiers);
+    }
     renderTierTable(lastTiers);
     if (lastTiers) {
       const stale =
@@ -782,7 +817,10 @@ export function installResearchUniverseUi(q) {
           String(error || data?.note || data?.detail || data?.error || "分档失败")
         );
         if (!useLast) applyTiers(null);
-        else if (data && data.live) applyTiers(null);
+        else {
+          paintRan(null);
+          if (data && data.live) applyTiers(null);
+        }
         return null;
       }
       applyTiers(data);

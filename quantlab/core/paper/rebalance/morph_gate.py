@@ -1,9 +1,10 @@
 """开盘形态硬闸（不进 ŷ）：禁止新开/加仓（已持仓不清仓）。
 
-默认总开关关。门槛写死（不暴露 UI），两腿 OR：
+默认总开关关。门槛写死（不暴露 UI），三腿 OR：
   1) 异常低开：a1 ≤ −8%
-  2) 高波弱开：候选池 vol20 分位 ≥ 0.9 且 a1 < 0（低开）
-9:25 可用：昨收、近 20 日收益波动、今开。缺分 fail-open。
+  2) 涨停开盘：今开相对昨收已到该板块涨停阈值（主板 9.5% / 创业科创 19.5% / ST 4.5%）
+  3) 高波弱开：候选池 vol20 分位 ≥ 0.9 且 a1 < 0（低开）
+9:25 可用：昨收、近 20 日收益波动、今开、代码。缺分 fail-open。
 """
 
 from __future__ import annotations
@@ -16,7 +17,7 @@ logger = logging.getLogger(__name__)
 
 _EPS = 1e-12
 _MIN_CS_N = 8
-# |a1| 超此视为脏数：两腿都不拦（fail-open），避免坏昨收/开盘误杀或误放
+# |a1| 超此视为脏数：三腿都不拦（fail-open），避免坏昨收/开盘误杀或误放
 _A1_ABS_MAX = 0.5
 
 # 产品写死门槛（cfg / UI 不再调）
@@ -306,7 +307,7 @@ def morph_gate_skip_reason(
 ) -> Optional[str]:
     """过闸返回中文原因；未启用/缺分/未触发/异常返回 None（fail-open）。
 
-    先判异常低开（a1≤−8%）；再判高波弱开（vol_p≥0.9 且 a1<0）。
+    先判异常低开（a1≤−8%）；再判涨停开盘（按代码板块）；再判高波弱开（vol_p≥0.9 且 a1<0）。
     """
     try:
         if not morph_gate_enabled(cfg):
@@ -322,6 +323,9 @@ def morph_gate_skip_reason(
         gap_max = MORPH_GAP_MAX
         if a1 <= -gap_max + 1e-15:
             return f"形态闸·异常低开(a1={a1:.2%} ≤ −{gap_max:.2%})"
+        limit_skip = _limit_up_open_reason(item, a1)
+        if limit_skip:
+            return limit_skip
         vol_p = _f(item.get("morph_vol_p"))
         if vol_p is None or not (0.0 <= vol_p <= 1.0 + 1e-9):
             return None
@@ -336,6 +340,32 @@ def morph_gate_skip_reason(
     except Exception:  # noqa: BLE001
         logger.debug("morph_gate_skip_reason failed", exc_info=True)
         return None
+
+
+def _limit_up_open_reason(item: Mapping[str, Any], a1: float) -> Optional[str]:
+    """今开已到涨停价则返回原因。无代码且无名称时不知道板块，fail-open。"""
+    code = str(item.get("stock_code") or "").strip()
+    name = item.get("stock_name") or item.get("name")
+    if not code and not str(name or "").strip():
+        return None
+    try:
+        from core.backtest.matching import limit_up_threshold_for_code
+
+        thr = float(
+            limit_up_threshold_for_code(
+                code or None,
+                stock_name=str(name) if name else None,
+            )
+        )
+    except Exception:  # noqa: BLE001
+        logger.debug("limit_up_threshold_for_code failed", exc_info=True)
+        return None
+    if thr != thr or thr <= 0:
+        return None
+    gap_pct = float(a1) * 100.0
+    if gap_pct + 1e-9 < thr:
+        return None
+    return f"形态闸·涨停开盘(a1={a1:.2%} ≥ {thr / 100.0:.2%})"
 
 
 def _row_prev_close(it: Mapping[str, Any]) -> Optional[float]:

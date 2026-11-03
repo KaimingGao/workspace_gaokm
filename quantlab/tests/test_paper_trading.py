@@ -3218,7 +3218,7 @@ class TestReplayalpha_ooAlign(unittest.TestCase):
             "core.signal.cross_section_batch.score_window_as_item",
             side_effect=_fake_item,
         ), patch(
-            "core.backtest.paper_replay._attach_open_yhat_heads",
+            "core.backtest.replay_scoring._attach_open_yhat_heads",
             side_effect=lambda entries, **_kw: list(entries),
         ):
             _score_open_day(

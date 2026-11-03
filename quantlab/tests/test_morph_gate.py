@@ -67,6 +67,40 @@ class MorphGateUnitTests(unittest.TestCase):
         self.assertIsNone(morph_gate_skip_reason({"morph_a1": -0.05}, cfg))
         self.assertIsNone(morph_gate_skip_reason({"morph_a1": -0.01}, cfg))
 
+    def test_limit_up_open_uses_board_threshold(self):
+        from core.paper.rebalance.morph_gate import morph_gate_skip_reason
+
+        cfg = {"morph_gate_enabled": True}
+        # 主板涨停开盘：不需要 vol_p。8% 高开上面还有空间，不拦。
+        skip = morph_gate_skip_reason(
+            {"stock_code": "000032", "morph_a1": 0.1002}, cfg
+        )
+        self.assertIn("涨停开盘", skip or "")
+        self.assertIsNone(
+            morph_gate_skip_reason(
+                {"stock_code": "000032", "morph_a1": 0.08}, cfg
+            )
+        )
+        # 创业板 10% 还没到 20% 涨停
+        self.assertIsNone(
+            morph_gate_skip_reason(
+                {"stock_code": "300001", "morph_a1": 0.10}, cfg
+            )
+        )
+        chi = morph_gate_skip_reason(
+            {"stock_code": "300001", "morph_a1": 0.196}, cfg
+        )
+        self.assertIn("涨停开盘", chi or "")
+        # 无代码不知道板块，fail-open
+        self.assertIsNone(morph_gate_skip_reason({"morph_a1": 0.10}, cfg))
+        # 总开关关
+        self.assertIsNone(
+            morph_gate_skip_reason(
+                {"stock_code": "000032", "morph_a1": 0.10},
+                {"morph_gate_enabled": False},
+            )
+        )
+
     def test_cfg_thresholds_ignored_hardcoded(self):
         """旧 cfg 门槛字段被忽略；产品写死 vol_p≥0.9∧a1<0 / a1≤−8%。"""
         from core.paper.rebalance.morph_gate import morph_gate_skip_reason
@@ -418,7 +452,7 @@ class MorphGateUnitTests(unittest.TestCase):
         from core.paper.rebalance.morph_gate import morph_gate_skip_reason
 
         cfg = {"morph_gate_enabled": True}
-        # |a1|>50% 视为脏数，两腿都不拦
+        # |a1|>50% 视为脏数，三腿都不拦
         self.assertIsNone(
             morph_gate_skip_reason({"morph_a1": -0.9, "morph_vol_p": 0.99}, cfg)
         )

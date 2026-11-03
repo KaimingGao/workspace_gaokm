@@ -3,7 +3,6 @@
  */
 
 const DEFAULT_HOLDOUT_TRADING_DAYS = 20;
-const HOLDOUT_DAYS_STORAGE_KEY = "quant_holdout_trading_days";
 
 /** 各模型卡独立 Holdout / 训练窗。 */
 const FIT_PARAM_HEADS = [
@@ -59,10 +58,6 @@ const RANK_TRAIN_TIER_HEADS = ["oo_rank", "tc_rank"];
 const RANK_TRAIN_TIER_LABELS = ["A", "B", "C"];
 const RANK_TRAIN_TIER_STORAGE_KEYS = Object.fromEntries(
   RANK_TRAIN_TIER_HEADS.map((h) => [h, `quant_fit_train_tiers_${h}`])
-);
-/** 旧「训练 A 档」勾选 localStorage；迁移到 train_tiers=["A"]。 */
-const RANK_Z_UNIV_A_STORAGE_KEYS = Object.fromEntries(
-  RANK_TRAIN_TIER_HEADS.map((h) => [h, `quant_fit_z_univ_a_${h}`])
 );
 
 /** ŷ_τc：09:30…11:00（含 0 前缀）；ŷ_τ*：09:35…11:00（方案 B，仅分钟）。 */
@@ -379,11 +374,10 @@ export function createResearchParams(opts = {}) {
     } else {
       try {
         const saved = localStorage.getItem(key);
-        const legacy = localStorage.getItem(HOLDOUT_DAYS_STORAGE_KEY);
-        n = clampHoldoutTradingDays(
-          saved != null && saved !== "" ? saved : legacy,
-          DEFAULT_HOLDOUT_TRADING_DAYS
-        );
+        n =
+          saved != null && saved !== ""
+            ? clampHoldoutTradingDays(saved, DEFAULT_HOLDOUT_TRADING_DAYS)
+            : DEFAULT_HOLDOUT_TRADING_DAYS;
       } catch (_) {
         n = DEFAULT_HOLDOUT_TRADING_DAYS;
       }
@@ -391,18 +385,13 @@ export function createResearchParams(opts = {}) {
     if (el && String(el.value) !== String(n)) el.value = String(n);
     try {
       localStorage.setItem(key, String(n));
-      if (h === "oo") localStorage.setItem(HOLDOUT_DAYS_STORAGE_KEY, String(n));
     } catch (_) {}
     return n;
   }
 
   function hydrateHoldoutTradingDays() {
-    let legacy = null;
     try {
-      const raw = localStorage.getItem(HOLDOUT_DAYS_STORAGE_KEY);
-      if (raw != null && raw !== "") {
-        legacy = clampHoldoutTradingDays(raw, DEFAULT_HOLDOUT_TRADING_DAYS);
-      }
+      localStorage.removeItem("quant_holdout_trading_days");
     } catch (_) {}
     for (const head of FIT_PARAM_HEADS) {
       const el = getHoldoutEl(head);
@@ -412,8 +401,6 @@ export function createResearchParams(opts = {}) {
         const saved = localStorage.getItem(key);
         if (saved != null && saved !== "") {
           el.value = String(clampHoldoutTradingDays(saved, DEFAULT_HOLDOUT_TRADING_DAYS));
-        } else if (legacy != null) {
-          el.value = String(legacy);
         } else if (!el.value) {
           el.value = String(DEFAULT_HOLDOUT_TRADING_DAYS);
         }
@@ -589,10 +576,12 @@ export function createResearchParams(opts = {}) {
           return normalizeRankTrainTiers(raw);
         }
       }
-      // 迁移旧勾选「训练 A 档」
-      if (localStorage.getItem(RANK_Z_UNIV_A_STORAGE_KEYS[h]) === "1") {
+      const legacyKey = `quant_fit_z_univ_a_${h}`;
+      if (localStorage.getItem(legacyKey) === "1") {
+        localStorage.removeItem(legacyKey);
         return ["A"];
       }
+      localStorage.removeItem(legacyKey);
     } catch (_) {}
     return [];
   }
@@ -603,12 +592,7 @@ export function createResearchParams(opts = {}) {
     const t = normalizeRankTrainTiers(tiers);
     try {
       localStorage.setItem(key, JSON.stringify(t));
-      // 清旧键，避免反复迁移
-      if (t.length === 1 && t[0] === "A") {
-        localStorage.setItem(RANK_Z_UNIV_A_STORAGE_KEYS[h], "1");
-      } else {
-        localStorage.setItem(RANK_Z_UNIV_A_STORAGE_KEYS[h], "0");
-      }
+      localStorage.removeItem(`quant_fit_z_univ_a_${h}`);
     } catch (_) {}
     return t;
   }

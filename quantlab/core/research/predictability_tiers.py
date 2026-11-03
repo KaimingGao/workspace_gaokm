@@ -28,6 +28,7 @@ import logging
 import math
 import os
 import threading
+from datetime import datetime, timezone
 from typing import Any, Dict, List, Mapping, Optional, Sequence, Tuple
 
 logger = logging.getLogger(__name__)
@@ -425,9 +426,27 @@ def predictability_tiers_active_path() -> str:
     return PREDICTABILITY_TIERS_ACTIVE_PATH
 
 
+def attach_saved_at(doc: Dict[str, Any], path: str) -> Dict[str, Any]:
+    """无完成/写入时刻时，用结果文件 mtime 补 ``saved_at``（不改盘）。"""
+    if not isinstance(doc, dict):
+        return doc
+    if doc.get("finished_at") or doc.get("updated_at"):
+        return doc
+    if not path or not os.path.isfile(path):
+        return doc
+    try:
+        mt = os.path.getmtime(path)
+    except OSError:
+        return doc
+    out = dict(doc)
+    out["saved_at"] = datetime.fromtimestamp(mt, tz=timezone.utc).isoformat()
+    return out
+
+
 def save_predictability_tiers_last(report: Dict[str, Any]) -> None:
     if not isinstance(report, dict) or not report.get("success"):
         return
+    report["updated_at"] = datetime.now(timezone.utc).isoformat()
     path = predictability_tiers_last_path()
     os.makedirs(os.path.dirname(path), exist_ok=True)
     atomic_write_json(path, report)

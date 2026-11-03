@@ -869,7 +869,49 @@ function renderRebalanceReport(
     return html;
   }
 
-  function rankOrdinal(raw, nRaw) {
+/** 手动执行只复现预估：过入场的买记「通过」（含无有效报价），减/清/跳记「跳过」。 */
+function rebalanceActionView(r) {
+  const decision = String((r && r.decision) || "").trim();
+  const action = String((r && r.action) || "").toLowerCase();
+  const reason = String((r && r.reason) || "").trim();
+  const side = String((r && r.side) || "").toLowerCase();
+  // 已进买入清单，只差开盘价。卖出缺价写成「无有效报价未卖出」，仍记跳过。
+  const quotePass =
+    reason === "无有效报价" && action === "skip" && side !== "sell";
+  const pass =
+    decision === "买入" ||
+    decision === "加仓" ||
+    action === "open" ||
+    action === "add" ||
+    quotePass;
+  const skip =
+    decision === "减仓" ||
+    decision === "卖出" ||
+    decision === "止损卖出" ||
+    decision === "超时卖出" ||
+    decision === "跳过" ||
+    action === "reduce" ||
+    action === "exit" ||
+    action === "skip";
+  if (pass) {
+    return {
+      label: "通过",
+      tone: "is-buy-then-sell",
+      title: reason ? `通过 · ${reason}` : "通过 · 预估可买，不落账",
+    };
+  }
+  if (skip || decision) {
+    const morph = reason.startsWith("形态闸") || (r && r.morph_gate === true);
+    return {
+      label: "跳过",
+      tone: morph ? "is-morph" : "is-none",
+      title: reason ? `跳过 · ${reason}` : "跳过 · 未进买入，不落账",
+    };
+  }
+  return { label: "—", tone: "is-none", title: "无动作" };
+}
+
+function rankOrdinal(raw, nRaw) {
     const y = Number(raw);
     const n = Number(nRaw);
     if (!Number.isFinite(y)) return { text: "—" };
@@ -942,6 +984,7 @@ function renderRebalanceReport(
         : '<span class="rebalance-expand-icon is-empty" aria-hidden="true"></span>';
 
       const decision = String(r.decision || "");
+      const act = rebalanceActionView(r);
       const reasonText = String(r.reason || "").trim();
       const isPrior =
         !!r.sentiment_prior ||
@@ -1004,6 +1047,11 @@ function renderRebalanceReport(
         `<span class="rebalance-stock-code">${code}</span>` +
         `</span>` +
         `</div>` +
+        `<div class="rebalance-act" role="cell">` +
+        `<span class="paper-t0-desk-dir ${act.tone}" title="${escapeText(act.title)}">${escapeText(
+          act.label
+        )}</span>` +
+        `</div>` +
         `<div class="rebalance-tier" role="cell" data-code="${code}">${predTierBadgeHtml(
           rawCode,
           escapeText
@@ -1058,6 +1106,7 @@ function renderRebalanceReport(
     `<div class="rebalance-table" role="table">` +
     `<div class="rebalance-table-head" role="row">` +
     `<div class="rebalance-th" role="columnheader">股票</div>` +
+    `<div class="rebalance-th rebalance-th-act" role="columnheader" title="通过 = 预估可买，含已进买入但无有效报价；跳过 = 未进买入。不落账，不是盯盘的开/加/减/清。">动作</div>` +
     `<div class="rebalance-th rebalance-th-tier" role="columnheader" title="可预测性分档（Holdout 前 60 日猜涨 lift）：A 强 / B 中 / C 弱">分档</div>` +
     `<div class="rebalance-th num" role="columnheader" title="上一交易日收盘价">昨收</div>` +
     `<div class="rebalance-th num" role="columnheader" title="当日开盘价">开盘</div>` +

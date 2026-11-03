@@ -1,7 +1,7 @@
 """回测日打分：优先从 L1 Feature Lake 灌特征，miss 再 score_window。
 
-暖路径：``prefetch_l1_coverage`` 把整票 panel 留在进程内，日循环按日切片，
-避免每票每日重开 npz；coverage 已确认无该日时直接 miss，不切窗。
+09:30 冷启动不把整票面板留在进程里（见 ``replay_batch_open``）。
+``prefetch_l1_coverage`` 只留给切片不齐，以及不是 09:30 的成交钟。
 """
 
 from __future__ import annotations
@@ -11,7 +11,7 @@ from typing import Any, Dict, List, Optional, Sequence, Set, Tuple
 
 logger = logging.getLogger(__name__)
 
-# 进程内：family → code → set(dates) 覆盖索引（paper_replay 预热）
+# 进程内：family → code → set(dates)。仅切片不齐或非 09:30 时由 prefetch 填入。
 _COVERAGE: Dict[str, Dict[str, Set[str]]] = {}
 # 进程内：family → code → L1 pack（含 X/dates/names 与 _date_i）
 _L1_PACKS: Dict[str, Dict[str, Dict[str, Any]]] = {}

@@ -141,7 +141,7 @@ def main() -> int:
         "lookback": lookback,
         "n_codes": len(stock_bars),
         "note": (
-            "门槛写死：高波弱开(vol_p≥0.9∧a1<0) OR 异常低开(a1≤−8%)；"
+            "门槛写死：高波弱开(vol_p≥0.9∧a1<0) OR 异常低开(a1≤−8%) OR 涨停开盘；"
             "本扫描只对照关/开。"
         ),
         "rows": out_rows,

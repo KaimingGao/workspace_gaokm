@@ -20,6 +20,7 @@ live Follow 不走此闸。
 from __future__ import annotations
 
 import copy
+import functools
 import logging
 from datetime import datetime
 from typing import Any, Callable, Collection, Dict, List, Optional
@@ -140,6 +141,22 @@ logger = logging.getLogger(__name__)
 ENGINE_ID = "paper_replay"
 
 
+def _clear_slice_on_exit(fn: Callable[..., Any]) -> Callable[..., Any]:
+    """回测无论成功、取消还是抛错，都放开开盘切片。"""
+
+    @functools.wraps(fn)
+    def _run(*args: Any, **kwargs: Any) -> Any:
+        try:
+            return fn(*args, **kwargs)
+        finally:
+            from core.backtest.replay_batch_open import clear_open_slice
+
+            clear_open_slice()
+
+    return _run
+
+
+@_clear_slice_on_exit
 def backtest_paper_replay(
     stock_bars: Dict[str, List[dict]],
     *,
@@ -589,18 +606,16 @@ def backtest_paper_replay(
         except Exception:  # noqa: BLE001
             logger.debug("replay tau pool build failed", exc_info=True)
             tau_pool_by_date = {}
-    try:
-        from core.research.lake_bridge import FAMILY_CO, FAMILY_OO, FAMILY_TC, family_for_tc
-        from core.research.lake_replay import clear_coverage_cache, prefetch_l1_coverage
+    if scores_by_date is None:
+        try:
+            from core.backtest.replay_batch_open import prepare_replay_features
 
-        clear_coverage_cache()
-        fams = [FAMILY_OO, FAMILY_TC, FAMILY_CO]
-        # 盘中成交钟：额外预热 tc_HHMM，供前缀 ŷ_τc hydrate
-        if str(clock or "")[:5] not in ("", "09:30"):
-            fams.append(family_for_tc(tau_hm=clock))
-        prefetch_l1_coverage(list((stock_bars or {}).keys()), families=fams)
-    except Exception:  # noqa: BLE001
-        logger.debug("replay l1 coverage prefetch failed", exc_info=True)
+            prepare_replay_features(
+                list((stock_bars or {}).keys()), dates,
+                clock=str(clock or ""), cancel_cb=cancel_cb,
+            )
+        except Exception:  # noqa: BLE001
+            logger.debug("replay feature prepare failed", exc_info=True)
     if progress_cb is not None:
         try:
             progress_cb("解析股票名称…", 0, 1)

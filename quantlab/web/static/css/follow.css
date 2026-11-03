@@ -641,8 +641,8 @@ body[data-page="follow"] .follow-pending-grid.watching-react-grid {
 }
 
 .follow-page .rebalance-table {
-  /* 与 base.css 同步：股票 / 分档 / 昨收 / 开盘 / 现价(含相对开盘%) / 六列分数 */
-  --rebalance-cols: minmax(0, 1.28fr) minmax(0, 0.4fr) minmax(0, 0.78fr) minmax(0, 0.78fr) minmax(0, 1.78fr) repeat(6, minmax(0, 0.88fr));
+  /* 与 base.css 同步：股票 / 动作 / 分档 / 昨收 / 开盘 / 现价(含相对开盘%) / 六列分数 */
+  --rebalance-cols: minmax(0, 1.28fr) minmax(3.4rem, 0.5fr) minmax(0, 0.4fr) minmax(0, 0.78fr) minmax(0, 0.78fr) minmax(0, 1.78fr) repeat(6, minmax(0, 0.88fr));
   width: 100%;
   max-width: 100%;
   min-width: 0;

@@ -51,7 +51,7 @@ L2  DayCube          date × universe_id × clock
                      → μ/σ、breadth、gap slim、可选 X_raw
         │
         ├─ Fit Job           stack 多日 / 读 L1 写穿 → Ridge / rank
-        ├─ paper_replay      prefetch L1 → 按日 hydrate → batch ŷ
+        ├─ paper_replay      09:30 按回测日期切片 L1 → 批量 ŷ；其余钟 prefetch
         ├─ watching_matrix   defer 特征 → DayCube 单遍 ŷ
         └─ T0 / run_daily    读当日 cube slim（τ 截面池）
 ```

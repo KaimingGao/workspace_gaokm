@@ -217,7 +217,7 @@ class OoRankRequest(_CrossSectionZscore):
         default=20,
         ge=1,
         le=60,
-        description="OOS holdout 交易日；oo_rank 默认 20（短窗噪声大）",
+        description="OOS holdout 交易日。默认 20，允许 1～60；拟合按请求值切分",
     )
     topk_track: int = Field(
         default=10, ge=2, le=40, description="OOS TopK 跑路对照宽度"

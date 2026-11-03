@@ -2,14 +2,9 @@
 
 一日分数包三态（禁止在第三处偷偷 ``apply_*``）：
 
-1. **Open bundle** — ``_score_open_day`` / ``_attach_open_yhat_heads`` 写主头 +
-   oo_rank + τc_rank，再 ``save_day``。唯一开盘写头入口。
-2. **Cache hit 09:30** — 整包复用；仅当可交易集 **全缺** ``y_tc_rank`` 时
-   ``maybe_backfill_open_tc_rank`` 补挂。oo_rank 不补（slim 已丢 ``sub_scores``）。
-3. **Prefix（fill_clock≠09:30）** — ``refresh_tau_heads_after_prefix``：只刷新
-   ŷ_τc（及对照）并重挂 τc_rank（``zscore_codes``=可交易，避免 B/C 开盘特征混 z）；
-   ŷ_oo / oo_rank 冻结开盘信息集。前缀没打上的票由
-   ``stamp_tau_prefix_misses`` 清掉开盘 ŷ_τc，不当成盘中预测。
+1. **Open bundle** — 09:30 冷启动走 ``replay_batch_open``（整池 z）；切不齐再逐日写头。
+2. **Cache hit 09:30** — 整包复用；仅当可交易集 **全缺** ``y_tc_rank`` 时 ``maybe_backfill_open_tc_rank`` 补挂。oo_rank 不补（slim 已丢 ``sub_scores``）。
+3. **Prefix（fill_clock≠09:30）** — ``refresh_tau_heads_after_prefix``：只刷新 ŷ_τc（及对照）并重挂 τc_rank（``zscore_codes``=可交易，避免 B/C 开盘特征混 z）；ŷ_oo / oo_rank 冻结开盘信息集。前缀没打上的票由 ``stamp_tau_prefix_misses`` 清掉开盘 ŷ_τc，不当成盘中预测。
 """
 
 from __future__ import annotations
@@ -220,13 +215,7 @@ def _attach_open_yhat_heads(
     tau_pool_day: Optional[dict] = None,
     score_codes: Optional[Collection[str]] = None,
 ) -> List[dict]:
-    """开盘包唯一写头：heuristic→ŷ_oo；09:30 PIT ŷ_τc；ŷ_co；oo_rank；τc_rank。
-
-    对照头 ŷ_hl 走开盘 Z（与 live ``score_stock`` 同路径），不进 y_oo_fuse。
-    调仓回测不挂 ŷ_τ30/60/90 / ŷ_τw。
-    ``score_codes`` 给定时，截面 z 用整批特征，ŷ 与名次只写这份名单。
-    产出进 ``save_day``；09:30 命中勿再挂 rank（见模块契约）。
-    """
+    """切片没接上时的开盘写头。``score_codes`` 只限制写 ŷ 和名次，截面 z 仍用整批。"""
     from core.signal.return_score import apply_predicted_scores
 
     items = list(entries)
@@ -510,12 +499,21 @@ def _score_open_day(
     required_factor_keys: Optional[List[str]] = None,
     score_codes: Optional[Collection[str]] = None,
 ) -> List[dict]:
-    """9:30 信息集：窗口截至昨收，报价用今开（不把今日收盘喂进特征）。
-
-    优先 L1 Feature Lake 灌特征。消费开关打开时 miss 不再切窗；开关关闭才 ``score_window_as_item``。
-    """
     if day_i <= 0:
         return []
+    try:
+        from core.backtest.replay_batch_open import score_open_day_from_slice
+        batched = score_open_day_from_slice(
+            dates[day_i], date_maps=date_maps, dates=dates, day_i=day_i,
+            score_codes=score_codes, tau_pool_day=tau_pool_day,
+        )
+    except Exception as exc:  # noqa: BLE001
+        if exc.__class__.__name__ == "MaterializeRequired":
+            raise
+        logger.info("replay batch open score failed day=%s", dates[day_i], exc_info=True)
+        batched = None
+    if batched is not None:
+        return batched
     try:
         from core.research.lake_replay import score_open_day_entries
 

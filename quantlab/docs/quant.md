@@ -1241,6 +1241,7 @@ score_stock(code) 续——
 |--|--|
 | 训练宇宙 | 截面 z **恒整观察池**（与主头同哲学）。卡头 **训练档** 标签在外，下拉内多选 A/B/C：损失 / Holdout 缩到观察池∩所选档（须先跑分档；不选=整池）；落盘 `train_universe`（仅 A→`tier_a`，多档→`tier`）+ `train_universe_tiers` + `tier_codes`（`zscore_universe` 恒 `pool`） |
 | 训练窗 | 允许 **100～1000** 交易日；默认 **700** |
+| Holdout | 卡头 **1～60** 交易日，默认 **20**；拟合按该值切分 |
 | 训练 | `POST /api/quant/oo-rank` 拟合写 last report（双 backend）；人审「启用研究 / 启用执行」按 Holdout **NDCG@K** 自动落盘更强一侧（打平→LambdaRank），不重训 |
 | 回测 / live | 加载已启用模型（无 backend 开关），打相对分再编名次写入 `y_oo_rank`；成交明细 **oo_rank** 列。过门槛后买序按 oo_rank。`oo_rank_max` 开则未过强档另须 `max(oo_rank, τc_rank) < max`；fuse 过强档改看 `oo_rank_strong_max`（默认 100）。排序头截面 z **只吃全池 L2**（不进批现算；缺 Cube 跳过写分）。分档打开时名次只写允许档。旧落盘 `zscore_universe=tier_a` 只当训练 A 审计 |
 | OOS | **IC** / **ICIR** / **Rank IC** / TopK overlap / **NDCG@K** / TopK y_oo；LambdaRank vs Ridge 同窗对照 |
@@ -1257,6 +1258,7 @@ score_stock(code) 续——
 |--|--|
 | 训练宇宙 | 与 ŷ_oo_rank 同：截面 z 恒整池；**训练档** 多选 A/B/C → 损失/Holdout 缩观察池∩所选档 |
 | 训练窗 | 默认 **700**（100～1000） |
+| Holdout | 与 ŷ_oo_rank 同：卡头 **1～60**，默认 **20**，按该值切分 |
 | 训练 | `POST /api/quant/tc-rank` 拟合写 last report；「启用研究 / 启用执行」只落盘，不重训 |
 | 回测 / live | 按所选模型槽严格加载；缺槽不挂分。成交明细旁路名次；参与 max 入场闸。宇宙语义与 ŷ_oo_rank 相同 |
 
@@ -1338,7 +1340,7 @@ score_stock(code) 续——
 
 | 阶段 | 写入 | 禁止 |
 |--|--|--|
-| Open bundle | `_attach_open_yhat_heads`：主头 + oo_rank + τc_rank，再 `save_day` | paper_replay 09:30 再挂 rank |
+| Open bundle | 09:30 冷启动 `replay_batch_open`：按回测日期切片 L1，整池 z，ŷ 与 oo_rank / τc_rank 只写分档；切不齐再 `_attach_open_yhat_heads`。然后 `save_day` | paper_replay 09:30 再挂 rank |
 | Cache hit 09:30 | 整包复用；可交易集 **全缺** `y_tc_rank` 才 `maybe_backfill_open_tc_rank` | 用 `any(y_tc_rank)` 当「已齐」；补挂 oo_rank（slim 无 `sub_scores`） |
 | Prefix（晚钟） | `refresh_tau_heads_after_prefix`：刷新 ŷ_τc + 重挂 τc_rank（`zscore_codes`=可交易） | 未前缀 B/C 开盘 `features_tau` 进 pool μ/σ；动 ŷ_oo / oo_rank |
 
@@ -1351,7 +1353,7 @@ score_stock(code) 续——
 | 模型 | 默认**研究套**（Holdout 前训 β）；表单「模型」可选**执行**对照 live 槽版本。所选槽缺失时该头不挂分，**不**静默换另一槽（ŷ_oo 研究档可回落草稿预览，仍不读执行套） | 执行套（研究槽晋级）；缺执行套不回落研究套 |
 | 金额 | 表单入场/强档金额；不够一手则跳过；单票≤强档×120%；保存规则写入交易执行 | 已保存 `lot_base_amount` / `lot_strong_amount`（缺省 1 万 / 2 万）；同上单票上限 |
 | 成交 | 开盘 rank_lots；T+1；本金默认 **20 万**（表单可改，不留地板）；**成交钟**默认 09:30（可选至 10:00）。**09:30 用日 K 开盘、不读 5m**（本地首根标 09:35）；09:35–10:00 才加载分钟线。缺该钟：买入跳过、清仓回退其后～10:00 再回退日开盘；「日分价闸」要窗内分钟才生效（09:30 跳过加载后闸空跑；阈跟做 T） | 同规则，账本为 `paper.json`；live 另受 15 万市值帽；现价；**不**套日分价闸 |
-| 成交明细 | 列序股数 / 开盘价 / 收盘价 / 成交价 / 收益率（卖出总额/买入总额−1；未卖完含收盘市值）/ fuse 预估(真实)=open[T+1]/price(τ)−1 / y_oo / y_τc / y_co / **oo_rank**（ŷ_oo_rank 1..n）/ **τc_rank**（ŷ_τc_rank；与 oo_rank 取 max 作入场闸）。不挂 R_τ / y_τw / y_τ30 / y_τ60 / y_τ90。**y_τc / y_co tip 因子表**与打分同口径：截面模型用日截面 z 算 β·z（Top‑N），`features_tau` / `features_co` 仍落 raw。**oo_rank / τc_rank tip**（LambdaRank）另列 **gain%**（模型 `coefficients` 份额，与研究枢纽同口径） | live 仍可透传对照头 |
+| 成交明细 | 列序股数 / 开盘价 / 收盘价 / 成交价 / 收益率（卖出总额/买入总额−1；未卖完含收盘市值）/ fuse 预估(真实)=open[T+1]/price(τ)−1 / y_oo / y_τc / y_co / **oo_rank**（ŷ_oo_rank 1..n）/ **τc_rank**（ŷ_τc_rank；与 oo_rank 取 max 作入场闸）。不挂 R_τ / y_τw / y_τ30 / y_τ60 / y_τ90。09:30 冷启动不写因子组成表。逐日退路与 live 的 **y_τc / y_co tip** 仍用日截面 z 算 β·z（Top‑N）。**oo_rank / τc_rank tip**（LambdaRank）另列 **gain%**（模型 `coefficients` 份额，与研究枢纽同口径） | live 仍可透传对照头 |
 
 回测合成 paper 必须写 `rebalance_timing.rank_lots`（`get_path_matrix_cfg` 优先该键）。只写旧键 `path_matrix` 时，其它 live 缺省（如持仓市值帽）会漏进合成账本。
 

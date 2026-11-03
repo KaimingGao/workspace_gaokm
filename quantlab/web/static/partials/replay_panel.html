@@ -213,7 +213,7 @@
                     <h4 id="pm-panel-other" class="follow-path-matrix-panel-title">其他</h4>
                     <p
                       class="follow-path-matrix-panel-note"
-                      title="本金 / 日分价闸只用于调仓回测。勾选则入场须 y&gt;0。形态闸：高波弱开或异常低开（−8%）禁止新开/加。未过门槛清仓（形态闸不清仓）。"
+                      title="本金 / 日分价闸只用于调仓回测。勾选则入场须 y&gt;0。形态闸：高波弱开、异常低开（−8%）或涨停开盘禁止新开/加。未过门槛清仓（形态闸不清仓）。"
                     >本金/日分价闸仅回测 · 勾选须 y&gt;0 / 形态闸</p>
                   </header>
                   <div class="follow-path-matrix-body follow-path-matrix-body--row5">
@@ -265,7 +265,7 @@
                             type="button"
                             class="follow-path-matrix-morph-tip-btn"
                             aria-label="形态闸说明"
-                            data-tip-html="<p>开：禁止<strong>新开/加仓</strong>（已持仓<strong>不清仓</strong>）。默认关。门槛写死、UI 不调。缺分 fail-open（不拦）。保存规则同步到交易执行自动调仓。</p><p>两腿 <strong>OR</strong>：①<strong>高波弱开</strong>——候选池近 20 日年化波动分位 ≥ 0.9，且今开相对昨收低开（a1 &lt; 0）；②<strong>异常低开</strong>——a1（今开/昨收−1）≤ −8%。</p>"
+                            data-tip-html="<p>开：禁止<strong>新开/加仓</strong>（已持仓<strong>不清仓</strong>）。默认关。门槛写死、UI 不调。缺分 fail-open（不拦）。保存规则同步到交易执行自动调仓。</p><p>三腿 <strong>OR</strong>：①<strong>高波弱开</strong>——候选池近 20 日年化波动分位 ≥ 0.9，且今开相对昨收低开（a1 &lt; 0）；②<strong>异常低开</strong>——a1（今开/昨收−1）≤ −8%；③<strong>涨停开盘</strong>——今开已到该板块涨停阈值（主板 9.5%、创业板/科创板 19.5%、ST 4.5%）。无代码不拦。</p>"
                           ><span class="quant-pro-help-icon" aria-hidden="true">?</span></button>
                         </span>
                         <span class="follow-path-matrix-box-desc">总开关</span>
