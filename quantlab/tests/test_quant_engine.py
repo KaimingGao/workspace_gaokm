@@ -663,7 +663,7 @@ class TestP45NewFactors(unittest.TestCase):
         self.assertTrue(all(f.get("description") for f in rows))
         by_name = {f["name"]: f for f in rows}
         self.assertIn("涨跌幅", by_name["momentum"]["description"])
-        self.assertIn("舆情", by_name["alt_sentiment"]["description"])
+        self.assertNotIn("alt_sentiment", by_name)
 
     def test_default_weights_sum_to_one(self):
         weights = DEFAULT_SIGNAL_CONFIG["weights"]

@@ -73,6 +73,7 @@ class QuantReplayMixin:
         y_oo_gt0: Optional[bool] = None,
         y_τc_gt0: Optional[bool] = None,
         morph_gate_enabled: Optional[bool] = None,
+        sentiment_gate_enabled: Optional[bool] = None,
         oo_rank_max: Optional[int] = None,
         oo_rank_strong_max: Optional[int] = None,
         oo_rank_top_frac: Optional[float] = None,
@@ -389,6 +390,11 @@ class QuantReplayMixin:
             if morph_gate_enabled is None
             else bool(coerce_cfg_bool(morph_gate_enabled, False))
         )
+        sentiment_gate_b = (
+            False
+            if sentiment_gate_enabled is None
+            else bool(coerce_cfg_bool(sentiment_gate_enabled, False))
+        )
         minute_span = min(max(int(effective_lookback or 30) + 20, 15), 120)
         if _cancelled():
             return {"success": False, "error": "已取消", "cancelled": True}
@@ -457,6 +463,7 @@ class QuantReplayMixin:
                     y_oo_gt0=y_oo_gt0_b,
                     y_τc_gt0=y_τc_gt0_b,
                     morph_gate_enabled=morph_gate_b,
+                    sentiment_gate_enabled=sentiment_gate_b,
                     oo_rank_max=oo_rank_max,
                     oo_rank_strong_max=oo_rank_strong_max,
                     oo_rank_top_frac=oo_rank_top_frac,
@@ -520,6 +527,7 @@ class QuantReplayMixin:
             "y_oo_gt0": y_oo_gt0_b,
             "y_τc_gt0": y_τc_gt0_b,
             "morph_gate_enabled": morph_gate_b,
+            "sentiment_gate_enabled": sentiment_gate_b,
             "oo_rank_max": oo_rank_max,
             "oo_rank_strong_max": oo_rank_strong_max,
             "oo_rank_top_frac": oo_rank_top_frac,

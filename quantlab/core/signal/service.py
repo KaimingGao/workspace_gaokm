@@ -252,6 +252,8 @@ class SignalService:
                     "y_tc_rank_n",
                     "y_tc_rank_score",
                     "predicted_score_tc_rank",
+                    "lake_score_day",
+                    "lake_score_fallback_from",
                 )
             ):
                 out[k] = v

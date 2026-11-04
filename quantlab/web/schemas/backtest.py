@@ -67,6 +67,10 @@ class PaperReplayBacktestRequest(BaseModel):
         default=None,
         description="开=入场须 ŷ_τc>0；关=不看。缺分不拦。未过则已持仓清仓",
     )
+    sentiment_gate_enabled: bool = Field(
+        default=False,
+        description="开=舆情软先验：空 fuse−0.1%·rank×2，多 fuse+0.1%·rank×0.5；只改入场/买序，不清仓。缺测不调。默认关。",
+    )
     morph_gate_enabled: bool = Field(
         default=False,
         description=(

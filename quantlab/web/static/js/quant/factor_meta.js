@@ -11,7 +11,6 @@ const FACTOR_FAMILY_DEFS = [
   { id: "risk", label: "风险", tip: "波动、跳空、过热、尾盘异动" },
   { id: "residual", label: "残差", tip: "相对市场、特异动量、规模" },
   { id: "reversal", label: "反转", tip: "短线反转，与动量拆开避免双计" },
-  { id: "sentiment", label: "舆情", tip: "研究旁路，默认不进 ŷ" },
   {
     id: "pv_derived",
     label: "量价衍生",
@@ -27,7 +26,6 @@ const FAMILY_MEMBERS = {
   risk: ["volatility", "gap_risk", "tail_anomaly", "overheat"],
   residual: ["relative_strength", "idio_momentum", "size"],
   reversal: ["reversal"],
-  sentiment: ["alt_sentiment"],
   pv_derived: ["alpha_oo", "alpha_tc", "alpha_th"],
 };
 
@@ -44,11 +42,6 @@ const SOURCE_OVERRIDE = {
     status: "proxy",
     label: "代理",
     note: "无净流入 ingest；默认 MFI 代理；权重须保持 0 除非人审有真源",
-  },
-  alt_sentiment: {
-    status: "prior_only",
-    label: "旁路",
-    note: "无历史 news 面板；不进 ŷ；仅 sentiment.prior 旁路",
   },
 };
 
@@ -71,7 +64,8 @@ const REMOVED_RAW_PREFIXES = ["raw_alpha158_"];
 
 export function isRemovedFactor(name) {
   const key = String(name || "").trim();
-  if (REMOVED_RAW_BASIS_NAMES.has(key)) return true;
+  if (REMOVED_RAW_BASIS_NAMES.has(key) || key === "alt_sentiment") return true;
+  if (key.startsWith("alt_sentiment_")) return true;
   return REMOVED_RAW_PREFIXES.some((p) => key.startsWith(p));
 }
 

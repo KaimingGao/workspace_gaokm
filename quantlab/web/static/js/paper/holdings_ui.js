@@ -19,7 +19,7 @@ import {
   FUSE_REBALANCE_TITLE,
 } from "./fmt.js?v=p3540";
 import { paginateItems, renderPagerHtml } from "../api_client.js";
-import { watchingScoreDetail } from "../quant/watching_render.js?v=p3540";
+import { watchingScoreDetail } from "../quant/watching_render.js?v=p3565";
 import {
   isSingleHeadItem,
   singleHeadBadgeHtml,
@@ -354,7 +354,7 @@ export function buildPaperHoldingsTableHtml({
     `<table class="quant-weight-table paper-holdings-table"><thead><tr>` +
     `<th title="股票名称与代码">股票</th>` +
     `${sortThHtml("分档", "tier")}` +
-    `<th class="watching-col-center" title="标题情绪摘要">情绪</th>` +
+    `<th class="watching-col-center" title="与今日盯盘同一标签。决策窗优先，缺测读库内标题。不进 ŷ">舆情</th>` +
     `<th title="持仓股数">股数</th>` +
     `<th class="watching-col-center paper-hold-t0-head" title="当日实时做 T：正T/反T · 盯盘/一腿/完成">做T</th>` +
     `<th title="上一交易日收盘价">昨收</th>` +

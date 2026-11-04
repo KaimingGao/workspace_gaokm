@@ -456,6 +456,7 @@ export function installBacktest(q) {
     setChk("pm_y_oo_gt0", req.y_oo_gt0, false);
     setChk("pm_y_τc_gt0", req.y_τc_gt0, false);
     setChk("pm_morph_gate", req.morph_gate_enabled, false);
+    setChk("pm_sentiment_gate", req.sentiment_gate_enabled, false);
     const ooMax = Number(req.oo_rank_max);
     if (Number.isFinite(ooMax) && ooMax > 0) {
       setName("pm_oo_rank_max", Math.max(0, Math.min(500, Math.round(ooMax))));
@@ -830,6 +831,7 @@ export function installBacktest(q) {
           y_oo_gt0: lots.y_oo_gt0 === true,
           y_τc_gt0: lots.y_τc_gt0 === true,
           morph_gate_enabled: lots.morph_gate_enabled === true,
+          sentiment_gate_enabled: lots.sentiment_gate_enabled === true,
           oo_rank_max: ooMax,
           oo_rank_strong_max: ooStrong,
           oo_rank_top_frac: null,
@@ -844,6 +846,7 @@ export function installBacktest(q) {
       oo_rank_strong_max: 100,
       oo_rank_top_frac: null,
       morph_gate_enabled: false,
+      sentiment_gate_enabled: false,
     };
   }
 
@@ -1482,6 +1485,7 @@ export function installBacktest(q) {
         y_oo_gt0,
         y_τc_gt0,
         morph_gate_enabled,
+        sentiment_gate_enabled,
         oo_rank_max,
         oo_rank_strong_max,
         initial_cash,
@@ -1523,6 +1527,7 @@ export function installBacktest(q) {
         y_oo_gt0: y_oo_gt0 === true,
         y_τc_gt0: y_τc_gt0 === true,
         morph_gate_enabled: morph_gate_enabled === true,
+        sentiment_gate_enabled: sentiment_gate_enabled === true,
         oo_rank_max:
           oo_rank_max != null && Number(oo_rank_max) > 0
             ? Math.max(1, Math.min(500, Math.round(Number(oo_rank_max))))

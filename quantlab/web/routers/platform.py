@@ -26,7 +26,7 @@ class ScheduleBody(BaseModel):
         description=(
             "watch_alert | daily_review | sentiment_scan | bars_warmup | minute_warmup | "
             "spot_refresh | fundamentals_warmup | paper_daily | paper_open_fill | validation_prepare | "
-            "pre_market_ingest | concept_graph_refresh | macro_backfill"
+            "pre_market_ingest | concept_graph_refresh | macro_backfill | news_archive_poll"
         ),
     )
     codes: Optional[List[str]] = None

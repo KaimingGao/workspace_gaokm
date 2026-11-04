@@ -413,9 +413,9 @@
       <div class="dashboard-card quant-pro-card follow-ops-card follow-rebalance-rules-card" id="follow-fold-rebalance">
         <div class="quant-pro-card-body follow-card-body">
           <input type="hidden" id="paper-strategy" value="short_conservative" />
-          <p class="quant-sub follow-rules-edit-hint">规则在 <a class="follow-hero-link" href="/replay#replay-section-run">历史回测</a> 改。手动执行只复现 09:30 开盘预估分，不落账。</p>
+          <p class="quant-sub follow-rules-edit-hint">规则在 <a class="follow-hero-link" href="/replay#replay-section-run">历史回测</a> 改。手动执行只复现 09:30 开盘预估分，不落账。舆情只读 09:30 前已入库。</p>
           <div class="quant-actions-inline paper-t0-manual-actions follow-rebalance-exec-actions">
-            <button type="button" id="paper-adjust" class="dialog-btn" title="手动执行：复现当日 09:30 开盘时刻的调仓预估分（开盘 Z，不用开盘后 5m）。不含开仓/加仓。不写入纸面账户，只作对照。">手动执行</button>
+            <button type="button" id="paper-adjust" class="dialog-btn" title="手动执行：复现当日 09:30 开盘时刻的调仓预估分（开盘 Z，不用开盘后 5m）。舆情只读 09:30 前已入库的标题。不含开仓/加仓。不写入纸面账户，只作对照。">手动执行</button>
             <span id="paper-path-matrix-status" class="quant-sub follow-holdings-load-status follow-ops-load-status" aria-live="polite"></span>
           </div>
           <div

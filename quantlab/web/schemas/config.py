@@ -29,12 +29,8 @@ class StanceThresholdsRequest(BaseModel):
 
 
 class SentimentPriorRequest(BaseModel):
-    """舆情先验旁路（不进 ŷ）；人审写 sentiment.prior。"""
+    """徽章侧 prior 兼容写盘（不进 ŷ；产品强制 mode=off）。"""
 
-    mode: Optional[str] = Field(default=None, description="off | risk | gate")
-    block_new_buys: Optional[bool] = None
-    scale_buy_pct: Optional[float] = Field(default=None, ge=0.0, le=1.0)
-    scale_holds: Optional[bool] = None
     note: str = Field(default="", max_length=500)
 
 

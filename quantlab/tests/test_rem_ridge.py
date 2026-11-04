@@ -368,11 +368,8 @@ class TestRemRidgeFit(unittest.TestCase):
                 )
 
 class TestSentimentBullish(unittest.TestCase):
-    def test_bullish_soft_hold(self):
-        from core.sentiment_prior import (
-            build_sentiment_prior,
-            should_soft_hold_from_sentiment,
-        )
+    def test_bullish_theme_badge_only(self):
+        from core.sentiment_prior import build_sentiment_prior
 
         prior = build_sentiment_prior(
             {"label": "bullish", "score": 0.8},
@@ -387,7 +384,10 @@ class TestSentimentBullish(unittest.TestCase):
             },
         )
         self.assertTrue(prior.get("bullish_theme"))
-        self.assertFalse(should_soft_hold_from_sentiment(prior))
+        self.assertEqual(prior.get("mode"), "off")
+        self.assertEqual(prior.get("actions") or [], [])
+        kinds = {h.get("kind") for h in (prior.get("risk_hints") or [])}
+        self.assertIn("sentiment_bullish", kinds)
 
 class TestEventBreadth(unittest.TestCase):
     def test_sector_breadth_helper(self):

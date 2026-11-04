@@ -629,7 +629,7 @@ def score_stock(
         global_model_pre = None
         weight_source = "global_missing"
 
-    sentiment_for_score = sentiment_ui if include_sentiment_in_score else None
+    # 舆情已退出因子集：标题只供徽章 / 先验，不进 score_bars。
     idx_eod = index_bars
     if index_bars:
         idx_eod, _ = prepare_eod_bars(index_bars, quote)
@@ -646,7 +646,7 @@ def score_stock(
         fundamentals=fundamentals,
         index_bars=idx_eod,
         config=cfg,
-        sentiment=sentiment_for_score,
+        sentiment=None,
         required_factor_keys=required_factor_keys or None,
         # 生产打分始终算出 sub_scores / ŷ；mom3 追高只作提示，不 hard_reject 掐死入簿
         mom3_hard_reject=False,
@@ -701,9 +701,13 @@ def score_stock(
     group_model = None
     global_model = global_model_pre
     try:
-        subs = dict(scored.get("sub_scores") or {})
-        if not include_sentiment_in_score:
-            subs.pop("alt_sentiment", None)
+        from core.signal.factors.meta.taxonomy import is_removed_factor
+
+        subs = {
+            k: v
+            for k, v in (scored.get("sub_scores") or {}).items()
+            if not is_removed_factor(k)
+        }
 
         if global_model is not None:
             # 截面模型单票 predict 看不到同伴；defer 时留给 batch rescore
@@ -748,20 +752,14 @@ def score_stock(
                 global_model=global_model,
                 return_model_source=return_model_source,
             )
-            factor_coefficients = dict(return_model_payload.get("coefficients") or {})
-            score_formula_terms = active_model.explain_prediction(
-                {
-                    k: v
-                    for k, v in (scored.get("sub_scores") or {}).items()
-                    if include_sentiment_in_score or k != "alt_sentiment"
-                }
-            )
-            # FS3：公式始终展示 alt_sentiment 项（闸关或 β=0 时贡献记 0）
-            try:
-                coef_alt = factor_coefficients.get("alt_sentiment")
-                alt_b = float(coef_alt) if coef_alt is not None else 0.0
-            except (TypeError, ValueError):
-                alt_b = 0.0
+            from core.signal.factors.meta.taxonomy import is_removed_factor
+
+            factor_coefficients = {
+                k: v
+                for k, v in (return_model_payload.get("coefficients") or {}).items()
+                if not is_removed_factor(k)
+            }
+            score_formula_terms = active_model.explain_prediction(subs)
             if score_formula_terms is None:
                 score_formula_terms = {
                     "intercept": float(getattr(active_model, "intercept", 0.0) or 0.0),
@@ -769,24 +767,6 @@ def score_stock(
                     "terms": [],
                 }
             terms = list(score_formula_terms.get("terms") or [])
-            if not any(str(t.get("key")) == "alt_sentiment" for t in terms):
-                from core.signal.factors.meta.registry import factor_label
-
-                terms.append(
-                    {
-                        "key": "alt_sentiment",
-                        "label": factor_label("alt_sentiment"),
-                        "beta": round(alt_b, 6),
-                        "z": 0.0,
-                        "contrib": 0.0,
-                        "gated": not include_sentiment_in_score,
-                        "note": (
-                            "闸关·不进 ŷ"
-                            if not include_sentiment_in_score
-                            else ("β≈0" if abs(alt_b) < 1e-12 else "")
-                        ),
-                    }
-                )
             # 规模缺市值：不进 sub_scores，公式里仍展示一项（贡献 0）便于对账
             scored_factors = scored.get("factors") or {}
             if (
@@ -818,11 +798,7 @@ def score_stock(
             score_formula_terms["terms"] = terms
             score_formula = build_score_formula(
                 {
-                    "sub_scores": {
-                        k: v
-                        for k, v in (scored.get("sub_scores") or {}).items()
-                        if include_sentiment_in_score or k != "alt_sentiment"
-                    },
+                    "sub_scores": subs,
                     "return_model": active_model,
                 }
             )
@@ -833,13 +809,6 @@ def score_stock(
             score_formula_terms = None
             factor_coefficients = None
             formula_warnings.append(f"score_formula_failed:{e}")
-
-    alt_beta = None
-    if isinstance(factor_coefficients, dict) and "alt_sentiment" in factor_coefficients:
-        try:
-            alt_beta = float(factor_coefficients["alt_sentiment"])
-        except (TypeError, ValueError):
-            alt_beta = None
 
     signal_item = {
         "stock_code": code,
@@ -888,13 +857,8 @@ def score_stock(
         "market_prior_warnings": market_priors.get("market_prior_warnings"),
         "sentiment_include_in_score": include_sentiment_in_score,
         "watching_sentiment": sentiment_ui,
-        "alt_sentiment_beta": alt_beta,
-        "alt_sentiment_in_yhat": bool(
-            include_sentiment_in_score
-            and alt_beta is not None
-            and abs(alt_beta) > 1e-12
-            and (scored.get("sub_scores") or {}).get("alt_sentiment") is not None
-        ),
+        "alt_sentiment_beta": None,
+        "alt_sentiment_in_yhat": False,
         "fundamentals_pit": fundamentals_pit_meta or None,
         "index_meta": index_meta or None,
         "fundamentals_depth": fund_depth.get("fundamentals_depth"),

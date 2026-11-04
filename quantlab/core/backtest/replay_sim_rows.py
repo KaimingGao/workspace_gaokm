@@ -98,6 +98,31 @@ def _sim_y_τc(src: Optional[dict]) -> Any:
     return pick_y_τc(src if isinstance(src, dict) else None)
 
 
+def _gate_sentiment(
+    src: Optional[dict],
+    *,
+    plan: Optional[dict] = None,
+    code: str = "",
+) -> Dict[str, str]:
+    """回测明细只留该日 09:30 决策窗标签。库内现页不回填历史日。"""
+    row = src if isinstance(src, dict) else {}
+    basis = str(row.get("sentiment_basis") or "").strip()
+    label = str(row.get("sentiment_label") or "").strip()
+    if basis != "gate" or not label or label == "missing":
+        c = str(code or row.get("stock_code") or "").strip()
+        plan_d = plan if isinstance(plan, dict) else {}
+        labels = plan_d.get("sentiment_labels") if isinstance(plan_d.get("sentiment_labels"), dict) else {}
+        bases = plan_d.get("sentiment_basis") if isinstance(plan_d.get("sentiment_basis"), dict) else {}
+        if c and str(bases.get(c) or "").strip() == "gate":
+            label = str(labels.get(c) or "").strip()
+            basis = "gate"
+        else:
+            label, basis = "missing", "gate"
+    if basis != "gate" or not label or label == "missing":
+        return {"sentiment_label": "missing", "sentiment_basis": "gate"}
+    return {"sentiment_label": label, "sentiment_basis": "gate"}
+
+
 def _skip_to_sim(sk: dict, day: str) -> dict:
     side = _infer_skip_side(sk)
     row = {
@@ -123,6 +148,7 @@ def _skip_to_sim(sk: dict, day: str) -> dict:
         "rank_n": sk.get("rank_n"),
         "lot_kind": sk.get("lot_kind"),
         "reason": sk.get("reason") or "跳过",
+        **_gate_sentiment(sk),
     }
     _copy_r_tau_pred(row, sk)
     return _merge_aux_yhat(row, sk)
@@ -135,6 +161,7 @@ def _hold_to_sim(
     *,
     date_maps: Dict[str, Dict[str, dict]],
     prices: Optional[Dict[str, float]] = None,
+    plan: Optional[dict] = None,
 ) -> dict:
     """续持腿：无成交；price=收盘，缺 day_close 时给收益率盯市。"""
     code = str(
@@ -185,6 +212,7 @@ def _hold_to_sim(
         "score": yf,
         "reason": (plan_h or {}).get("reason") or "续持",
         "open_date": open_date,
+        **_gate_sentiment(plan_h, plan=plan, code=code),
     }
     _copy_r_tau_pred(row, plan_h)
     return _merge_aux_yhat(row, plan_h)
@@ -281,6 +309,7 @@ def _ledger_trades_to_sim(trades: Sequence[dict]) -> List[dict]:
             "open_date": t.get("open_date"),
             "rebalance_px": t.get("rebalance_px"),
             "day_open": t.get("day_open"),
+            **_gate_sentiment(t),
         }
         _copy_r_tau_pred(row, t)
         _merge_aux_yhat(row, t)

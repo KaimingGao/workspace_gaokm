@@ -30,7 +30,7 @@ import {
   buildPaperOriginBarHtml,
   buildPaperHoldActionBarHtml,
   holdActionHintText,
-} from "./paper/holdings_ui.js?v=p3540";
+} from "./paper/holdings_ui.js?v=p3591";
 import { renderPaperRulesHtml } from "./paper/rules_ui.js?v=p2298";
 const _EXEC_V =
   (typeof window !== "undefined" && window.__ASSET_V__) || "dev";
@@ -56,7 +56,10 @@ import {
   renderPaperT0WorkerTrades as renderPaperT0WorkerTradesUi,
   renderPaperT0WorkerDesk as renderPaperT0WorkerDeskUi,
 } from "./paper/t0_ui.js?v=p3319";
-import { renderPaperRebalanceWorkerDesk as renderPaperRebalanceWorkerDeskUi } from "./paper/rebalance_desk.js?v=p3527";
+import {
+  renderPaperRebalanceWorkerDesk as renderPaperRebalanceWorkerDeskUi,
+  sentimentDeskBadgeHtml,
+} from "./paper/rebalance_desk.js?v=p3626";
 import { wireT0SkipTips } from "./paper/t0_viz.js?v=p2746";
 import { wireT0ProcessTips, wireT0DayDebugExpand } from "./paper/t0_table.js?v=p3541";
 import { wireHoldingsChgTips } from "./paper/holding_chg_tip.js?v=p2746";
@@ -70,7 +73,7 @@ import {
 import { rebalanceDataFoot, t0DataFoot } from "./data_policy.js?v=p1736";
 import { ensureWarehouseTopup } from "./data_warehouse_topup.js";
 import { BARS_WATCHING_LIMIT } from "./quant/params.js";
-import { createRebalanceReportController } from "./paper/rebalance_report.js?v=p3540";
+import { createRebalanceReportController } from "./paper/rebalance_report.js?v=p3626";
 import { waitPaperJob as waitPaperJobPoll } from "./paper/job_poll.js?v=p1416";
 import { renderFollowNorthStar as renderFollowNorthStarUi } from "./paper/north_star_ui.js?v=p2182";
 import {
@@ -86,7 +89,7 @@ import {
   tailAnomalyDetailFields,
   overheatDetailFields,
   createScoreTooltipController,
-} from "./score_tooltip.js?v=p3541";
+} from "./score_tooltip.js?v=p3626";
 
 import { formatDailySteps, runDaily } from "./shared.js";
 
@@ -825,30 +828,27 @@ export function initPaper(ctx) {
         ? String(statusEl.textContent || "").trim()
         : "";
     try {
-      const V =
-        (typeof window !== "undefined" && window.__ASSET_V__) || "dev";
-      const mod = await import(`./holdings_table_island.js?v=${V}`);
       const res = await fetch(
-        `/api/watching/sentiment?codes=${encodeURIComponent(codes.join(","))}&limit=3`
+        `/api/paper/rebalance/sentiment?codes=${encodeURIComponent(codes.join(","))}`
       );
       const data = await res.json().catch(() => ({}));
       if (!res.ok) return;
       const byCode = {};
       for (const it of data.items || []) {
-        const c = String((it && (it.stock_code || it.code)) || "").trim();
+        const c = String((it && it.stock_code) || "").trim();
         if (c) byCode[c] = it;
       }
       codes.forEach((code) => {
         const row = byCode[code] || {};
-        const html = mod.holdingSentimentHtml(row.sentiment || {}, code);
+        const html = sentimentDeskBadgeHtml(row.sentiment_label, row.sentiment_basis);
         applyHoldingsSentimentHtml(code, html);
       });
       syncHoldingsSentimentToGrid();
       if (prev && prev.startsWith("已刷新")) {
-        setHoldingsLoadStatus(`${prev} · 情绪已更新`, { ok: true });
+        setHoldingsLoadStatus(`${prev} · 舆情已更新`, { ok: true });
       }
     } catch (_) {
-      /* 情绪填充失败时保留 … 占位 */
+      /* 舆情填充失败时保留 … 占位 */
     }
   }
 
@@ -2609,16 +2609,12 @@ export function initPaper(ctx) {
         if (sellTrades.length > 0) {
             resultText += ` · 减仓 ${sellTrades.length} 只`;
         }
-        const priorTrimN = sellTrades.filter((t) => t && t.sentiment_prior).length;
         const marketTrimN = sellTrades.filter((t) => t && t.market_prior).length;
-        if (priorTrimN > 0) {
-            resultText += ` · 舆情缩仓 ${priorTrimN}`;
-        }
         if (marketTrimN > 0) {
             resultText += ` · 市场缩仓 ${marketTrimN}`;
         }
         if (priorSkipN > 0) {
-            resultText += ` · 舆情跳过 ${priorSkipN}`;
+            resultText += ` · 舆情先验 ${priorSkipN}`;
         }
         if (marketSkipN > 0) {
             resultText += ` · 市场跳过 ${marketSkipN}`;

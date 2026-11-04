@@ -25,7 +25,7 @@ import {
   applyWatchingNameEl,
 } from "./quant/names.js";
 import { createResearchParams } from "./quant/params.js";
-import { createFactorMetaCache } from "./quant/factor_meta.js?v=p3553";
+import { createFactorMetaCache } from "./quant/factor_meta.js?v=p3556";
 import { researchGridHtml, metricCell } from "./quant/research_grid.js";
 import { createBtTablesUi } from "./quant/bt_tables.js";
 import { installClusterProbe } from "./quant/domain_cluster.js";
@@ -72,6 +72,9 @@ const { createOlsUi } = await import(
 );
 const { installWatching } = await import(
   `./quant/domain_watching.js?v=${encodeURIComponent(_QV)}`
+);
+const { installNewsArchivePanel } = await import(
+  `./quant/news_archive_ui.js?v=${encodeURIComponent(_QV)}`
 );
 const { installBacktest } = await import(
   `./quant/domain_backtest.js?v=${encodeURIComponent(_QV)}`
@@ -2436,7 +2439,7 @@ export function initQuant(ctx) {
         return;
       }
       const sentBadge = e.target.closest(".watching-sent-badge");
-      if (sentBadge) {
+      if (sentBadge && !sentBadge.closest(".watching-news-samples")) {
         e.preventDefault();
         const code = sentBadge.dataset.code;
         const tr = sentBadge.closest("[data-code]");
@@ -4447,6 +4450,7 @@ export function initQuant(ctx) {
   document.getElementById("watching-data-quality-fold")?.addEventListener("toggle", (e) => {
     if (e.target.open) watching.loadWatchingDataQuality();
   });
+  installNewsArchivePanel();
 
   // 进页面时先把“折叠 summary 结论”拉出来；同时支持 hash 深链强制打开对应折叠
   const page = document.body.dataset.page || "";

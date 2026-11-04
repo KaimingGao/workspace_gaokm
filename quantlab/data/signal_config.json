@@ -21,7 +21,6 @@
     "money_flow": 0.0,
     "amihud": 0.02,
     "idio_momentum": 0.03,
-    "alt_sentiment": 0.02,
     "tail_anomaly": 0.02
   },
   "factor_groups": {
@@ -157,12 +156,7 @@
     "include_in_score": false,
     "role": "prior",
     "prior": {
-      "mode": "off",
-      "block_new_buys": false,
-      "scale_buy_pct": 0.6,
-      "scale_holds": false,
-      "warn_only": true,
-      "reduce_avoid_on_bullish": true
+      "mode": "off"
     },
     "append_history": true,
     "history_max_lines_per_code": 500

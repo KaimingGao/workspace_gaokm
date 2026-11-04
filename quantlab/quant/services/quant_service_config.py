@@ -65,7 +65,6 @@ class QuantConfigMixin:
     def list_strategies(self) -> Dict[str, Any]:
         from core.signal.dual_score.config import read_dual_score_public
         from core.signal.score_display import resolve_buy_floor, resolve_hold_floor
-        from core.signal.sentiment_prior_config import read_sentiment_prior_public
         from core.strategy import list_strategy_specs
 
         return {
@@ -77,7 +76,6 @@ class QuantConfigMixin:
                 "min_hold_predicted_score": resolve_hold_floor(),
                 "unit": "predicted_score_pct",
             },
-            "sentiment_prior": read_sentiment_prior_public(),
             "dual_score": read_dual_score_public(),
         }
 
@@ -108,24 +106,10 @@ class QuantConfigMixin:
 
         return _save(avoid=avoid, wait=wait, probe=probe, note=note)
 
-    def save_sentiment_prior(
-        self,
-        *,
-        mode: Optional[str] = None,
-        block_new_buys: Optional[bool] = None,
-        scale_buy_pct: Optional[float] = None,
-        scale_holds: Optional[bool] = None,
-        note: str = "",
-    ) -> Dict[str, Any]:
+    def save_sentiment_prior(self, *, note: str = "") -> Dict[str, Any]:
         from core.signal.sentiment_prior_config import save_sentiment_prior as _save
 
-        return _save(
-            mode=mode,
-            block_new_buys=block_new_buys,
-            scale_buy_pct=scale_buy_pct,
-            scale_holds=scale_holds,
-            note=note,
-        )
+        return _save(note=note)
 
     def read_sentiment_prior(self) -> Dict[str, Any]:
         from core.signal.sentiment_prior_config import read_sentiment_prior_public

@@ -1,4 +1,4 @@
-"""舆情先验配置人审写盘。"""
+"""徽章侧 prior 配置规范化写盘。"""
 
 from __future__ import annotations
 
@@ -9,7 +9,7 @@ import unittest
 
 
 class TestSentimentPriorConfigSave(unittest.TestCase):
-    def test_save_mode_forces_include_false(self):
+    def test_save_forces_off_and_strips_legacy_keys(self):
         from core.signal.sentiment_prior_config import (
             read_sentiment_prior_public,
             save_sentiment_prior,
@@ -22,7 +22,12 @@ class TestSentimentPriorConfigSave(unittest.TestCase):
                     {
                         "sentiment": {
                             "include_in_score": True,
-                            "prior": {"mode": "off"},
+                            "prior": {
+                                "mode": "gate",
+                                "block_new_buys": True,
+                                "scale_buy_pct": 0.6,
+                                "scale_holds": True,
+                            },
                         }
                     },
                     f,
@@ -30,17 +35,21 @@ class TestSentimentPriorConfigSave(unittest.TestCase):
             old = os.environ.get("QUANTLAB_SIGNAL_CONFIG")
             os.environ["QUANTLAB_SIGNAL_CONFIG"] = path
             try:
-                out = save_sentiment_prior(mode="gate", block_new_buys=True, note="test")
+                out = save_sentiment_prior(note="test")
                 self.assertTrue(out.get("success"))
                 self.assertFalse(out.get("include_in_score"))
                 self.assertEqual(out["sentiment_prior"]["mode"], "off")
+                self.assertNotIn("block_new_buys", out["sentiment_prior"])
                 with open(path, encoding="utf-8") as f:
                     raw = json.load(f)
                 self.assertFalse(raw["sentiment"]["include_in_score"])
                 self.assertEqual(raw["sentiment"]["role"], "prior")
                 self.assertEqual(raw["sentiment"]["prior"]["mode"], "off")
+                self.assertNotIn("block_new_buys", raw["sentiment"]["prior"])
+                self.assertNotIn("scale_buy_pct", raw["sentiment"]["prior"])
                 pub = read_sentiment_prior_public()
                 self.assertEqual(pub["mode"], "off")
+                self.assertNotIn("scale_holds", pub)
             finally:
                 if old is None:
                     os.environ.pop("QUANTLAB_SIGNAL_CONFIG", None)
@@ -49,6 +58,7 @@ class TestSentimentPriorConfigSave(unittest.TestCase):
                 import core.signal.config as cfg_mod
 
                 cfg_mod._cached = None
+
 
 if __name__ == "__main__":
     unittest.main()

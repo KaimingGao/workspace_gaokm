@@ -35,7 +35,7 @@ def score_bars(
     ``score`` 恒为 None（规则加权总分已清理）。
 
     ``required_factor_keys``：即使 weights 权为 0 也计算（ŷ β 同构）。
-    ``skip_factors``：强制跳过（如舆情闸关时跳过 alt_sentiment）。
+    ``skip_factors``：强制跳过的注册因子名。
     """
     cfg = config or load_signal_config()
     weights = cfg.get("weights") or {}
@@ -142,11 +142,6 @@ def score_bars(
     factor_weights = dict(weights)
 
     skip = list(skip_factors or [])
-    # FS0：闸关或不传 sentiment 时不计算 alt_sentiment（避免中性 50 进 ŷ）
-    sent_cfg = cfg.get("sentiment") or {}
-    if not bool(sent_cfg.get("include_in_score", False)) or sentiment is None:
-        if "alt_sentiment" not in skip:
-            skip.append("alt_sentiment")
 
     minute_bars = None
     code_for_minute = stock_code or (quote or {}).get("stock_code")
@@ -223,10 +218,6 @@ def score_bars(
 
     if regime_info.get("reason"):
         reasons.append(regime_info["reason"])
-
-    alt_label = factors.get("alt_sentiment_label")
-    if alt_label and alt_label not in ("neutral", ""):
-        reasons.append(f"舆情因子 {alt_label}")
 
     last_close = bars[-1]["close"]
     stop_ref = round(last_close * (1 - stop_pct), 2)

@@ -19,6 +19,9 @@ const {
   Y_EOD_TITLE,
   Y_OC_REBALANCE_TITLE,
 } = await import(`../paper/fmt.js?v=${encodeURIComponent(_V)}`);
+const { sentimentDeskBadgeHtml } = await import(
+  `../paper/rebalance_desk.js?v=${encodeURIComponent(_V)}`
+);
 
 const BT_SIM_TRADE_COLS_BASE = [
   { id: "signal", label: "信号日", widthPct: 9 },
@@ -250,6 +253,13 @@ export function isRankLotsLedger(legs, dataOrTrades) {
 export const BT_LEDGER_TRADE_COLS = [
   { id: "action", label: "动作", widthPct: 8, widthMin: "6.2rem", title: "开/加/清/跳过；跳过行下方为原因" },
   { id: "name", label: "股票", flex: true, flexMin: "8.4rem", title: "点击名称看日线" },
+  {
+    id: "sent",
+    label: "舆情",
+    widthPct: 4,
+    widthMin: "2.8rem",
+    title: "该日 09:30 前已发布。不进 ŷ。勾选闸时空/多调 fuse±0.1%·rank×2/×0.5，不清仓；缺测不调",
+  },
   {
     id: "open_date",
     label: "开日日期",
@@ -668,6 +678,7 @@ function buildLedgerTradeRow(r, i, deps) {
     date: String(r.as_of || r.signal_date || r.ts || "").slice(0, 10) || "—",
     openDate: openDate || "—",
     open_date: openDate || "—",
+    sentiment_label: String(r.sentiment_label || "missing"),
     side,
     skipped,
     actionKey: act.key,
@@ -838,6 +849,19 @@ export function buildLedgerTradeRows(legs, deps) {
   return out;
 }
 
+const SENT_CSV = {
+  bullish: "多",
+  bearish: "空",
+  mixed: "杂",
+  neutral: "中",
+  missing: "—",
+};
+
+function _sentimentCsv(label) {
+  const key = String(label || "missing").trim() || "missing";
+  return SENT_CSV[key] || "—";
+}
+
 export function ledgerTradesCaptionHtml() {
   return `<div class="quant-bt-trades-host"></div>`;
 }
@@ -852,6 +876,7 @@ export function buildLedgerTradesCsv(rows, nameByCode = {}) {
     "side",
     "stock_code",
     "stock_name",
+    "sentiment",
     "shares",
     "day_open",
     "day_close",
@@ -892,6 +917,7 @@ export function buildLedgerTradesCsv(rows, nameByCode = {}) {
       r.side || "",
       code,
       name,
+      _sentimentCsv(r.sentiment_label),
       r.shares ?? "",
       r.day_open ?? "",
       r.day_close ?? "",
@@ -1252,6 +1278,9 @@ export function btTradesCellHtml(col, d, deps) {
       `</span>` +
       `<span class="watching-code-sub">${escapeHtml(d.stock_code)}</span></div>`
     );
+  }
+  if (col.id === "sent") {
+    return sentimentDeskBadgeHtml(d.sentiment_label, "gate");
   }
   if (col.id === "open_date") return escapeHtml(d.openDate || "—");
   if (col.id === "action") {

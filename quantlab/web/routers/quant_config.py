@@ -90,7 +90,7 @@ def signal_config_stance_thresholds(body: StanceThresholdsRequest) -> Dict[str, 
 @router.get("/api/signal/config/sentiment-prior")
 
 def signal_config_sentiment_prior_get() -> Dict[str, Any]:
-    """舆情先验配置只读。"""
+    """徽章侧 prior 只读（mode 恒 off；调仓软先验另见 sentiment_gate_enabled）。"""
     try:
         return deps.quant.read_sentiment_prior()
     except Exception as e:
@@ -99,14 +99,10 @@ def signal_config_sentiment_prior_get() -> Dict[str, Any]:
 @router.post("/api/signal/config/sentiment-prior")
 
 def signal_config_sentiment_prior_save(body: SentimentPriorRequest) -> Dict[str, Any]:
-    """兼容旧入口；产品强制 mode=off（仅徽章）。"""
+    """兼容旧入口：规范化徽章 prior 为 mode=off，剥掉已退役硬闸键。"""
     try:
         out = deps.quant.save_sentiment_prior(
-            mode=body.mode,
-            block_new_buys=body.block_new_buys,
-            scale_buy_pct=body.scale_buy_pct,
-            scale_holds=body.scale_holds,
-            note=body.note or "策略中心人审·舆情先验",
+            note=body.note or "徽章 prior 规范化 · mode=off",
         )
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e)) from e

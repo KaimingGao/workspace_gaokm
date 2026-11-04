@@ -80,11 +80,11 @@ const COLS = [
   },
   {
     id: "sent",
-    label: "情绪",
+    label: "舆情",
     width: 36,
     headClass: "watching-col-center",
     cellClass: "watching-col-center",
-    title: "标题情绪摘要",
+    title: "标题舆情摘要",
   },
   { id: "prev_close", label: "昨收", width: 78, num: true, title: "上一交易日收盘价" },
   { id: "open", label: "今开", width: 78, num: true, title: "今日开盘价" },

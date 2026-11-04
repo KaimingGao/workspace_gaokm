@@ -274,7 +274,41 @@
     </div>
   </div>
 
-  <!-- ③ 次要折叠：建仓记录（对齐交易执行「交易记录」） -->
+  <!-- ③ 新闻舆情：壳对齐观察名单（区段头 + 白卡） -->
+  <section
+    class="dashboard-section quant-section watching-section"
+    id="watching-section-news-archive"
+    aria-labelledby="watching-section-news-archive-title"
+  >
+    <header class="dashboard-section-head quant-section-head watching-section-head">
+      <h3 id="watching-section-news-archive-title" class="dashboard-section-title">新闻舆情</h3>
+      <p class="dashboard-section-desc quant-section-desc" id="watching-news-archive-desc">与观察池同一本地库 · 闸只读 09:30 前</p>
+    </header>
+    <div class="dashboard-card quant-pro-card watching-watchlist-card" id="watching-news-archive-fold">
+      <div class="dashboard-card-head quant-pro-card-head quant-card-head--tools watching-card-head">
+        <div id="watching-news-archive-strip" class="quant-desk-status-strip quant-card-head-status" aria-live="polite">
+          <span id="watching-news-archive-chip" class="quant-pro-status-chip" data-state="idle">—</span>
+          <span id="watching-news-archive-msg" class="quant-desk-status-msg">读取新闻舆情…</span>
+        </div>
+        <div class="dashboard-card-tools quant-pro-card-tools watching-card-tools">
+          <span class="watching-news-ran-row">
+            <span id="watching-news-archive-ran" class="watching-news-ran" title="尚无更新记录">上次 —</span>
+            <button type="button" id="watching-news-archive-poll" class="dialog-btn primary">更新舆情</button>
+          </span>
+        </div>
+      </div>
+      <div class="quant-pro-card-body watching-card-body" id="watching-news-archive">
+        <div id="watching-news-archive-progress" class="quant-bars-progress" hidden aria-live="polite" aria-label="新闻舆情更新进度"></div>
+        <p class="quant-fingerprint" id="watching-news-archive-note">表格先读本地；没有或超过 15 分钟再向东财要并写回。整池更新只追加当前页，不回补过去的交易日。每只间隔约 1.2 秒，出现封禁信号即停止。历史回测按发布时间卡到当日 09:30。手动执行只读 09:30 前已入库</p>
+        <div id="watching-news-archive-table" class="quant-weight-table-wrap"></div>
+        <div id="watching-news-archive-portrait"></div>
+        <p id="watching-news-archive-failed" class="quant-attr-note" hidden></p>
+        <p id="watching-news-archive-error" class="watching-news-archive-error" hidden aria-live="assertive"></p>
+      </div>
+    </div>
+  </section>
+
+  <!-- ④ 次要折叠：建仓记录（对齐交易执行「交易记录」） -->
   <section
     class="dashboard-section quant-section watching-section watching-section-secondary watching-build-log-section"
     id="watching-section-build-log"
@@ -293,7 +327,7 @@
     </details>
   </section>
 
-  <!-- ④ 次要折叠：数据质量 -->
+  <!-- ⑤ 次要折叠：数据质量 -->
   <section
     class="dashboard-section quant-section watching-section watching-section-secondary"
     id="watching-section-dq"

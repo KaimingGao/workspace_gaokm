@@ -1,4 +1,4 @@
-"""FS 轨：舆情闸 · ŷ 键同构 · as_of · LLM 墙。"""
+"""FS 轨：舆情徽章 · ŷ 键同构 · as_of · LLM 墙。"""
 
 from __future__ import annotations
 
@@ -44,7 +44,7 @@ class TestFsSentimentGate(unittest.TestCase):
         )
         self.assertNotIn("alt_sentiment", out.get("sub_scores") or {})
 
-    def test_gate_open_computes_alt_sentiment(self):
+    def test_gate_open_still_excludes_alt_sentiment(self):
         bars = _bars()
         with signal_config_overlay({"sentiment": {"include_in_score": True}}):
             out = score_bars(
@@ -53,8 +53,7 @@ class TestFsSentimentGate(unittest.TestCase):
                 sentiment={"label": "bullish", "score": 0.1},
                 config=load_signal_config(),
             )
-        self.assertIn("alt_sentiment", out.get("sub_scores") or {})
-        self.assertGreater(out["sub_scores"]["alt_sentiment"], 50)
+        self.assertNotIn("alt_sentiment", out.get("sub_scores") or {})
 
     def test_score_stock_gate_pops_alt_from_yhat(self):
         quote = {
@@ -114,6 +113,8 @@ class TestFsSentimentGate(unittest.TestCase):
         item = out.get("signal_item") or {}
         self.assertFalse(item.get("sentiment_include_in_score"))
         self.assertFalse(item.get("alt_sentiment_in_yhat"))
+        terms = ((item.get("score_formula_terms") or {}).get("terms") or [])
+        self.assertFalse(any(str(t.get("key")) == "alt_sentiment" for t in terms))
 
 class TestFsFactorPanelYhatKeys(unittest.TestCase):
     def test_required_keys_computed_even_if_weight_zero(self):

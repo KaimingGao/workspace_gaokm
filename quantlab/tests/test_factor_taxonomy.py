@@ -24,7 +24,8 @@ class TestFactorTaxonomy(unittest.TestCase):
         self.assertEqual(classify_factor("overheat")["family"], "risk")
         self.assertEqual(classify_factor("size")["family"], "residual")
         self.assertEqual(classify_factor("reversal")["family"], "reversal")
-        self.assertEqual(classify_factor("alt_sentiment")["family"], "sentiment")
+        self.assertTrue(is_removed_factor("alt_sentiment"))
+        self.assertTrue(is_removed_factor("alt_sentiment_cs_zscore"))
         self.assertEqual(classify_factor("alpha_oo")["family"], "pv_derived")
         self.assertEqual(classify_factor("alpha_tc")["family"], "pv_derived")
         self.assertEqual(classify_factor("alpha_th")["family"], "pv_derived")
@@ -50,10 +51,6 @@ class TestFactorTaxonomy(unittest.TestCase):
         self.assertEqual(mf["source"], "proxy")
         self.assertEqual(mf["source_label"], "代理")
 
-        alt = classify_factor("alt_sentiment")
-        self.assertEqual(alt["source"], "prior_only")
-        self.assertEqual(alt["source_label"], "旁路")
-
     def test_panel_exposes_taxonomy(self):
         panel = build_factor_panel()
         self.assertTrue(panel["success"])
@@ -77,7 +74,6 @@ class TestFactorTaxonomy(unittest.TestCase):
                     "risk",
                     "residual",
                     "reversal",
-                    "sentiment",
                     "pv_derived",
                     "other",
                 },

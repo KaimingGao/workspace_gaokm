@@ -53,7 +53,6 @@ const FACTOR_LABELS = {
   money_flow: "资金流",
   amihud: "非流动性",
   idio_momentum: "特异动量",
-  alt_sentiment: "舆情",
   tail_anomaly: "尾盘异常",
 };
 
@@ -1631,7 +1630,7 @@ export function formatFeatureIsoSection(raw) {
   );
 }
 
-/** 个股舆情徽章（ŷ 外）：仅参考，不调仓。 */
+/** 个股舆情徽章（ŷ 外）。调仓 soft prior 另见 news.db / 规则栏「舆情先验」。 */
 export function formatSentimentGateSection(raw) {
   if (!raw) return "";
   const meta = [];
@@ -1643,7 +1642,7 @@ export function formatSentimentGateSection(raw) {
     meta.push({
       chip: active,
       chipCls: prior.active ? "is-on" : "is-off",
-      code: `prior.mode=${mode}`,
+      code: `徽章固定 ${mode}`,
     });
   } else if (
     raw.sentiment_include_in_score === false ||
@@ -1654,12 +1653,12 @@ export function formatSentimentGateSection(raw) {
         chip: "遗留",
         chipCls: "is-warn",
         code: "include_in_score=true",
-        note: "不推荐；应走 prior.mode",
+        note: "不进 ŷ；应保持 false",
       });
     } else {
       meta.push({
-        chip: "硬闸",
-        chipCls: "is-gate",
+        chip: "不进 ŷ",
+        chipCls: "is-off",
         code: "include_in_score=false",
       });
     }
@@ -1696,7 +1695,7 @@ export function formatSentimentGateSection(raw) {
   return (
     `<div class="score-sentiment-section">` +
     `<div class="score-section-title">舆情</div>` +
-    `<div class="score-sentiment-lead">仅参考徽章 · 不进 ŷ · 不调仓</div>` +
+    `<div class="score-sentiment-lead">标题徽章 · 不进 ŷ · 调仓软先验另读 09:30 前新闻库</div>` +
     metaHtml +
     notesHtml +
     `</div>`

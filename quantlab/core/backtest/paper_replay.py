@@ -184,6 +184,7 @@ def backtest_paper_replay(
     y_oo_gt0: Optional[bool] = None,
     y_τc_gt0: Optional[bool] = None,
     morph_gate_enabled: Optional[bool] = None,
+    sentiment_gate_enabled: Optional[bool] = None,
     oo_rank_max: Optional[int] = None,
     oo_rank_strong_max: Optional[int] = None,
     oo_rank_top_frac: Optional[float] = None,
@@ -496,6 +497,11 @@ def backtest_paper_replay(
             if morph_gate_enabled is None
             else bool(coerce_cfg_bool(morph_gate_enabled, False))
         ),
+        "sentiment_gate_enabled": (
+            False
+            if sentiment_gate_enabled is None
+            else bool(coerce_cfg_bool(sentiment_gate_enabled, False))
+        ),
         "oo_rank_max": oo_rank_max_from_cfg(
             {"oo_rank_max": oo_rank_max} if oo_rank_max is not None else {}
         ),
@@ -529,6 +535,7 @@ def backtest_paper_replay(
     rl_cfg["y_oo_gt0"] = replay_lots["y_oo_gt0"]
     rl_cfg["y_τc_gt0"] = replay_lots["y_τc_gt0"]
     rl_cfg["morph_gate_enabled"] = bool(replay_lots["morph_gate_enabled"])
+    rl_cfg["sentiment_gate_enabled"] = bool(replay_lots["sentiment_gate_enabled"])
     rl_cfg["oo_rank_max"] = replay_lots.get("oo_rank_max")
     rl_cfg["oo_rank_strong_max"] = replay_lots.get("oo_rank_strong_max")
     rl_cfg["oo_rank_top_frac"] = replay_lots.get("oo_rank_top_frac")
@@ -831,6 +838,9 @@ def backtest_paper_replay(
                 cfg=rl_cfg,
                 as_of=day,
                 bars_by_code=stock_bars,
+                # 成交钟可以晚于开盘。舆情卡该日 09:30 前已发布的标题，不看抓取日。
+                sentiment_clock="09:30",
+                sentiment_align="publish",
             )
             ms = plan.get("morph_stamp") if isinstance(plan.get("morph_stamp"), dict) else {}
             if ms:
@@ -918,6 +928,7 @@ def backtest_paper_replay(
                         h,
                         date_maps=date_maps,
                         prices=prices,
+                        plan=plan,
                     )
                 )
 
@@ -1158,6 +1169,7 @@ def backtest_paper_replay(
             "y_oo_gt0": rl_cfg.get("y_oo_gt0"),
             "y_τc_gt0": rl_cfg.get("y_τc_gt0"),
             "morph_gate_enabled": bool(rl_cfg.get("morph_gate_enabled")),
+            "sentiment_gate_enabled": bool(rl_cfg.get("sentiment_gate_enabled", False)),
             "morph_stamp": (
                 {
                     "n_a1_sum": int(morph_stamp_agg.get("n_a1_sum") or 0),

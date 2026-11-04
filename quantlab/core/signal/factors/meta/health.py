@@ -8,10 +8,6 @@ PROXY_OR_UNSOURCED = {
         "status": "proxy",
         "note": "无净流入 ingest；默认 MFI 代理；权重须保持 0 除非人审有真源",
     },
-    "alt_sentiment": {
-        "status": "prior_only",
-        "note": "无历史 news 面板；不进 ŷ；仅 sentiment.prior 旁路",
-    },
 }
 
 
@@ -46,10 +42,6 @@ def assess_factor_health(*, config: Optional[dict] = None) -> Dict[str, Any]:
             blockers.append(
                 f"{key}: weight={w} 但无真数据源（proxy）；请归零或接入净流入后再启用"
             )
-        if meta["status"] == "prior_only" and abs(w) > 1e-12:
-            # include_in_score 硬闸另管；权重非 0 仍警告
-            row["ok"] = False
-            warnings.append(f"{key}: weight={w} 但契约为 prior_only，不应进生产 β")
         rows.append(row)
 
     # 指数依赖因子：live 已接 index；仅作健康说明

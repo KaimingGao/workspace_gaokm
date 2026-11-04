@@ -1314,5 +1314,30 @@ class TestCubeHeadFormula(unittest.TestCase):
         self.assertEqual(len(plain_keys), 24)
 
 
+class ThinCubeTests(unittest.TestCase):
+    def test_two_row_cube_does_not_stand_in_for_the_pool(self):
+        from core.paper.rebalance.watching_matrix import _try_score_pool_from_cube_on_day
+
+        codes = [f"{i:06d}" for i in range(1, 11)]
+
+        class _Cube:
+            pass
+
+        with patch(
+            "core.research.day_cube.load_day_cube", return_value=_Cube()
+        ), patch(
+            "core.paper.rebalance.watching_matrix._items_from_day_cube",
+            return_value=[{"stock_code": "000001"}, {"stock_code": "000002"}],
+        ):
+            hit = _try_score_pool_from_cube_on_day(
+                codes,
+                day="2026-11-04",
+                clock="open",
+                cube_codes=codes,
+                score_codes=None,
+            )
+        self.assertIsNone(hit)
+
+
 if __name__ == "__main__":
     unittest.main()

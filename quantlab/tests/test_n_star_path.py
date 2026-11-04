@@ -184,17 +184,18 @@ class TestN1DataService(unittest.TestCase):
         self.assertEqual(m["data_quality"]["fallback_count"], 0)
 
 class TestN2FactorAndMl(unittest.TestCase):
-    def test_alt_sentiment_registered_and_skippable(self):
+    def test_alt_sentiment_not_in_factor_set(self):
         from core.signal.factors.meta.registry import compute_configured_factors, registered_factor_names
 
-        self.assertIn("alt_sentiment", registered_factor_names())
+        self.assertNotIn("alt_sentiment", registered_factor_names())
         bars = [
             {"date": "2026-01-%02d" % i, "open": 1, "high": 1, "low": 1, "close": 1.0 + i * 0.01, "volume": 100}
             for i in range(1, 25)
         ]
         subs, contribs, _ = compute_configured_factors(
             bars,
-            weights={"momentum": 1.0, "alt_sentiment": 0.0},
+            weights={"momentum": 1.0, "alt_sentiment": 1.0},
+            sentiment={"label": "bullish", "score": 0.9},
         )
         self.assertIn("momentum", subs)
         self.assertNotIn("alt_sentiment", subs)

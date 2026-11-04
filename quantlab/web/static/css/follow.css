@@ -641,8 +641,8 @@ body[data-page="follow"] .follow-pending-grid.watching-react-grid {
 }
 
 .follow-page .rebalance-table {
-  /* 与 base.css 同步：股票 / 动作 / 分档 / 昨收 / 开盘 / 现价(含相对开盘%) / 六列分数 */
-  --rebalance-cols: minmax(0, 1.28fr) minmax(3.4rem, 0.5fr) minmax(0, 0.4fr) minmax(0, 0.78fr) minmax(0, 0.78fr) minmax(0, 1.78fr) repeat(5, minmax(0, 0.88fr));
+  /* 与 base.css 同步：股票 / 舆情 / 动作 / 分档 / 昨收 / 开盘 / 现价(含相对开盘%) / 六列分数 */
+  --rebalance-cols: minmax(0, 1.28fr) minmax(2.2rem, 0.32fr) minmax(3.4rem, 0.5fr) minmax(0, 0.4fr) minmax(0, 0.78fr) minmax(0, 0.78fr) minmax(0, 1.78fr) repeat(5, minmax(0, 0.88fr));
   width: 100%;
   max-width: 100%;
   min-width: 0;
@@ -8427,18 +8427,18 @@ body[data-page="replay"] .follow-path-matrix-body--row3 {
 }
 
 body[data-page="replay"] .follow-path-matrix-body--row5 {
-  grid-template-columns: repeat(5, minmax(0, 1fr));
+  grid-template-columns: repeat(6, minmax(0, 1fr));
 }
 
 @media (max-width: 900px) {
   body[data-page="replay"] .follow-path-matrix-body--row5 {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+    grid-template-columns: repeat(6, minmax(0, 1fr));
   }
 }
 
 @media (max-width: 560px) {
   body[data-page="replay"] .follow-path-matrix-body--row5 {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+    grid-template-columns: repeat(6, minmax(0, 1fr));
   }
 }
 
@@ -8462,6 +8462,20 @@ body[data-page="replay"] .follow-path-matrix-box {
 body[data-page="replay"] .follow-path-matrix-box:hover {
   background: #fff;
   border-color: #cbd5e1;
+}
+
+body[data-page="replay"] .follow-path-matrix-box--sent {
+  border-color: color-mix(in srgb, var(--accent, #0f766e) 18%, var(--pm-line, #e2e8f0));
+  background: color-mix(in srgb, var(--accent, #0f766e) 4%, #fff);
+}
+
+body[data-page="replay"] .follow-path-matrix-box--sent:hover {
+  background: color-mix(in srgb, var(--accent, #0f766e) 2.5%, #fff);
+  border-color: color-mix(in srgb, var(--accent, #0f766e) 28%, #cbd5e1);
+}
+
+body[data-page="replay"] .follow-path-matrix-box--sent .follow-path-matrix-box-title {
+  color: color-mix(in srgb, var(--accent, #0f766e) 55%, var(--pm-ink, #1e293b));
 }
 
 body[data-page="replay"] .follow-path-matrix-box-text {
@@ -10139,6 +10153,15 @@ body[data-page="follow"] .paper-t0-desk-chip.is-locked .paper-t0-desk-chip-v {
   color: var(--warn, #b45309);
 }
 
+body[data-page="follow"] .paper-t0-desk-chip.is-sent {
+  border-color: color-mix(in srgb, var(--accent, #0f766e) 18%, var(--border));
+  background: color-mix(in srgb, var(--accent, #0f766e) 3.5%, var(--surface, #fff));
+}
+
+body[data-page="follow"] .paper-t0-desk-chip.is-sent .paper-t0-desk-chip-v {
+  color: color-mix(in srgb, var(--accent, #0f766e) 70%, var(--ink-2, #475569));
+}
+
 body[data-page="follow"] .paper-t0-desk-chip.is-idle .paper-t0-desk-chip-v {
   color: var(--accent);
 }
@@ -10196,8 +10219,23 @@ body[data-page="follow"] .paper-t0-desk-table .paper-t0-col-stock {
 }
 
 body[data-page="follow"] .paper-rb-desk-table {
-  width: max(100%, 66rem);
-  min-width: 66rem;
+  width: max(100%, 68.5rem);
+  min-width: 68.5rem;
+}
+
+body[data-page="follow"] .paper-rb-desk-table .paper-rb-col-sent {
+  width: 2.8rem;
+  min-width: 2.8rem;
+  text-align: center;
+  padding-left: 2px;
+  padding-right: 2px;
+}
+
+body[data-page="follow"] .rebalance-th-sent,
+body[data-page="follow"] .rebalance-sent {
+  text-align: center;
+  padding-left: 0;
+  padding-right: 0;
 }
 
 body[data-page="follow"] .paper-rb-desk-table .paper-rb-col-time {
@@ -10328,6 +10366,12 @@ body[data-page="follow"] .paper-t0-desk-dir.is-morph {
   color: var(--warn, #b45309);
   border-color: color-mix(in srgb, var(--warn, #b45309) 40%, var(--border));
   background: color-mix(in srgb, var(--warn, #b45309) 10%, var(--surface));
+}
+
+body[data-page="follow"] .paper-t0-desk-dir.is-sent {
+  color: color-mix(in srgb, var(--accent, #0f766e) 72%, var(--ink-2, #475569));
+  border-color: color-mix(in srgb, var(--accent, #0f766e) 22%, var(--border));
+  background: color-mix(in srgb, var(--accent, #0f766e) 4%, var(--surface, #fff));
 }
 
 body[data-page="follow"] .paper-t0-desk-table tr.is-locked td {

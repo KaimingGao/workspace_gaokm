@@ -376,6 +376,27 @@ def paper_t0_worker_post(body: PaperT0WorkerRequest) -> Dict[str, Any]:
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e)) from e
 
+@router.get("/api/paper/rebalance/sentiment")
+def paper_rebalance_sentiment(codes: str = "") -> Dict[str, Any]:
+    """持仓表舆情。与今日盯盘同一套：决策窗优先，缺测读库内标题。不打网。"""
+    from core.paper.rebalance.auto_worker import rebalance_fill_clock, resolve_session
+    from core.paper.rebalance.desk import _load_paper_safe, sentiment_display_for_codes
+
+    parsed = [part.strip() for part in str(codes or "").split(",") if part.strip()]
+    day = resolve_session() or ""
+    clock = rebalance_fill_clock(_load_paper_safe())
+    mapped = sentiment_display_for_codes(parsed, session=day, fill_clock=clock)
+    return {
+        "ok": True,
+        "session_date": day,
+        "fill_clock": clock,
+        "items": [
+            {"stock_code": code, "sentiment_label": row["label"], "sentiment_basis": row["basis"]}
+            for code, row in mapped.items()
+        ],
+    }
+
+
 @router.get("/api/paper/rebalance/worker")
 
 def paper_rebalance_worker_get() -> Dict[str, Any]:

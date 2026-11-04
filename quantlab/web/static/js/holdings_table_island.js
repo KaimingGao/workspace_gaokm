@@ -3,7 +3,7 @@
  */
 
 import { fmtPriceUnit, fmtPct, metricCls, fmtTableScore, scoreCls, resolveFuseScore, resolveEodScore, resolveTauScore, isHeuristicScoreScale, Y_EOD_TITLE, Y_OC_REBALANCE_TITLE, FUSE_REBALANCE_TITLE } from "./paper/fmt.js?v=p3540";
-import { sentimentBadgeHtml, watchingScoreDetail } from "./quant/watching_render.js?v=p3540";
+import { sentimentBadgeHtml, watchingScoreDetail } from "./quant/watching_render.js?v=p3565";
 import {
   isSingleHeadItem,
   singleHeadBadgeHtml,
@@ -217,11 +217,11 @@ const COLS = [
   },
   {
     id: "sent",
-    label: "情绪",
+    label: "舆情",
     width: 36,
     headClass: "watching-col-center",
     cellClass: "watching-col-center paper-hold-sent",
-    title: "标题情绪摘要",
+    title: "与今日盯盘同一标签。决策窗优先，缺测读库内标题。不进 ŷ",
   },
   { id: "shares", label: "股数", width: 56, num: true, title: "持仓股数；悬停查看买入批次与 T+1 可卖" },
   {

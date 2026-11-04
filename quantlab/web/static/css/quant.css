@@ -2416,6 +2416,11 @@ html[data-density="compact"] .quant-page {
   font-variant-numeric: tabular-nums;
 }
 
+.quant-bt-trades-host .bt-ledger-grid .watching-react-grid-cell.watching-col-sent {
+  justify-content: center;
+  text-align: center;
+}
+
 .quant-bt-trades-host .bt-ledger-grid .watching-react-grid-cell.watching-col-action {
   overflow: visible;
   letter-spacing: 0.02em;

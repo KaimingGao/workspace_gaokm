@@ -3281,40 +3281,6 @@ class QuantFactorMixin:
             pass
         return suggestion
 
-    def run_alt_sentiment_ic(
-        self,
-        *,
-        lookback: int = 80,
-        horizon_days: int = 3,
-        watching_limit: int = 8,
-        pit_fundamentals: bool = True,
-    ) -> Dict[str, Any]:
-        """FS2：观察池 alt_sentiment as_of TS IC（研究只读；不改 live 闸）。"""
-        from core.data.facade import bars_and_source_research as bars_and_source
-        from core.data.facade import get_quote
-        from core.research.sentiment_ic import summarize_alt_sentiment_ic_pool
-        from core.watching.store import read_watching
-
-        uni = read_watching()
-        codes = list(uni.get("watchlist") or [])[: max(1, min(int(watching_limit or 8), 20))]
-        panels = []
-        for code in codes:
-            quote = get_quote(code)
-            sym = quote.get("stock_code") if quote.get("success") else code
-            bars, _src = bars_and_source(code, limit=lookback + 35)
-            if not bars and quote.get("success"):
-                bars, _src = bars_and_source(sym, limit=lookback + 35)
-            if bars:
-                panels.append({"code": str(sym), "bars": bars})
-        out = summarize_alt_sentiment_ic_pool(
-            panels,
-            horizon_days=horizon_days,
-            pit_fundamentals=pit_fundamentals,
-        )
-        out["task"] = "alt_sentiment_ic"
-        out["lookback"] = lookback
-        return out
-
     def run_factor_corr(
         self,
         *,

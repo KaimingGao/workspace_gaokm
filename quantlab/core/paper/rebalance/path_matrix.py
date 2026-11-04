@@ -48,6 +48,8 @@ DEFAULT_PATH_MATRIX: Dict[str, Any] = {
     "lot_strong_amount": 20_000.0,
     # 形态硬闸（默认关）；门槛在 morph_gate 写死，不进配置
     "morph_gate_enabled": False,
+    # 舆情软先验（默认关）：空/多调 fuse±0.1% 与 rank×2/×0.5。历史回测按发布时间。
+    "sentiment_gate_enabled": False,
 }
 
 
@@ -140,6 +142,9 @@ def get_path_matrix_cfg(
     out["y_oo_gt0"] = coerce_cfg_bool(out.get("y_oo_gt0"), False)
     out["y_τc_gt0"] = coerce_cfg_bool(out.get("y_τc_gt0"), False)
     out["morph_gate_enabled"] = coerce_cfg_bool(out.get("morph_gate_enabled"), False)
+    out["sentiment_gate_enabled"] = coerce_cfg_bool(
+        out.get("sentiment_gate_enabled"), False
+    )
     # 旧门槛字段不再进配置；读盘时丢掉
     for _dead in (
         "morph_vol_pctl",

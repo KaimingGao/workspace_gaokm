@@ -168,6 +168,7 @@ DEFAULT_REBALANCE_TIMING: Dict[str, Any] = {
         "lot_base_amount": 10000.0,
         "lot_strong_amount": 20000.0,
         "morph_gate_enabled": False,
+        "sentiment_gate_enabled": False,
     },
 }
 # 旧键：读盘仍认；写入与 rank_lots 同步
@@ -815,6 +816,7 @@ def validate_execution_patch(raw: Any) -> Tuple[bool, Dict[str, Any], List[str]]
                     ),
                     # 形态硬闸（默认关）；门槛写死在 morph_gate，不入配置
                     "morph_gate_enabled": bool(pm.get("morph_gate_enabled")),
+                    "sentiment_gate_enabled": bool(pm.get("sentiment_gate_enabled", False)),
                 }
                 lots = {k: full[k] for k in full if k in pm_in}
                 lots["mode"] = "rank_lots"

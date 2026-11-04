@@ -27,7 +27,6 @@ def _research_sub_scores(
     quote: Optional[dict] = None,
     index_bars: Optional[List[dict]] = None,
     fundamentals: Optional[dict] = None,
-    sentiment: Optional[dict] = None,
     factor_names: Optional[Tuple[str, ...]] = None,
 ) -> Dict[str, Optional[float]]:
     """研究用：逐个算注册因子；默认绕开 score_bars / regime。
@@ -45,7 +44,6 @@ def _research_sub_scores(
                 quote=quote,
                 index_bars=index_bars,
                 fundamentals=fundamentals,
-                sentiment=sentiment,
                 money_flow=None,
             )
             row[key] = float(score)
@@ -125,7 +123,6 @@ def collect_oo_panel(
     fundamentals: Optional[dict] = None,
     stock_code: Optional[str] = None,
     pit_fundamentals: bool = True,
-    sentiment_pit: bool = False,
     respect_regime: bool = False,
     respect_macro_regime: bool = False,
     config: Optional[dict] = None,
@@ -138,7 +135,6 @@ def collect_oo_panel(
 
     默认全量注册因子（不经 regime 白名单）；因子可缺测（None）。
     E2：默认按决策日 PIT 解析财务。
-    FS2：``sentiment_pit=True`` 时按 as_of 注入 alt_sentiment（需标题历史）。
     X4：``respect_regime=True`` 时因子集对齐 live regime.enabled_factors。
     ``excess_mode``：none | index（P2b；index 时扣同期指数前瞻收益，缺指数则跳过该样本）。
     ``keep_dates``：给定时只为这些决策日计算并保留特征行。
@@ -164,7 +160,6 @@ def collect_oo_panel(
         max_window=max_window,
     )
     fund_cache: Dict[str, Optional[dict]] = {}
-    sent_cache: Dict[str, Optional[dict]] = {}
 
     def _fund_for(decision_date: str) -> Optional[dict]:
         if not pit_fundamentals:
@@ -184,21 +179,6 @@ def collect_oo_panel(
             metrics = None
         fund_cache[decision_date] = metrics
         return metrics
-
-    def _sent_for(decision_date: str) -> Optional[dict]:
-        if not sentiment_pit or not stock_code:
-            return None
-        if decision_date in sent_cache:
-            return sent_cache[decision_date]
-        try:
-            from core.sentiment import sentiment_as_of
-
-            pack = sentiment_as_of(stock_code, decision_date)
-            sent = pack.get("sentiment") if pack.get("ok") else None
-        except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
-            sent = None
-        sent_cache[decision_date] = sent
-        return sent
 
     xs: List[Dict[str, Optional[float]]] = []
     ys: List[float] = []
@@ -243,7 +223,6 @@ def collect_oo_panel(
             quote=quote,
             index_bars=idx_slice,
             fundamentals=_fund_for(decision_date),
-            sentiment=_sent_for(decision_date),
             factor_names=factor_names,
         )
         if not any(v is not None for v in row.values()):

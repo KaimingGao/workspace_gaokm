@@ -115,7 +115,7 @@ class TestValidationHygiene(unittest.TestCase):
             self.assertEqual(loaded["include_only"], ["600000"])
 
 class TestSentimentDegradedPrior(unittest.TestCase):
-    def test_degraded_skips_gate(self):
+    def test_degraded_skips_active_badge(self):
         sent = score_headlines(
             [{"title": "公司减持公告"}],
             degraded=True,
@@ -127,7 +127,7 @@ class TestSentimentDegradedPrior(unittest.TestCase):
             {
                 "sentiment": {
                     "include_in_score": False,
-                    "prior": {"mode": "gate", "scale_buy_pct": 0.6},
+                    "prior": {"mode": "off"},
                 }
             }
         ):
@@ -135,7 +135,7 @@ class TestSentimentDegradedPrior(unittest.TestCase):
         self.assertFalse(prior.get("active"))
         self.assertTrue(prior.get("degraded"))
 
-    def test_fresh_bearish_still_gates(self):
+    def test_fresh_bearish_still_active_badge(self):
         sent = score_headlines([{"title": "大股东减持"}])
         self.assertEqual(sent.get("label"), "bearish")
         self.assertTrue(sent.get("prior_eligible", True))
@@ -143,7 +143,7 @@ class TestSentimentDegradedPrior(unittest.TestCase):
             {
                 "sentiment": {
                     "include_in_score": False,
-                    "prior": {"mode": "gate", "scale_buy_pct": 0.6},
+                    "prior": {"mode": "off"},
                 }
             }
         ):

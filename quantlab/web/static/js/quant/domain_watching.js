@@ -1054,11 +1054,11 @@ export function installWatching(q) {
       if (gen !== state.watchingSentimentGen) return;
       const pending = (codeList || []).filter((c) => c && !done.has(c));
       if (!pending.length) return;
-      // 服务端单批上限 20；只问屏内，不把全池串行拉标题。
+      // 服务端先读本地新闻库；没有或超过 15 分钟再向东财要。单批最多 20 只。
       const chunk = pending.slice(0, 20);
       chunk.forEach((c) => done.add(c));
       const ctrl = new AbortController();
-      const timer = setTimeout(() => ctrl.abort(), 20000);
+      const timer = setTimeout(() => ctrl.abort(), 70000);
       try {
         const res = await fetch(
           `/api/watching/sentiment?codes=${encodeURIComponent(chunk.join(","))}&limit=3`,
@@ -1276,6 +1276,7 @@ export function installWatching(q) {
       sectionEls: [
         document.getElementById("watching-section-intake"),
         document.getElementById("watching-section-watchlist"),
+        document.getElementById("watching-section-news-archive"),
         document.getElementById("watching-section-build-log"),
         document.getElementById("watching-section-dq"),
       ],

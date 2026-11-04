@@ -29,6 +29,101 @@ DEFAULT_TTL_SEC = 15 * 60
 MAX_BATCH = 20
 ALERT_SCORE_THRESHOLD = 0.6
 
+# 业绩方向：同一标题内「指标 + 方向」，不把「减少」单独放进负向词。
+# 指标按长短排列，短词（净利 / 利润）不得再命中长词内部。
+_EARNINGS_METRICS: tuple = (
+    "扣非归母净利润",
+    "归属于上市公司股东的净利润",
+    "扣非净利润",
+    "归母净利润",
+    "扣非利润",
+    "扣非盈利",
+    "归母净利",
+    "扣非净利",
+    "利润总额",
+    "营业收入",
+    "每股收益",
+    "净利润",
+    "净利",
+    "利润",
+    "营收",
+)
+_EARNINGS_POS_DIRS: tuple = (
+    "暴增",
+    "猛增",
+    "大增",
+    "翻倍",
+    "倍增",
+    "预增",
+    "增长",
+    "增加",
+    "上升",
+)
+_EARNINGS_NEG_DIRS: tuple = ("腰斩", "大降", "预减", "减少", "下降", "下滑", "降低")
+# 亏损收窄是正向；词典里的「亏损 / 预亏」若只出现在这些短语里，从负向拿掉。
+_LOSS_NARROW_PHRASES: tuple = (
+    "亏损同比减少",
+    "亏损同比收窄",
+    "亏损同比下降",
+    "亏损同比降低",
+    "预亏同比减少",
+    "预亏同比收窄",
+    "亏损减少",
+    "亏损收窄",
+    "亏损下降",
+    "亏损降低",
+    "预亏减少",
+    "预亏收窄",
+    "预亏下降",
+    "减亏",
+)
+_LEXICON_NEG_SUPPRESS = frozenset({"亏损", "预亏"})
+_LOSS_NARROW_GAP_RE = re.compile(r"(?:净)?亏损.{0,16}(?:收窄|减亏)")
+_EARNINGS_FILLER_RE = re.compile(r"^(?:同比|环比|大幅|小幅|明显|显著|均){0,3}")
+_EARNINGS_GAP_RE = re.compile(
+    r"^(?:为|约|达|至|实现)?"
+    r"[\d.，,、%％万元亿人民币\s]{1,40}"
+    r"(?:同比|环比|较去年同期|较上年同期|较上年|较同期)"
+    r"(?:同比|环比|大幅|小幅|明显|显著|均)?"
+)
+_SHORT_GROWTH_RE = re.compile(r"增(?!亏)(?:幅)?(?:约)?\d")
+_SHORT_DROP_RE = re.compile(r"降(?!低)(?:\d|[一二三四五六七八九两]成)")
+# 「突破半年线 / 只个股」是技术扫描，不是公司经营突破。
+_TECH_BREAK_MARKERS: tuple = (
+    "只个股",
+    "均线",
+    "半年线",
+    "年线",
+    "五日线",
+    "月线",
+    "盘中突破",
+)
+_NEGATION_MARKERS: tuple = ("不存在", "未涉及", "不涉及", "没有", "未发生", "不构成")
+_NEGATION_GUARDED = frozenset(
+    {"诉讼", "违规", "处罚", "减持", "立案", "亏损", "预亏", "问询", "警示"}
+)
+# 业绩事件与持仓披露。不把裸「下降」算利空，避免「毛利率下降」以外的无关下降被扫进去。
+_BULLISH_EVENT_PHRASES: tuple = ("历史新高", "再创新高")
+_STAKE_RE = re.compile(
+    r"(好仓|淡仓)(?:比例)?(?:同比|环比|大幅|小幅)?(下降|减少|降低|上升|增加|增长)"
+)
+_STAKE_POS = {
+    ("好仓", "上升"): "好仓上升",
+    ("好仓", "增加"): "好仓上升",
+    ("好仓", "增长"): "好仓上升",
+    ("淡仓", "下降"): "淡仓下降",
+    ("淡仓", "减少"): "淡仓下降",
+    ("淡仓", "降低"): "淡仓下降",
+}
+_STAKE_NEG = {
+    ("好仓", "下降"): "好仓下降",
+    ("好仓", "减少"): "好仓下降",
+    ("好仓", "降低"): "好仓下降",
+    ("淡仓", "上升"): "淡仓上升",
+    ("淡仓", "增加"): "淡仓上升",
+    ("淡仓", "增长"): "淡仓上升",
+}
+
 # 规则词典（可被 data/sentiment_lexicon.json 覆盖）
 _DEFAULT_LEXICON: Dict[str, List[str]] = {
     "positive": [
@@ -119,6 +214,132 @@ def _annotate_include_gate(sent: Optional[Dict[str, Any]]) -> Dict[str, Any]:
     return out
 
 
+def _match_earnings_dir(text: str) -> Optional[str]:
+    """方向词，「增/降 + 数字」（同比增177%、同比降98%）。「增亏」不是增长。"""
+    for word in _EARNINGS_POS_DIRS + _EARNINGS_NEG_DIRS:
+        if text.startswith(word):
+            return word
+    if _SHORT_GROWTH_RE.match(text):
+        return "增长"
+    if _SHORT_DROP_RE.match(text):
+        return "下降"
+    return None
+
+
+def _direction_after_metric(tail: str) -> Optional[str]:
+    """指标之后：紧挨的方向，或金额后再接同比/环比。不跨到另一分句的「减少」。"""
+    filler = _EARNINGS_FILLER_RE.match(tail)
+    offset = filler.end() if filler else 0
+    direction = _match_earnings_dir(tail[offset:])
+    if direction:
+        return direction
+    gap = _EARNINGS_GAP_RE.match(tail)
+    if not gap:
+        return None
+    return _match_earnings_dir(tail[gap.end() :])
+
+
+def _loss_narrow_span(title: str) -> bool:
+    """亏损与收窄/减亏之间可以隔金额。「扩大」不算收窄。"""
+    for match in _LOSS_NARROW_GAP_RE.finditer(title):
+        if "扩大" not in match.group(0):
+            return True
+    return any(phrase in title for phrase in _LOSS_NARROW_PHRASES)
+
+
+def _loss_narrow_residue(title: str) -> str:
+    residue = title
+    for phrase in _LOSS_NARROW_PHRASES:
+        residue = residue.replace(phrase, "")
+
+    def _drop_gap(match: re.Match) -> str:
+        if "扩大" in match.group(0):
+            return match.group(0)
+        return ""
+
+    return _LOSS_NARROW_GAP_RE.sub(_drop_gap, residue)
+
+
+def _lexicon_hit(title: str, word: str) -> bool:
+    """词典整词。技术扫描里的「突破」、板块/持仓「下跌」、否定句不算。"""
+    if not word or word not in title:
+        return False
+    if word == "突破" and any(marker in title for marker in _TECH_BREAK_MARKERS):
+        return False
+    start = 0
+    while True:
+        idx = title.find(word, start)
+        if idx < 0:
+            return False
+        pre = title[max(0, idx - 8) : idx]
+        if word == "下跌" and (
+            (pre.endswith("股") and not pre.endswith("股价"))
+            or any(marker in pre for marker in ("概念", "持股", "价格", "指数", "板块"))
+        ):
+            start = idx + len(word)
+            continue
+        if word == "下滑" and title[max(0, idx - 2) : idx] == "需求":
+            start = idx + len(word)
+            continue
+        if word in _NEGATION_GUARDED and any(
+            marker in title[max(0, idx - 18) : idx] for marker in _NEGATION_MARKERS
+        ):
+            start = idx + len(word)
+            continue
+        return True
+
+
+def _earnings_phrase_hits(title: str) -> tuple:
+    """返回 (正向合成词, 负向合成词)。费用/成本/负债的增减不在这里。"""
+    pos: List[str] = []
+    neg: List[str] = []
+    for phrase in _BULLISH_EVENT_PHRASES:
+        if phrase in title:
+            pos.append(phrase)
+            break
+    stake = _STAKE_RE.search(title)
+    if stake:
+        key = (stake.group(1), stake.group(2))
+        if key in _STAKE_POS:
+            pos.append(_STAKE_POS[key])
+        elif key in _STAKE_NEG:
+            neg.append(_STAKE_NEG[key])
+    if "净资产为负" in title:
+        neg.append("净资产为负")
+    elif "资不抵债" in title:
+        neg.append("资不抵债")
+    if _loss_narrow_span(title):
+        pos.append("亏损收窄")
+    if "增亏" in title:
+        neg.append("增亏")
+    occupied: List[tuple] = []
+    for metric in _EARNINGS_METRICS:
+        start = 0
+        while True:
+            idx = title.find(metric, start)
+            if idx < 0:
+                break
+            end = idx + len(metric)
+            if any(s <= idx and end <= e for s, e in occupied):
+                start = idx + 1
+                continue
+            nxt = title[end : end + 2]
+            if metric == "净利" and title[end : end + 1] in ("率", "息"):
+                start = end
+                continue
+            if metric == "利润" and (nxt in ("分配", "贡献") or title[end : end + 1] == "率"):
+                start = end
+                continue
+            occupied.append((idx, end))
+            direction = _direction_after_metric(title[end:])
+            if direction in _EARNINGS_POS_DIRS:
+                pos.append(f"{metric}{direction}")
+            elif direction in _EARNINGS_NEG_DIRS:
+                neg.append(f"{metric}{direction}")
+            start = end
+    return pos, neg
+
+
 def score_headlines(
     items: Sequence[dict],
     *,
@@ -129,11 +350,13 @@ def score_headlines(
     """规则情绪：有命中时打标签；强度按「命中标题占比」稀释。
 
     - label：由唯一关键词极性（仅负 / 仅正 / 混合）
+    - 关键词 = 词典整词 + 同一标题内的业绩方向（净利大增/翻倍、净利润为金额后再同比增长、同比降、亏损与收窄可隔金额）
+    - 「突破均线 / 概念下跌 / 持股比例下跌 / 不存在诉讼」不记
     - score：``polar * coverage``，其中 polar=neg/(pos+neg)，
       coverage=命中标题数/总标题数。避免「5 条里 1 条分行违规」被打成 1.0
-      误触发 gate 缩仓。
+      虚高影响展示/标签。
     - 无命中 → neutral / score=null
-    - degraded=True：超时/空源降级，prior 不触发 gate（prior_eligible=false）
+    - degraded=True：超时/空源降级，徽章不标 active（prior_eligible=false）
     """
     lex = lexicon or load_lexicon()
     pos_words = [w for w in (lex.get("positive") or []) if w]
@@ -151,18 +374,31 @@ def score_headlines(
         n_titles += 1
         title_pos = False
         title_neg = False
+        earn_pos, earn_neg = _earnings_phrase_hits(title)
+        residue = _loss_narrow_residue(title)
         for w in pos_words:
-            if w in title:
+            if _lexicon_hit(title, w):
                 title_pos = True
                 if w not in seen_pos:
                     seen_pos.add(w)
                     hit_pos.append(w)
         for w in neg_words:
-            if w in title:
+            haystack = residue if w in _LEXICON_NEG_SUPPRESS else title
+            if _lexicon_hit(haystack, w):
                 title_neg = True
                 if w not in seen_neg:
                     seen_neg.add(w)
                     hit_neg.append(w)
+        for w in earn_pos:
+            title_pos = True
+            if w not in seen_pos:
+                seen_pos.add(w)
+                hit_pos.append(w)
+        for w in earn_neg:
+            title_neg = True
+            if w not in seen_neg:
+                seen_neg.add(w)
+                hit_neg.append(w)
         if title_pos or title_neg:
             n_hit_titles += 1
     n_pos, n_neg = len(hit_pos), len(hit_neg)
@@ -361,20 +597,13 @@ def sentiment_as_of(
     sent["n_titles"] = n
     sent["as_of"] = as_of_d
     sent["coverage_status"] = "ok" if n > 0 else "missing"
-    try:
-        from core.signal.factors.alt_sentiment import score_alt_sentiment
-
-        factor_score, _meta = score_alt_sentiment([], sentiment=sent)
-    except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
-        factor_score = 50.0
     return {
         "ok": n > 0,
         "code": str(code or "").strip(),
         "as_of": as_of_d,
         "sentiment": sent,
-        "metrics": {"alt_sentiment": factor_score, "n_titles": n},
-        "factor_score": factor_score,
-        "note": "PIT 标题 as_of；无日志则 missing",
+        "metrics": {"n_titles": n},
+        "note": "PIT 标题 as_of；无日志则 missing。不进因子集。",
     }
 
 
@@ -507,10 +736,8 @@ def fetch_stock_headlines(
     if cached and not force and _cache_fresh(cached, ttl_sec=ttl_sec):
         items = list(cached.get("items") or [])[:limit]
         if items:
-            sent = cached.get("sentiment")
-            if not isinstance(sent, dict):
-                sent = _attach_sentiment(items, lexicon=lexicon)
-            sent = _annotate_include_gate(sent if isinstance(sent, dict) else {})
+            # 标题缓存可复用；标签按当前规则重算，避免词典更新后 TTL 内仍是旧「中」。
+            sent = _annotate_include_gate(_attach_sentiment(items, lexicon=lexicon))
             sent.setdefault("degraded", False)
             sent.setdefault("prior_eligible", True)
             return {
@@ -550,10 +777,9 @@ def fetch_stock_headlines(
         reason = f"资讯源超时：{exc}"
         if cached and (cached.get("items") or []):
             items = list(cached.get("items") or [])[:limit]
-            sent = cached.get("sentiment")
-            if not isinstance(sent, dict):
-                sent = _attach_sentiment(items, lexicon=lexicon)
-            sent = _mark_sentiment_degraded(sent, reason=reason)
+            sent = _mark_sentiment_degraded(
+                _attach_sentiment(items, lexicon=lexicon), reason=reason
+            )
             return {
                 "ok": True,
                 "stock_code": cached.get("stock_code") or code_key,
@@ -584,10 +810,9 @@ def fetch_stock_headlines(
         err = str(raw.get("error") or "未获取到相关资讯")
         if cached and (cached.get("items") or []):
             items = list(cached.get("items") or [])[:limit]
-            sent = cached.get("sentiment")
-            if not isinstance(sent, dict):
-                sent = _attach_sentiment(items, lexicon=lexicon)
-            sent = _mark_sentiment_degraded(sent, reason=err)
+            sent = _mark_sentiment_degraded(
+                _attach_sentiment(items, lexicon=lexicon), reason=err
+            )
             return {
                 "ok": True,
                 "stock_code": cached.get("stock_code") or code_key,
@@ -664,40 +889,18 @@ def list_watchlist_sentiment(
     force: bool = False,
     ttl_sec: int = DEFAULT_TTL_SEC,
 ) -> Dict[str, Any]:
-    """批量观察舆情（串行，上限 MAX_BATCH）。"""
+    """批量观察舆情。先读本地新闻库，没有或过期再向东财要并写回。上限 MAX_BATCH。"""
     limit = max(1, min(int(limit or 3), 8))
     watch = _watchlist_codes(codes)
-    lexicon = load_lexicon()
-    items: List[Dict[str, Any]] = []
-    for code in watch:
-        try:
-            row = fetch_stock_headlines(
-                code,
-                limit=limit,
-                force=force,
-                ttl_sec=ttl_sec,
-                lexicon=lexicon,
-            )
-        except Exception as exc:
-            logger.exception('unexpected error in list_watchlist_sentiment')
-            row = {
-                "ok": False,
-                "stock_code": code,
-                "stock_name": "",
-                "items": [],
-                "sentiment": score_headlines([], lexicon=lexicon),
-                "error": f"资讯拉取失败：{exc}",
-                "updated_at": None,
-                "from_cache": False,
-            }
-        items.append(row)
-    return {
-        "ok": True,
-        "count": len(items),
-        "limit": limit,
-        "items": items,
-        "note": "观察舆情标题与规则情绪；默认不参与 score/ŷ（sentiment.include_in_score）。",
-    }
+    from core.news_archive import serve_watch_headlines
+
+    return serve_watch_headlines(
+        watch,
+        limit=limit,
+        max_age_sec=ttl_sec,
+        force=force,
+        lexicon=load_lexicon(),
+    )
 
 
 def _title_set(items: Sequence[dict]) -> Set[str]:
@@ -859,7 +1062,7 @@ def read_last_sentiment_alerts() -> Dict[str, Any]:
 
 # --------------------------------------------------------------------------- #
 # LLM 情绪打分（研究轨）：Qwen 对新闻标题+正文语义分析；带磁盘缓存。
-# 不进生产 ŷ（prior_only）；仅作 alt_sentiment 的研究对照。
+# 叙事对照。不进因子集，不得写入 sub_scores / ŷ。
 # --------------------------------------------------------------------------- #
 
 LLM_SENTIMENT_TTL_SEC = 30 * 60  # LLM 调用昂贵，缓存 30 分钟

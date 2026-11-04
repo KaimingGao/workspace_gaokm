@@ -948,6 +948,36 @@ class TestPlanRankLotDay(unittest.TestCase):
         self.assertIsNone(held_exit_reason({}, 0.001))
         self.assertIn("<0%", held_exit_reason({}, -0.001) or "")
 
+    def test_display_enter_skip_reason_uses_raw_fuse_and_rank(self):
+        from core.paper.rebalance.rank_lots import _display_enter_skip_reason
+
+        cfg = {"fuse_enter": 0.01, "oo_rank_max": 10}
+        # 原始过线、先验后不过：原因写原始 fuse，不写假不等式。
+        self.assertEqual(
+            _display_enter_skip_reason(
+                {},
+                cfg,
+                rs_raw=0.0105,
+                decided="fuse=0.950%<1% 未过入场",
+            ),
+            "fuse=1.050% 未过入场",
+        )
+        # 名次闸：写原始名次，不写 ×2 后的 12。
+        self.assertEqual(
+            _display_enter_skip_reason(
+                {
+                    "y_oo_rank": 6,
+                    "y_tc_rank": 5,
+                    "y_oo_rank_n": 20,
+                    "y_tc_rank_n": 20,
+                },
+                cfg,
+                rs_raw=0.02,
+                decided="max(oo_rank=12, τc_rank=10)=12≥10 未过入场",
+            ),
+            "max(oo_rank=6, τc_rank=5)=6 未过入场",
+        )
+
     def test_held_fail_enter_exits(self):
         """已持仓未过入场：清仓，不续持。"""
         from core.paper.rebalance.rank_lots import plan_rank_lot_day

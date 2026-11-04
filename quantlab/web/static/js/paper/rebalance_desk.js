@@ -2,6 +2,25 @@
 
 import { stockCellHtml, stampStockFitTiers } from "./t0_table.js?v=p3541";
 
+const SENT_BADGE = {
+  bullish: ["is-bull", "多"],
+  bearish: ["is-bear", "空"],
+  mixed: ["is-mixed", "杂"],
+  neutral: ["is-neutral", "中"],
+  missing: ["is-neutral", "—"],
+};
+
+/** 决策窗标签。缺测且库内也没有标题时是 —，不是中。不进 ŷ。 */
+export function sentimentDeskBadgeHtml(label, basis) {
+  const key = String(label || "missing").trim() || "missing";
+  const pair = SENT_BADGE[key] || ["is-neutral", "中"];
+  const title =
+    basis === "library"
+      ? "库内现有标题。09:30 前未入库，闸不动作。不进 ŷ。"
+      : "不进 ŷ。勾选闸时空/多调 fuse±0.1%·rank×2/×0.5，不清仓；缺测不调";
+  return `<span class="watching-sent-badge ${pair[0]}" title="${title}">${pair[1]}</span>`;
+}
+
 function escapeHtml(s) {
   return String(s ?? "")
     .replace(/&/g, "&amp;")
@@ -47,6 +66,9 @@ function actionCell(action, row) {
   }
   if (a === "skip" && isMorphGateSkip(row)) {
     return `<td class="paper-t0-col-dir"><span class="paper-t0-desk-dir is-morph" title="形态闸跳过，未下单">跳</span></td>`;
+  }
+  if (a === "skip" && isSentimentGateSkip(row)) {
+    return `<td class="paper-t0-col-dir"><span class="paper-t0-desk-dir is-sent" title="舆情软先验 fuse/rank 未过入场，未下单">跳</span></td>`;
   }
   return `<td class="paper-t0-col-dir"><span class="paper-t0-desk-dir is-none">${escapeHtml(
     actionLabel(a)
@@ -104,6 +126,18 @@ function isMorphGateSkip(r) {
   if (!isDeskSkip(r)) return false;
   if (r && r.morph_gate === true) return true;
   return String((r && r.reason) || "").trim().startsWith("形态闸");
+}
+
+/** 舆情先验跳过。认 sentiment_gate / sentiment_prior，或原因含舆情闸/舆情空/舆情多。 */
+function isSentimentGateSkip(r) {
+  if (!isDeskSkip(r)) return false;
+  if (r && (r.sentiment_gate === true || r.sentiment_prior)) return true;
+  const reason = String((r && r.reason) || "").trim();
+  return (
+    reason.startsWith("舆情闸") ||
+    reason.includes("舆情空") ||
+    reason.includes("舆情多")
+  );
 }
 
 function fmtAmt(v) {
@@ -206,7 +240,8 @@ export function renderPaperRebalanceWorkerDesk(el, desk) {
   const counts = desk.counts || {};
   const covered = desk.rows.filter((r) => !isDeskSkip(r));
   const morphSkips = desk.rows.filter((r) => isMorphGateSkip(r));
-  const rows = covered.filter((r) => isDeskFill(r)).concat(morphSkips);
+  const sentSkips = desk.rows.filter((r) => isSentimentGateSkip(r));
+  const rows = covered.filter((r) => isDeskFill(r)).concat(morphSkips, sentSkips);
   const n = covered.length;
   const sess = desk.session_date || desk.state_session_date || "—";
   const chips =
@@ -216,7 +251,8 @@ export function renderPaperRebalanceWorkerDesk(el, desk) {
     deskChip("is-done", "完成", counts.done) +
     deskChip("is-legs", "清仓", desk.exit_count) +
     deskChip("is-legs", "减仓", desk.reduce_count) +
-    deskChip("is-locked", "形态闸", morphSkips.length);
+    deskChip("is-locked", "形态闸", morphSkips.length) +
+    deskChip("is-sent", "舆情先验", sentSkips.length);
   const openAttr = keepOpen ? " open" : "";
   const sessLine = `<span class="paper-t0-desk-sess" title="交易日会话">${escapeHtml(
     String(sess)
@@ -259,6 +295,10 @@ export function renderPaperRebalanceWorkerDesk(el, desk) {
           String(r.phase || "watch")
         )}" data-code="${escapeHtml(String(r.stock_code || ""))}">` +
         stockCellHtml(r) +
+        `<td class="paper-rb-col-sent">${sentimentDeskBadgeHtml(
+          r.sentiment_label,
+          r.sentiment_basis
+        )}</td>` +
         timeCell(r.ts) +
         actionCell(r.action, r) +
         `<td class="num paper-t0-col-legs">${escapeHtml(fmtShares(r.shares))}</td>` +
@@ -321,6 +361,7 @@ export function renderPaperRebalanceWorkerDesk(el, desk) {
     `<table class="quant-weight-table paper-t0-table paper-t0-desk-table paper-rb-desk-table">` +
     `<colgroup>` +
     `<col class="paper-t0-col-stock" />` +
+    `<col class="paper-rb-col-sent" />` +
     `<col class="paper-rb-col-time" />` +
     `<col class="paper-t0-col-dir" />` +
     `<col class="paper-t0-col-legs" />` +
@@ -335,6 +376,7 @@ export function renderPaperRebalanceWorkerDesk(el, desk) {
     `</colgroup>` +
     `<thead><tr>` +
     `<th scope="col" class="paper-t0-col-stock">标的</th>` +
+    `<th scope="col" class="paper-rb-col-sent" title="决策窗舆情。不进 ŷ。勾选闸时空/多调 fuse±0.1%·rank×2/×0.5，不清仓；缺测不调">舆情</th>` +
     `<th scope="col" class="num paper-rb-col-time" title="本笔落账时间">时间</th>` +
     `<th scope="col" class="paper-t0-col-dir">动作</th>` +
     `<th scope="col" class="num paper-t0-col-legs" title="本笔股数">手数</th>` +

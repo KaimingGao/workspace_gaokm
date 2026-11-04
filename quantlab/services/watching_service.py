@@ -77,16 +77,29 @@ class WatchingService:
         return list_watchlist_sentiment(codes, limit=limit, force=force)
 
     def sentiment_one(self, code: str, *, limit: int = 8, force: bool = False) -> Dict[str, Any]:
-        from core.sentiment import fetch_stock_headlines
+        from core.news_archive import serve_watch_headlines
 
-        return fetch_stock_headlines(code, limit=limit, force=force)
+        out = serve_watch_headlines([code], limit=limit, force=force)
+        rows = list(out.get("items") or [])
+        if rows:
+            return rows[0]
+        return {
+            "ok": False,
+            "stock_code": str(code or "").strip(),
+            "stock_name": "",
+            "items": [],
+            "sentiment": {"label": "missing", "score": None, "include_in_score": False},
+            "error": "缺少股票代码",
+            "updated_at": None,
+            "from_cache": False,
+            "from_archive": True,
+        }
 
     def sentiment_analysis(self, code: str) -> Dict[str, Any]:
-        """基于舆情标题的 AI 分析（无 key 时降级提示）。"""
+        """基于舆情标题的 AI 分析（无 key 时降级提示）。标题与表格同一条本地优先路径。"""
         from agent.llm_client import LLMClient
-        from core.sentiment import fetch_stock_headlines
 
-        headlines = fetch_stock_headlines(code, limit=10)
+        headlines = self.sentiment_one(code, limit=10)
         if not headlines.get("ok") or not headlines.get("items"):
             return {"ok": False, "analysis": "暂无足够舆情数据进行分析"}
 

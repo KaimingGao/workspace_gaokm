@@ -5,7 +5,6 @@ from __future__ import annotations
 import unittest
 
 from core.signal.config import DEFAULT_SIGNAL_CONFIG, load_signal_config
-from core.signal.factors.alt_sentiment import score_alt_sentiment
 from core.signal.factors.amihud import score_amihud
 from core.signal.factors.dividend import score_dividend
 from core.signal.factors.earnings_yield import score_earnings_yield
@@ -41,7 +40,7 @@ class TestV21FactorThicken(unittest.TestCase):
         names = set(registered_factor_names())
         for fac in NEW_FACTORS:
             self.assertIn(fac, names)
-        self.assertIn("alt_sentiment", names)
+        self.assertNotIn("alt_sentiment", names)
         self.assertGreaterEqual(len(names), 20)
 
     def test_weights_sum_to_one(self):
@@ -51,7 +50,7 @@ class TestV21FactorThicken(unittest.TestCase):
         self.assertAlmostEqual(sum(cfg["weights"].values()), 1.0, places=3)
         for fac in NEW_FACTORS:
             self.assertIn(fac, cfg["weights"])
-        self.assertGreater(cfg["weights"]["alt_sentiment"], 0)
+        self.assertNotIn("alt_sentiment", cfg["weights"])
         self.assertTrue((cfg.get("cross_section") or {}).get("industry_residual"))
         self.assertTrue((cfg.get("cross_section") or {}).get("size_residual"))
 
@@ -203,7 +202,7 @@ class TestV21FactorThicken(unittest.TestCase):
         self.assertTrue(empty_meta.get("omit_sub_score"))
         self.assertEqual(empty_score, 50.0)
 
-    def test_alt_sentiment_no_hardcoded_adj_in_score_bars(self):
+    def test_sentiment_does_not_enter_score_bars(self):
         bars = _rising_bars()
         from core.signal.config import signal_config_overlay
 
@@ -215,11 +214,8 @@ class TestV21FactorThicken(unittest.TestCase):
                 config=load_signal_config(reload=True),
             )
         self.assertNotIn("sentiment_adj", bull.get("factor_contrib") or {})
-        self.assertIn("alt_sentiment", bull.get("sub_scores") or {})
-        self.assertGreater(bull["sub_scores"]["alt_sentiment"], 50)
-
-        s, _ = score_alt_sentiment([], sentiment={"label": "bearish", "score": 0.8})
-        self.assertLess(s, 45)
+        self.assertNotIn("alt_sentiment", bull.get("sub_scores") or {})
+        self.assertNotIn("舆情因子", " ".join(bull.get("reasons") or []))
 
     def test_compute_configured_includes_new(self):
         bars = _rising_bars()

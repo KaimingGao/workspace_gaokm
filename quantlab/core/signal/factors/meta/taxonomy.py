@@ -1,6 +1,6 @@
 """因子经济族 + 数据源状态（研究枢纽分组表用）。
 
-经济族以 ``signal_config.factor_groups`` 为准；未入五组的反转 / 舆情单独成族。
+经济族以 ``signal_config.factor_groups`` 为准；未入五组的反转单独成族。
 来源徽章：真源 / 代理 / 旁路。
 """
 
@@ -16,7 +16,6 @@ FAMILY_META: Tuple[Tuple[str, str, str], ...] = (
     ("risk", "风险", "波动、跳空、过热、尾盘异动"),
     ("residual", "残差", "相对市场、特异动量、规模"),
     ("reversal", "反转", "短线反转，与动量拆开避免双计"),
-    ("sentiment", "舆情", "研究旁路，默认不进 ŷ"),
     (
         "pv_derived",
         "量价衍生",
@@ -34,7 +33,6 @@ FAMILY_ORDER: Dict[str, int] = {fid: i for i, (fid, _, _) in enumerate(FAMILY_ME
 # 未进 factor_groups 的注册名 / 前缀族
 EXTRA_FAMILY: Dict[str, str] = {
     "reversal": "reversal",
-    "alt_sentiment": "sentiment",
     "alpha_oo": "pv_derived",
     "alpha_tc": "pv_derived",
     "alpha_th": "pv_derived",
@@ -75,10 +73,15 @@ REMOVED_RAW_BASIS_NAMES: frozenset = frozenset(
 # 已退役 raw 前缀（alpha158 → alpha_oo；旧模型/报告键）
 REMOVED_RAW_PREFIXES: Tuple[str, ...] = ("raw_alpha158_",)
 
+# 已退出因子集的名字（旧模型 / 报告 / 截面列）
+REMOVED_FACTOR_NAMES: frozenset = frozenset({"alt_sentiment"})
+
 
 def is_removed_factor(name: str) -> bool:
     key = str(name or "").strip()
-    if key in REMOVED_RAW_BASIS_NAMES:
+    if key in REMOVED_RAW_BASIS_NAMES or key in REMOVED_FACTOR_NAMES:
+        return True
+    if key.startswith("alt_sentiment_"):
         return True
     return any(key.startswith(p) for p in REMOVED_RAW_PREFIXES)
 

@@ -283,6 +283,7 @@ class RebalanceAutoWorker:
 
     def __init__(self) -> None:
         self._lock = threading.Lock()
+        self._news_poll_lock = threading.Lock()
         self._stop = threading.Event()
         self._thread: Optional[threading.Thread] = None
         self._enabled = False
@@ -418,6 +419,23 @@ class RebalanceAutoWorker:
             if session:
                 self._runtime["last_run_session"] = session
 
+    def _kick_news_archive_poll(self) -> None:
+        """整池拉取走旁路线程，避免堵住开盘窗里的调仓。"""
+        if not self._news_poll_lock.acquire(blocking=False):
+            return
+
+        def run() -> None:
+            try:
+                from core.news_archive import maybe_poll_news_archive
+
+                maybe_poll_news_archive()
+            except Exception:  # noqa: BLE001
+                logger.debug("news archive poll skipped", exc_info=True)
+            finally:
+                self._news_poll_lock.release()
+
+        threading.Thread(target=run, name="news-archive-poll", daemon=True).start()
+
     def _tick(self) -> None:
         from core.paths import PAPER_PATH
         from core.ports.paper_cycle import get_paper_cycle
@@ -429,6 +447,7 @@ class RebalanceAutoWorker:
             if self._inflight:
                 self._set_tick("执行中…")
                 return
+        self._kick_news_archive_poll()
 
         sess = resolve_session()
         paper = _load_paper_for_clock()

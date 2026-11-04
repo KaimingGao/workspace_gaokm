@@ -621,13 +621,66 @@ class TestHoldingScoresCausalRebalance(unittest.TestCase):
         self.assertIsInstance(held.get("fuse_enter_pct"), float)
         self.assertGreater(held["fuse_enter_pct"], 0)
 
+    def test_lake_reject_stub_still_stamps_ranks(self):
+        """L2 缺分时仍留持仓行并盖当日名次，避免 fuse/rank 全是 —。"""
+        from services.paper_account import PaperAccountMixin
+
+        stamped = []
+
+        class _Svc:
+            def pack_holding_row(self, item, **kw):
+                return dict(item)
+
+        mixin = PaperAccountMixin()
+        paper = {"holdings": [{"stock_code": "000890", "stock_name": "法尔胜"}]}
+        summary = {"holdings": [{"stock_code": "000890", "stock_name": "法尔胜"}]}
+
+        def _stamp(rows):
+            stamped.extend(rows)
+            for it in rows:
+                if str(it.get("stock_code")) == "000890":
+                    it["y_oo_rank"] = 3
+                    it["y_oo_rank_n"] = 400
+                    it["y_tc_rank"] = 6
+                    it["y_tc_rank_n"] = 400
+
+        with patch(
+            "core.signal.service.get_default_signal_service",
+            return_value=_Svc(),
+        ), patch(
+            "core.signal.score_display.annotate_score_gate",
+            return_value={"min_score": 0, "below_min_score": False},
+        ), patch(
+            "core.signal.score_display.selection_min_score",
+            return_value=0,
+        ), patch(
+            "core.research.materialize.consumer.consumer_read_only",
+            return_value=True,
+        ), patch(
+            "core.paper.rebalance.watching_matrix.score_session_from_lake",
+            return_value=(
+                [],
+                [{"stock_code": "000890", "reason": "L2 缺 2026-11-04"}],
+            ),
+        ), patch(
+            "core.paper.rebalance.watching_matrix.stamp_live_ranks",
+            side_effect=_stamp,
+        ):
+            mixin._compute_holding_scores(paper, summary)
+        self.assertEqual(len(stamped), 1)
+        held = (summary.get("holdings") or [None])[0] or {}
+        self.assertEqual(held.get("y_oo_rank"), 3)
+        self.assertEqual(held.get("y_tc_rank"), 6)
+        self.assertTrue(held.get("hard_reject"))
+        self.assertIn("L2 缺", str(held.get("reject_reason") or ""))
+
 class TestLiveRankSnapshot(unittest.TestCase):
     def test_today_snapshot_fills_holding_ranks(self):
         import os
         import tempfile
-        from datetime import date
 
         from core.paper.rebalance.watching_matrix import (
+            _live_rank_asof,
             save_live_rank_snapshot,
             stamp_live_ranks,
         )
@@ -638,6 +691,8 @@ class TestLiveRankSnapshot(unittest.TestCase):
                 "core.paper.rebalance.watching_matrix._live_rank_snapshot_path",
                 return_value=path,
             ):
+                # 与 stamp_live_ranks 同源会话日，避免日历日≠周期日时误回退湖。
+                asof = _live_rank_asof([{"stock_code": "600519", "y_oo": 1.2}])
                 save_live_rank_snapshot(
                     [
                         {
@@ -648,7 +703,7 @@ class TestLiveRankSnapshot(unittest.TestCase):
                             "y_tc_rank_n": 40,
                         }
                     ],
-                    as_of=date.today().isoformat(),
+                    as_of=asof,
                 )
                 rows = [{"stock_code": "600519", "y_oo": 1.2}]
                 with patch(
@@ -687,6 +742,126 @@ class TestLiveRankSnapshot(unittest.TestCase):
                     stamp_live_ranks(rows)
                 lake.assert_called_once()
         self.assertIsNone(rows[0].get("y_oo_rank"))
+
+    def test_fallback_row_stamps_session_day_ranks(self):
+        """昨收回退出分行带 lake_score_day 时，名次仍钉会话日快照。"""
+        import os
+        import tempfile
+
+        from core.paper.rebalance.watching_matrix import (
+            _live_rank_asof,
+            save_live_rank_snapshot,
+            stamp_live_ranks,
+        )
+
+        with tempfile.TemporaryDirectory() as tmp:
+            path = os.path.join(tmp, "live_rank_snapshot.json")
+            with patch(
+                "core.paper.rebalance.watching_matrix._live_rank_snapshot_path",
+                return_value=path,
+            ):
+                session = _live_rank_asof([{"stock_code": "000890"}])
+                save_live_rank_snapshot(
+                    [
+                        {
+                            "stock_code": "000890",
+                            "y_oo_rank": 3,
+                            "y_oo_rank_n": 400,
+                            "y_tc_rank": 6,
+                            "y_tc_rank_n": 400,
+                        }
+                    ],
+                    as_of=session,
+                )
+                rows = [
+                    {
+                        "stock_code": "000890",
+                        "y_oo": 0.3,
+                        "lake_score_day": "2000-01-02",
+                        "lake_score_fallback_from": session,
+                    }
+                ]
+                with patch(
+                    "core.paper.rebalance.watching_matrix._stamp_ranks_from_lake"
+                ) as lake:
+                    stamp_live_ranks(rows)
+                lake.assert_not_called()
+        self.assertEqual(rows[0]["y_oo_rank"], 3)
+        self.assertEqual(rows[0]["y_tc_rank"], 6)
+
+
+class TestLakeSessionHoleFill(unittest.TestCase):
+    def test_session_cube_holes_fill_from_fallback(self):
+        from core.paper.rebalance import watching_matrix as wm
+
+        session = (
+            [{"stock_code": "600000", "y_oo": 0.1}],
+            [{"stock_code": "000890", "reason": "L2 缺 2026-11-04"}],
+            object(),
+        )
+        filled = (
+            [
+                {
+                    "stock_code": "000890",
+                    "y_oo": 0.38,
+                    "lake_score_fallback_from": "2026-11-04",
+                }
+            ],
+            [],
+            object(),
+        )
+        calls = {"n": 0}
+
+        def _cube(*_a, **kw):
+            calls["n"] += 1
+            if kw.get("cycle_day_only"):
+                return session
+            self.assertEqual(kw.get("skip_days"), ["2026-11-04"])
+            return filled
+
+        with patch.object(wm, "_try_score_pool_from_cube", side_effect=_cube), patch(
+            "core.signal.session_pit.oo_cycle_date", return_value="2026-11-04"
+        ), patch(
+            "core.research.materialize.coverage.read_cube_codes",
+            return_value=["600000", "000890"],
+        ), patch.object(wm, "_consumer_score_clock", return_value="open"):
+            scored, rejected, _cube = wm._score_pool_from_lake(
+                ["600000", "000890"],
+                use_minute_tau=False,
+                refuse_day_fallback=False,
+            )
+        self.assertEqual(calls["n"], 2)
+        by = {it["stock_code"]: it for it in scored}
+        self.assertIn("000890", by)
+        self.assertEqual(by["000890"].get("y_oo"), 0.38)
+        self.assertEqual(rejected, [])
+
+    def test_refuse_day_fallback_keeps_session_holes(self):
+        from core.paper.rebalance import watching_matrix as wm
+
+        session = (
+            [{"stock_code": "600000", "y_oo": 0.1}],
+            [{"stock_code": "000890", "reason": "L2 缺 2026-11-04"}],
+            object(),
+        )
+
+        with patch.object(
+            wm, "_try_score_pool_from_cube", return_value=session
+        ) as cube, patch(
+            "core.signal.session_pit.oo_cycle_date", return_value="2026-11-04"
+        ), patch(
+            "core.research.materialize.coverage.read_cube_codes",
+            return_value=["600000", "000890"],
+        ), patch.object(wm, "_consumer_score_clock", return_value="open"):
+            scored, rejected, _c = wm._score_pool_from_lake(
+                ["600000", "000890"],
+                use_minute_tau=False,
+                refuse_day_fallback=True,
+            )
+        self.assertEqual(cube.call_count, 1)
+        self.assertEqual(len(scored), 1)
+        self.assertEqual(rejected[0]["stock_code"], "000890")
+
 
 if __name__ == "__main__":
     unittest.main()

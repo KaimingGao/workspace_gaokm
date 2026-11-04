@@ -207,7 +207,7 @@ class PaperAccountMixin:
                 from core.paper.rebalance.watching_matrix import score_session_from_lake
 
                 try:
-                    scored_rows, _rejected = score_session_from_lake(
+                    scored_rows, rejected_rows = score_session_from_lake(
                         holding_codes, paper=paper
                     )
                 except MaterializeRequired as exc:
@@ -220,11 +220,23 @@ class PaperAccountMixin:
                     for it in scored_rows
                     if str(it.get("stock_code") or "").strip()
                 }
+                rej_by = {
+                    str(r.get("stock_code") or "").strip(): str(r.get("reason") or "").strip()
+                    for r in (rejected_rows or [])
+                    if isinstance(r, dict) and str(r.get("stock_code") or "").strip()
+                }
                 for code in missing:
                     item = by_item.get(code)
-                    if not isinstance(item, dict):
+                    if isinstance(item, dict):
+                        pending_scores.append((code, item))
                         continue
-                    pending_scores.append((code, item))
+                    # L2 缺分时仍留行，后面用当日 live_rank_snapshot 盖名次。
+                    stub: Dict[str, Any] = {"stock_code": code}
+                    why = rej_by.get(code) or ""
+                    if why:
+                        stub["hard_reject"] = True
+                        stub["reject_reason"] = why
+                    pending_scores.append((code, stub))
             else:
                 # 串行 + 仅缓存：避免线程池在 Web 进程里叠请求卡死
                 for code in missing:

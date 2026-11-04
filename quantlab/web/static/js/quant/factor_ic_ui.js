@@ -4,7 +4,7 @@
 import { escapeHtml } from "../shared.js";
 import { researchGridHtml, metricCell } from "./research_grid.js";
 import { metricClass } from "./bt_result.js";
-import { classifyFactor, isRemovedFactor } from "./factor_meta.js?v=p3553";
+import { classifyFactor, isRemovedFactor } from "./factor_meta.js?v=p3556";
 
 /**
  * @param {{
@@ -585,7 +585,6 @@ export function createFactorIcUi(deps) {
     technical_pattern: "技术形态",
     weekly_confirm: "周线确认",
     ma_slope: "均线斜率",
-    alt_sentiment: "舆情",
     gap_risk: "跳空风险",
     size: "规模",
     earnings_yield: "盈利收益率",

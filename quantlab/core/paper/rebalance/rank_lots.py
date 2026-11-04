@@ -12,7 +12,10 @@
     缺 oo_rank 回退 y_oo_fuse 降序；y_oo>0 / y_τc>0 看原始百分点符号
   - 可选形态硬闸（默认关，门槛写死）：高波弱开（vol_p≥0.9 且 a1<0）、
     异常低开（a1≤−8%）、或开盘已到板块涨停价 → 禁止新开/加仓（已持仓不清仓）
-  - 已持仓且未过入场、缺 y_oo_fuse、或 hard_reject → 清仓（T+1 可卖部分；形态闸不触发清仓）
+  - 舆情标签始终读本地新闻库并写入明细。闸动作仅在勾选时执行（软先验）：
+    窗口内判空 → 入场 fuse −0.1%、有效名次 ×2；判多 → fuse +0.1%、名次 ×0.5。
+    只改入场判定与买序，不因舆情单独清仓。未勾选只显示。缺测、超时、零标题放过。不改 ŷ
+  - 已持仓且未过入场、缺 y_oo_fuse、或 hard_reject → 清仓（T+1 可卖部分；形态闸 / 舆情先验不触发清仓）
     缺分不能假装过门槛续持；无「持」动作
   - y_oo_fuse > fuse_strong → lot_strong_amount，否则 lot_base_amount（缺省 2 万 / 1 万）
     同一比较：过强档改看 oo_rank_strong_max（默认 100；≤0=关），不再用入场 oo_rank_max
@@ -423,6 +426,40 @@ def rank_lot_enter_skip_reason(
     return _oo_rank_enter_skip(item, cfg_d)
 
 
+def _display_enter_skip_reason(
+    item: Optional[dict],
+    cfg: Optional[dict],
+    *,
+    rs_raw: Optional[float],
+    decided: str,
+) -> str:
+    """入场跳过原因改写为原始 fuse / 名次（先验只进判定，不写进数字）。"""
+    text = str(decided or "").strip()
+    if not text:
+        return text
+    cfg_d = cfg if isinstance(cfg, dict) else {}
+    if text.startswith("形态闸"):
+        return text
+    if "fuse" in text and "未过入场" in text:
+        if "缺失" in text or rs_raw is None:
+            return "fuse 缺失" if "缺失" in text else text
+        fuse_enter = _cfg_fuse_threshold(cfg_d, "fuse_enter", DEFAULT_FUSE_ENTER)
+        fuse_enter = max(0.0, min(float(fuse_enter), 10.0))
+        if fuse_enter <= 0:
+            return "fuse≤0 未过入场"
+        raw_pct = float(rs_raw) * 100.0
+        th_pct = float(fuse_enter) * 100.0
+        if float(rs_raw) <= float(fuse_enter):
+            return f"fuse={raw_pct:.3f}%<{th_pct:g}% 未过入场"
+        # 原始过线、先验后不过：表里仍写原始 fuse，不写假不等式。
+        return f"fuse={raw_pct:.3f}% 未过入场"
+    if "oo_rank" in text or "τc_rank" in text:
+        _rank, _n, label = _entry_rank_from_item(item)
+        if label:
+            return f"{label} 未过入场"
+    return text
+
+
 def fuse_score_net(
     y_oo: Optional[float],
     y_τc: Optional[float],
@@ -588,6 +625,7 @@ def get_rank_lot_cfg(
         "y_oo_gt0": bool(y_oo_gt0),
         "y_τc_gt0": bool(y_τc_gt0),
         "morph_gate_enabled": bool(pm.get("morph_gate_enabled")),
+        "sentiment_gate_enabled": bool(pm.get("sentiment_gate_enabled", False)),
         "oo_rank_max": oo_rank_max_from_cfg(pm),
         "oo_rank_strong_max": oo_rank_strong_max_from_cfg(pm),
         "oo_rank_top_frac": oo_rank_top_frac_from_cfg(pm),
@@ -1224,6 +1262,9 @@ def plan_rank_lot_day(
     max_turnover_pct: Optional[float] = None,
     min_cash_pct: Optional[float] = None,
     bars_by_code: Optional[Mapping[str, Sequence[Mapping[str, Any]]]] = None,
+    sentiment_as_of: Optional[str] = None,
+    sentiment_clock: Optional[str] = None,
+    sentiment_align: Optional[str] = None,
 ) -> Dict[str, Any]:
     """一天的卖/买计划。价格用于估算现金是否够买该手；成交仍由调用方落地。
 
@@ -1236,6 +1277,12 @@ def plan_rank_lot_day(
 
     ``max_turnover_pct`` 未传则不裁换手。``min_cash_pct`` 未传则买腿地板仍是
     ``cfg["cash_floor"]``（元）；传入时地板为 max(现金地板, 调仓前净值 × 比例)。
+
+    舆情：有决策日（``as_of`` 回测 / ``sentiment_as_of`` live）就读 ``news.db`` 标签写入明细。
+    ``sentiment_clock`` 给定时决策钟固定为该时刻（回测与 live 手动执行固定 09:30）。
+    ``sentiment_align="publish"`` 时只卡标题发布时间；缺省仍要求该钟前已入库。
+    ``sentiment_gate_enabled`` 缺省关：关时只显示；开时对空/多做 fuse±0.1% 与
+    rank×2/×0.5 入场软先验，不因舆情清仓。
     """
     fuse_enter = _cfg_fuse_threshold(cfg, "fuse_enter", DEFAULT_FUSE_ENTER)
     fuse_strong = _cfg_fuse_threshold(cfg, "fuse_strong", DEFAULT_FUSE_STRONG)
@@ -1371,6 +1418,142 @@ def plan_rank_lot_day(
         if code not in item_by:
             item_by[code] = {"stock_code": code}
 
+    sentiment_by: Dict[str, dict] = {}
+    sentiment_stamp: Dict[str, Any] = {
+        "n": 0,
+        "n_bearish": 0,
+        "n_bullish": 0,
+        "decision_date": "",
+        "fill_clock": "",
+        "align": "fetch",
+        "mode": "prior",
+    }
+    sent_align = (
+        "publish" if str(sentiment_align or "").strip() == "publish" else "fetch"
+    )
+    _sent_prior_of = None
+    _sent_prior_note = None
+    _load_decision_labels = None
+    _fuse_delta = 0.001
+    _rank_mult_bear = 2.0
+    _rank_mult_bull = 0.5
+    try:
+        from core.news_archive import (
+            SENTIMENT_FUSE_DELTA,
+            SENTIMENT_RANK_MULT_BEAR,
+            SENTIMENT_RANK_MULT_BULL,
+            load_decision_labels,
+            sentiment_gate_enabled,
+            sentiment_prior_note as _sent_prior_note_fn,
+            sentiment_prior_of as _sent_prior_of_fn,
+        )
+
+        _sent_prior_of = _sent_prior_of_fn
+        _sent_prior_note = _sent_prior_note_fn
+        _load_decision_labels = load_decision_labels
+        _fuse_delta = float(SENTIMENT_FUSE_DELTA)
+        _rank_mult_bear = float(SENTIMENT_RANK_MULT_BEAR)
+        _rank_mult_bull = float(SENTIMENT_RANK_MULT_BULL)
+        gate_on = sentiment_gate_enabled(cfg)
+    except Exception:  # noqa: BLE001
+        logger.debug("sentiment gate import failed", exc_info=True)
+        gate_on = False
+    try:
+        sent_day = str(as_of or "").strip()[:10] or str(sentiment_as_of or "").strip()[:10]
+        if sent_day and _load_decision_labels is not None and _sent_prior_of is not None:
+            pinned = str(sentiment_clock or "").strip()[:5]
+            if pinned:
+                sent_clock = pinned
+            elif bars_by_code is not None:
+                sent_clock = str(cfg.get("fill_clock") or "09:30")[:5]
+            else:
+                sent_clock = str(
+                    cfg.get("live_fill_clock") or cfg.get("fill_clock") or "09:30"
+                )[:5]
+            sentiment_by = _load_decision_labels(
+                list(item_by.keys()),
+                sent_day,
+                sent_clock,
+                align=sent_align,
+            )
+            n_bear = 0
+            n_bull = 0
+            for row in sentiment_by.values():
+                prior = _sent_prior_of(row)
+                if not prior:
+                    continue
+                if prior.get("label") == "bearish":
+                    n_bear += 1
+                elif prior.get("label") == "bullish":
+                    n_bull += 1
+            sentiment_stamp = {
+                "n": len(sentiment_by),
+                "n_bearish": n_bear,
+                "n_bullish": n_bull,
+                "decision_date": sent_day,
+                "fill_clock": sent_clock,
+                "align": sent_align,
+                "gate": gate_on,
+                "mode": "prior",
+                "fuse_delta": float(_fuse_delta),
+                "rank_mult_bear": float(_rank_mult_bear),
+                "rank_mult_bull": float(_rank_mult_bull),
+            }
+    except Exception:  # noqa: BLE001
+        logger.debug("sentiment gate load failed", exc_info=True)
+        sentiment_by = {}
+
+    def _sent_prior(code: str) -> Optional[dict]:
+        if not gate_on or _sent_prior_of is None:
+            return None
+        row = sentiment_by.get(str(code or "").strip())
+        if not row:
+            return None
+        try:
+            prior = _sent_prior_of(row)
+            return prior if isinstance(prior, dict) else None
+        except Exception:  # noqa: BLE001
+            logger.debug("sentiment_prior_of failed", exc_info=True)
+            return None
+
+    def _sent_note(prior: Optional[Mapping[str, Any]]) -> str:
+        if not prior or _sent_prior_note is None:
+            return ""
+        try:
+            return str(_sent_prior_note(prior) or "")
+        except Exception:  # noqa: BLE001
+            logger.debug("sentiment_prior_note failed", exc_info=True)
+            return ""
+
+    def _rank_scaled_item(code: str, item: dict) -> dict:
+        """入场名次闸 / 买序用的有效名次；空 ×2，多 ×0.5。"""
+        prior = _sent_prior(code)
+        if not prior:
+            return item
+        try:
+            mult = float(prior.get("rank_mult") or 1.0)
+        except (TypeError, ValueError):
+            return item
+        if mult == 1.0 or mult != mult or mult <= 0:
+            return item
+        out = dict(item)
+        for key in (
+            "y_oo_rank",
+            "y_oo_rank_hat",
+            "predicted_score_oo_rank",
+            "y_tc_rank",
+            "y_tc_rank_hat",
+            "predicted_score_tc_rank",
+        ):
+            raw = out.get(key)
+            if raw is None or raw == "":
+                continue
+            try:
+                out[key] = float(raw) * mult
+            except (TypeError, ValueError):
+                continue
+        return out
+
     rp_by: Dict[str, Optional[float]] = {
         code: _rp_of(code, item) for code, item in item_by.items()
     }
@@ -1387,11 +1570,17 @@ def plan_rank_lot_day(
         return ratio
 
     def _rs_enter(code: str, rp: Optional[float]) -> Optional[float]:
-        _ = code
-        return _rs_ratio(rp)
-
-    def _rs_display(rp: Optional[float]) -> Optional[float]:
-        return _rs_ratio(rp)
+        rs = _rs_ratio(rp)
+        prior = _sent_prior(code)
+        if rs is None or not prior:
+            return rs
+        try:
+            delta = float(prior.get("fuse_delta") or 0.0)
+        except (TypeError, ValueError):
+            return rs
+        if delta != delta or delta in (float("inf"), float("-inf")):
+            return rs
+        return float(rs) + delta
 
     sells: List[dict] = []
     skips: List[dict] = []
@@ -1431,15 +1620,14 @@ def plan_rank_lot_day(
         code = str(h.get("stock_code") or "").strip()
         item = item_by.get(code) or {}
         rp = rp_by.get(code)
-        rs = _rs_enter(code, rp)
-        rs_disp = _rs_display(rp)
+        # 持仓退出看原始 fuse / 名次；舆情先验不单独清仓。
+        rs_raw = _rs_ratio(rp)
         name = _display_name(code, item.get("stock_name"), h.get("stock_name"))
         held_sh = _f(h.get("shares")) or 0.0
-        exit_why = held_exit_reason(item, rs)
+        exit_why = held_exit_reason(item, rs_raw)
         if not exit_why:
-            # 形态闸只禁新开/加；清仓仍只看 fuse / y_gt0 / rank 等入场闸
             skip_enter = rank_lot_enter_skip_reason(
-                item, enter_cfg, rs=rs, apply_morph_gate=False
+                item, enter_cfg, rs=rs_raw, apply_morph_gate=False
             )
             if skip_enter:
                 exit_why = f"{skip_enter} 清仓"
@@ -1450,7 +1638,7 @@ def plan_rank_lot_day(
                 name=name,
                 item=item,
                 rp=rp,
-                rs=rs_disp,
+                rs=rs_raw,
                 as_of=as_of,
                 prices=px_sell,
                 t0_blocks=t0_blocks,
@@ -1481,9 +1669,12 @@ def plan_rank_lot_day(
             )
             continue
         rp = rp_by.get(code)
+        rs_raw = _rs_ratio(rp)
         rs = _rs_enter(code, rp)
-        rs_disp = _rs_display(rp)
-        dbg = _debug_scores(item, rp, rs_disp, **w_fields)
+        prior = _sent_prior(code)
+        eff_item = _rank_scaled_item(code, item)
+        # 明细 / 表头写原始 fuse·名次；先验只进门槛与买序。
+        dbg = _debug_scores(item, rp, rs_raw, **w_fields)
         if item.get("_tau_prefix_miss"):
             if not any(str(h.get("stock_code") or "") == code for h in held_rows):
                 skips.append(
@@ -1506,28 +1697,42 @@ def plan_rank_lot_day(
                     "side": "buy",
                     "action": ACTION_SKIP,
                     "reason": why,
+                    "hard_reject": True,
+                    "reject_reason": why,
                     **dbg,
                 }
             )
             continue
-        skip_enter = rank_lot_enter_skip_reason(
-            item, enter_cfg, rs=rs
-        )
+        skip_enter = rank_lot_enter_skip_reason(eff_item, enter_cfg, rs=rs)
         if skip_enter:
-            skips.append(
-                {
-                    "stock_code": code,
-                    "stock_name": _display_name(code, item.get("stock_name")),
-                    "side": "buy",
-                    "action": ACTION_SKIP,
-                    "reason": skip_enter,
-                    **dbg,
-                }
+            # 判定用先验缩放值；原因 / 表列写原始 fuse·名次。
+            reason = (
+                _display_enter_skip_reason(
+                    item, enter_cfg, rs_raw=rs_raw, decided=skip_enter
+                )
+                if prior
+                else skip_enter
             )
+            if prior:
+                note = _sent_note(prior)
+                if note and note not in reason:
+                    reason = f"{reason} · {note}"
+            skip_row = {
+                "stock_code": code,
+                "stock_name": _display_name(code, item.get("stock_name")),
+                "side": "buy",
+                "action": ACTION_SKIP,
+                "reason": reason,
+                **dbg,
+            }
+            if prior:
+                skip_row["sentiment_prior"] = str(prior.get("label") or "")
+                skip_row["sentiment_gate"] = True
+            skips.append(skip_row)
             continue
         if rs is None:
             continue
-        oo_rk, _ = _oo_rank_from_item(item)
+        oo_rk, _ = _oo_rank_from_item(eff_item)
         oo_key = oo_rk if isinstance(oo_rk, (int, float)) and oo_rk == oo_rk else None
         if oo_key is not None and oo_key in (float("inf"), float("-inf")):
             oo_key = None
@@ -1598,7 +1803,9 @@ def plan_rank_lot_day(
         code = str(item.get("stock_code") or "").strip()
         if not code:
             continue
-        dbg = _debug_scores(item, rp, _rs_display(rp), rank_i=i, rank_n=rank_n, **w_fields)
+        dbg = _debug_scores(
+            item, rp, _rs_ratio(rp), rank_i=i, rank_n=rank_n, **w_fields
+        )
         px = _f(px_buy.get(code))
         if px is None or px <= 0:
             skips.append(
@@ -1738,31 +1945,83 @@ def plan_rank_lot_day(
         cash_sim -= need
         mv_sim += need
         remain_sh[code] = float(remain_sh.get(code) or 0) + float(lots)
-        buys.append(
-            {
-                "side": "buy",
-                "stock_code": code,
-                "stock_name": _display_name(code, item.get("stock_name")),
-                "shares": float(lots),
-                "action": act,
-                "matrix_action": act,
-                "reason": (
-                    (
-                        f"fuse={rs * 100.0:.3f}%>{fuse_strong * 100.0:g}% 买{lots}股"
-                        if is_strong
-                        else f"fuse={rs * 100.0:.3f}%>入场{fuse_enter * 100.0:g}% 买{lots}股"
-                    )
-                    + (f"（现金不够{want}）" if cash_short else "")
-                    + turn_note
-                ),
-                "amount": round(float(lots) * float(px), 2),
-                **dbg,
-            }
+        rs_show = _rs_ratio(rp)
+        if rs_show is None:
+            rs_show = rs
+        buy_reason = (
+            (
+                f"fuse={float(rs_show) * 100.0:.3f}%>{fuse_strong * 100.0:g}% 买{lots}股"
+                if is_strong
+                else f"fuse={float(rs_show) * 100.0:.3f}%>入场{fuse_enter * 100.0:g}% 买{lots}股"
+            )
+            + (f"（现金不够{want}）" if cash_short else "")
+            + turn_note
         )
+        prior = _sent_prior(code)
+        if prior:
+            note = _sent_note(prior)
+            if note and note not in buy_reason:
+                buy_reason = f"{buy_reason} · {note}"
+        buy_row = {
+            "side": "buy",
+            "stock_code": code,
+            "stock_name": _display_name(code, item.get("stock_name")),
+            "shares": float(lots),
+            "action": act,
+            "matrix_action": act,
+            "reason": buy_reason,
+            "amount": round(float(lots) * float(px), 2),
+            **dbg,
+        }
+        if prior:
+            buy_row["sentiment_prior"] = str(prior.get("label") or "")
+        buys.append(buy_row)
         if turnover_on:
             buy_amt_so_far += float(lots) * float(px)
 
     y_oo_gt0, y_τc_gt0 = _y_gt0_flags(cfg)
+    sentiment_labels = {
+        str(code): str((row or {}).get("label") or "missing")
+        for code, row in sentiment_by.items()
+        if str(code or "").strip()
+    }
+    sentiment_basis = {
+        code: "gate" for code, label in sentiment_labels.items() if label != "missing"
+    }
+    missing_codes = [code for code, label in sentiment_labels.items() if label == "missing"]
+    if missing_codes and sent_align != "publish":
+        try:
+            from core.news_archive import load_library_labels
+
+            library = load_library_labels(missing_codes)
+        except Exception:  # noqa: BLE001
+            logger.debug("library sentiment labels failed", exc_info=True)
+            library = {}
+        if isinstance(library, dict):
+            for code in missing_codes:
+                info = library.get(code)
+                label = (
+                    str((info or {}).get("label") or "").strip()
+                    if isinstance(info, dict)
+                    else ""
+                )
+                if label and label != "missing":
+                    sentiment_labels[code] = label
+                    sentiment_basis[code] = "library"
+
+    def _stamp_sent(row: dict) -> None:
+        code = str(row.get("stock_code") or "").strip()
+        label = sentiment_labels.get(code)
+        if label:
+            row["sentiment_label"] = label
+        basis = sentiment_basis.get(code)
+        if basis:
+            row["sentiment_basis"] = basis
+
+    for bucket in (sells, buys, skips):
+        for row in bucket:
+            if isinstance(row, dict):
+                _stamp_sent(row)
     return {
         "sells": sells,
         "buys": buys,
@@ -1788,6 +2047,9 @@ def plan_rank_lot_day(
         "fusion_w_oc": w_τc,
         "top_k": top_k,
         "morph_stamp": morph_stamp,
+        "sentiment_stamp": sentiment_stamp,
+        "sentiment_labels": sentiment_labels,
+        "sentiment_basis": sentiment_basis,
     }
 
 

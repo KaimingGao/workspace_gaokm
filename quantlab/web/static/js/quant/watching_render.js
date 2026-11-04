@@ -523,6 +523,7 @@ export function sentimentLabelZh(label) {
     bearish: "空",
     mixed: "杂",
     neutral: "中",
+    missing: "—",
   };
   return m[label] || "中";
 }
@@ -546,10 +547,9 @@ export function sentimentBadgeHtml(sent, code) {
     s.score != null && !Number.isNaN(Number(s.score))
       ? ` · 风险 ${Number(s.score).toFixed(2)}`
       : "";
-  // 仅参考：不进 score/ŷ，不参与调仓
   const gateNote =
     s.role === "prior" || s.include_in_score !== true
-      ? "仅参考 · 不参与 predicted_score / 调仓"
+      ? "不进 ŷ。历史回测按发布时间卡到当日 09:30；勾选闸时空/多调 fuse±0.1%·rank×2/×0.5，不清仓。手动执行只读 09:30 前已入库"
       : "遗留开闸进 ŷ（不推荐）";
   const title = [
     s.note || "规则关键词，非模型",
@@ -781,7 +781,7 @@ export function renderWatchingWatchTableFallback(rows, { onPickCountUpdate, tier
     `<th title="股票名称与代码">股票</th>` +
     `<th class="watching-col-center" title="可预测性分档（Holdout 前 60 日猜涨 lift：说涨精度 − 上涨日比例）：A 强 top N / B 中接着 M / C 弱。同档内按 fuse 从高到低">分档</th>` +
     `<th title="是否已在模拟持仓">仓位</th>` +
-    `<th title="标题情绪摘要">情绪</th>` +
+    `<th title="本地新闻库当前页。没有或超过 15 分钟向东财要并写回。不进 ŷ。历史回测按发布时间卡到当日 09:30；勾选闸时空/多调 fuse±0.1%·rank×2/×0.5，不清仓。手动执行只读 09:30 前已入库">舆情</th>` +
     `<th class="watching-col-num" title="上一交易日收盘价">昨收</th>` +
     `<th class="watching-col-num" title="今日开盘价">今开</th>` +
     `<th class="watching-col-num" title="最新成交价">现价</th>` +
@@ -890,6 +890,7 @@ export function buildWatchingNewsMetaText(data, sent) {
   const n = (data.items || []).length;
   return [
     n ? `${n} 条` : data.error || "暂无资讯",
+    data.from_archive ? "本地库" : "",
     sent.note || "规则关键词，非模型",
     hitBits.length ? `命中 ${hitBits.join("、")}` : "",
     data.updated_at ? `更新 ${data.updated_at}` : "",

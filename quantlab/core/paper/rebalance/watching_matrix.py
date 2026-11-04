@@ -342,9 +342,14 @@ def _feature_overlap_ok(sample: dict, names: Sequence[str]) -> bool:
 
 
 def _live_rank_asof(items: Optional[Sequence[dict]] = None) -> str:
-    """Live 名次日：优先行上 ``lake_score_day`` / ``as_of``，否则 ŷ_oo 周期日。"""
+    """Live 名次日：优先行上非回退的 ``lake_score_day`` / ``as_of``，否则 ŷ_oo 周期日。
+
+    昨收立方补洞行带 ``lake_score_fallback_from``：ŷ 可回退，名次仍钉会话日快照。
+    """
     for it in items or []:
         if not isinstance(it, dict):
+            continue
+        if str(it.get("lake_score_fallback_from") or "")[:10]:
             continue
         day = str(it.get("lake_score_day") or it.get("as_of") or "")[:10]
         if len(day) >= 10:
@@ -1332,6 +1337,20 @@ def _try_score_pool_from_cube_on_day(
     scored_all = _items_from_day_cube(cube, day_s)
     if len(scored_all) < 2:
         return None
+    want_n = len([c for c in codes if str(c or "").strip()])
+    if want_n >= 2:
+        from core.research.materialize.cover_policy import cover_reaches
+
+        # 只写了几只、却挂着整池 hash 的立方不能当成当日截面。
+        if not cover_reaches(len(scored_all), want_n):
+            logger.info(
+                "lake score cube too thin day=%s clock=%s n=%s want=%s",
+                day_s,
+                clk,
+                len(scored_all),
+                want_n,
+            )
+            return None
     fb = str(fallback_from or "")[:10]
     if len(fb) >= 10 and fb != day_s:
         for it in scored_all:
@@ -1474,7 +1493,45 @@ def _score_pool_from_lake(
             cycle_day_only=True,
         )
         if session_cube is not None:
-            return session_cube
+            scored_s, rejected_s, cube_s = session_cube
+            # 立方按池落盘常有洞（停牌/无 L1）；浏览与持仓展示对缺票回退昨收，
+            # 落账 refuse_day_fallback 仍只认会话日行。
+            if rejected_s and not refuse_day_fallback:
+                miss = [
+                    str(r.get("stock_code") or "").strip()
+                    for r in rejected_s
+                    if isinstance(r, dict) and str(r.get("stock_code") or "").strip()
+                ]
+                if miss:
+                    fill = _try_score_pool_from_cube(
+                        miss,
+                        clock=clock,
+                        cube_codes=cube_codes,
+                        score_codes=score_codes,
+                        paper=paper,
+                        cycle_day_only=False,
+                        skip_days=[cycle_day],
+                    )
+                    if fill is not None:
+                        filled, still_rej, _cube_f = fill
+                        have = {
+                            str(it.get("stock_code") or "").strip()
+                            for it in filled
+                            if isinstance(it, dict)
+                        }
+                        scored_s = list(scored_s) + list(filled)
+                        rejected_s = [
+                            r
+                            for r in rejected_s
+                            if str((r or {}).get("stock_code") or "").strip()
+                            not in have
+                        ] + list(still_rej or [])
+                        logger.info(
+                            "lake score session holes filled from fallback n=%s still=%s",
+                            len(have),
+                            len(rejected_s),
+                        )
+            return scored_s, rejected_s, cube_s
 
     # 2) 开盘钟：内存今开截面（不落盘）
     if clock == "open" and cycle_day:
@@ -1923,7 +1980,10 @@ def _row_score_payload(
     open_px: Optional[float] = None,
     price_tau: Optional[float] = None,
 ) -> Dict[str, Any]:
-    """表列用 ŷ_oo / ŷ_τc；y_oo_fuse（UI fuse）现算。"""
+    """表列用 ŷ_oo / ŷ_τc；y_oo_fuse（UI fuse）按头现算。
+
+    计划腿 / 跳过行（``src``）里的原始名次盖过 item，避免舆情先验缩放名次进表。
+    """
     from core.paper.rebalance.path_matrix import scores_from_rebalance_item
     from core.paper.rebalance.rank_lots import aux_yhat_fields, y_oo_fuse_pct_of
 
@@ -1948,10 +2008,11 @@ def _row_score_payload(
     rs = src.get("y_oo_fuse_score")
     if rs is not None:
         payload["y_oo_fuse_score"] = rs
-    payload.update(aux_yhat_fields(src))
+    # item 先、计划 dbg（原始名次）后盖，避免缩放名次进手动执行结果表。
     payload.update(aux_yhat_fields(item))
-    payload.update(tip_explain_fields(src))
+    payload.update(aux_yhat_fields(src))
     payload.update(tip_explain_fields(item))
+    payload.update(tip_explain_fields(src))
     return payload
 
 
@@ -2008,6 +2069,11 @@ def _apply_one_leg(
         )
         if leg.get(k) is not None
     }
+    if str(leg.get("sentiment_basis") or "").strip() == "gate":
+        sent_label = str(leg.get("sentiment_label") or "").strip()
+        if sent_label and sent_label != "missing":
+            rank_fields["sentiment_label"] = sent_label
+            rank_fields["sentiment_basis"] = "gate"
     rank_fields.update(tip_explain_fields(leg))
     if as_of:
         rank_fields["as_of"] = str(as_of)[:10]
@@ -2386,6 +2452,12 @@ def simulate_watching_matrix_preview(
         if name:
             item_by_code[code]["stock_name"] = name
 
+    # 缺 L2 / 未进 scored 的持仓仍盖当日名次快照，避免结果表 oo/τc_rank 全是 —。
+    try:
+        stamp_live_ranks(list(item_by_code.values()))
+    except Exception:  # noqa: BLE001
+        logger.debug("stamp held ranks after score pool failed", exc_info=True)
+
     _mark_predictability_tier_exits(
         item_by_code,
         force_exit_held=list(fit_meta.get("force_exit_held") or []),
@@ -2421,6 +2493,8 @@ def simulate_watching_matrix_preview(
             max_turnover_pct = None
     from core.paper.rebalance.cash_reserve import resolve_min_cash_pct
 
+    from core.market.calendar import resolve_session_date
+
     plan = plan_rank_lot_day(
         scored=list(item_by_code.values()),
         holdings=list(paper.get("holdings") or []),
@@ -2430,6 +2504,9 @@ def simulate_watching_matrix_preview(
         cfg=rl_cfg,
         max_turnover_pct=max_turnover_pct,
         min_cash_pct=resolve_min_cash_pct(rules),
+        sentiment_as_of=resolve_session_date(),
+        # 手动执行复现开盘信息集。自动路径不传，仍跟 live_fill_clock。
+        sentiment_clock="09:30" if open_replay else None,
     )
     oos_excluded = sum(
         1
@@ -2456,7 +2533,7 @@ def simulate_watching_matrix_preview(
         )
         px = prices.get(code)
         opx = opens.get(code)
-        return {
+        row = {
             "stock_code": code,
             "stock_name": name,
             "matrix_mode": True,
@@ -2466,6 +2543,13 @@ def simulate_watching_matrix_preview(
                 item, src, rl_cfg, open_px=opx, price_tau=px
             ),
         }
+        label = str((plan.get("sentiment_labels") or {}).get(code) or "").strip()
+        if label:
+            row["sentiment_label"] = label
+        basis = str((plan.get("sentiment_basis") or {}).get(code) or "").strip()
+        if basis:
+            row["sentiment_basis"] = basis
+        return row
 
     def _leg_row(leg: dict, *, side: str) -> dict:
         code = str(leg.get("stock_code") or "")
@@ -2503,7 +2587,7 @@ def simulate_watching_matrix_preview(
     ) -> dict:
         code = str(src.get("stock_code") or "")
         ns = float(held_sh if new_sh is None else new_sh)
-        return {
+        row = {
             **_base_row(code, src),
             "action": src.get("action"),
             "reason": src.get("reason"),
@@ -2514,6 +2598,16 @@ def simulate_watching_matrix_preview(
             "shares_change": ns - held_sh,
             "shares": held_sh,
         }
+        if src.get("hard_reject"):
+            row["hard_reject"] = True
+            why = str(src.get("reject_reason") or src.get("reason") or "").strip()
+            if why:
+                row["reject_reason"] = why
+        if src.get("sentiment_prior"):
+            row["sentiment_prior"] = src.get("sentiment_prior")
+        if src.get("sentiment_gate"):
+            row["sentiment_gate"] = True
+        return row
 
     for leg in plan.get("sells") or []:
         code = str(leg.get("stock_code") or "")

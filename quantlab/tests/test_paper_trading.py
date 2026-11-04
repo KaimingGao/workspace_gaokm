@@ -842,6 +842,31 @@ class TestPaperReplayEngine(unittest.TestCase):
             "2026-09-10",
         )
         self.assertNotIn("y_on", sk)
+        self.assertEqual(sk["sentiment_label"], "missing")
+
+        from core.news_archive import SENTIMENT_GATE_REASON
+
+        gated = _skip_to_sim(
+            {
+                "stock_code": "600000",
+                "reason": SENTIMENT_GATE_REASON,
+                "sentiment_label": "bearish",
+                "sentiment_basis": "gate",
+            },
+            "2026-09-10",
+        )
+        self.assertEqual(gated["sentiment_label"], "bearish")
+        self.assertEqual(gated["sentiment_basis"], "gate")
+        library = _skip_to_sim(
+            {
+                "stock_code": "600000",
+                "reason": "跳过",
+                "sentiment_label": "bearish",
+                "sentiment_basis": "library",
+            },
+            "2026-09-10",
+        )
+        self.assertEqual(library["sentiment_label"], "missing")
 
         hold = _hold_to_sim(
             {

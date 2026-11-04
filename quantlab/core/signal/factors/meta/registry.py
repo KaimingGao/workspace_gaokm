@@ -9,7 +9,6 @@ from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple
 from core.signal.factors.alpha_oo import score_alpha_oo
 from core.signal.factors.alpha_tc import score_alpha_tc
 from core.signal.factors.alpha_th import score_alpha_th
-from core.signal.factors.alt_sentiment import score_alt_sentiment
 from core.signal.factors.amihud import score_amihud
 from core.signal.factors.dividend import score_dividend
 from core.signal.factors.earnings_yield import score_earnings_yield
@@ -107,10 +106,6 @@ def _compute_weekly_confirmation(bars, **_kw):
 
 def _compute_ma_slope(bars, **_kw):
     return score_ma_slope(bars)
-
-
-def _compute_alt_sentiment(bars, *, sentiment=None, **_kw):
-    return score_alt_sentiment(bars, sentiment=sentiment)
 
 
 def _compute_gap_risk(bars, **_kw):
@@ -276,12 +271,6 @@ _register(
     "均线斜率",
     _compute_ma_slope,
     "多周期均线斜率与发散度：趋势向上且均线发散加分，纠缠或下行降分。",
-)
-_register(
-    "alt_sentiment",
-    "舆情",
-    _compute_alt_sentiment,
-    "舆情/情绪快照偏置：无舆情中性 50；偏多抬分、偏空压分。",
 )
 _register(
     "gap_risk",
@@ -545,7 +534,6 @@ def compute_configured_factors(
             w = 0.0
         # 可选因子：权≈0 且非 required 时可跳过
         if abs(w) < 1e-12 and name_fac not in required and name_fac in (
-            "alt_sentiment",
             "money_flow",
             "tail_anomaly",
         ):

@@ -3,8 +3,9 @@
 from __future__ import annotations
 
 import logging
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Sequence, Tuple
 
+from core.news_archive import row_is_sentiment_gate
 from core.paper.rebalance.morph_gate import row_is_morph_gate
 
 logger = logging.getLogger(__name__)
@@ -106,6 +107,7 @@ def _compact_row(
     new_shares: Any = None,
     ts: Any = None,
     side: Any = None,
+    sentiment_label: Any = None,
 ) -> Dict[str, Any]:
     code = str(stock_code or "").strip()
     act = str(action or "").strip().lower() or None
@@ -151,6 +153,11 @@ def _compact_row(
         out["side"] = side_s
     if row_is_morph_gate(out):
         out["morph_gate"] = True
+    if row_is_sentiment_gate(out):
+        out["sentiment_gate"] = True
+    label = str(sentiment_label or "").strip()
+    if label:
+        out["sentiment_label"] = label
     return out
 
 
@@ -168,21 +175,21 @@ def _phase_for_action(action: Optional[str], *, filled: bool) -> str:
 
 
 def _cap_desk_rows(rows: List[dict], *, limit: int = DESK_ROW_HARD_CAP) -> List[dict]:
-    """普通行遵守上限。形态闸跳过始终留下，不够位置时挤掉队尾普通行。"""
-    morph: List[dict] = []
+    """普通行遵守上限。形态闸与舆情（含历史硬闸/软先验）跳过始终留下。"""
+    pinned: List[dict] = []
     rest: List[dict] = []
     for r in rows or []:
         if not isinstance(r, dict):
             continue
-        if row_is_morph_gate(r):
-            morph.append(r)
+        if row_is_morph_gate(r) or row_is_sentiment_gate(r):
+            pinned.append(r)
         else:
             rest.append(r)
     cap = limit if isinstance(limit, int) and limit > 0 else DESK_ROW_HARD_CAP
-    if len(morph) >= cap:
-        out = morph
+    if len(pinned) >= cap:
+        out = pinned
     else:
-        out = rest[: cap - len(morph)] + morph
+        out = rest[: cap - len(pinned)] + pinned
     out.sort(
         key=lambda r: (
             _ACTION_RANK.get(str(r.get("action") or "watch"), 9),
@@ -320,6 +327,7 @@ def desk_rows_from_result(result: Optional[dict], *, filled: bool = True) -> Lis
                 new_shares=r.get("new_shares"),
                 ts=r.get("ts"),
                 side=r.get("side"),
+                sentiment_label=r.get("sentiment_label"),
             ),
             r,
         )
@@ -359,6 +367,7 @@ def desk_rows_from_result(result: Optional[dict], *, filled: bool = True) -> Lis
                     new_shares=leg.get("new_shares"),
                     ts=leg.get("ts"),
                     side=leg.get("side") or ("sell" if act == "exit" else "buy"),
+                    sentiment_label=leg.get("sentiment_label"),
                 ),
                 leg,
             )
@@ -379,6 +388,7 @@ def desk_rows_from_result(result: Optional[dict], *, filled: bool = True) -> Lis
                 y_oo_fuse=s.get("y_oo_fuse"),
                 y_oo=s.get("y_oo"),
                 y_τc=s.get("y_τc"),
+                sentiment_label=s.get("sentiment_label"),
             ),
             s,
         )
@@ -773,6 +783,75 @@ def _note_for_phase(
     return "等待下一开盘窗"
 
 
+def sentiment_display_for_codes(
+    codes: Sequence[str],
+    *,
+    session: str,
+    fill_clock: str,
+) -> Dict[str, dict]:
+    """盯盘和持仓共用的展示标签。决策窗优先，缺测才用库内标题。不打网。"""
+    bare: List[str] = []
+    for raw in codes or []:
+        code = str(raw or "").strip()
+        if code and code not in bare:
+            bare.append(code)
+    day = str(session or "")[:10]
+    clock = str(fill_clock or "")[:5]
+    if not day or not clock or not bare:
+        return {}
+    try:
+        from core.news_archive import load_decision_labels, load_library_labels
+
+        labels = load_decision_labels(bare, day, clock)
+        library = load_library_labels(bare)
+    except Exception:  # noqa: BLE001
+        logger.debug("desk sentiment labels failed", exc_info=True)
+        return {}
+    if not isinstance(labels, dict):
+        labels = {}
+    if not isinstance(library, dict):
+        library = {}
+    out: Dict[str, dict] = {}
+    for code in bare:
+        info = labels.get(code)
+        label = str((info or {}).get("label") or "").strip() if isinstance(info, dict) else ""
+        lib = library.get(code)
+        lib_label = str((lib or {}).get("label") or "").strip() if isinstance(lib, dict) else ""
+        if label and label != "missing":
+            out[code] = {"label": label, "basis": "gate"}
+        elif lib_label and lib_label != "missing":
+            out[code] = {"label": lib_label, "basis": "library"}
+        elif label:
+            out[code] = {"label": label, "basis": "gate"}
+    return out
+
+
+def attach_sentiment_labels(
+    rows: List[dict],
+    *,
+    session: str,
+    fill_clock: str,
+) -> None:
+    """给盯盘行补决策窗标签。只读本地库，不向东财要。"""
+    codes: List[str] = []
+    for r in rows or []:
+        if not isinstance(r, dict):
+            continue
+        code = str(r.get("stock_code") or "").strip()
+        if code and code not in codes:
+            codes.append(code)
+    mapped = sentiment_display_for_codes(codes, session=session, fill_clock=fill_clock)
+    for r in rows:
+        if not isinstance(r, dict):
+            continue
+        code = str(r.get("stock_code") or "").strip()
+        info = mapped.get(code)
+        if not info:
+            continue
+        r["sentiment_label"] = info["label"]
+        r["sentiment_basis"] = info["basis"]
+
+
 def build_rebalance_desk_status(
     *,
     worker: Optional[dict] = None,
@@ -833,6 +912,13 @@ def build_rebalance_desk_status(
     for r in rows:
         if isinstance(r, dict) and row_is_morph_gate(r):
             r["morph_gate"] = True
+        if isinstance(r, dict) and row_is_sentiment_gate(r):
+            r["sentiment_gate"] = True
+    attach_sentiment_labels(
+        rows,
+        session=sess or persisted_sess or "",
+        fill_clock=fill_clock,
+    )
 
     counts = _counts(rows)
     buy_amt = 0.0

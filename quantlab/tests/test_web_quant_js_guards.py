@@ -2001,6 +2001,10 @@ class TestWebQuantJsGuards(unittest.TestCase):
         self.assertNotIn("bindBtTradesCsv", bt_js)
         self.assertIn('id: "open_date"', trades_js)
         self.assertIn('label: "开日日期"', trades_js)
+        self.assertIn('id: "sent"', trades_js)
+        self.assertIn('label: "舆情"', trades_js)
+        self.assertLess(trades_js.find('label: "股票"'), trades_js.find('id: "sent"'))
+        self.assertLess(trades_js.find('id: "sent"'), trades_js.find('id: "open_date"'))
         self.assertNotIn('id: "cost_px"', trades_js)
         self.assertNotIn('label: "成本价"', trades_js)
         self.assertNotIn('id: "basis"', trades_js)
@@ -2296,9 +2300,9 @@ class TestWebQuantJsGuards(unittest.TestCase):
         hold = self._read("web", "static", "js", "holdings_table_island.js")
         hold_ui = self._read("web", "static", "js", "paper", "holdings_ui.js")
         self.assertLess(hold.find('label: "股票"'), hold.find('label: "分档"'))
-        self.assertLess(hold.find('label: "分档"'), hold.find('label: "情绪"'))
+        self.assertLess(hold.find('label: "分档"'), hold.find('label: "舆情"'))
         self.assertIn("predTierBadgeHtml", hold_ui)
-        self.assertLess(hold_ui.find('sortThHtml("分档", "tier")'), hold_ui.find(">情绪</th>"))
+        self.assertLess(hold_ui.find('sortThHtml("分档", "tier")'), hold_ui.find(">舆情</th>"))
 
     def test_y_nc_resolve_helpers_removed_from_fmt(self):
         fmt_js = self._read("web", "static", "js", "paper", "fmt.js")
@@ -4205,6 +4209,11 @@ class TestWebQuantJsGuards(unittest.TestCase):
         self.assertNotIn("paper-t0-cfg-gates", pm)
         self.assertIn("follow-path-matrix-body--row5", pm)
         self.assertIn('name="pm_morph_gate"', pm)
+        self.assertIn('name="pm_sentiment_gate"', pm)
+        self.assertIn("follow-path-matrix-box--sent", pm)
+        self.assertIn(".follow-path-matrix-box--sent", self._read("web", "static", "css", "follow.css"))
+        self.assertIn("舆情先验", pm)
+        self.assertIn('aria-label="舆情先验说明"', pm)
         self.assertNotIn("follow-path-matrix-body--row4", t0)
         self.assertNotIn("follow-path-matrix-body--row5", t0)
         fuse = pm[pm.find('data-panel="rank"') : pm.find('data-panel="other"')]
@@ -4309,6 +4318,8 @@ class TestWebQuantJsGuards(unittest.TestCase):
         self.assertIn("pm_y_oo_gt0", exe_ui)
         self.assertIn("pm_morph_gate", exe_ui)
         self.assertIn("morph_gate_enabled", exe_ui)
+        self.assertIn("pm_sentiment_gate", exe_ui)
+        self.assertIn("sentiment_gate_enabled", exe_ui)
         # 门槛写死在引擎：UI/保存体/回测请求均不带 morph_* 门槛字段
         self.assertNotIn("pm_morph_vol_pctl", exe_ui)
         self.assertNotIn("pm_morph_a1_max", exe_ui)
@@ -4423,7 +4434,11 @@ class TestWebQuantJsGuards(unittest.TestCase):
         desk_js = self._read("web", "static", "js", "paper", "rebalance_desk.js")
         self.assertIn("今日盯盘状态", desk_js)
         self.assertIn("renderPaperRebalanceWorkerDesk", desk_js)
+        self.assertLess(desk_js.find(">标的</th>"), desk_js.find(">舆情</th>"))
+        self.assertLess(desk_js.find(">舆情</th>"), desk_js.find(">时间<"))
         self.assertLess(desk_js.find(">时间<"), desk_js.find(">动作<"))
+        self.assertIn("function sentimentDeskBadgeHtml", desk_js)
+        self.assertIn('missing: ["is-neutral", "—"]', desk_js)
         self.assertNotIn(">阶段<", desk_js)
         self.assertNotIn(">类别<", desk_js)
         self.assertIn(">成交<", desk_js)
@@ -4456,6 +4471,13 @@ class TestWebQuantJsGuards(unittest.TestCase):
         css = self._read("web", "static", "css", "follow.css")
         self.assertIn(".paper-rb-desk-table .paper-t0-desk-reason", css)
         self.assertIn(".paper-t0-desk-dir.is-morph", css)
+        self.assertIn(".paper-t0-desk-dir.is-sent", css)
+        self.assertIn(".paper-t0-desk-chip.is-sent", css)
+        self.assertIn('deskChip("is-sent", "舆情先验"', desk_js)
+        self.assertIn("舆情软先验 · 未过入场", self._read("web", "static", "js", "paper", "rebalance_report.js"))
+        tip = self._read("web", "static", "js", "score_tooltip.js")
+        self.assertIn("标题徽章 · 不进 ŷ", tip)
+        self.assertNotIn("舆情先验只读 09:30 前新闻库", tip)
         self.assertNotIn(
             ".follow-rebalance-section .paper-t0-worker-panel",
             css,
@@ -4482,7 +4504,8 @@ class TestWebQuantJsGuards(unittest.TestCase):
         self.assertIn('pct > 0 ? " is-up" : " is-down"', report)
         self.assertNotIn('title="相对昨收的当日涨跌幅 · 点击排序">涨跌', report)
         self.assertNotIn("rebalance-chg", report)
-        self.assertLess(report.find(">股票</div>"), report.find(">动作</div>"))
+        self.assertLess(report.find(">股票</div>"), report.find(">舆情</div>"))
+        self.assertLess(report.find(">舆情</div>"), report.find(">动作</div>"))
         self.assertLess(report.find(">动作</div>"), report.find(">分档</div>"))
         self.assertLess(report.find(">分档</div>"), report.find(">昨收</div>"))
         self.assertIn("function rebalanceActionView", report)
@@ -4534,7 +4557,7 @@ class TestWebQuantJsGuards(unittest.TestCase):
         self.assertNotIn('title="ŷ_hl · 极值序">y_hl</div>', report)
         css = self._read("web", "static", "css", "base.css")
         self.assertIn(
-            "minmax(0, 1.28fr) minmax(3.4rem, 0.5fr) minmax(0, 0.4fr) minmax(0, 0.78fr) minmax(0, 0.78fr) minmax(0, 1.78fr) repeat(5, minmax(0, 0.88fr));",
+            "minmax(0, 1.28fr) minmax(2.2rem, 0.32fr) minmax(3.4rem, 0.5fr) minmax(0, 0.4fr) minmax(0, 0.78fr) minmax(0, 0.78fr) minmax(0, 1.78fr) repeat(5, minmax(0, 0.88fr));",
             css,
         )
         self.assertIn(".rebalance-row > .rebalance-px.is-up", css)
@@ -4545,7 +4568,7 @@ class TestWebQuantJsGuards(unittest.TestCase):
         self.assertNotIn(".rebalance-reason", css)
         follow_css = self._read("web", "static", "css", "follow.css")
         self.assertIn(
-            "minmax(0, 1.28fr) minmax(3.4rem, 0.5fr) minmax(0, 0.4fr) minmax(0, 0.78fr) minmax(0, 0.78fr) minmax(0, 1.78fr) repeat(5, minmax(0, 0.88fr));",
+            "minmax(0, 1.28fr) minmax(2.2rem, 0.32fr) minmax(3.4rem, 0.5fr) minmax(0, 0.4fr) minmax(0, 0.78fr) minmax(0, 0.78fr) minmax(0, 1.78fr) repeat(5, minmax(0, 0.88fr));",
             follow_css,
         )
         self.assertNotIn("minmax(8.75rem, 1.2fr)", follow_css)

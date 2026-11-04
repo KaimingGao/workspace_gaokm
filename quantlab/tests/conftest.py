@@ -7,9 +7,18 @@
 from __future__ import annotations
 
 import os
+import tempfile
 from datetime import date, timedelta
 
 import numpy as np
+
+# 测试进程不打东财，新闻库也不写进 data/store。
+os.environ.setdefault("QUANTLAB_NEWS_ARCHIVE_POLL", "0")
+os.environ.setdefault("QUANTLAB_NEWS_ARCHIVE_INTERVAL", "0")
+os.environ.setdefault(
+    "QUANTLAB_NEWS_ARCHIVE_DIR",
+    tempfile.mkdtemp(prefix="ql-news-archive-"),
+)
 
 # ---------------------------------------------------------------------------
 # 仓库根路径（少数需要拼文件路径的测试用）

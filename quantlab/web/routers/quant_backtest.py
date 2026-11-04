@@ -129,6 +129,7 @@ def _portfolio_backtest_kwargs(body: PaperReplayBacktestRequest) -> Dict[str, An
         "y_oo_gt0": body.y_oo_gt0,
         "y_τc_gt0": body.y_τc_gt0,
         "morph_gate_enabled": bool(body.morph_gate_enabled),
+        "sentiment_gate_enabled": bool(body.sentiment_gate_enabled),
         "oo_rank_max": body.oo_rank_max,
         "oo_rank_strong_max": body.oo_rank_strong_max,
         "oo_rank_top_frac": body.oo_rank_top_frac,

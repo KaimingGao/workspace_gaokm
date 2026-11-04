@@ -51,7 +51,7 @@ class TestScoreHeadlines(unittest.TestCase):
         self.assertEqual(out["score"], 0.5)
 
     def test_sparse_branch_fine_not_full_bearish(self):
-        """分行违规夹在多数无命中标题里，不得虚高到 1.0 触发 gate 缩仓。"""
+        """分行违规夹在多数无命中标题里，不得虚高到 1.0 影响徽章标签。"""
         titles = [
             "邮储银行参加创新成果播种行动并发布初创贷科创金融产品",
             "邮储银行南平市分行被罚200万元",
@@ -67,6 +67,187 @@ class TestScoreHeadlines(unittest.TestCase):
         self.assertLess(float(out["score"]), 0.6)
         self.assertEqual(out.get("n_hit_titles"), 1)
         self.assertEqual(out.get("n_titles"), 5)
+
+    def test_profit_drop_is_bearish(self):
+        out = score_headlines(
+            [{"title": "供销大集：前三季度净利润同比减少185.88%"}]
+        )
+        self.assertEqual(out["label"], "bearish")
+        self.assertEqual(out["score"], 1.0)
+        self.assertEqual(out["hit_neg"], ["净利润减少"])
+        self.assertEqual(out["hit_pos"], [])
+
+    def test_loss_narrowing_and_cost_cut_are_not_bearish(self):
+        narrowed = score_headlines(
+            [
+                {"title": "公司亏损同比减少30%"},
+                {"title": "年报减亏"},
+                {"title": "季度亏损收窄"},
+            ],
+            lexicon={"positive": ["扭亏"], "negative": ["亏损", "预亏", "下滑"]},
+        )
+        self.assertEqual(narrowed["label"], "bullish")
+        self.assertEqual(narrowed["hit_pos"], ["亏损收窄"])
+        self.assertNotIn("亏损", narrowed["hit_neg"])
+
+        costs = score_headlines(
+            [
+                {"title": "管理费用同比减少20%"},
+                {"title": "营业成本同比下降10%"},
+                {"title": "有息负债减少"},
+            ],
+            lexicon={"positive": ["扭亏"], "negative": ["亏损", "下滑", "下跌"]},
+        )
+        self.assertEqual(costs["label"], "neutral")
+        self.assertIsNone(costs["score"])
+
+    def test_wider_loss_is_not_growth(self):
+        out = score_headlines(
+            [{"title": "法尔胜：净利润同比增亏"}],
+            lexicon={"positive": ["增持"], "negative": ["亏损"]},
+        )
+        self.assertEqual(out["label"], "bearish")
+        self.assertIn("增亏", out["hit_neg"])
+        self.assertNotIn("净利润增长", out["hit_pos"])
+
+    def test_faersheng_bundle_bearish_without_price_words(self):
+        out = score_headlines(
+            [
+                {"title": "法尔胜：前三季度净利润同比减少94.98%"},
+                {"title": "法尔胜：2026年第三季度营业收入为68560726.12元"},
+                {"title": "一季度暴涨两倍大牛股法尔胜：净资产为负"},
+            ]
+        )
+        self.assertEqual(out["label"], "bearish")
+        self.assertEqual(out["n_titles"], 3)
+        self.assertEqual(out["n_hit_titles"], 2)
+        self.assertEqual(out["score"], round(2 / 3, 4))
+        self.assertEqual(out["hit_neg"], ["净利润减少", "净资产为负"])
+        self.assertNotIn("暴涨", out["hit_pos"])
+        self.assertEqual(out["hit_pos"], [])
+
+    def test_guangju_bundle_mixed(self):
+        out = score_headlines(
+            [
+                {"title": "广聚能源：前三季度净利润同比增长177.71%"},
+                {"title": "广聚能源：前三季度净利润约8518.14万元，同比增177.71%"},
+                {"title": "广聚能源：第三季度归母净利润1657.65万元，同比下降22.35%"},
+            ]
+        )
+        self.assertEqual(out["label"], "mixed")
+        self.assertEqual(out["hit_pos"], ["净利润增长"])
+        self.assertEqual(out["hit_neg"], ["归母净利润下降"])
+        self.assertEqual(out["n_hit_titles"], 3)
+        self.assertEqual(out["score"], 0.5)
+
+    def test_weichai_record_high_and_long_cut_are_mixed(self):
+        out = score_headlines(
+            [
+                {"title": "摩根大通在潍柴动力的H股好仓比例下降0.03%至8.97%"},
+                {"title": "【调研快报】潍柴动力接待参加公司2026年三季报业绩交流会的投资者约420人调研"},
+                {"title": "潍柴动力三季度经营业绩再创历史新高 高股息与高成长属性兼具"},
+            ]
+        )
+        self.assertEqual(out["label"], "mixed")
+        self.assertEqual(out["hit_pos"], ["历史新高"])
+        self.assertEqual(out["hit_neg"], ["好仓下降"])
+        self.assertEqual(out["n_titles"], 3)
+        self.assertEqual(out["n_hit_titles"], 2)
+        self.assertEqual(out["score"], round(0.5 * 2 / 3, 4))
+
+        neutral = score_headlines(
+            [
+                {"title": "公司推进创新高质量发展"},
+                {"title": "毛利率下降但未披露净利润"},
+            ],
+            lexicon={"positive": ["增持"], "negative": ["减持", "下滑", "下跌"]},
+        )
+        self.assertEqual(neutral["label"], "neutral")
+
+    def test_shorthand_earnings_direction(self):
+        up = score_headlines(
+            [
+                {"title": "五粮液前三季度净利同比增长49.98%"},
+                {"title": "上海石化午后涨停 第三季度净利润同比大增2463.62%"},
+                {"title": "粤海饲料：前三季度归母净利润同比翻倍增长"},
+                {"title": "康强电子第三季度净利润环比翻倍"},
+                {"title": "中国长城：前三季度净利润为2.43亿元 同比增长1410.39%"},
+                {"title": "北化股份前三季度扣非净利增长73.22%"},
+                {"title": "我爱我家前三季度扣非盈利增长155.62%"},
+                {"title": "旺能环境三季度营收净利润均增长"},
+            ]
+        )
+        self.assertEqual(up["label"], "bullish")
+        self.assertTrue(up["hit_pos"])
+        self.assertEqual(up["hit_neg"], [])
+
+        down = score_headlines(
+            [
+                {"title": "*ST皇庭：第三季度营业收入同比降98.2%至5498万元"},
+                {"title": "顺发恒能前三季度净利约2039.13万元，同比下降67.63%"},
+                {"title": "中电鑫龙：第三季度营收同比降21.5%，归母净利润降55.3%"},
+                {"title": "科伦药业前三季度扣非利润同比下降7%"},
+                {"title": "北方铜业：三季度利润环比下降主要系铜精矿加工费持续低迷"},
+            ]
+        )
+        self.assertEqual(down["label"], "bearish")
+        self.assertTrue(down["hit_neg"])
+        self.assertEqual(down["hit_pos"], [])
+
+    def test_same_title_revenue_up_profit_down_is_mixed(self):
+        out = score_headlines(
+            [
+                {
+                    "title": "吉林化纤：2026年内前三季度营收增6%净利降三成，三季度单季转亏998万元"
+                }
+            ]
+        )
+        self.assertEqual(out["label"], "mixed")
+        self.assertIn("营收增长", out["hit_pos"])
+        self.assertIn("净利下降", out["hit_neg"])
+
+    def test_loss_narrow_with_amount_gap_is_bullish(self):
+        out = score_headlines(
+            [{"title": "武汉凡谷：第三季度亏损572万元 同比收窄52.40%"}],
+            lexicon={"positive": ["扭亏"], "negative": ["亏损", "下滑"]},
+        )
+        self.assertEqual(out["label"], "bullish")
+        self.assertIn("亏损收窄", out["hit_pos"])
+        self.assertNotIn("亏损", out["hit_neg"])
+
+    def test_breakout_and_drop_need_a_company_subject(self):
+        lex = {"positive": ["突破", "增持"], "negative": ["下跌", "下滑", "诉讼"]}
+        scans = score_headlines(
+            [
+                {"title": "【盘中播报】233只个股突破半年线"},
+                {"title": "今日盘中突破年线个股"},
+                {"title": "机构风向标 | 罗牛山持股比例合计下跌1.55个百分点"},
+                {"title": "煤炭概念下跌0.94%，主力资金净流出57股"},
+                {"title": "16只白酒股下跌 贵州茅台1355.9元/股收盘"},
+                {"title": "英力特：将多举措减轻烧碱价格下跌对公司经营的负面影响"},
+                {"title": "北新建材：防渗新市场将对冲部分需求下滑，形成新的增长引擎"},
+                {"title": "陕西金叶：公司及控股子公司不存在逾期担保及涉及诉讼的担保"},
+            ],
+            lexicon=lex,
+        )
+        self.assertEqual(scans["label"], "neutral")
+
+        kept = score_headlines(
+            [
+                {"title": "广汽集团埃安i60交付突破十万辆"},
+                {"title": "上汽集团前三季度海外销售突破百万，已超去年全年水平"},
+            ],
+            lexicon=lex,
+        )
+        self.assertEqual(kept["label"], "bullish")
+        self.assertIn("突破", kept["hit_pos"])
+
+        price = score_headlines(
+            [{"title": "宁德时代股价下跌"}],
+            lexicon=lex,
+        )
+        self.assertEqual(price["label"], "bearish")
+        self.assertIn("下跌", price["hit_neg"])
 
 class TestFetchAndCache(unittest.TestCase):
     def test_fetch_uses_cache(self):
@@ -145,26 +326,34 @@ class TestFetchAndCache(unittest.TestCase):
     def test_list_watchlist_sentiment(self):
         with tempfile.TemporaryDirectory() as td:
             uni = os.path.join(td, "watching.json")
+            archive = os.path.join(td, "archive")
+            os.makedirs(archive, exist_ok=True)
             with open(uni, "w", encoding="utf-8") as f:
                 json.dump({"watchlist": ["600519", "000001"], "sources": [{"type": "static"}]}, f)
-            with patch.object(sentiment_mod, "NEWS_STORE_DIR", os.path.join(td, "news")), patch.object(
-                sentiment_mod, "WATCHING_PATH", uni
-            ), patch(
-                "core.sentiment.fetch_stock_headlines",
-                side_effect=lambda code, **kw: {
-                    "ok": True,
-                    "stock_code": code,
-                    "stock_name": code,
-                    "items": [{"title": f"{code} 新闻"}],
-                    "sentiment": {"label": "neutral", "score": None},
-                    "updated_at": "t",
-                    "from_cache": False,
-                    "error": None,
-                },
-            ):
-                out = list_watchlist_sentiment(limit=2)
-            self.assertTrue(out["ok"])
-            self.assertEqual(out["count"], 2)
+            calls = []
+
+            def fetcher(code):
+                calls.append(code)
+                return [
+                    {
+                        "新闻标题": f"{code} 新闻",
+                        "发布时间": "2026-11-04 10:00:00",
+                        "文章来源": "东财",
+                        "新闻链接": "http://example.test/n",
+                    }
+                ]
+
+            with patch.object(sentiment_mod, "WATCHING_PATH", uni), patch.dict(
+                os.environ, {"QUANTLAB_NEWS_ARCHIVE_DIR": archive}
+            ), patch("core.news_archive._default_fetcher", side_effect=fetcher):
+                first = list_watchlist_sentiment(limit=2)
+                second = list_watchlist_sentiment(limit=2)
+            self.assertTrue(first["ok"])
+            self.assertEqual(first["count"], 2)
+            self.assertEqual(sorted(calls), ["000001", "600519"])
+            self.assertTrue(all(row.get("from_archive") for row in first["items"]))
+            self.assertTrue(all(row.get("from_cache") for row in second["items"]))
+            self.assertEqual(len(calls), 2)
 
 class TestAlerts(unittest.TestCase):
     def test_detect_new_bearish_title(self):

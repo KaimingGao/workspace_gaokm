@@ -42,7 +42,6 @@ DEFAULT_SIGNAL_CONFIG: Dict[str, Any] = {
         "money_flow": 0.0,
         "amihud": 0.02,
         "idio_momentum": 0.03,
-        "alt_sentiment": 0.02,
         "tail_anomaly": 0.02,
     },
     "factor_groups": {
@@ -134,17 +133,12 @@ DEFAULT_SIGNAL_CONFIG: Dict[str, Any] = {
         "ann_missing_code_ratio_warn": 0.3,
         "ann_missing_code_ratio_block": 0.5,
     },
-    # 舆情：默认不进 ŷ（include_in_score=false）；role=prior 作 ŷ 外旁路。
+    # 舆情：观察徽章。已退出因子集；调仓软先验见 news.db / sentiment_gate_enabled。
     "sentiment": {
         "include_in_score": False,
         "role": "prior",
         "prior": {
             "mode": "off",
-            "block_new_buys": False,
-            "scale_buy_pct": 0.5,
-            "scale_holds": False,
-            "warn_only": True,
-            "reduce_avoid_on_bullish": True,
         },
         "append_history": True,
         "history_max_lines_per_code": 500,
@@ -318,12 +312,26 @@ def load_signal_config(*, reload: bool = False) -> Dict[str, Any]:
         if rewritten:
             cfg["factor_groups"] = out_groups
     weights = cfg.get("weights")
-    if isinstance(weights, dict) and "alpha158" in weights:
+    if isinstance(weights, dict) and (
+        "alpha158" in weights or "alt_sentiment" in weights
+    ):
         weights = dict(weights)
-        if "alpha_oo" not in weights:
-            weights["alpha_oo"] = weights.pop("alpha158")
-        else:
-            weights.pop("alpha158", None)
+        if "alpha158" in weights:
+            if "alpha_oo" not in weights:
+                weights["alpha_oo"] = weights.pop("alpha158")
+            else:
+                weights.pop("alpha158", None)
+        if "alt_sentiment" in weights:
+            try:
+                extra = float(weights.pop("alt_sentiment") or 0.0)
+            except (TypeError, ValueError):
+                extra = 0.0
+            if extra:
+                try:
+                    base = float(weights.get("momentum") or 0.0)
+                except (TypeError, ValueError):
+                    base = 0.0
+                weights["momentum"] = base + extra
         cfg["weights"] = weights
     _cached = cfg
     return _apply_overlays(deepcopy(cfg))

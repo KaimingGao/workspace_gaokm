@@ -312,7 +312,7 @@ function renderLogItem(l, { tradeCols = false } = {}) {
     }
     if (note) secondaryParts.push(note);
     if (meta.sentiment_prior) {
-      secondaryParts.unshift("舆情参考 · 不调仓");
+      secondaryParts.unshift("舆情参考 · 不进 ŷ");
     }
     if (meta.market_prior) {
       secondaryParts.unshift("M prior · 不改 ŷ");
@@ -356,7 +356,7 @@ function renderLogItem(l, { tradeCols = false } = {}) {
       ? `<span class="paper-market-prior-badge" title="M prior · 不改 ŷ">M</span> `
       : "") +
     (meta.sentiment_prior
-      ? `<span class="watching-sent-badge is-bear" title="舆情参考 · 不调仓">S</span> `
+      ? `<span class="watching-sent-badge is-bear" title="舆情参考 · 不进 ŷ">S</span> `
       : "");
   return (
     `<div class="paper-log-item ${cls}${colCls}" title="${escapeText(when.title || `${when.date} ${when.time}`)}">` +

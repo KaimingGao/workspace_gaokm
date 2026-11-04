@@ -1153,4 +1153,11 @@ def run_schedule(kind: str, **kwargs: Any) -> Dict[str, Any]:
         )
     if k == "macro_backfill":
         return run_macro_backfill(lookback=int(kwargs.get("lookback") or 90))
+    if k == "news_archive_poll":
+        from core.news_archive import maybe_poll_news_archive
+
+        return maybe_poll_news_archive(
+            codes=kwargs.get("codes"),
+            force=bool(kwargs.get("force")),
+        )
     return {"ok": False, "error": f"unknown schedule kind: {kind}"}

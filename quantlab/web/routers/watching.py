@@ -356,3 +356,38 @@ def watching_minute_tail(
         )
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e)) from e
+
+
+@router.get("/api/news-archive/status")
+def news_archive_status(date: str = "", code: str = "") -> Dict[str, Any]:
+    """数据中心新闻库面板。只读本地库，不打网。date / code 只筛标题示例。"""
+    from core.news_archive import archive_status
+
+    try:
+        return archive_status(sample_date=str(date or "")[:10], sample_code=str(code or ""))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e)) from e
+
+
+@router.get("/api/news-archive/poll/progress")
+def news_archive_poll_progress() -> Dict[str, Any]:
+    """整池更新进度。只读内存，不打网。"""
+    from core.news_archive import poll_progress
+
+    return {"ok": True, "progress": poll_progress()}
+
+
+@router.post("/api/news-archive/poll")
+def news_archive_poll() -> Dict[str, Any]:
+    """立即再拉东财当前页。force 忽略当日时点去重。"""
+    from core.news_archive import archive_status, maybe_poll_news_archive
+
+    try:
+        out = maybe_poll_news_archive(force=True)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e)) from e
+    try:
+        out["status"] = archive_status()
+    except Exception:  # noqa: BLE001
+        logger.debug("news archive status after poll failed", exc_info=True)
+    return out
