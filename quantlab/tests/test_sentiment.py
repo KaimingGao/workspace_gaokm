@@ -249,6 +249,18 @@ class TestScoreHeadlines(unittest.TestCase):
         self.assertEqual(price["label"], "bearish")
         self.assertIn("下跌", price["hit_neg"])
 
+    def test_more_titles_can_flip_neutral_to_bullish(self):
+        """表列 limit=3 与明细 limit=8 曾导致「中」vs「多」；同池须共用条数。"""
+        items = [
+            {"title": "江海股份股价震荡整理"},
+            {"title": "电容行业供需平稳"},
+            {"title": "江海股份今日成交活跃"},
+            {"title": "江海股份获机构增持"},
+            {"title": "江海股份签订重大合同中标"},
+        ]
+        self.assertEqual(score_headlines(items[:3])["label"], "neutral")
+        self.assertEqual(score_headlines(items)["label"], "bullish")
+
 class TestFetchAndCache(unittest.TestCase):
     def test_fetch_uses_cache(self):
         with tempfile.TemporaryDirectory() as td:

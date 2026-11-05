@@ -112,7 +112,7 @@ _SLOT_STALE_POLICY: Dict[str, Dict[str, Any]] = {
         "allow_zero_progress": True,
         "label": "物化",
     },
-    # 全池 500×3 折 Ridge+LambdaRank：单折拟合可数十分钟无 current 递增
+    # A 档 500×3 折 Ridge+LambdaRank：单折拟合仍可能较久、无 current 递增
     "roll-gate-top1": {
         "stale_sec": 7200.0,
         "stuck_start_sec": 7200.0,

@@ -69,17 +69,25 @@ class WatchingService:
         self,
         codes: Optional[List[str]] = None,
         *,
-        limit: int = 3,
+        limit: Optional[int] = None,
         force: bool = False,
     ) -> Dict[str, Any]:
         from core.sentiment import list_watchlist_sentiment
 
-        return list_watchlist_sentiment(codes, limit=limit, force=force)
+        kw: Dict[str, Any] = {"force": force}
+        if limit is not None:
+            kw["limit"] = int(limit)
+        return list_watchlist_sentiment(codes, **kw)
 
-    def sentiment_one(self, code: str, *, limit: int = 8, force: bool = False) -> Dict[str, Any]:
+    def sentiment_one(
+        self, code: str, *, limit: Optional[int] = None, force: bool = False
+    ) -> Dict[str, Any]:
         from core.news_archive import serve_watch_headlines
 
-        out = serve_watch_headlines([code], limit=limit, force=force)
+        kw: Dict[str, Any] = {"force": force}
+        if limit is not None:
+            kw["limit"] = int(limit)
+        out = serve_watch_headlines([code], **kw)
         rows = list(out.get("items") or [])
         if rows:
             return rows[0]
@@ -99,7 +107,7 @@ class WatchingService:
         """基于舆情标题的 AI 分析（无 key 时降级提示）。标题与表格同一条本地优先路径。"""
         from agent.llm_client import LLMClient
 
-        headlines = self.sentiment_one(code, limit=10)
+        headlines = self.sentiment_one(code)
         if not headlines.get("ok") or not headlines.get("items"):
             return {"ok": False, "analysis": "暂无足够舆情数据进行分析"}
 

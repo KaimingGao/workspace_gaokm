@@ -127,7 +127,9 @@ async def watching_sentiment_alerts() -> Dict[str, Any]:
 
 
 @router.get("/api/watching/sentiment")
-async def watching_sentiment(codes: str = "", limit: int = 3, force: bool = False) -> Dict[str, Any]:
+async def watching_sentiment(
+    codes: str = "", limit: Optional[int] = None, force: bool = False
+) -> Dict[str, Any]:
     import asyncio
 
     try:
@@ -145,7 +147,9 @@ async def watching_sentiment(codes: str = "", limit: int = 3, force: bool = Fals
 
 
 @router.get("/api/watching/sentiment/{code}")
-async def watching_sentiment_one(code: str, limit: int = 8, force: bool = False) -> Dict[str, Any]:
+async def watching_sentiment_one(
+    code: str, limit: Optional[int] = None, force: bool = False
+) -> Dict[str, Any]:
     import asyncio
 
     try:

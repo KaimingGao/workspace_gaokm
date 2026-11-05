@@ -12,6 +12,7 @@ from core.paper import (
     _now_iso,
     append_operation_log,
     append_snapshot,
+    append_trade_legs_to_operation_log,
     build_ops_report,
     init_from_example,
     load_paper,
@@ -20,6 +21,7 @@ from core.paper import (
     save_paper,
     snapshots_for_ui,
 )
+from core.paper.ledger import merge_unlogged_trade_legs
 from core.paper.costs import enrich_operation_log_with_trade_fees
 from services.paper_helpers import _build_score_formula
 
@@ -93,7 +95,11 @@ def _blank_stale_risk_kpis(paper: dict) -> None:
 
 class PaperAccountMixin:
     def _operation_log_for_ui(self, paper: dict, *, limit: int = 50) -> list:
-        logs = (paper.get("operation_log") or [])[-max(1, int(limit or 50)) :]
+        logs = merge_unlogged_trade_legs(
+            paper.get("operation_log") or [],
+            paper.get("trades") or [],
+        )
+        logs = logs[-max(1, int(limit or 50)) :]
         return enrich_operation_log_with_trade_fees(
             logs,
             paper.get("trades") or [],
@@ -604,6 +610,15 @@ class PaperAccountMixin:
                         bits.append(f"买{n_buy} · 卖{n_sell}")
                     if n_skip:
                         bits.append(f"跳过{n_skip}")
+                    sells = [t for t in trades if str(t.get("side") or "") == "sell"]
+                    buys = [t for t in trades if str(t.get("side") or "") == "buy"]
+                    append_trade_legs_to_operation_log(
+                        paper,
+                        sells,
+                        buys,
+                        origin="strategy",
+                        source="open_fill",
+                    )
                     append_operation_log(
                         paper,
                         "rebalance",

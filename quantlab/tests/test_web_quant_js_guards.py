@@ -517,7 +517,12 @@ class TestWebQuantJsGuards(unittest.TestCase):
         self.assertNotIn('aria-label="A 档须 OO_R+大于 0"', panel)
         self.assertNotIn('aria-label="A 档须 TC_R+大于 0"', panel)
         self.assertIn("quant-ru-gate-group", panel)
-        self.assertIn("quant-ru-run", panel)
+        self.assertRegex(
+            panel,
+            r'id="quant-ru-tiers"[^>]*class="[^"]*\bprimary\b',
+        )
+        self.assertNotIn("quant-ru-run", panel)
+        self.assertNotIn(".quant-ru-run.dialog-btn", css)
         ru_head = panel[
             panel.find('id="quant-section-research-universe"') : panel.find(
                 'id="quant-section-bars"'
@@ -527,7 +532,6 @@ class TestWebQuantJsGuards(unittest.TestCase):
         self.assertLess(ru_head.find("quant-ru-a-gate"), ru_head.find('id="quant-ru-ran"'))
         self.assertLess(ru_head.find('id="quant-ru-ran"'), ru_head.find('id="quant-ru-tiers"'))
         self.assertNotIn("quant-ru-ran", ru_head[: ru_head.find("quant-ru-a-gate")])
-        self.assertIn(".quant-ru-run.dialog-btn", css)
         self.assertIn(
             ".quant-ru-a-gate {\n  display: inline-flex;\n  align-items: center;\n  flex-wrap: wrap;\n  gap: 6px;\n  font-family: inherit;\n  font-size: var(--q-fs-caption, 12px);",
             css.replace("\r\n", "\n"),
@@ -2274,13 +2278,18 @@ class TestWebQuantJsGuards(unittest.TestCase):
         self.assertIn("同档内按 fuse 从高到低", island)
         self.assertIn("相对强弱分", island)
         self.assertIn("options.tiebreak", vt)
-        self.assertIn("watching_table_sort_v2", domain)
+        self.assertIn("watching_table_sort_v3", domain)
         self.assertIn("const QUOTE_CHUNK = 40", domain)
         self.assertNotIn("fetchQuoteBatch(restCodes, 20000)", domain)
         self.assertIn("function visibleCodes", vt)
         self.assertIn("watchingVisibleCodes()", domain)
         self.assertNotIn("补齐剩余", domain)
-        self.assertIn('state.watchingSortKey = "tier"', domain)
+        self.assertIn('state.watchingSortKey = "paper"', domain)
+        self.assertIn('id: "paper"', island)
+        self.assertIn("已开仓在前", island)
+        self.assertIn("同组内 fuse 从高到低", island)
+        self.assertIn('if (id === "paper")', island)
+        self.assertIn('id !== "tier" && id !== "paper"', island)
         self.assertIn("predictability-tiers/last?slim=1", pred)
         self.assertIn("mean_y_pos_tau", pred)
         self.assertIn("f1_pos", pred)
@@ -3865,6 +3874,9 @@ class TestWebQuantJsGuards(unittest.TestCase):
             self.assertNotIn("dashboard-section-desc", chunk)
             self.assertNotIn("quant-section-desc", chunk)
         self.assertIn("quant-rg-protocol", panel)
+        self.assertIn(">A 档</span>", panel)
+        self.assertIn("观察池 ∩ <strong>A 档</strong>", panel)
+        self.assertNotIn(">全池</span>", panel[panel.find('id="quant-section-roll-gate"') : panel.find('id="quant-rg-run"')])
         self.assertIn('id="quant-rg-run" class="dialog-btn primary"', panel)
         self.assertIn('id="quant-rg-ran"', panel)
         rg_head = panel[panel.find('id="quant-rg-strip"') : panel.find('id="quant-rg-run"')]
@@ -3881,6 +3893,14 @@ class TestWebQuantJsGuards(unittest.TestCase):
         self.assertIn("y_gate: \"ŷ 门槛\"", rg_js)
         self.assertIn("/api/quant/roll-gate-top1", rg_js)
         self.assertIn("/api/quant/roll-gate-top1/last", rg_js)
+        self.assertIn("A 档 walk-forward", rg_js)
+        self.assertIn("拉 A 档日线", rg_js)
+        self.assertIn("A档 ${nPool}", rg_js)
+        self.assertIn("全池(旧) ${nPool}", rg_js)
+        self.assertNotIn("入队全池 walk-forward", rg_js)
+        self.assertNotIn("拉全池", rg_js)
+        self.assertNotIn("paperNum", self._read("web", "static", "js", "quant", "watching_render.js"))
+        self.assertNotIn("paperNum", self._read("web", "static", "js", "quant", "domain_watching.js"))
         self.assertIn("finished_at", rg_js)
         self.assertIn("fmtRanLocal", rg_js)
         self.assertIn("noteJobClock", rg_js)
@@ -4464,7 +4484,8 @@ class TestWebQuantJsGuards(unittest.TestCase):
         self.assertIn('if (a === "reduce") return "减"', desk_js)
         self.assertIn('if (!v && cls !== "is-univ") return ""', desk_js)
         self.assertIn('if (rs == null || rs === "") return "—"', desk_js)
-        self.assertIn("paper-t0-col-act", desk_js)
+        self.assertNotIn("paper-t0-col-act", desk_js)
+        self.assertNotIn(">操作<", desk_js)
         self.assertNotIn("未开", desk_js)
         self.assertIn("last_run_ts", paper)
         self.assertIn(" · 卖 ${", paper)
@@ -5469,6 +5490,32 @@ class TestWebQuantJsGuards(unittest.TestCase):
         self.assertIn('data.error || "暂无资讯"', render)
         self.assertNotIn('data.error || "无资讯"', render)
         self.assertNotIn('data.error || "暂无标题"', render)
+
+    def test_watching_sentiment_table_and_detail_share_limit(self):
+        """表列徽章与点开明细必须同 limit，否则会出现「中」vs「多」。"""
+        render = self._read("web", "static", "js", "quant", "watching_render.js")
+        domain = self._read("web", "static", "js", "quant", "domain_watching.js")
+        sent = self._read("core", "sentiment.py")
+        svc = self._read("services", "watching_service.py")
+        self.assertIn("export const WATCHING_SENTIMENT_LIMIT = 8", render)
+        self.assertIn("WATCHING_SENTIMENT_LIMIT = 8", sent)
+        self.assertIn("LLM_SENTIMENT_MAX_ITEMS = WATCHING_SENTIMENT_LIMIT", sent)
+        self.assertIn("WATCHING_SENTIMENT_LIMIT", domain)
+        self.assertIn(
+            "`/api/watching/sentiment?codes=${encodeURIComponent(chunk.join(\",\"))}&limit=${WATCHING_SENTIMENT_LIMIT}`",
+            domain,
+        )
+        self.assertIn(
+            "`/api/watching/sentiment/${encodeURIComponent(code)}?limit=${WATCHING_SENTIMENT_LIMIT}`",
+            domain,
+        )
+        self.assertNotIn("&limit=3", domain)
+        self.assertNotIn("watchingSentimentByCode", domain)
+        self.assertNotIn("describeWatchingSource", domain)
+        self.assertNotIn("describeWatchingSource", render)
+        self.assertIn("applySentimentToRow(code, data)", domain)
+        self.assertNotIn("sentiment_one(code, limit=10)", svc)
+        self.assertIn("headlines = self.sentiment_one(code)", svc)
 
     def test_fit_tier_badge_on_stock_names(self):
         ui = self._read("web", "static", "js", "quant", "fit_tier_ui.js")

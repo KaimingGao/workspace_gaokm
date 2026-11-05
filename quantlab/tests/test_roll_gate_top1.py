@@ -108,6 +108,37 @@ class TestRollGateTop1Hardening(unittest.TestCase):
         self.assertEqual(out["n"], 3)
         self.assertEqual(out["mean_ret"], 1.0)
 
+    def test_tier_a_codes_intersects_watching(self):
+        from core.research import roll_gate_top1 as rg
+
+        with mock.patch(
+            "core.watching.store.read_watching",
+            return_value={"watchlist": ["600000", "600001", "600002"]},
+        ), mock.patch(
+            "core.research.predictability_tiers.load_predictability_tiers_last",
+            return_value={
+                "success": True,
+                "rows": [
+                    {"code": "600000", "tier": "A"},
+                    {"code": "600001", "tier": "B"},
+                    {"code": "999999", "tier": "A"},
+                ],
+            },
+        ):
+            self.assertEqual(rg._tier_a_codes(), ["600000"])
+
+    def test_tier_a_codes_empty_without_report(self):
+        from core.research import roll_gate_top1 as rg
+
+        with mock.patch(
+            "core.watching.store.read_watching",
+            return_value={"watchlist": ["600000"]},
+        ), mock.patch(
+            "core.research.predictability_tiers.load_predictability_tiers_last",
+            return_value=None,
+        ):
+            self.assertEqual(rg._tier_a_codes(), [])
+
 
 if __name__ == "__main__":
     unittest.main()

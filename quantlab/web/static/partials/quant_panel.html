@@ -212,7 +212,7 @@
           </span>
           <span class="quant-ru-ran-row">
             <span id="quant-ru-ran" class="quant-ru-ran" title="尚无更新记录">上次 —</span>
-            <button type="button" id="quant-ru-tiers" class="dialog-btn secondary quant-ru-run" title="定档窗固定 Holdout 前 60 日猜涨 lift；评测用本卡 Holdout（默认 60，与 ŷ_oo 拟合无关）。定档模型不覆盖研究套。">观察池分档</button>
+            <button type="button" id="quant-ru-tiers" class="dialog-btn primary" title="定档窗固定 Holdout 前 60 日猜涨 lift；评测用本卡 Holdout（默认 60，与 ŷ_oo 拟合无关）。定档模型不覆盖研究套。">观察池分档</button>
           </span>
         </div>
       </div>
@@ -1200,7 +1200,7 @@
   </section>
 
 
-  <!-- 滚动验证：walk-forward Top1 · 全池 500 / 10×3 · 不入库；默认收起（壳对齐 ŷ_τ90） -->
+  <!-- 滚动验证：walk-forward Top1 · A 档 500 / 10×3 · 不入库；默认收起（壳对齐 ŷ_τ90） -->
   <section class="dashboard-section quant-section" id="quant-section-roll-gate" aria-labelledby="quant-section-roll-gate-title">
     <details class="quant-primary-fold">
       <summary class="quant-primary-fold-sum dashboard-section-head quant-section-head">
@@ -1218,10 +1218,10 @@
             <div class="quant-help-body quant-pro-help-body">
               <p>
                 定长 lookback <strong>500</strong> 交易日训练，holdout <strong>10</strong> 日 × 连续 <strong>3</strong> 折；
-                每折 embargo=1 后重训（非冻当前 research 权重）。全观察池、无 A/B/C。
-                oo：<code>ŷ_oo &gt; 0.2%</code> ∧ <code>oo_rank=1</code>（LambdaRank）；
+                每折 embargo=1 后重训（非冻当前 research 权重）。宇宙 = 观察池 ∩ <strong>A 档</strong>（须先跑分档）。
+                oo：<code>ŷ_oo &gt; 0.2%</code> ∧ <code>oo_rank=1</code>（A 档内 LambdaRank）；
                 τc：开盘钟 <code>ŷ_τc &gt; 0.2%</code> ∧ <code>τc_rank=1</code>。
-                空仓/未过闸不进命中分母。基线 50%。不写模型、不入库。可能数十分钟。
+                空仓/未过闸不进命中分母。基线 50%。不写模型、不入库。
               </p>
             </div>
           </details>
@@ -1230,12 +1230,12 @@
             <span class="quant-rg-sep" aria-hidden="true">·</span>
             <span class="quant-rg-kv" title="holdout×折数"><span class="quant-rg-k">HO</span><span class="quant-rg-v">10×3</span></span>
             <span class="quant-rg-sep" aria-hidden="true">·</span>
-            <span class="quant-rg-kv" title="ŷ 门槛 ∧ 全池 rank=1"><span class="quant-rg-v">ŷ&gt;0.2% ∧ rank=1</span></span>
+            <span class="quant-rg-kv" title="ŷ 门槛 ∧ A 档内 rank=1"><span class="quant-rg-v">ŷ&gt;0.2% ∧ rank=1</span></span>
             <span class="quant-rg-sep" aria-hidden="true">·</span>
-            <span class="quant-rg-kv" title="宇宙"><span class="quant-rg-v">全池</span></span>
+            <span class="quant-rg-kv" title="宇宙：观察池∩可预测性 A 档"><span class="quant-rg-v">A 档</span></span>
           </div>
           <span id="quant-rg-ran" class="quant-rg-ran" title="尚无执行记录">上次 —</span>
-          <button type="button" id="quant-rg-run" class="dialog-btn primary" title="全池 walk-forward Top1 闸门命中（后台，不写模型）">运行</button>
+          <button type="button" id="quant-rg-run" class="dialog-btn primary" title="A 档 walk-forward Top1 闸门命中（后台，不写模型）">运行</button>
         </div>
       </div>
       <div class="quant-pro-card-body quant-rg-body">

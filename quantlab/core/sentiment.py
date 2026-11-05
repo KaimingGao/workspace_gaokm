@@ -27,6 +27,8 @@ from core.paths import (
 DEFAULT_TTL_SEC = 15 * 60
 MAX_BATCH = 20
 ALERT_SCORE_THRESHOLD = 0.6
+# 观察池表徽章 / 点开明细 / AI 解读共用标题条数（与 web WATCHING_SENTIMENT_LIMIT 对齐）
+WATCHING_SENTIMENT_LIMIT = 8
 
 # 业绩方向：同一标题内「指标 + 方向」，不把「减少」单独放进负向词。
 # 指标按长短排列，短词（净利 / 利润）不得再命中长词内部。
@@ -665,12 +667,15 @@ def _watchlist_codes(codes: Optional[Sequence[str]] = None) -> List[str]:
 def list_watchlist_sentiment(
     codes: Optional[Sequence[str]] = None,
     *,
-    limit: int = 3,
+    limit: int = WATCHING_SENTIMENT_LIMIT,
     force: bool = False,
     ttl_sec: int = DEFAULT_TTL_SEC,
 ) -> Dict[str, Any]:
-    """批量观察舆情。先读本地新闻库，没有或过期再向东财要并写回。上限 MAX_BATCH。"""
-    limit = max(1, min(int(limit or 3), 8))
+    """批量观察舆情。先读本地新闻库，没有或过期再向东财要并写回。上限 MAX_BATCH。
+
+    默认与观察池点开明细 / ``sentiment_one`` 同口径（``WATCHING_SENTIMENT_LIMIT``）。
+    """
+    limit = max(1, min(int(limit or WATCHING_SENTIMENT_LIMIT), WATCHING_SENTIMENT_LIMIT))
     watch = _watchlist_codes(codes)
     from core.news_archive import serve_watch_headlines
 
@@ -848,7 +853,7 @@ def read_last_sentiment_alerts() -> Dict[str, Any]:
 # --------------------------------------------------------------------------- #
 
 LLM_SENTIMENT_TTL_SEC = 30 * 60  # LLM 调用昂贵，缓存 30 分钟
-LLM_SENTIMENT_MAX_ITEMS = 8
+LLM_SENTIMENT_MAX_ITEMS = WATCHING_SENTIMENT_LIMIT
 
 _LLM_SYSTEM_PROMPT = (
     "你是一位严谨的 A 股/港股/美股舆情分析师。"

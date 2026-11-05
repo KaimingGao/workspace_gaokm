@@ -32,6 +32,8 @@ EXAMPLE_PATH = PAPER_EXAMPLE_PATH
 # 账本列表上限：防长期运行 JSON 膨胀（与 operation_log/snapshots 对齐）
 MAX_TRADES = 500
 MAX_SNAPSHOTS = 120
+# 每个会话只留收盘净值，供「今日收益 = 今日净值 − 昨收净值」。不跟盘中快照一起裁。
+MAX_SESSION_NAV = 400
 MAX_SIGNAL_LOG = 30
 MAX_OPERATION_LOG = 200
 
@@ -54,8 +56,10 @@ def trim_paper_lists(paper: dict) -> dict:
     if isinstance(trades, list) and len(trades) > MAX_TRADES:
         paper["trades"] = trades[-MAX_TRADES:]
     snaps = paper.get("snapshots")
-    if isinstance(snaps, list) and len(snaps) > MAX_SNAPSHOTS:
-        paper["snapshots"] = snaps[-MAX_SNAPSHOTS:]
+    if isinstance(snaps, list):
+        fold_snapshots_into_session_nav(paper)
+        if len(snaps) > MAX_SNAPSHOTS:
+            paper["snapshots"] = snaps[-MAX_SNAPSHOTS:]
     slog = paper.get("signal_log")
     if isinstance(slog, list) and len(slog) > MAX_SIGNAL_LOG:
         paper["signal_log"] = slog[-MAX_SIGNAL_LOG:]
@@ -243,6 +247,43 @@ def merge_origin(existing: Optional[str], incoming: str) -> str:
     return ORIGIN_MIXED
 
 
+def remember_session_nav(paper: dict, ts: Any, equity: Any) -> None:
+    """记下该会话最后一笔账户净值。盘中快照被裁掉后，今日收益仍相对昨收净值。"""
+    if not isinstance(paper, dict):
+        return
+    day = str(ts or "")[:10]
+    if len(day) != 10:
+        return
+    try:
+        eq = round(float(equity), 2)
+    except (TypeError, ValueError):
+        return
+    if eq <= 1e-6:
+        return
+    book = paper.get("session_nav")
+    if not isinstance(book, dict):
+        book = {}
+        paper["session_nav"] = book
+    book[day] = eq
+    if len(book) > MAX_SESSION_NAV:
+        for key in sorted(str(k) for k in book)[:-MAX_SESSION_NAV]:
+            book.pop(key, None)
+
+
+def fold_snapshots_into_session_nav(paper: dict) -> None:
+    """把现有快照按日收成 session_nav。同一日以后写的点为准。"""
+    if not isinstance(paper, dict):
+        return
+    for snap in paper.get("snapshots") or []:
+        if not isinstance(snap, dict):
+            continue
+        remember_session_nav(
+            paper,
+            snap.get("ts") or snap.get("date"),
+            snap.get("equity"),
+        )
+
+
 def append_snapshot(paper: dict, summary: Dict[str, Any]) -> None:
     snap = {
         "ts": _next_snapshot_ts(paper),
@@ -256,6 +297,7 @@ def append_snapshot(paper: dict, summary: Dict[str, Any]) -> None:
         "strategy_stock_value": summary.get("strategy_stock_value"),
     }
     paper.setdefault("snapshots", []).append(snap)
+    remember_session_nav(paper, snap["ts"], snap.get("equity"))
     paper["snapshots"] = paper["snapshots"][-MAX_SNAPSHOTS:]
 
 
@@ -498,6 +540,137 @@ def append_operation_log(
     paper["operation_log"] = paper["operation_log"][-MAX_OPERATION_LOG:]
 
 
+def _trade_side_for_log(raw_side: str) -> str:
+    side = str(raw_side or "").strip().lower()
+    if side == "t0_sell":
+        return "sell"
+    if side == "t0_buy":
+        return "buy"
+    return side
+
+
+def trade_leg_operation_entry(
+    trade: dict,
+    *,
+    origin: str = "cluster",
+    source: str = "research_hub",
+    ts: Optional[str] = None,
+) -> Optional[dict]:
+    """单笔成交 → 交易记录行。价格、股数、说明都放在 meta，供页面「价格 / 明细」。"""
+    if not isinstance(trade, dict):
+        return None
+    raw_side = str(trade.get("side") or "").strip().lower()
+    side = _trade_side_for_log(raw_side)
+    if side not in ("buy", "sell"):
+        return None
+    try:
+        from core.paper.costs import fee_fields_from_trade, pnl_fields_from_trade
+    except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+        fee_fields_from_trade = None  # type: ignore
+        pnl_fields_from_trade = None  # type: ignore
+    t0_leg = raw_side.startswith("t0_")
+    fee_meta: Dict[str, Any] = {}
+    if fee_fields_from_trade is not None:
+        try:
+            fee_meta = fee_fields_from_trade(trade) or {}
+        except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+            fee_meta = {}
+    pnl_meta: Dict[str, Any] = {}
+    if side == "sell" and pnl_fields_from_trade is not None:
+        try:
+            pnl_meta = pnl_fields_from_trade(trade) or {}
+        except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+            pnl_meta = {}
+    name = trade.get("stock_name") or trade.get("stock_code") or "—"
+    leg = "做T" if t0_leg or origin == "t0" else ""
+    detail = (
+        f"{leg}{'买入' if side == 'buy' else '卖出'} {name} "
+        f"{trade.get('shares')}股 @ {trade.get('price')}"
+    )
+    when = str(ts or trade.get("ts") or "").strip() or _now_iso()
+    return {
+        "ts": when,
+        "type": side,
+        "type_label": OPERATION_LOG_TYPES.get(side, side),
+        "detail": detail,
+        "meta": {
+            "stock_code": trade.get("stock_code"),
+            "stock_name": trade.get("stock_name"),
+            "shares": trade.get("shares"),
+            "price": trade.get("price"),
+            "amount": trade.get("amount") or trade.get("actual_cost"),
+            "origin": "t0" if t0_leg or origin == "t0" else origin,
+            "source": source,
+            "note": trade.get("note"),
+            "score": trade.get("score"),
+            "y_oo_rank": trade.get("y_oo_rank"),
+            "y_oo_rank_n": trade.get("y_oo_rank_n"),
+            "y_tc_rank": trade.get("y_tc_rank"),
+            "y_tc_rank_n": trade.get("y_tc_rank_n"),
+            "sentiment_prior": bool(trade.get("sentiment_prior")),
+            "market_prior": bool(trade.get("market_prior")),
+            **fee_meta,
+            **pnl_meta,
+        },
+    }
+
+
+def _log_matches_trade(entry: dict, trade: dict) -> bool:
+    side = _trade_side_for_log(str(trade.get("side") or ""))
+    if str(entry.get("type") or "") != side:
+        return False
+    meta = entry.get("meta") if isinstance(entry.get("meta"), dict) else {}
+    if str(meta.get("stock_code") or "").strip() != str(trade.get("stock_code") or "").strip():
+        return False
+    try:
+        log_shares = float(meta.get("shares"))
+        trade_shares = float(trade.get("shares"))
+    except (TypeError, ValueError):
+        return False
+    return abs(log_shares - trade_shares) <= 1e-6
+
+
+def merge_unlogged_trade_legs(
+    logs: Optional[list],
+    trades: Optional[list],
+    *,
+    origin: str = "strategy",
+    source: str = "open_fill",
+) -> list:
+    """读路径：成交已在 trades、流水里还没有对应买卖行时，补出带价格的记录。不改账本。"""
+    entries = [x for x in (logs or []) if isinstance(x, dict)]
+    used: set = set()
+    extra: List[dict] = []
+    for trade in trades or []:
+        if not isinstance(trade, dict):
+            continue
+        matched = None
+        for i, entry in enumerate(entries):
+            if i in used:
+                continue
+            if _log_matches_trade(entry, trade):
+                matched = i
+                break
+        if matched is not None:
+            used.add(matched)
+            continue
+        leg_origin = str(trade.get("origin") or "").strip() or origin
+        leg_source = str(trade.get("source") or "").strip() or source
+        row = trade_leg_operation_entry(
+            trade,
+            origin=leg_origin,
+            source=leg_source,
+            ts=str(trade.get("ts") or "").strip() or None,
+        )
+        if row:
+            extra.append(row)
+    if not extra:
+        return list(logs or [])
+    merged = list(logs or []) + extra
+    merged.sort(key=lambda e: str(e.get("ts") or "") if isinstance(e, dict) else "")
+    return merged
+
+
 def append_trade_legs_to_operation_log(
     paper: dict,
     sell_trades: Optional[List[Any]] = None,
@@ -507,66 +680,15 @@ def append_trade_legs_to_operation_log(
     source: str = "research_hub",
 ) -> None:
     """把调仓腿写入 operation_log，供交易执行页「交易记录」展示。"""
-    try:
-        from core.paper.costs import fee_fields_from_trade, pnl_fields_from_trade
-    except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
-        fee_fields_from_trade = None  # type: ignore
-        pnl_fields_from_trade = None  # type: ignore
-
     for trade in list(sell_trades or []) + list(buy_trades or []):
-        if not isinstance(trade, dict):
+        row = trade_leg_operation_entry(trade, origin=origin, source=source)
+        if not row:
             continue
-        raw_side = str(trade.get("side") or "").strip().lower()
-        if raw_side in ("t0_sell",):
-            side = "sell"
-        elif raw_side in ("t0_buy",):
-            side = "buy"
-        else:
-            side = raw_side
-        if side not in ("buy", "sell"):
-            continue
-        t0_leg = raw_side.startswith("t0_")
-        fee_meta: Dict[str, Any] = {}
-        if fee_fields_from_trade is not None:
-            try:
-                fee_meta = fee_fields_from_trade(trade) or {}
-            except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
-                fee_meta = {}
-        pnl_meta: Dict[str, Any] = {}
-        if side == "sell" and pnl_fields_from_trade is not None:
-            try:
-                pnl_meta = pnl_fields_from_trade(trade) or {}
-            except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
-                pnl_meta = {}
-        name = trade.get("stock_name") or trade.get("stock_code") or "—"
-        leg = "做T" if t0_leg or origin == "t0" else ""
-        detail = (
-            f"{leg}{'买入' if side == 'buy' else '卖出'} {name} "
-            f"{trade.get('shares')}股 @ {trade.get('price')}"
-        )
         append_operation_log(
             paper,
-            side,
-            detail=detail,
-            meta={
-                "stock_code": trade.get("stock_code"),
-                "stock_name": trade.get("stock_name"),
-                "shares": trade.get("shares"),
-                "price": trade.get("price"),
-                "amount": trade.get("amount") or trade.get("actual_cost"),
-                "origin": "t0" if t0_leg or origin == "t0" else origin,
-                "source": source,
-                "note": trade.get("note"),
-                "score": trade.get("score"),
-                "y_oo_rank": trade.get("y_oo_rank"),
-                "y_oo_rank_n": trade.get("y_oo_rank_n"),
-                "y_tc_rank": trade.get("y_tc_rank"),
-                "y_tc_rank_n": trade.get("y_tc_rank_n"),
-                "sentiment_prior": bool(trade.get("sentiment_prior")),
-                "market_prior": bool(trade.get("market_prior")),
-                **fee_meta,
-                **pnl_meta,
-            },
+            str(row.get("type") or ""),
+            detail=str(row.get("detail") or ""),
+            meta=row.get("meta") if isinstance(row.get("meta"), dict) else {},
         )
 
 

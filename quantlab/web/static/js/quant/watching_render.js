@@ -7,73 +7,6 @@ import { marketPriorDetailFields, tailAnomalyDetailFields, overheatDetailFields 
 import { watchingNameSpanHtml } from "./names.js";
 import { fitTierBadgeForCode } from "./fit_tier_ui.js";
 
-export function describeWatchingSource(src, index) {
-  const typ = String(src.type || "").toLowerCase() || "—";
-  const label = `S${index + 1}`;
-  const typLabel = typ === "static" ? "静态" : typ === "screen" ? "筛选" : typ;
-  if (typ === "static") {
-    const codes = (src.codes || []).map((c) => String(c));
-    return {
-      label,
-      typ,
-      typLabel,
-      title: label,
-      detail: codes.length ? codes.join("、") : "（空）",
-      codes,
-    };
-  }
-  if (typ === "screen") {
-    const bits = [];
-    if (src.sector) bits.push(String(src.sector));
-    if (src.pe_min != null) bits.push(`PE≥${src.pe_min}`);
-    if (src.pe_max != null) bits.push(`PE≤${src.pe_max}`);
-    if (src.pb_max != null) bits.push(`PB≤${src.pb_max}`);
-    if (src.change_min != null) bits.push(`涨跌≥${src.change_min}%`);
-    if (src.change_max != null) bits.push(`涨跌≤${src.change_max}%`);
-    if (src.limit != null) bits.push(`取${src.limit}`);
-    return {
-      label,
-      typ,
-      typLabel,
-      title: label,
-      detail: bits.join(" · ") || "筛选",
-      codes: [],
-    };
-  }
-  return {
-    label,
-    typ,
-    typLabel: typ,
-    title: label,
-    detail: JSON.stringify(src),
-    codes: [],
-  };
-}
-
-export function shortOriginLabel(raw) {
-  const text = String(raw || "").trim();
-  if (!text) return "—";
-  const m = text.match(/^S(\d+)/i);
-  if (m) return `S${m[1]}`;
-  if (text.includes("筛选") || text.includes("screen") || text.includes("合并")) {
-    return "筛选";
-  }
-  return text;
-}
-
-export function matchWatchlistSource(code, sourceDescs) {
-  const raw = String(code || "");
-  for (const s of sourceDescs) {
-    if (s.typ !== "static") continue;
-    for (const c of s.codes) {
-      if (c === raw || raw.includes(c) || c.includes(raw)) {
-        return s.label;
-      }
-    }
-  }
-  return "筛选";
-}
-
 /** y_oo / y_τc tip 同一因子条数。 */
 const Y_HEAD_FACTOR_N = 24;
 
@@ -510,12 +443,8 @@ function slimFormulaTerms(expl, maxTerms = 10) {
   return out;
 }
 
-export function truncateText(s, n) {
-  const t = String(s || "").trim();
-  if (!t) return "";
-  if (t.length <= n) return t;
-  return `${t.slice(0, Math.max(0, n - 1))}…`;
-}
+/** 观察池表徽章与点开明细共用标题条数；分拆会导致「中」vs「多」不一致。 */
+export const WATCHING_SENTIMENT_LIMIT = 8;
 
 export function sentimentLabelZh(label) {
   const m = {

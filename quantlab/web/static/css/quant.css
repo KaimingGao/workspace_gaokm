@@ -11786,14 +11786,6 @@ body[data-page="quant"] .quant-page .quant-ru-card .quant-pro-card-tools {
   white-space: nowrap;
 }
 
-body[data-page="quant"] .quant-page .quant-ru-card .quant-ru-run.dialog-btn {
-  min-height: 28px;
-  padding: 4px 14px !important;
-  font-size: var(--q-fs-caption, 12px) !important;
-  font-weight: 650 !important;
-  letter-spacing: 0.04em !important;
-}
-
 .quant-ru-card .quant-ru-body {
   display: flex;
   flex-direction: column;

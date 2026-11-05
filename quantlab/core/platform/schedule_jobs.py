@@ -1034,7 +1034,13 @@ def run_paper_open_fill() -> Dict[str, Any]:
 
     job_id = slot.start(kind="paper_open_fill", total=2, message="成交挂单…")
     try:
-        from core.paper import append_operation_log, load_paper, mark_to_market, save_paper
+        from core.paper import (
+            append_operation_log,
+            append_trade_legs_to_operation_log,
+            load_paper,
+            mark_to_market,
+            save_paper,
+        )
         from core.paper.open_fill import fill_pending_at_open, paper_fill_phase
         from core.paths import PAPER_PATH
 
@@ -1052,6 +1058,15 @@ def run_paper_open_fill() -> Dict[str, Any]:
                 bits.append(f"买{n_buy} · 卖{n_sell}")
             if n_skip:
                 bits.append(f"跳过{n_skip}")
+            sells = [t for t in trades if str(t.get("side") or "") == "sell"]
+            buys = [t for t in trades if str(t.get("side") or "") == "buy"]
+            append_trade_legs_to_operation_log(
+                paper,
+                sells,
+                buys,
+                origin="strategy",
+                source="open_fill",
+            )
             append_operation_log(
                 paper,
                 "rebalance",

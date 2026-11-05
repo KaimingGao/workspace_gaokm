@@ -315,7 +315,6 @@ export function renderPaperRebalanceWorkerDesk(el, desk) {
         `<td class="paper-t0-col-reason" title="${escapeHtml(tip)}">` +
         `<span class="paper-t0-desk-reason">${escapeHtml(note)}</span>` +
         `</td>` +
-        `<td class="paper-t0-col-act"><span class="paper-t0-leg-empty">—</span></td>` +
         `</tr>`
       );
     })
@@ -372,7 +371,6 @@ export function renderPaperRebalanceWorkerDesk(el, desk) {
     `<col class="paper-rb-col-rank" />` +
     `<col class="paper-rb-col-rank" />` +
     `<col class="paper-t0-col-reason" />` +
-    `<col class="paper-t0-col-act" />` +
     `</colgroup>` +
     `<thead><tr>` +
     `<th scope="col" class="paper-t0-col-stock">标的</th>` +
@@ -387,7 +385,6 @@ export function renderPaperRebalanceWorkerDesk(el, desk) {
     `<th scope="col" class="num paper-rb-col-rank" title="ŷ_oo_rank 当日观察池截面名次 · 1=相对分最高 · 过入场后作买序">oo_rank</th>` +
     `<th scope="col" class="num paper-rb-col-rank" title="ŷ_τc_rank 当日截面名次 · 与 oo_rank 共用 rank 入场 · 不进 fuse / 不改买序">τc_rank</th>` +
     `<th scope="col" class="paper-t0-col-reason">说明</th>` +
-    `<th scope="col" class="paper-t0-col-act">操作</th>` +
     `</tr></thead><tbody>${body}</tbody></table></div>` +
     foot +
     `</div></details>`;

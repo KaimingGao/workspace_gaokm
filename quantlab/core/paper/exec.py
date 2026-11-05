@@ -108,22 +108,168 @@ def _pnl_session_key(now: datetime) -> str:
 
 
 def _prev_session_equity(paper: dict, today_str: str) -> Optional[float]:
-    """上一会话账本净值：snapshots 里日期早于当前会话日的最后一点。"""
-    last_eq: Optional[float] = None
-    for snap in paper.get("snapshots") or []:
+    """上一会话收盘净值。
+
+    先读 ``session_nav``（按日钉住，不随盘中 120 点裁掉），再扫快照。
+    同一日以后出现的点为准。
+    """
+    best_day = ""
+    best_eq: Optional[float] = None
+
+    def _take(day: str, equity: Any) -> None:
+        nonlocal best_day, best_eq
+        if len(day) != 10 or day >= today_str:
+            return
+        try:
+            eq = float(equity)
+        except (TypeError, ValueError):
+            return
+        if eq <= 1e-6:
+            return
+        if not best_day or day >= best_day:
+            best_day = day
+            best_eq = eq
+
+    book = paper.get("session_nav") if isinstance(paper, dict) else None
+    if isinstance(book, dict):
+        for day, equity in book.items():
+            _take(str(day or "")[:10], equity)
+    for snap in (paper or {}).get("snapshots") or []:
         if not isinstance(snap, dict):
             continue
         ts = str(snap.get("ts") or snap.get("date") or "").strip()
-        day = ts[:10]
-        if len(day) != 10 or day >= today_str:
+        _take(ts[:10], snap.get("equity"))
+    return best_eq
+
+
+# 这些流水会改现金或持仓，但不是可倒推的买卖腿。出现在会话日就放弃复原昨收净值。
+_NAV_INFER_BLOCK_OPS = frozenset({"deposit", "withdraw", "reset", "init", "sync_paper"})
+
+
+def _infer_prev_session_equity(paper: dict, session: str) -> Optional[float]:
+    """快照和 session_nav 都没有昨收时：倒回本会话成交，持仓按昨收复原账户净值。"""
+    sess = str(session or "")[:10]
+    if len(sess) != 10 or not isinstance(paper, dict):
+        return None
+    for entry in paper.get("operation_log") or []:
+        if not isinstance(entry, dict):
             continue
+        if str(entry.get("ts") or "")[:10] != sess:
+            continue
+        if str(entry.get("type") or "") in _NAV_INFER_BLOCK_OPS:
+            return None
+    trades = [
+        t
+        for t in (paper.get("trades") or [])
+        if isinstance(t, dict) and str(t.get("ts") or "")[:10] == sess
+    ]
+    if not trades:
+        return None
+    try:
+        cash = float(paper.get("cash") or 0)
+    except (TypeError, ValueError):
+        return None
+    holdings: Dict[str, float] = {}
+    for h in paper.get("holdings") or []:
+        if not isinstance(h, dict):
+            continue
+        code = str(h.get("stock_code") or "").strip()
         try:
-            eq = float(snap.get("equity"))
+            sh = float(h.get("shares") or 0)
         except (TypeError, ValueError):
             continue
-        if eq > 1e-6:
-            last_eq = eq
-    return last_eq
+        if code and sh > 0:
+            holdings[code] = holdings.get(code, 0.0) + sh
+    for t in reversed(trades):
+        side = str(t.get("side") or "").strip().lower()
+        code = str(t.get("stock_code") or "").strip()
+        if side not in ("buy", "sell") or not code:
+            return None
+        try:
+            sh = float(t.get("shares") or 0)
+            amt = float(t.get("amount") or 0)
+        except (TypeError, ValueError):
+            return None
+        if sh <= 0 or amt < 0:
+            return None
+        fees = t.get("fees")
+        if fees is None:
+            try:
+                fees = float(t.get("commission") or 0) + float(t.get("stamp_duty") or 0)
+            except (TypeError, ValueError):
+                return None
+        try:
+            fee_f = float(fees or 0)
+        except (TypeError, ValueError):
+            return None
+        if side == "buy":
+            cash += amt + fee_f
+            holdings[code] = holdings.get(code, 0.0) - sh
+        else:
+            cash -= amt - fee_f
+            holdings[code] = holdings.get(code, 0.0) + sh
+    if cash < -0.05:
+        return None
+    kept: Dict[str, float] = {}
+    for code, sh in holdings.items():
+        if sh < -0.01:
+            return None
+        if sh > 0.01:
+            kept[code] = sh
+    stock = 0.0
+    for code, sh in kept.items():
+        px = _close_before_session(code, sess)
+        if px is None:
+            return None
+        stock += px * sh
+    return round(cash + stock, 2)
+
+
+def _close_before_session(code: str, session: str) -> Optional[float]:
+    """会话日之前最后一根日线收盘价。"""
+    raw = str(code or "").strip()
+    day = str(session or "")[:10]
+    if not raw or len(day) != 10:
+        return None
+    cache = getattr(_close_before_session, "_cache", None)
+    if cache is None:
+        cache = {}
+        setattr(_close_before_session, "_cache", cache)
+    key = (raw, day)
+    if key in cache:
+        return cache[key]
+    px: Optional[float] = None
+    try:
+        from core.data.facade import get_bars
+
+        pack = (
+            get_bars(
+                raw,
+                limit=12,
+                offline_only=True,
+                reject_quote_fallback=True,
+            )
+            or {}
+        )
+        for bar in pack.get("bars") or []:
+            if not isinstance(bar, dict):
+                continue
+            bar_day = str(
+                bar.get("date") or bar.get("trade_date") or bar.get("datetime") or ""
+            )[:10]
+            if len(bar_day) != 10 or bar_day >= day:
+                continue
+            try:
+                close = float(bar.get("close") or 0)
+            except (TypeError, ValueError):
+                continue
+            if close > 0:
+                px = close
+    except Exception:
+        logger.debug("session close lookup failed for %s", raw, exc_info=True)
+        px = None
+    cache[key] = px
+    return px
 
 
 def _cached_bar_mark(code: str) -> Dict[str, Any]:
@@ -387,10 +533,9 @@ def mark_to_market(paper: dict) -> Dict[str, Any]:
         cash_attr = cash * (strategy_stock_value / stock_value)
         equity_strategy = round(strategy_stock_value + cash_attr, 2)
 
-    # 今日浮动：
-    # - 当日回零后：相对回零价（去掉昨收），与累计同起点
-    # - 有上一会话快照：相对昨收账本净值（含卖出/费用/跳空，可与累计衔接）
-    # - 否则：按涨跌幅反推昨收，汇总 (现价−昨收)×股数（只含当前持仓）
+    # 今日收益 = 当前账户净值 − 上一会话收盘净值。
+    # 收盘净值在 session_nav；快照被裁掉时，用当日成交倒回昨持仓再按昨收复原。
+    # 当日回零后改相对回零价。两者都没有时，才按持仓涨跌幅估算。
     today_pnl: Optional[float] = None
     today_pnl_pct: Optional[float] = None
     today_pnl_basis = "prev_close"
@@ -413,6 +558,8 @@ def mark_to_market(paper: dict) -> Dict[str, Any]:
         and len(session_key) == 10
         and today_str > session_key
     )
+    if prev_nav is None and not session_idle and not use_reset_anchor:
+        prev_nav = _infer_prev_session_equity(paper, session_key)
 
     if session_idle:
         today_pnl = 0.0

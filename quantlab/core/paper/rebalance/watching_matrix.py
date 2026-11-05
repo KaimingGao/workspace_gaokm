@@ -287,28 +287,46 @@ def save_live_rank_snapshot(items: Sequence[dict], *, as_of: str) -> None:
     os.replace(tmp, path)
 
 
+_RANK_SNAP_CACHE: Dict[str, Any] = {"key": None, "by_code": {}}
+
+
 def load_live_rank_snapshot(*, as_of: str) -> Dict[str, Dict[str, Any]]:
     import json
+    import os
 
     day = str(as_of or "")[:10]
     if len(day) < 10:
         return {}
     path = _live_rank_snapshot_path()
     try:
+        st = os.stat(path)
+    except OSError:
+        return {}
+    key = (path, getattr(st, "st_mtime_ns", st.st_mtime), st.st_size, day)
+    if _RANK_SNAP_CACHE.get("key") == key:
+        cached = _RANK_SNAP_CACHE.get("by_code")
+        return cached if isinstance(cached, dict) else {}
+    try:
         with open(path, encoding="utf-8") as fh:
             doc = json.load(fh)
     except (OSError, ValueError):
         return {}
     if not isinstance(doc, dict) or str(doc.get("as_of") or "")[:10] != day:
+        _RANK_SNAP_CACHE["key"] = key
+        _RANK_SNAP_CACHE["by_code"] = {}
         return {}
     raw = doc.get("by_code")
     if not isinstance(raw, dict):
+        _RANK_SNAP_CACHE["key"] = key
+        _RANK_SNAP_CACHE["by_code"] = {}
         return {}
     out: Dict[str, Dict[str, Any]] = {}
     for code, row in raw.items():
         c = str(code or "").strip()
         if c and isinstance(row, dict):
             out[c] = row
+    _RANK_SNAP_CACHE["key"] = key
+    _RANK_SNAP_CACHE["by_code"] = out
     return out
 
 

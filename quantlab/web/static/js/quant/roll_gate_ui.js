@@ -6,7 +6,7 @@ import {
   jobTimings,
 } from "./cluster_job_ui.js";
 
-/** 研究枢纽 · 滚动验证（全池 walk-forward Top1 闸门，不写模型） */
+/** 研究枢纽 · 滚动验证（A 档 walk-forward Top1 闸门，不写模型） */
 export function installRollGateUi(q) {
   const { on, apiFetch, escapeHtml } = q;
   const chip = document.getElementById("quant-rg-chip");
@@ -98,7 +98,7 @@ export function installRollGateUi(q) {
     if (/排队|启动|入队/.test(msg)) {
       return { chip: "QUEUE", label: "排队", stage: "queue", step: 0 };
     }
-    if (/拉全池|日线/.test(msg) && !/fold/.test(low)) {
+    if (/拉\s*A\s*档|日线/.test(msg) && !/fold/.test(low)) {
       return { chip: "LOAD", label: "拉日线", stage: "prep", step: 0 };
     }
     if (/建\s*oo|oo\s*日面板/.test(msg)) {
@@ -155,7 +155,7 @@ export function installRollGateUi(q) {
   function prepPctHint(stage, message) {
     const msg = String(message || "");
     if (stage === "queue") return 4;
-    if (/拉全池|日线/.test(msg)) return 10;
+    if (/拉\s*A\s*档|日线/.test(msg)) return 10;
     if (/建\s*oo|oo\s*日面板/.test(msg)) return 22;
     if (/建\s*τc|建\s*tc|τc\s*日面板/.test(msg)) return 36;
     if (stage === "prep") return 16;
@@ -241,7 +241,7 @@ export function installRollGateUi(q) {
       phase.stage === "fit"
         ? "单折 Ridge×2 + LambdaRank×2，常 10–20 分钟；心跳在刷新即未卡死"
         : phase.stage === "prep"
-          ? "准备阶段：拉全池日线并建面板"
+          ? "准备阶段：拉 A 档日线并建面板"
           : "";
     const detail = msg && msg !== phase.label ? msg : "";
     progressEl.hidden = false;
@@ -378,7 +378,12 @@ export function installRollGateUi(q) {
     const bits = [];
     if (win.start && win.end) bits.push(`${win.start} → ${win.end}`);
     if (win.n_test_days != null) bits.push(`${win.n_test_days} 决策日`);
-    if (win.n_pool != null) bits.push(`池 ${win.n_pool}`);
+    const uni = String(params.universe || "");
+    const nPool = win.n_pool != null ? win.n_pool : win.n_tier_a;
+    if (nPool != null) {
+      // watching = 改 A 档前的旧落盘；新跑一律 tier_a
+      bits.push(uni === "watching" ? `全池(旧) ${nPool}` : `A档 ${nPool}`);
+    }
     bits.push(`折 ${folds.length}/${params.folds || 3}`);
     if (doc.partial) bits.push("部分结果");
     windowEl.hidden = !bits.length;
@@ -496,7 +501,7 @@ export function installRollGateUi(q) {
     const folds = Array.isArray(doc?.folds) ? doc.folds : [];
     if (!folds.length) {
       foldHost.innerHTML =
-        '<p class="quant-empty muted">尚未跑折。点「运行」启动全池 walk-forward（LB500 · HO10×3，可能数十分钟）。</p>';
+        '<p class="quant-empty muted">尚未跑折。点「运行」启动 A 档 walk-forward（LB500 · HO10×3；须先有观察池分档）。</p>';
       return;
     }
     const rows = folds
@@ -991,7 +996,7 @@ export function installRollGateUi(q) {
     paintKpis(null);
     paintFoldTable(null);
     paintDayTable(null);
-    setStatus("busy", "启动中", "入队全池 walk-forward…");
+    setStatus("busy", "启动中", "入队 A 档 walk-forward…");
     paintProgress({
       status: "running",
       pct: 0,
@@ -1017,7 +1022,7 @@ export function installRollGateUi(q) {
       if (data.reused) {
         setStatus("busy", "已有任务", "复用运行中的滚动验证");
       } else {
-        setStatus("busy", "fold 0/3", "拉全池日线…");
+        setStatus("busy", "fold 0/3", "拉 A 档日线…");
       }
       startPoll();
       return data;

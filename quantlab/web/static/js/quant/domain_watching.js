@@ -8,7 +8,7 @@ import { syncOverviewUniverse } from "./factor_corr_ui.js";
 import { fmtScore, fmtTableScore, scoreCls, resolveFuseScore, resolveEodScore } from "../paper/fmt.js";
 import { watchingNameFromEl, applyWatchingNameEl } from "./names.js";
 import { renderWatchingHoldings } from "./watching_holdings.js";
-import { watchingScoreDetail, sentimentBadgeHtml, renderWatchingBuildPlan, renderWatchingWatchTableFallback, buildWatchingNewsTitleHtml, buildWatchingNewsMetaText, buildWatchingNewsListHtml, WATCHING_NEWS_AI_LOADING_HTML, buildWatchingNewsAiAnalysisHtml, buildWatchingNewsAiErrorHtml, describeWatchingSource, matchWatchlistSource, truncateText, sentimentLabelZh, shortOriginLabel } from "./watching_render.js";
+import { watchingScoreDetail, sentimentBadgeHtml, renderWatchingBuildPlan, renderWatchingWatchTableFallback, buildWatchingNewsTitleHtml, buildWatchingNewsMetaText, buildWatchingNewsListHtml, WATCHING_NEWS_AI_LOADING_HTML, buildWatchingNewsAiAnalysisHtml, buildWatchingNewsAiErrorHtml, WATCHING_SENTIMENT_LIMIT } from "./watching_render.js";
 import { ensureFitTierMap } from "./fit_tier_ui.js";
 import {
   buildWatchingScoreDisplay,
@@ -52,11 +52,12 @@ import {
   watchingChartLabelText,
 } from "./watching_panel_ui.js";
 
-const WATCHING_SORT_STORAGE = "watching_table_sort_v2";
+const WATCHING_SORT_STORAGE = "watching_table_sort_v3";
 const WATCHING_SORT_KEYS = new Set([
   "name",
   "chg",
   "tier",
+  "paper",
   "score",
   "score_eod",
   "score_tau",
@@ -69,7 +70,6 @@ export function installWatching(q) {
   const { on, els, state, ctx, escapeHtml, apiFetch, setQuantMeta, setBusyText, watchingScoreTips } = q;
 
   let watchingAlertCodes = new Set();
-  let watchingSentimentByCode = {};
   let watchingBuildCodes = [];
   let watchingBuildSeq = 0;
   try {
@@ -80,8 +80,8 @@ export function installWatching(q) {
     }
   } catch (_) { /* ignore */ }
   if (!state.watchingSortKey) {
-    state.watchingSortKey = "tier";
-    state.watchingSortDir = "asc";
+    state.watchingSortKey = "paper";
+    state.watchingSortDir = "desc";
   }
 
   function syncWatchingDataPolicyMeta() {
@@ -1061,14 +1061,13 @@ export function installWatching(q) {
       const timer = setTimeout(() => ctrl.abort(), 70000);
       try {
         const res = await fetch(
-          `/api/watching/sentiment?codes=${encodeURIComponent(chunk.join(","))}&limit=3`,
+          `/api/watching/sentiment?codes=${encodeURIComponent(chunk.join(","))}&limit=${WATCHING_SENTIMENT_LIMIT}`,
           { signal: ctrl.signal }
         );
         const data = await res.json().catch(() => ({}));
         if (gen !== state.watchingSentimentGen) return;
         if (!res.ok) return;
         const byCode = indexByWatchingCode(data.items || []);
-        watchingSentimentByCode = { ...(watchingSentimentByCode || {}), ...byCode };
         chunk.forEach((code) => {
           applySentimentToRow(code, byCode[watchingCodeKey(code)] || { ok: false, items: [] });
         });
@@ -1449,7 +1448,7 @@ export function installWatching(q) {
     const timer = setTimeout(() => ctrl.abort(), 20000);
     try {
       const res = await fetch(
-        `/api/watching/sentiment/${encodeURIComponent(code)}?limit=8`,
+        `/api/watching/sentiment/${encodeURIComponent(code)}?limit=${WATCHING_SENTIMENT_LIMIT}`,
         { signal: ctrl.signal }
       );
       const data = await res.json().catch(() => ({}));
@@ -1467,8 +1466,7 @@ export function installWatching(q) {
       }
       if (metaEl) metaEl.textContent = meta;
       listEl.innerHTML = buildWatchingNewsListHtml(data.items || [], data);
-      // 详情用 limit=8 可能与表格批量 limit=3 标签不一致；勿回写行，避免点「中」变成「多」
-      watchingSentimentByCode[String(code)] = data;
+      applySentimentToRow(code, data);
       if (data.ok && (data.items || []).length) {
         fetchWatchingNewsAI(code, sc);
       } else if (aiSection) {
@@ -1762,7 +1760,7 @@ export function installWatching(q) {
       grid.on("sortChanged", (sorters) => {
         const s = Array.isArray(sorters) && sorters.length ? sorters[0] : null;
         const key = s && s.field;
-        if (key === "name" || key === "tier" || key === "score" || key === "excess" || key === "vol") {
+        if (WATCHING_SORT_KEYS.has(key)) {
           state.watchingSortKey = key;
           state.watchingSortDir = s.dir === "asc" ? "asc" : "desc";
           persistWatchingSort();
@@ -2161,7 +2159,6 @@ export function installWatching(q) {
     applySentimentToRow,
     closeWatchingBuildLayer,
     confirmWatchingBuild,
-    describeWatchingSource,
     drawWatchingChart,
     fetchPaperHeldMap,
     fetchPaperWatchContext,
@@ -2181,7 +2178,6 @@ export function installWatching(q) {
     loadWatchingDataQuality,
     loadWatchingPanel,
     loadWatchingSentimentAlerts,
-    matchWatchlistSource,
     openWatchingBuildLayer,
     openWatchingNewsDetail,
     parseWatchingVolume,
@@ -2196,16 +2192,13 @@ export function installWatching(q) {
     renderWatchingWatchTable,
     runWatchingSearch,
     scheduleWatchingBuildPreview,
-    sentimentLabelZh,
     setPoolMeta,
     setWatchingBuildStatus,
     setWatchingRefreshStatus,
-    shortOriginLabel,
     showWatchingChart,
     sortWatchingTableRows,
     syncWatchingBuildModeUI,
     syncWatchingSelectAllState,
-    truncateText,
     updateWatchingPickCount,
     watchingBuildDefaultValue,
     watchingBuildPayload,

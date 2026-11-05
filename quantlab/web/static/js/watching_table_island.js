@@ -34,6 +34,9 @@ function compare(id, a, b) {
   if (id === "excess") return numSortKey(a, "excessNum") - numSortKey(b, "excessNum");
   if (id === "chg") return numSortKey(a, "chgNum") - numSortKey(b, "chgNum");
   if (id === "open") return numSortKey(a, "openNum") - numSortKey(b, "openNum");
+  if (id === "paper") {
+    return (a && a.onPaper ? 1 : 0) - (b && b.onPaper ? 1 : 0);
+  }
   if (id === "name") {
     return String(a.name || "").localeCompare(String(b.name || ""), "zh-CN");
   }
@@ -74,9 +77,11 @@ const COLS = [
     id: "paper",
     label: "仓位",
     width: 96,
+    sortable: true,
+    defaultDir: "desc",
     headClass: "watching-col-center",
     cellClass: "watching-col-center",
-    title: "是否已在模拟持仓",
+    title: "是否已在模拟持仓 · 已开仓在前 · 同组内 fuse 从高到低",
   },
   {
     id: "sent",
@@ -170,7 +175,7 @@ export async function mountWatchingTableIsland(host, options = {}) {
     initialSort: options.initialSort,
     compare,
     tiebreak: (id, a, b) => {
-      if (id !== "tier") return 0;
+      if (id !== "tier" && id !== "paper") return 0;
       const as = numSortKey(a, "scoreNum");
       const bs = numSortKey(b, "scoreNum");
       const aOk = Number.isFinite(as);

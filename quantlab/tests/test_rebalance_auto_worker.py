@@ -698,6 +698,78 @@ class TestRebalanceDesk(unittest.TestCase):
         self.assertAlmostEqual(float(row["y_oo"]), 2.16)
         self.assertAlmostEqual(float(row["y_τc"]), 6.36)
 
+    def test_desk_keeps_ranks_and_fills_from_snapshot(self):
+        from core.paper.rebalance.desk import (
+            attach_live_snapshot_ranks,
+            desk_rows_from_result,
+            save_last_desk,
+        )
+        from core.paper.rebalance.watching_matrix import save_live_rank_snapshot
+
+        rows = desk_rows_from_result(
+            {
+                "rebalance_report": [
+                    {
+                        "stock_code": "000636",
+                        "stock_name": "风华高科",
+                        "action": "open",
+                        "shares": 3100,
+                        "y_oo_rank": 3,
+                        "y_oo_rank_n": 598,
+                        "y_tc_rank": 9,
+                        "y_tc_rank_n": 598,
+                        "reason": "过强",
+                    }
+                ]
+            }
+        )
+        self.assertEqual(rows[0]["y_oo_rank"], 3)
+        self.assertEqual(rows[0]["y_tc_rank"], 9)
+        saved = {}
+
+        def _capture(patch_doc):
+            saved.update(patch_doc)
+            return patch_doc
+
+        with patch(
+            "core.paper.rebalance.auto_worker._save_state", side_effect=_capture
+        ):
+            save_last_desk("2026-11-05", rows, filled=True)
+        kept = saved["last_desk"]["rows"][0]
+        self.assertEqual(kept["y_oo_rank"], 3)
+        self.assertEqual(kept["y_oo_rank_n"], 598)
+        self.assertEqual(kept["y_tc_rank"], 9)
+        self.assertEqual(kept["y_tc_rank_n"], 598)
+
+        blank = [
+            {"stock_code": "000636", "action": "open"},
+            {"stock_code": "000890", "action": "exit", "y_oo_rank": 1},
+        ]
+        with tempfile.TemporaryDirectory() as tmp:
+            path = os.path.join(tmp, "live_rank_snapshot.json")
+            with patch(
+                "core.paper.rebalance.watching_matrix._live_rank_snapshot_path",
+                return_value=path,
+            ):
+                save_live_rank_snapshot(
+                    [
+                        {
+                            "stock_code": "000636",
+                            "y_oo_rank": 3,
+                            "y_oo_rank_n": 598,
+                            "y_tc_rank": 9,
+                            "y_tc_rank_n": 598,
+                        }
+                    ],
+                    as_of="2026-11-05",
+                )
+                attach_live_snapshot_ranks(blank, "2026-11-05")
+                attach_live_snapshot_ranks(blank, "2026-11-04")
+        self.assertEqual(blank[0]["y_oo_rank"], 3)
+        self.assertEqual(blank[0]["y_tc_rank_n"], 598)
+        self.assertEqual(blank[1]["y_oo_rank"], 1)
+        self.assertNotIn("y_tc_rank", blank[1])
+
     def test_hydrate_from_today_trades(self):
         from core.paper.rebalance.desk import hydrate_desk_rows_from_paper
 

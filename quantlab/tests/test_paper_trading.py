@@ -3468,6 +3468,76 @@ class TestHoldingOrigin(_QuotePatchMixin, unittest.TestCase):
         self.assertEqual(plan["items"][0]["shares"], 200)
         self.assertEqual(plan["sizing_mode"], "pct")
 
+    def test_merge_unlogged_open_fill_keeps_price_and_note(self):
+        from core.paper.ledger import merge_unlogged_trade_legs
+
+        logs = [
+            {
+                "ts": "2026-11-05T09:25:30.266",
+                "type": "watching_matrix_rebalance",
+                "detail": "矩阵 live 挂开盘单 · 卖 2 · 买 2",
+                "meta": {"buy_count": 2, "sell_count": 2, "origin": "matrix"},
+            },
+            {
+                "ts": "2026-11-03T09:31:40.680",
+                "type": "sell",
+                "detail": "卖出 招金黄金 4000.0股 @ 12.7162",
+                "meta": {
+                    "stock_code": "000506",
+                    "stock_name": "招金黄金",
+                    "shares": 4000.0,
+                    "price": 12.7162,
+                },
+            },
+            {
+                "ts": "2026-11-05T09:25:30.931",
+                "type": "rebalance",
+                "detail": "开盘成交挂单 · 买2 · 卖2",
+                "meta": {"buy_count": 2, "sell_count": 2},
+            },
+        ]
+        trades = [
+            {
+                "ts": "2026-11-03T09:31:40.658",
+                "side": "sell",
+                "stock_code": "000506",
+                "stock_name": "招金黄金",
+                "shares": 4000.0,
+                "price": 12.7162,
+                "note": "已有流水",
+                "origin": "matrix",
+            },
+            {
+                "ts": "2026-11-05T09:25:30.930",
+                "side": "buy",
+                "stock_code": "000636",
+                "stock_name": "风华高科",
+                "shares": 3100.0,
+                "price": 31.8095,
+                "amount": 98609.45,
+                "commission": 24.65,
+                "stamp_duty": 0.0,
+                "fees": 24.65,
+                "score": 0.408,
+                "origin": "strategy",
+                "note": "开盘成交 · 矩阵调仓 · fuse=0.408%>0.3% 买3100股",
+            },
+        ]
+        out = merge_unlogged_trade_legs(logs, trades)
+        sells = [r for r in out if r.get("type") == "sell" and (r.get("meta") or {}).get("stock_code") == "000506"]
+        self.assertEqual(len(sells), 1)
+        buys = [r for r in out if r.get("type") == "buy"]
+        self.assertEqual(len(buys), 1)
+        meta = buys[0]["meta"]
+        self.assertEqual(meta["price"], 31.8095)
+        self.assertIn("风华高科", buys[0]["detail"])
+        self.assertIn("fuse=0.408%", meta["note"])
+        self.assertEqual(meta["commission"], 24.65)
+        self.assertLess(
+            out.index(buys[0]),
+            out.index(next(r for r in out if r.get("type") == "rebalance")),
+        )
+
     def test_enrich_operation_log_shows_trade_fees(self):
         from core.paper.costs import enrich_operation_log_with_trade_fees
 
@@ -3753,6 +3823,103 @@ class TestHoldingOrigin(_QuotePatchMixin, unittest.TestCase):
         self.assertEqual(summary["today_pnl"], -100.0)
         self.assertAlmostEqual(summary["today_pnl_pct"], round(-100.0 / 6200.0 * 100.0, 2))
         self.assertAlmostEqual(summary["total_pnl_pct"], round((6100 / 6000 - 1) * 100.0, 2))
+
+    def test_today_pnl_uses_pinned_session_nav_after_snapshot_trim(self):
+        """盘中快照只留今天时，今日收益仍相对钉住的昨收净值。"""
+        from datetime import datetime as dt
+
+        from core.paper.ledger import trim_paper_lists
+
+        class _InSession(dt):
+            @classmethod
+            def now(cls, tz=None):
+                n = dt(2026, 8, 18, 15, 5)
+                return n.replace(tzinfo=tz) if tz else n
+
+        paper = _paper(
+            cash=1898.0,
+            holdings=[{"stock_code": "000002", "shares": 10, "cost": 20.0}],
+        )
+        paper["snapshots"] = [
+            {"ts": "2026-08-17T15:00:00", "equity": 2000.0},
+        ] + [
+            {"ts": f"2026-08-18T10:{i:02d}:00", "equity": 2100.0 + i}
+            for i in range(130)
+        ]
+        trim_paper_lists(paper)
+        self.assertEqual(paper["session_nav"]["2026-08-17"], 2000.0)
+        self.assertTrue(all(str(s["ts"])[:10] == "2026-08-18" for s in paper["snapshots"]))
+        quotes = {
+            "000002": {
+                "success": True,
+                "price_raw": 22.0,
+                "change_raw": 80.0,
+            }
+        }
+        with patch("core.paper.exec.datetime", _InSession), patch(
+            "core.signal.session_pit.oo_cycle_date", return_value="2026-08-18"
+        ), patch("core.paper.exec._batch_query_quotes", return_value=quotes):
+            summary = mark_to_market(paper)
+        self.assertEqual(summary["today_pnl_basis"], "prev_nav")
+        self.assertEqual(summary["equity"], 2118.0)
+        self.assertEqual(summary["today_pnl"], 118.0)
+        self.assertEqual(summary["today_pnl_pct"], 5.9)
+
+    def test_today_pnl_rebuilds_yesterday_close_after_open(self):
+        """昨收快照已丢、今天换仓：倒回成交，按昨收复原账户净值。"""
+        from datetime import datetime as dt
+
+        class _InSession(dt):
+            @classmethod
+            def now(cls, tz=None):
+                n = dt(2026, 11, 5, 17, 50)
+                return n.replace(tzinfo=tz) if tz else n
+
+        paper = _paper(
+            cash=1898.0,
+            holdings=[{"stock_code": "000002", "shares": 10, "cost": 20.0}],
+        )
+        paper["snapshots"] = [{"ts": "2026-11-05T15:00:00", "equity": 2118.0}]
+        paper["trades"] = [
+            {
+                "ts": "2026-11-05T09:25:30",
+                "side": "sell",
+                "stock_code": "000001",
+                "shares": 100,
+                "amount": 1100.0,
+                "fees": 1.0,
+            },
+            {
+                "ts": "2026-11-05T09:25:31",
+                "side": "buy",
+                "stock_code": "000002",
+                "shares": 10,
+                "amount": 200.0,
+                "fees": 1.0,
+            },
+        ]
+
+        def _bars(code, **kwargs):
+            closes = {"000001": 10.0, "000002": 12.0}
+            return {"bars": [{"date": "2026-11-04", "close": closes[code]}]}
+
+        quotes = {
+            "000002": {
+                "success": True,
+                "price_raw": 22.0,
+                "change_raw": 83.33,
+            }
+        }
+        with patch("core.paper.exec.datetime", _InSession), patch(
+            "core.signal.session_pit.oo_cycle_date", return_value="2026-11-05"
+        ), patch("core.paper.exec._batch_query_quotes", return_value=quotes), patch(
+            "core.data.facade.get_bars", side_effect=_bars
+        ):
+            summary = mark_to_market(paper)
+        # 昨收：现金 1000 + 000001×10 = 2000。今：1898 + 220 = 2118。
+        self.assertEqual(summary["today_pnl_basis"], "prev_nav")
+        self.assertEqual(summary["today_pnl"], 118.0)
+        self.assertEqual(summary["today_pnl_pct"], 5.9)
 
     def test_today_pnl_is_zero_after_calendar_rollover(self):
         """周六凌晨：日历已跨日、会话未开，今日收益为 0，不吃周五盘中快照。"""

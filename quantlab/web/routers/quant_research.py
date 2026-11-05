@@ -219,7 +219,7 @@ def quant_tc_rank_model() -> Dict[str, Any]:
 
 @router.post("/api/quant/roll-gate-top1")
 def quant_roll_gate_top1() -> Dict[str, Any]:
-    """滚动验证：全池 lookback500 · holdout10×3 · oo/τc 两臂；后台 Job，不写模型。
+    """滚动验证：A 档 lookback500 · holdout10×3 · oo/τc 两臂；后台 Job，不写模型。
 
     轮询 ``GET /api/jobs/roll-gate-top1?progress=1``；折表读 ``GET /api/quant/roll-gate-top1/last``。
     """

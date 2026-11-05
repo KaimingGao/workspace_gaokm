@@ -1500,7 +1500,7 @@ def _watch_row(
 def serve_watch_headlines(
     codes: Sequence[str],
     *,
-    limit: int = 3,
+    limit: Optional[int] = None,
     max_age_sec: int = _DISPLAY_TTL_SEC,
     force: bool = False,
     fetcher: Optional[Callable[[str], Sequence[Mapping[str, Any]]]] = None,
@@ -1511,8 +1511,11 @@ def serve_watch_headlines(
     """数据中心表格：先读本地。没有或超过 TTL 再向东财要，并写回本地。
 
     单批最多 20 只。与整池轮询共用频控；连续封禁信号后，其余代码不请求、不记失败。
+    默认条数与观察池点开明细同口径（``WATCHING_SENTIMENT_LIMIT``）。
     """
-    limit = max(1, min(int(limit or 3), 15))
+    from core.sentiment import WATCHING_SENTIMENT_LIMIT
+
+    limit = max(1, min(int(limit or WATCHING_SENTIMENT_LIMIT), 15))
     now_dt = now or datetime.now()
     fetched_at = now_dt.strftime("%Y-%m-%dT%H:%M:%S")
     fetch = fetcher or _default_fetcher
