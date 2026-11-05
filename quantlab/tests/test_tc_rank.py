@@ -12,6 +12,41 @@ class TestTcRank(unittest.TestCase):
         self.assertEqual(out.get("task"), "tc_rank")
         self.assertIn("rows_insufficient", str(out.get("error") or ""))
 
+    def test_rank_cs_z_hydrates_missing_from_cube(self):
+        """行上只有 raw_atc 时，从立方回填 z_τc_*，避免 tip 缺 theme_day/gap_atr。"""
+        from core.research.day_cube import build_day_cube
+        from core.research.oo_rank_lambdarank import rank_cross_section_z_dicts
+
+        cube = build_day_cube(
+            "2026-10-28",
+            {
+                "A1": {
+                    "z_τc_theme_day": 1.0,
+                    "z_τc_gap_atr": 2.0,
+                    "raw_atc_GAP": 0.1,
+                },
+                "A2": {
+                    "z_τc_theme_day": 0.0,
+                    "z_τc_gap_atr": -1.0,
+                    "raw_atc_GAP": -0.2,
+                },
+            },
+            names=["z_τc_theme_day", "z_τc_gap_atr", "raw_atc_GAP"],
+            clock="open",
+        )
+        rows = [{"raw_atc_GAP": 0.1}, {"raw_atc_GAP": -0.2}]
+        z = rank_cross_section_z_dicts(
+            rows,
+            ["z_τc_theme_day", "z_τc_gap_atr", "raw_atc_GAP"],
+            ["d", "d"],
+            day_cube=cube,
+            codes=["A1", "A2"],
+        )
+        self.assertIsNotNone(z)
+        self.assertIsNotNone(z[0].get("z_τc_theme_day"))
+        self.assertIsNotNone(z[0].get("z_τc_gap_atr"))
+        self.assertIsNotNone(z[1].get("z_τc_theme_day"))
+
     def test_apply_scores_leave_fuse_and_oo_rank(self):
         """名次只写 y_tc_rank；不改 fuse / y_oo_rank / 买序。"""
         from core.research.tc_rank import apply_tc_rank_scores

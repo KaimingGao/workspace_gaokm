@@ -611,6 +611,53 @@ def _item_cs_group(it: Mapping[str, Any], *, fallback: str = "d") -> str:
     return str(fallback or "d")
 
 
+def _hydrate_rank_rows_from_cube(
+    rows: List[dict],
+    codes: Sequence[str],
+    day_cube: Any,
+    names: Sequence[str],
+) -> None:
+    """就地：模型列在行上缺失时，用立方当日 raw 补上（再走 apply_cube_z）。"""
+    import math as _math
+
+    cube_names = [str(n) for n in (getattr(day_cube, "names", None) or [])]
+    cube_codes = [str(c or "").strip() for c in (getattr(day_cube, "codes", None) or [])]
+    X = getattr(day_cube, "X_raw", None)
+    if not cube_names or not cube_codes or X is None:
+        return
+    try:
+        import numpy as np
+
+        mat = np.asarray(X, dtype=np.float64)
+    except Exception:  # noqa: BLE001
+        return
+    if mat.ndim != 2 or mat.shape[0] < len(cube_codes) or mat.shape[1] < len(cube_names):
+        return
+    name_i = {n: j for j, n in enumerate(cube_names)}
+    code_i = {c: i for i, c in enumerate(cube_codes) if c}
+    for row, code in zip(rows, codes):
+        if not isinstance(row, dict):
+            continue
+        ci = code_i.get(str(code or "").strip())
+        if ci is None:
+            continue
+        for name in names:
+            key = str(name)
+            cur = row.get(key)
+            if cur is not None and cur != "":
+                continue
+            j = name_i.get(key)
+            if j is None:
+                continue
+            try:
+                fv = float(mat[ci, j])
+            except (TypeError, ValueError, IndexError):
+                continue
+            if not _math.isfinite(fv):
+                continue
+            row[key] = fv
+
+
 def rank_cross_section_z_dicts(
     raw_rows: Sequence[Mapping[str, Any]],
     names: Sequence[str],
@@ -640,6 +687,11 @@ def rank_cross_section_z_dicts(
         try:
             from core.research.day_cube import apply_cube_z_to_dicts
 
+            # 行上缺的模型列从立方 X_raw 回填（open-pit 仅有 raw_atc 时补 z_τc_*）
+            try:
+                _hydrate_rank_rows_from_cube(rows, code_list, day_cube, name_list)
+            except Exception:  # noqa: BLE001
+                logger.debug("rank cube hydrate failed", exc_info=True)
             z_all = apply_cube_z_to_dicts(rows, code_list, day_cube)
             out: List[dict] = []
             for i in range(len(rows)):

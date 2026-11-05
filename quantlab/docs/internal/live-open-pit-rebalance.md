@@ -48,9 +48,9 @@
 窗开且当天未跑
   ├─ 有未完成隔夜挂单 → 本轮不算新分；读会话日 T 官方开盘立方：有 → 用官方 μ/σ 与 X，跳到 fuse / 下单
   ├─ 无 → 批量行情拿观察池今开（约 800 只，一条腾讯请求）→ 读每只最近 ~80 根日线（只用到 T−1）
-  ├─ inject_raw_aoo / 开盘钟 raw_atc
+  ├─ inject_raw_aoo / 开盘钟 raw_atc / 训练同款风格裸分（不含 aoo 重叠列、无真源资金流）
   ├─ 内存 DayCube → ŷ_oo / ŷ_τc / rank → fuse
-  ├─ 有效今开覆盖 < 门槛（默认 LAKE_COVER_FRAC=0.5）→ 失败，不写账，不退昨日
+  ├─ 今开或风格齐的行 < 门槛（默认 LAKE_COVER_FRAC=0.5）→ 失败，不写账，不退昨日
   └─ 覆盖够 → 现价成交（现有 fill；滑点等不变），成交记录保留下单时 ŷ；占位立方只在内存
 ```
 
@@ -87,9 +87,9 @@
 
 ## 6. 耗时预期（本机实测量级）
 
-观察池约 798 只时，一次成功路径：腾讯批量今开 ~1.2 s（整池一条 URL）→ SQLite 读 80 根日线 ~0.4 s → 全池 430 列 raw 因子 ~1.4 s → 截面 z / 套 β / 定买卖 / 写账 <1 s；**合计约 3–5 s**，行情变慢时多半仍 <10 s。
+观察池约 800 只时，一次成功路径：行情今开与日线缓存之后，全池风格因子大约十几秒，截面 z 与名次大约 2 秒。官方开盘立方已在盘上时跳过这场现算。
 
-行情单次超时 4 s，可再试一次后东财批量回退；慢点在行情，不在 z。worker 窗内 30 s 一轮，等待不计入；官方开盘立方已在盘上时跳过行情与当场算因子。历史对照：旧路径整池逐票 `score_stock` 曾到数十分钟，只读昨日立方很快但错日；open-pit 对且秒级。
+行情单次超时 4 s，可再试一次后东财批量回退。慢点在全池风格因子，不在截面 z。worker 窗内 30 s 一轮，等待不计入；官方开盘立方已在盘上时跳过行情与当场算因子。历史对照：旧路径整池逐票 `score_stock` 曾到数十分钟，只读昨日立方很快但错日。
 
 ---
 
@@ -110,7 +110,7 @@
 
 - **买卖名单**：与昨日 fallback 不同，「昨天立方 +0.22%」不会再出现；**回测不变**。
 - **晚间官方立方**：日线物化后持仓刷新改读官方；量能列、用到当日高低的列（OVMA / OIMAX 等）相对早盘占位变动；成交记录保留当时 ŷ，不改写历史成交分。
-- **开盘价一致时**：OMA / CLOSE0 / GAP / YKSFT / OO_MA 等与官方立方对齐。
+- **开盘价一致时**：OMA / CLOSE0 / GAP / YKSFT / OO_MA，以及量价、波动等风格裸分，与官方立方对齐。动量 / 跳空风险 / 过热与 `raw_aoo_*` 重叠，资金流无真源，这两类不进早盘截面。
 - **研究浏览 / 测试**：可保留带明确标签的昨日 fallback，**执行路径不可**；`test_materialize_consumer` 等断言须拆成浏览 vs 成交。
 
 占位 bar 与收盘后真实日线 bar 的固有差（量、高低）应写在 tip/文档里，不要藏。
@@ -120,7 +120,7 @@
 ## 9. 打分顺序（实现契约）
 
 1. **官方开盘立方（会话日 T）存在** → `load_day_cube` + 既有 lake 路径；`lake_score_day=T`，无 `lake_score_fallback_from`。
-2. **否则** → 内存 open-pit：宇宙 = `read_cube_codes()`（约 800）；bars ≤ T−1；今开 = `batch_get_quotes` + `resolve_open_t`（只要交易日今开）；`inject_raw_aoo` / 开盘钟 τc 特征；`build_day_cube` + `remember`（不落盘）返回 **cube 引用**；`_stamp_cube_head_scores` 写 ŷ_oo / ŷ_τc / fuse；标记 `lake_score_day=T`、`_score_source=open_pit`，**不得**设 fallback；simulate 把同一 `day_cube` **显式**传给 oo_rank / τc_rank。**覆盖失败** → `rebalance(dry_run=False)` 失败；研究/dry_run 可另议。产品 `rebalance` 经 `materialized_consumer()` 时走 lake / open-pit，不重新打开整池 `score_stock` 写盘。
+2. **否则** → 内存 open-pit：宇宙 = `read_cube_codes()`（约 800）；bars ≤ T−1；今开 = `batch_get_quotes` + `resolve_open_t`（只要交易日今开）；`inject_raw_aoo` / 开盘钟 τc 特征 / 训练面板同款风格裸分（窗长与 `collect_oo_panel` 抬窗后一致，今收不进 X）。风格裸名缺一列、窗没抬够、或昨收缺失的票不进截面；风格齐的行达不到覆盖门槛则整池拒单（`style_cover_short`），禁止只剩 `raw_aoo_*` 的薄向量成交。`build_day_cube` + `remember`（不落盘）返回 **cube 引用**；`_stamp_cube_head_scores` 写 ŷ_oo / ŷ_τc / fuse；标记 `lake_score_day=T`、`_score_source=open_pit`，**不得**设 fallback；simulate 把同一 `day_cube` **显式**传给 oo_rank / τc_rank。**覆盖失败** → `rebalance(dry_run=False)` 失败；研究/dry_run 可另议。产品 `rebalance` 经 `materialized_consumer()` 时走 lake / open-pit，不重新打开整池 `score_stock` 写盘。
 
 ---
 
@@ -151,7 +151,7 @@
 | 评分顺序 / 成交闸 / rank 传立方 | `watching_matrix._score_pool_from_lake` · `simulate_watching_matrix_preview` |
 | 持仓补名次（无昨日回退） | `watching_matrix.stamp_live_ranks` · `_stamp_ranks_from_lake` |
 | 消费只读 / 调仓入口 | `core/research/materialize/consumer.py`；`services/paper_trades.py` · `rebalance` · `auto_worker.py` |
-| 开盘 PIT 拼接 | `alpha_oo.inject_raw_aoo` / `session_pit.resolve_open_t`；`alpha_tc.inject_raw_atc` |
+| 开盘 PIT 拼接 | `alpha_oo.inject_raw_aoo` / `session_pit.resolve_open_t`；`alpha_tc.inject_raw_atc`；风格裸分 `open_pit_score._open_style_scores` |
 | 截面 z / DayCube | `feature_standardize.cross_section_zscore_matrix`；`day_cube._compute_mu_sigma` |
 | 观察池键 / 行情批量 | `coverage.read_cube_codes`；`quote_api.StockAPI.batch_query` · `QUOTE_MEM_TTL_SECONDS=60` |
 | 回测开盘日（对照）/ tip | `lake_replay.score_open_day_entries` · `clip_replay_score_dates`；`score_tooltip.js` · `formatEodAsOfHint` |

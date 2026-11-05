@@ -1342,9 +1342,19 @@ export function formatFormulaTermsSection(raw, opts = {}) {
   const treeTable = String((expl && expl.model_role) || "").toLowerCase() === "tree";
   if (!expl || typeof expl !== "object") return "";
   const termsAll = Array.isArray(expl.terms) ? expl.terms : [];
-  let terms = termsAll.filter(
-    (t) => t && !String(t.note || "").includes("缺特征")
-  );
+  // Ridge：缺特征 z≈0 → β·z=0，可隐藏。LambdaRank/tree：缺特征仍可能有非零
+  // pred_contrib（ŷ_τc_rank 的 theme_day/gap_atr），必须留在表里，否则组成不全。
+  const keepMissingTree =
+    treeTable ||
+    key === "tc_rank" ||
+    key === "oo_rank" ||
+    key === "rank" ||
+    String((expl && expl.backend) || "").toLowerCase() === "lambdarank";
+  let terms = termsAll.filter((t) => {
+    if (!t) return false;
+    if (keepMissingTree) return true;
+    return !String(t.note || "").includes("缺特征");
+  });
   if (!terms.length && expl.intercept == null) return "";
 
   const title =

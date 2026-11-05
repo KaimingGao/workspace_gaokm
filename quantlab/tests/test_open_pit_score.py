@@ -73,7 +73,130 @@ class TestOpenPitScore(unittest.TestCase):
         close0 = (row.get("sub_scores") or {}).get("raw_aoo_CLOSE0")
         self.assertIsNotNone(close0)
         self.assertAlmostEqual(float(close0), 28.89 / 29.06, places=5)
+        # 风格裸分进 sub_scores，立方盖章后才是 z_oo_*；今开缺口不改写 raw_aoo。
+        vp = (row.get("sub_scores") or {}).get("volume_price")
+        self.assertIsNotNone(vp)
+        self.assertTrue(float(vp) == float(vp))
         self.assertNotIn("features_on", row)
+        # τc_rank tip 依赖开盘 z_τc_*；open-pit 不得只剩 raw_atc_*
+        tau = row.get("features_tau") or {}
+        self.assertIn("z_τc_gap_pct", tau)
+        self.assertIn("z_τc_gap_atr", tau)
+        self.assertIn("z_τc_theme_day", tau)
+        self.assertAlmostEqual(
+            float(tau["z_τc_gap_pct"]), (29.06 / 28.89 - 1.0) * 100.0, places=4
+        )
+
+    def test_style_window_excludes_cycle_day_and_keeps_aoo(self) -> None:
+        from core.paper.rebalance.open_pit_score import build_open_pit_feature_items
+
+        codes = ["600887", "000001"]
+        hist = {
+            "600887": _bars(70, last_day="2026-10-27"),
+            "000001": _bars(70, last_day="2026-10-27"),
+        }
+        # 会话日 K 不得进风格窗（今收不进 X）
+        prev = hist["600887"][-1]
+        prev["close"] = 28.89
+        prev["open"] = 28.80
+        prev["high"] = 29.10
+        prev["low"] = 28.50
+        hist["600887"] = list(hist["600887"]) + [
+            {
+                "date": "2026-10-28",
+                "open": 29.06,
+                "high": 40.0,
+                "low": 20.0,
+                "close": 39.0,
+                "volume": 9_000_000,
+            }
+        ]
+        quotes = {
+            "600887": {"success": True, "open": "29.06元", "prev_close": 28.89},
+            "000001": {"success": True, "open": 11.0, "prev_close": 10.5},
+        }
+        seen: dict = {}
+
+        def _fake(window, **kwargs):
+            if "dates" not in seen:
+                seen["dates"] = [str(b.get("date") or "")[:10] for b in window]
+                seen["change"] = (kwargs.get("quote") or {}).get("change_raw")
+                seen["names"] = kwargs.get("factor_names")
+            row = {str(n): 50.0 for n in (kwargs.get("factor_names") or ())}
+            row["volume_price"] = 39.2
+            row["raw_volume_price_volume_ratio"] = 1.2
+            row["raw_aoo_CLOSE0"] = 9.9
+            row["alpha_oo"] = 1.0
+            return row
+
+        with patch(
+            "core.paper.rebalance.open_pit_score._load_hist_bars", return_value=hist
+        ), patch(
+            "core.paper.rebalance.open_pit_score._batch_quotes", return_value=quotes
+        ), patch(
+            "core.research.oo_panel._research_sub_scores", side_effect=_fake
+        ):
+            scored, rejected, meta = build_open_pit_feature_items(
+                codes,
+                cycle_day="2026-10-28",
+                universe_codes=codes,
+                quotes=quotes,
+            )
+        self.assertTrue(meta.get("ok"))
+        self.assertEqual(rejected, [])
+        self.assertTrue(seen.get("dates"))
+        self.assertTrue(all(d < "2026-10-28" for d in seen["dates"]))
+        self.assertEqual(len(seen["dates"]), 61)
+        names = set(seen.get("names") or ())
+        self.assertNotIn("alpha_oo", names)
+        self.assertNotIn("alpha_tc", names)
+        self.assertNotIn("alpha_th", names)
+        # 与训练面板一致：aoo 已覆盖的重叠列、无真源资金流不进早盘截面
+        self.assertNotIn("momentum", names)
+        self.assertNotIn("gap_risk", names)
+        self.assertNotIn("overheat", names)
+        self.assertNotIn("money_flow", names)
+        self.assertIn("volume_price", names)
+        self.assertAlmostEqual(float(seen["change"]), (29.06 / 28.89 - 1.0) * 100.0, places=3)
+        row = next(it for it in scored if it["stock_code"] == "600887")
+        subs = row.get("sub_scores") or {}
+        self.assertAlmostEqual(float(subs["volume_price"]), 39.2, places=4)
+        self.assertNotIn("raw_volume_price_volume_ratio", subs)
+        self.assertAlmostEqual(float(subs["raw_aoo_CLOSE0"]), 28.89 / 29.06, places=5)
+
+    def test_style_hist_refuses_short_window(self) -> None:
+        from core.paper.rebalance.open_pit_score import _open_style_hist
+
+        self.assertEqual(_open_style_hist(_bars(40)), [])
+        self.assertEqual(len(_open_style_hist(_bars(80))), 61)
+
+    def test_missing_style_refuses_pool(self) -> None:
+        from core.paper.rebalance.open_pit_score import build_open_pit_feature_items
+
+        codes = ["600887", "000001"]
+        hist = {c: _bars(70, last_day="2026-10-27") for c in codes}
+        quotes = {
+            "600887": {"success": True, "open": 29.06, "prev_close": 28.89},
+            "000001": {"success": True, "open": 11.0, "prev_close": 10.5},
+        }
+        with patch(
+            "core.paper.rebalance.open_pit_score._load_hist_bars", return_value=hist
+        ), patch(
+            "core.paper.rebalance.open_pit_score._batch_quotes", return_value=quotes
+        ), patch(
+            "core.paper.rebalance.open_pit_score._open_style_scores", return_value={}
+        ):
+            scored, rejected, meta = build_open_pit_feature_items(
+                codes,
+                cycle_day="2026-10-28",
+                universe_codes=codes,
+                quotes=quotes,
+            )
+        self.assertFalse(meta.get("ok"))
+        self.assertEqual(meta.get("reason"), "style_cover_short")
+        self.assertEqual(scored, [])
+        self.assertEqual(meta.get("n_style_gap"), 2)
+        self.assertTrue(all("风格因子不足" in str(r.get("reason")) for r in rejected))
 
     def test_cover_short_returns_not_ok(self) -> None:
         from core.paper.rebalance.open_pit_score import build_open_pit_feature_items

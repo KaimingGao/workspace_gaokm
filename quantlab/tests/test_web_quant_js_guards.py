@@ -2842,6 +2842,9 @@ class TestWebQuantJsGuards(unittest.TestCase):
         self.assertIn("formula_terms_t45", table_js)
         self.assertIn("formula_terms_t75", table_js)
         self.assertIn('!String(t.note || "").includes("缺特征")', tip_js)
+        # LambdaRank / τc_rank：缺特征仍可能有非零 pred_contrib，不得整表滤掉
+        self.assertIn("keepMissingTree", tip_js)
+        self.assertIn('key === "tc_rank"', tip_js)
         self.assertIn("另 ${missingN} 项缺特征未列出", tip_js)
         self.assertNotIn("yhat-contrib-bars", tip_js)
         self.assertIn('key === "eod" || key === "tau" || isOoRank', tip_js)
