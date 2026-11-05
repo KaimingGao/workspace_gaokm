@@ -373,7 +373,7 @@ Skill / Service / 研究 CLI
 | 单测 | `python3 -m unittest discover -s tests -v` |
 | 黄金路径 | `evals/run_checklist.py`（`--mock --presets` 与 CI 同款） |
 | 本地 CI | `scripts/ci_quant.sh` |
-| 日更 | `scripts/daily_*.sh` + cron / macOS launchd（[quant.md · 运维](quant.md#量化运维)） |
+| 日更 | `scripts/daily_*.sh` + cron / macOS launchd（[quant-ops.md](quant-ops.md)） |
 
 安装与环境变量见 [development.md · 快速上手](development.md#快速上手)；扩展 Skill / 限制见 [development.md](development.md)。
 
@@ -389,7 +389,7 @@ Skill / Service / 研究 CLI
 
 产品流程（观察 · 模拟 · 回溯；观察≠模拟）：见 [quant-ui.md](quant-ui.md)。路由：`/watching` `/follow` `/replay`（`/paper` `/strategy` `/quant` 等仍可用）。见 `action_map.py`、`GET /api/quant/actions` 与 [quant.md · 入门概念](quant.md#量化入门概念)。
 
-**观察池**（Watching）：用户维护的**候选股票宇宙**（静态名单和/或 `screen` 筛选），落盘 `data/watching.json`，页 `/watching`。划定打分、行情预热、横截面排序、调仓开加、回测宇宙的范围（上限默认 300、硬顶 `WATCHING_MAX_SIZE`=1000，研究枢纽可改）；**不是**持仓、**不是**全市场。持仓在模拟账本 `paper.json`。选股链路：观察池 → `score_stock` → 横截面 Top N；建仓只从观察页进（见下「入口边界」）。做 T 不从池新开，只 overlay 已持底仓；分钟截面常为观察池 ∪ 持仓。
+**观察池**（Watching）：用户维护的**候选股票宇宙**（静态名单和/或 `screen` 筛选），落盘 `data/watching.json`，页 `/watching`。划定打分、行情预热、截面 μ/σ、调仓开加、回测宇宙的范围（上限默认 300、硬顶 `WATCHING_MAX_SIZE`=1000，研究枢纽可改）；**不是**持仓、**不是**全市场。持仓在模拟账本 `paper.json`。生产调仓主路径：观察池 → 开盘出分（立方 / open-pit）→ **y_oo_fuse 入场 + y_oo_rank 买序（rank_lots）**；建仓只从观察页进（见下「入口边界」）。做 T 不从池新开，只 overlay 已持底仓；分钟截面常为观察池 ∪ 持仓。细则见 [rebalance-logic.md](rebalance-logic.md) · [quant.md · ŷ](quant.md#predictedscoreŷ全链路)。
 
 **入口边界**：观察页是唯一开仓入口（建仓前必过 `sync-paper/preview` 预演），模拟页只管已有仓位。凡「买什么、买多少」由规则决定的动作（按策略调仓）收进进阶区，并在持仓 `origin` 上标 `strategy` 与手动区分。做 T 为 **overlay**，不改变「持有什么」的主线；见 [quant.md · 策略调仓 vs 底仓做 T](quant.md#策略调仓-vs-底仓做-t)。
 
@@ -1368,15 +1368,23 @@ quantlab/
 
 ## 组件文档导航
 
+与 [docs/README.md](README.md) 对齐。产品北极星 / N 轨见 [design-spine.md](design-spine.md)；ŷ 契约见 [quant.md](quant.md)；运维见 [quant-ops.md](quant-ops.md)。
+
 | 层 | 文档 | 内容 |
 |----|------|------|
-| 数据层 | [component/data.md](component/data.md) | 采集/清洗/存储/服务/监控五模块 · 分钟线采集架构 · 存储选型 · PIT 边界 |
-| 策略层 | [component/strategy.md](component/strategy.md) | 选股/择时/仓位/风控 · 策略设计文档模板 · 默认短线策略 |
-| 风控层 | [component/risk.md](component/risk.md) | Alpha×Risk 闭环 · 风控因子 · 舆情与另类数据 |
-| RL 视角 | [component/rl.md](component/rl.md) | Policy/Reward/Env 映射 · 与现有栈衔接（远期） |
-| 框架梳理 | [internal/framework-review.md](internal/framework-review.md) | 代码框架债务台账 · 已收口/设计保留/明确不做 |
-| 工程结构轨 | [internal/engineering-track.md](internal/engineering-track.md) | A0–A4 契约冻结 → Bars SQLite → Job 硬化 → 门面 → 前端稳态 |
-| SQLite 迁移 | [internal/sqlite-migration.md](internal/sqlite-migration.md) | 日线/分钟线缓存 SQLite WAL 改造方案（已落地 A1） |
+| 数据层 | [component/data.md](component/data.md) | 采集/清洗/存储/服务/监控 · 分钟线 · 存储选型 · PIT |
+| 策略层 | [component/strategy.md](component/strategy.md) | 选股/择时/仓位/风控 · 设计模板 · 默认短线策略 |
+| 风控层 | [component/risk.md](component/risk.md) | Alpha×Risk · 风控因子 · 舆情 / news.db 软先验 |
+| RL 视角 | [component/rl.md](component/rl.md) | Policy/Reward/Env（远期） |
+| 框架梳理 | [internal/framework-review.md](internal/framework-review.md) | 工程债台账 |
+| 工程结构轨 | [internal/engineering-track.md](internal/engineering-track.md) | A0–A4 · B0–B4 |
+| SQLite 迁移 | [internal/sqlite-migration.md](internal/sqlite-migration.md) | bars.db WAL（已落地 A1） |
+| 行情更新缓存 | [internal/bars-update-cache.md](internal/bars-update-cache.md) | 日线/5m 写仓读仓 · 指纹 · 已知缝 |
+| Feature Lake / DayCube | [internal/feature-lake-daycube.md](internal/feature-lake-daycube.md) | L1/L2 物化 · 写穿 · `allow_l1_end_lag` |
+| DayCube 宇宙键 | [internal/daycube-universe-key.md](internal/daycube-universe-key.md) | `universe_hash` |
+| Live open-pit | [internal/live-open-pit-rebalance.md](internal/live-open-pit-rebalance.md) | 早开盘今开截面 · 风格因子拒单 |
+| 日线契约修补 | [internal/bars-update-plan.md](internal/bars-update-plan.md) | 四处缝改造顺序 |
+| AkShare vs Tushare | [internal/akshare-tushare-daily-compare.md](internal/akshare-tushare-daily-compare.md) | 日线对齐审计 |
 
 ---
 

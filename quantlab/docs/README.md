@@ -4,19 +4,22 @@
 
 - [架构总览 · 子目录索引](architecture.md#子目录-readme-索引)
 
+**职责速记**：`architecture` = 分层拓扑；`design-spine` = 产品主轴 / 北极星 / N 轨；`quant.md` = **ŷ 契约真源**；`quant-ops.md` = preset / cron；`rebalance` / `t0` = 产品规则；`quant-ui` = Web 契约。
+
 ---
 
 ## 核心文档索引（推荐阅读顺序）
 
 0. **[手把手：从 clone 到跑通回测](getting-started.md)** — 装环境 · 小观察名单 · 拉日线/分钟线 · 拟合并启用研究套 · 第一次调仓回测
 1. **[产品介绍](product-intro.md)** — 产品概述 · Web 面板总览 · 选股/调仓/做T 速览 · 关键代码索引
-2. **[系统架构总览](architecture.md)** — 定位 · 设计原则 · 控制论闭环 · 分层架构 · 六边形 Ports & Adapters · 技术栈 · 分层模块说明 · 端到端全链路图 · 如何扩展 · RL 视角
-3. **[产品核心设计主轴与路线图](design-spine.md)** — 本质与因果链 · Ensemble 预估方法论 · 产品北极星 · 能力地图 · N1–N6 路径 · 决策链路 · N6 实盘准入
-4. **[量化原理、ŷ 全链路与运维](quant.md)** — 入门概念 · 因子 ŷ / stance / 回测 / 纸面原理 · 训练/打分/回测/复盘链 · 双层 ŷ · 运维 preset & cron
-5. **[策略调仓逻辑](rebalance-logic.md)** — 横截面调仓 · dual_y 买卖闸 · 卖出腿/卖后门禁/买入腿 · path_matrix · 风控体系 · 参数速查
-6. **[底仓做 T 逻辑](t0-logic.md)** — 纯 ŷ_τw 选向/金额 · Leg1/Leg2 执行 · 止损/追价/强平 · 参数速查
-7. **[量化研究台（Web）](quant-ui.md)** — 说明书 · 页面契约与验收清单 · 相对专业终端差距分析 · W0–W5 升级方案
-8. **[开发与入门手册](development.md)** — 环境安装 · 操作入门 · 运行测试与 evals · prompts 说明 · Skill 详解
+2. **[系统架构总览](architecture.md)** — 定位 · 设计原则 · 控制论闭环 · 分层架构 · 六边形 Ports & Adapters · 技术栈 · 端到端全链路 · 如何扩展
+3. **[产品核心设计主轴与路线图](design-spine.md)** — 因果链 · Ensemble · 产品北极星 · 能力地图 · N1–N6 · N6 实盘准入
+4. **[量化原理与 ŷ 全链路](quant.md)** — 契约真源 · 双层 ŷ · 训练/打分/回测/纸面 · Live 旁路枢纽
+5. **[量化运维](quant-ops.md)** — preset · cron / launchd · 报告归档 · watching 文件 API · 信号配置只读
+6. **[策略调仓逻辑](rebalance-logic.md)** — rank_lots · fuse · 卖/买腿 · path_matrix · 风控 · 参数速查
+7. **[底仓做 T 逻辑](t0-logic.md)** — 纯 ŷ_τw 选向/金额 · Leg1/Leg2 · 止损/追价/强平
+8. **[量化研究台（Web）](quant-ui.md)** — 说明书 · 页面契约 · 差距分析 · W0–W5 升级方案
+9. **[开发与入门手册](development.md)** — 环境安装 · 测试与 evals · prompts · Skill 详解
 
 ## 组件文档（component/）
 

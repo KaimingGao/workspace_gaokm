@@ -177,6 +177,8 @@ panel meta 额外写入：
 
 `write_stock_panel`：若盘上已有更长且同末日的真后缀面板，拒绝用短窗覆盖（防 lookback 误缩写穿）。
 
+**物化写入 vs 拟合切片**：`try_slice_shorter_lookback(allow_end_lag=True)` 在 bars 末日与湖不一致时可只切双方交集、不重算。拟合 / 回测消费可以这样省算力。**物化写入**（`materialize_writer` → `allow_l1_end_lag()=False`）禁止这条短路：日线新于湖时必须重算写穿，否则 Job 仍报 ok、L1 却停在旧日，下游会出现「oo 缺 1 日」。实现：`core/research/materialize/consumer.py` · `tests/test_l1_release.py`。
+
 ### 4.2 bars topup 失效与 L2 回收
 
 `quant/research/bars_status.py` · `refresh_bars_only`：只对价量指纹变了的票调用 `invalidate_l1_many`。指纹未变不删 L1，也不动 L2。没有 L1 meta 的票不删。

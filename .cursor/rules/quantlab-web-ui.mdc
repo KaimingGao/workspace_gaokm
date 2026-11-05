@@ -7,7 +7,6 @@ alwaysApply: false
 # QuantLab Web UI 标准
 
 改 `quantlab/web/static/**` 或 `page_html.py` 前，先读 [docs/quant-ui.md](quantlab/docs/quant-ui.md)（UI 契约 · 升级方案）。  
-壳层 / AI 控制面简史见 [docs/archive/quant-ui-refactor-plan.md](quantlab/docs/archive/quant-ui-refactor-plan.md)。  
 全面升级排期见 [quant-ui.md § 升级方案](quantlab/docs/quant-ui.md#web-ui-全面优化升级方案)（W0–W3 vanilla；**W4 已开闸**：React 岛 / 研究 Dock / `/ws/live` / 密度开关；仍禁 OMS/Level2/全站 SPA）。
 
 ## 硬约束

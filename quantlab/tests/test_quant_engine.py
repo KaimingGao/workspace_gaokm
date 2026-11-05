@@ -1212,12 +1212,13 @@ class TestP94QuantServiceMixins(unittest.TestCase):
         self.assertEqual(res.status_code, 200)
         self.assertTrue(res.json().get("success"))
 
-    def test_docs_mark_upgrade_as_archive(self):
-        path = os.path.join(ROOT, "docs", "archive", "quant-upgrade.md")
+    def test_docs_model_policy_lives_in_quant_md(self):
+        # 旧 archive/quant-upgrade.md 已并入 quant.md；契约以现行选股真源小节为准。
+        path = os.path.join(ROOT, "docs", "quant.md")
         with open(path, encoding="utf-8") as f:
             text = f.read()
-        self.assertIn("历史归档", text)
-        self.assertIn("P94", text)
+        self.assertIn("#### 选股真源：线性回归因子系数", text)
+        self.assertIn("ReturnScoreModel", text)
 
 
 if __name__ == "__main__":

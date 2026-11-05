@@ -1,6 +1,6 @@
 """专业核心三轨（DC / FM / RK）共享工具。
 
-见 docs/archive/pro-core-strengthen.md。不写 OMS；只加深路径内可信度。
+路径内可信度加深（DC/FM/RK）；不写 OMS。能力地图见 docs/design-spine.md。
 """
 
 from typing import Any, Dict, Iterable, List, Optional, Tuple

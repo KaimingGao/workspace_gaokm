@@ -1,6 +1,6 @@
 # 产品核心设计主轴
 
-[← 文档索引](README.md) · 工程分层见 [architecture.md](architecture.md) · **预估方法论**见 [§ 多频率 Ensemble](design-spine.md#预估方法论多频率-多目标-ensemble) · 因子/stance 细节见 [quant.md](quant.md) · ŷ 全链路见 [quant.md · ŷ 全链路](quant.md#predictedscoreŷ全链路) · 盘中/实时增强见 [quant.md · 盘中剩余收益头](quant.md#13-盘中剩余收益头intraday-residual方案) · τ 契约见 [quant.md · τ 契约升级](quant.md#25-双层-predictedscoreŷoo-ŷτ) · Web 主路径见 [quant-ui.md](quant-ui.md)
+[← 文档索引](README.md) · 工程分层见 [architecture.md](architecture.md) · **预估方法论**见 [§ 多频率 Ensemble](design-spine.md#预估方法论多频率-多目标-ensemble) · ŷ 契约见 [quant.md](quant.md#predictedscoreŷ全链路) · Live 旁路见 [quant.md · Live](quant.md#live-出分与旁路) · 运维见 [quant-ops.md](quant-ops.md) · τ 见 [§2.5](quant.md#25-双层-predictedscoreŷoo-ŷτ) · Web 见 [quant-ui.md](quant-ui.md)
 
 本文是产品的 **核心设计主轴**，分三层读：
 
@@ -265,7 +265,7 @@ flowchart LR
 
 | # | 模块 | 专业栈能力目标（对照） | 本仓库采纳目标（路径内） | 本仓库现状 | 主要落点 / 仍缺 | 主要服务北极星柱 |
 |---|------|------------------------|--------------------------|------------|-----------------|------------------|
-| 1 | **多维数据收集** | 统一行情仓（日/分钟/Tick）+ 财务/宏观/另类；多源对齐、可订阅增量 | 日线 + 现货 + 基本面快照 + 资讯标题可复现拉取；薄 `DataService` | **部分 ~62%** | **M1 已收口**：DataService · 覆盖率 · 快照缓存 · 观察池日线增量；仍缺 Tick/宏观/全市场数仓；路径内加深见 pro-core-strengthen · DC | Velocity · 拟合（数据一致） |
+| 1 | **多维数据收集** | 统一行情仓（日/分钟/Tick）+ 财务/宏观/另类；多源对齐、可订阅增量 | 日线 + 现货 + 基本面快照 + 资讯标题可复现拉取；薄 `DataService` | **部分 ~62%** | **M1 已收口**：DataService · 覆盖率 · 快照缓存 · 观察池日线增量；仍缺 Tick/宏观/全市场数仓；路径内加深见 [architecture.md · 数据层](component/data.md) | Velocity · 拟合（数据一致） |
 | 2 | **数据清洗与预处理** | 完整 **PIT**、复权策略参数化、公司行为、日历对齐、质量分级进生产门禁 | 日线 as_of 切条；`quality` 门禁；`adjust_policy` 进 manifest；基本面标明非 PIT | **部分 ~58%** | `normalize` · `allows_production_score` · `data_pit` · `pit_report`；财务 PIT 深度 / 停牌对齐见 pro-core DC | 拟合（防未来函数） |
 | 3 | **因子挖掘与模型** | 大规模因子库 + IC/IR 流水线 + 中性化；可选 ML/NN，artifact 冻结可 promote | `score_bars`→sub_scores + **回归 ŷ**（当前 OLS/Ridge）；IC / weight_suggest 遗留；NN **仅研究轨** | **线性 ŷ ~70%** | `ReturnScoreModel` · Ridge β · 横截面；健康门/衰减见 pro-core FM；NN 不上生产 `score` | Velocity · 收益质量 |
 | 4 | **组合优化与风控** | QP/风险预算求解；单票/行业/风格暴露；VaR/限额实时；成本与冲击进目标函数 | 分数风险预算 + `risk_parity_lite` + 暴露矩阵 + 单票/行业硬拦；行业 map 覆盖与预算告警；纸面止损/回撤熔断 | **部分 ~68%** | `optimize_weights` · `risk/budget` · `check_account_risk` · `exposure`；风格进目标/动态限额见 pro-core RK；仍缺完整 QP / 实时 VaR | 收益质量 · 风控底线 |
@@ -353,7 +353,7 @@ flowchart LR
 | **能力地图（六大模块对照）** | **部分～较强** | 粗估整体约 **~70%～78%**；回测相对最强，部署（无 OMS）最弱 |
 | **N1–N5 实现路径** | **P0–P2 可验收** | 五问/限额/质量/WF/IC/日更调度/告警→人审晋升已接线 |
 | **现行主轴**（观察·策略·模拟·回溯 + AI 旁路） | **基本达成** | `score_bars` → stance → 建仓/调仓/回测共用计分；LLM **不改写** `score` / `stance` |
-| **升级重构 R0–R5** | **已收口** | 见 upgrade-refactor-plan |
+| **升级重构 R0–R5** | **已收口** | 见本章路线图摘要；旧独立排期文档已并入 |
 | **N6 真·实盘 OMS** | **未启动（有意推迟）** | 待回测 + 纸面验证成熟、合规就绪后另立项；**不计入当前北极星分子** |
 
 **北极星二级指标基线**
@@ -376,7 +376,7 @@ flowchart LR
 | 5 | 历史回测验证 | ~85% | OOS/regime 分桶/WF/成本/Brinson lite/信号成交对照 |
 | 6 | 部署与迭代 | ~55% | 纸面日更 + 滚动 IC + 出站告警 + 人审晋升；无 OMS |
 
-**当前焦点**：DC/FM/RK 主干已落地（见 pro-core-strengthen）。继续真实 `paper_daily`、财务预热与闸门勾选；**评估是否立项 N6** 见本章末「N6 真·实盘准入备忘」。**不冲 OMS / 全市场数仓**。
+**当前焦点**：DC/FM/RK 主干已落地（见 [能力地图](#能力地图六大模块) · [architecture.md](architecture.md)）。继续真实 `paper_daily`、财务预热与闸门勾选；**评估是否立项 N6** 见本章末「N6 真·实盘准入备忘」。**不冲 OMS / 全市场数仓**。
 
 ### P0 落地状态（2026-07）
 
@@ -758,194 +758,24 @@ data/*.json   → 配置与账本落盘
 ### 盘中 / 实时增强（进行中）
 
 ŷ_oo 主轴不变；事件先验 + open→close 的 **ŷ_τ 头**能力定义与阶段表（P0–R3）见专文：  
-[quant.md · 盘中剩余收益头](quant.md#13-盘中剩余收益头intraday-residual方案)。**P0～R3 代码已落地**；生产排序仍只用 ŷ_oo；ŷ_τ 需 `POST /api/quant/tau-ridge`（`persist=true`，落盘 `tau_ridge_model.json`；旧 `rem-ridge` / `rem_ridge_*` 仍兼容）后人审启用门控。
+[quant.md · Live 旁路 / §2.5](quant.md#live-出分与旁路)。**P0～R3 代码已落地**；生产排序仍只用 ŷ_oo；ŷ_τ 需 `POST /api/quant/tau-ridge`（`persist=true`，落盘 `tau_ridge_model.json`；旧 `rem-ridge` / `rem_ridge_*` 仍兼容）后人审启用门控。
 
 **契约缺口与下一步**：**双层 ŷ** A1+F1 已落地；**F2** `predicted_score_blend` 可选（`fusion_mode=f2`）；**B1** promote 相对 active 的 OOS 失败率硬闸已落地；**B2/B3** focused 贪心 + promote-preflight / 落地卡已接通。未做：**A3** 主轴切换、分钟 τ 默认 live、Ridge 头重训并成功 promote。见
 [quant.md · τ 契约升级](quant.md#25-双层-predictedscoreŷoo-ŷτ) · [quant.md · ŷ 全链路 §2.5](quant.md#predictedscoreŷ全链路)。
 
-### P4.1 已落地：`backtest` Skill
+### P4 / P5 已交付 → 现行落点
 
-**目录**：`core/backtest/engine.py`（引擎） + `skills/backtest/`（Agent 工具）
+| 交付 | 现行落点 |
+|------|----------|
+| P4.1 Walk-forward `backtest` Skill | `core/backtest/engine.py` · `skills/backtest/`；原理摘要见 [quant.md](quant.md) |
+| P4.2 日线本地缓存 | `data/store/` · [component/data.md](component/data.md) |
+| P4.3 回测报告扩展 | 基准/分层/参数扫描；`/replay` 产品回测 |
+| P4.4 信号可复现 evals | `evals/run_repro.py` |
+| P5.1 纸面账户 + 日更 | `core/paper/` · [quant-ops.md](quant-ops.md) `paper_daily` |
+| P5.2 Web 净值曲线 | `/follow` · `/dashboard` |
+| P5.3 规则 stance + LLM 只解释 | `compute_buy_stance`；不得改写 `stance_label` |
 
-**策略 `short_conservative`**：Walk-forward 调用 `score_bars`（详见 [量化原理 · 第三层](quant.md#第三层历史回测walkforward)）；分数 ≥ `min_score` 且非 `hard_reject` 时，模拟持有 `horizon_days` 日；输出胜率、均收益、累计收益、最大回撤、夏普近似。
-
-**局限（须在回复中说明）**：未含手续费/滑点/涨跌停/T+1；与 live `signal` 的 `quote_fallback` 数据源可能不一致；**研究结果 ≠ 实盘建议**。
-
-**无 LLM 直调**：
-
-```bash
-cd quantlab
-python3 -c "
-from skills.backtest.handler import BacktestHandler
-import json
-print(BacktestHandler().execute({
-  'parameters': {
-    'stock_codes': ['茅台', '招商银行'],
-    'lookback_days': 120,
-    'horizon_days': 3,
-    'min_score': 55
-  }
-}))
-"
-```
-
-**Agent 典型问法**：「回测茅台 signal 规则过去 120 天表现」「这个短线评分历史胜率如何」→ 路由 `backtest`。
-
-### P4.2 已落地：日线本地缓存
-
-**目录**：`data/store/daily/{CN|HK|US}/{code}.json`（缓存文件不入 git）
-
-**模块**：`core/store.py`；`fetch_daily_bars()` 自动读/写缓存。
-
-| 字段 | 含义 |
-|------|------|
-| `data_source` | 原始来源；命中缓存时为 `cache:akshare_cn_daily` 等 |
-| `quality.level` | `good` / `thin` / `empty`（样本量、末根日期、数据源） |
-| `fetched_at` | 写入时间；默认 **24h** 内有效 |
-
-**环境变量**：
-
-- `QUANTLAB_STORE_DIR` — 自定义缓存根目录  
-- `QUANTLAB_DISABLE_CACHE=1` — 关闭缓存，始终走 AkShare  
-
-**管理 CLI**：
-
-```bash
-cd quantlab
-python3 -c "from core.store import list_cached_symbols; print(list_cached_symbols())"
-python3 -c "from core.store import list_cached_symbols; print(list_cached_symbols('CN'))"
-python3 -c "from core.store import clear_daily_cache; print(clear_daily_cache())"
-```
-
-首次拉取某标的日线后会落盘；同一标的 24h 内重复调用 `signal` / `kline` / `backtest` / `index` 将优先读缓存，减轻 AkShare 压力并提高 evals 可复现性。
-
-### P4.3 已落地：回测报告扩展
-
-**增强字段**（`backtest` Skill / `core/backtest/engine.py`）：
-
-| 块 | 字段 | 含义 |
-|----|------|------|
-| `benchmark` | `buy_hold_period_pct` | 同期买入持有收益 |
-| | `excess_vs_buy_hold_pct` | 策略累计 − 买入持有 |
-| | `index_period_pct` / `excess_avg_vs_index_pct` | 指数基准（`benchmark=auto/hs300/hsi`） |
-| `score_buckets` | `55-64` / `65-74` / `75+` | 按入场 score 分层均收益/胜率 |
-
-**参数扫描**：`core/backtest/engine.py` 的 `scan_signal_parameters`（`(horizon_days, min_score)` 网格）。
-
-按 `total_return_pct` 降序输出 top N 组 `(horizon_days, min_score)`，用于快速筛参数（仍须样本外验证，勿过拟合）。
-
-**Skill 新参数**：`benchmark` — `auto`（默认，A 股→沪深300，港股→恒生）/ `hs300` / `hsi` / `none`。
-
-### P4.4 已落地：信号可复现 evals
-
-**脚本**：`evals/run_repro.py` + `evals/repro_fixtures.json`
-
-对 `score_bars` / `backtest_signal` / mock 下的 `signal` Handler **双跑**，SHA256 指纹须一致。改 scorer 或回测逻辑后应先跑：
-
-```bash
-python3 evals/run_repro.py
-```
-
-### P5.1 已落地：纸面账户
-
-**文件**：`data/paper.example.json` → 复制为 `data/paper.json`（不入 git）
-
-**模块**：`core/paper/` + CLI `research/paper_run.py`
-
-| 步骤 | 命令 |
-|------|------|
-| 初始化 | `python3 research/paper_run.py --init` |
-| 跑观察池 + 快照 | `python3 research/paper_run.py --run` |
-| 纸面模拟买入 | `python3 research/paper_run.py --run --simulate-buy` |
-| 查看净值 | `python3 research/paper_run.py --status` |
-
-规则在 `paper.json` 的 `rules`：`min_score`、`max_positions`、`position_pct` 等。
-
-**每日 cron（推荐）**：
-
-```bash
-cd quantlab
-# 工作日收盘后：纸面观察池 + 离线 mock checklist
-python3 research/daily_run.py --paper-run --eval-mock --json
-
-# 可选：周末跑全量 Agent 回归（需 DASHSCOPE_API_KEY）
-python3 research/daily_run.py --eval-agent --json
-```
-
-**非实盘、不代客下单**。
-
-### P5.2 已落地：Web 纸面净值曲线
-
-**API**（`web/app.py`）：
-
-| 方法 | 路径 | 说明 |
-|------|------|------|
-| GET | `/api/paper` | 账户摘要 + `snapshots` 快照序列 |
-| POST | `/api/paper/init` | 从 `data/paper.example.json` 初始化 |
-| POST | `/api/paper/run` | 跑观察池；`{"simulate_buy": true}` 可纸面买入 |
-| POST | `/api/daily/run` | 每日任务：`paper_run` + `eval_mock` 等组合 |
-
-**Web UI**：顶栏 **「模拟」** → 净值/盈亏/持仓 + 曲线；观察页建仓。
-
-| GET | `/api/evals/cases` | 列出 golden case 摘要 |
-| GET | `/api/evals/last` | 读取上次保存的校验报告 |
-| GET | `/api/evals/job` | 后台任务状态（全量 Agent 回归） |
-| POST | `/api/evals/run` | 跑 checklist；body: `{case_id?, use_mock, with_agent, background?}` |
-
-黄金用例 Skills checklist 走 CLI / `POST /api/evals/run`（Web 不提供校验弹窗）。  
-交易执行页管理假钱账本；对话 position 读 `paper.json`。
-
-环境变量 `QUANTLAB_PAPER_PATH` 可自定义 `paper.json` 路径。
-
-### P5.3 已落地：规则 stance + LLM 只解释
-
-**模块**：`core/stance.py`（`compute_buy_stance`）  
-**Skill**：`advise` — 委托 `core.advise.evaluate_buy_advice` → `core.facts` + stance。决策流程见 [量化原理 · 第二层](quant.md#第二层买卖-stancecomputebuystance-advise)。
-
-| `stance_code` | `stance_label`（LLM 须逐字引用） |
-|---------------|----------------------------------|
-| `insufficient` | 信息不足暂不建议操作 |
-| `avoid` / `wait` | 建议观望（暂不买入） |
-| `probe` | 建议逢低分批关注但暂不追入 |
-| `buy_light` | 可考虑轻仓试探（非追涨） |
-
-**约束**（`prompts.py` / `agent.py`）：问「能不能买 / 是否买入」时 Agent 必须调 `advise`；「策略结论：是否买入」节只能引用 `advise.stance_label`，LLM 负责解读 `facts` 与 `invalidation`，不得升级/降级结论。
-
-**无 LLM 直调**：
-
-```bash
-cd quantlab
-python3 -c "
-from skills.advise.handler import AdviseHandler
-print(AdviseHandler().execute({'parameters': {'stock_code': '茅台'}}))
-"
-```
-
-### 架构演进示意
-
-```text
-AI 编排层（旁路）         量化主轴（现行）              模拟账本
-─────────────────        ─────────────────────        ─────────────
-Agent 选工具/解释结果  ←→  signal → strategy → backtest   paper.json
-Skills 取数                 store / ports / evals repro     观察建仓 · 调仓
-                          quant 研究台 · watching/follow
-```
-
----
-
-### 升级路线（状态）
-
-| 阶段 | 内容 | 状态 |
-|------|------|------|
-| **P1** | 日线（A/港）、`kline`、`.env`/gitignore、错误可读、名称映射 | 已落地 |
-| **P2** | `fundamentals` / `peer` / `index` | 已落地 |
-| **P3** | 持仓规则配置、临时 holdings、美股日线、`news` | 已落地 |
-| **P4** | Web、`backtest`、日线缓存、repro evals | **已落地**（P4.1～P4.4） |
-| **P5** | 纸面/模拟交易、定时信号、绩效看板 | **已落地**（P5.1～P5.3） |
-| **D1–D6** | 观测/记忆/决策契约/反馈/调度/非交易预填 | **骨架已落地**（见下节） |
-| **Q1–Q5** | 量化重心重构（见下节「下一阶段规划」） | **已落地**（本轮） |
-
----
+细节以 [quant.md](quant.md) · [architecture.md](architecture.md) · [quant-ops.md](quant-ops.md) 为准，本文不再维护第二份实现说明。
 
 ## 下一阶段规划（量化交易 + AI 定位）
 
@@ -1046,246 +876,18 @@ Q2 与 Q3 可部分并行（Strategy 接口先定，ports 清债同步）；Q4 �
 
 ---
 
-## 北极星实现路径（N1–N6）
+## 北极星实现路径（N1–N6）· 路线图摘要
 
-> 承接 [产品北极星](design-spine.md#产品北极星)（三项乘积）；能力地图对照见 [design-spine · 能力地图](design-spine.md#能力地图六大模块)（旧锚点 [专业系统满分画像](design-spine.md#专业系统北极星满分画像) 仍可用）。  
-> **产品定位**：现行 = **策略验证**（研究台 + 纸面）；暂不接实盘。  
-> **子项目拆分**：能力地图 **6** 模块 ↔ 工程 **N1–N6**；默认可交付 **N1–N5**；**N6 验证成熟后另立项**（见 [design-spine · 子项目拆分](design-spine.md#能力地图子项目拆分)）。  
-> **底座**：Q1–Q5 已完成；R0–R5 已收口。继续加深验证可信度与样本。  
-> **锁定**：生产 Alpha = 线性 `score_bars`；NN 仅离线 artifact；**现行不接券商 OMS**。
-
-### 子项目对照（与六大模块）
-
-| # | 产品子项目 | 工程轨 | 路径内目标（压缩） | 粗估 | 本路径 |
-|---|------------|--------|--------------------|------|--------|
-| 1 | 多维数据收集 | N1 | DataService / 可复现拉取 | ~62% | 主路径加深 |
-| 2 | 数据清洗 / PIT | N1 | 日线 PIT、质量门禁 | ~58% | 主路径加深 |
-| 3 | 因子 / 模型 | N2 | 线性 score + IC；NN 研究轨 | ~60% | 主路径加深 |
-| 4 | 组合 / 风控 | N3 | 分数预算 + 波动缩放 + 限额 | ~60% | 主路径加深 |
-| 5 | 历史回测 | N4 | OOS / WF / 成本 / 板别涨跌停·跌停延后 | ~80% | 主路径加深 |
-| 6 | 部署与迭代 | N5 / N6 | 纸面日更+人审（验证）；OMS 成熟后另立 | ~52% / — | N5 主路径；N6 **有意推迟** |
-
-**结论**：**6** 个能力子项目；工程 **6** 轨；仓库现行排期 **N1–N5**（策略验证）；**N6 待验证成熟后另立**。模拟账户交易为验证阶段必做主能力。  
-**下一程详细排期**：upgrade-refactor-plan（R0–R5；与本文 P0–P2++ 已交付区分）。
-
-### 阶段总览
-
-| 阶段 | 主题 | 周期（建议） | 依赖 | 验收标准 | 状态 |
-|------|------|--------------|------|----------|------|
-| **N1** | 数据质量 / DataService | 2～3 周 | Q3 | 回测/调仓能回答数据源、复权、质量、是否 fallback | **骨架落地** |
-| **N2** | 因子实验室 | 3～4 周 | N1 | IC/权重建议可导出；`research/ml` 不直连 score | **骨架落地** |
-| **N3** | 组合 + 行业风控 | 2～3 周 | Q4 | StrategySpec 限额；分数预算权重 + 高波缩放 | **骨架 + 动态轻量** |
-| **N4** | OOS / regime 回测 | 2～3 周 | N3 | 报告含成本、OOS、regime 切片 | **骨架落地** |
-| **N5** | 纸面运营闭环 | 2～3 周 | N4 | `paper_daily` + 衰减告警 + 人审晋升 | **P2 可验收** |
-| **N6** | 真·实盘闸门 | 验证成熟后 | N4+N5 + 合规 | OMS 另立项；默认人工确认下单 | **有意推迟（现行不排期）** |
-
-### 达成度评估（2026-07）
-
-与 [design-spine · 达成度评估](design-spine.md#达成度评估202607) 同源，此处给路线图读者的摘要：
-
-| 判断 | 状态 |
-|------|------|
-| 产品北极星（三项乘积） | **已仪表化**（见 [产品北极星](design-spine.md#产品北极星) · R0） |
-| 能力地图（六大模块对照） | **部分～较强**（见 [能力地图](design-spine.md#能力地图六大模块)） |
-| 本仓库路径内采纳目标 | **部分～较强**（P2++ 后粗估 ~68%～74%） |
-| N1–N5 | **P0–P2 可验收**（五问 / 回测默认 / 限额硬拦 / 质量 / 日更 / 告警晋升） |
-| 升级重构 R0–R5 | **R0–R4 出门；R5 主干落地**（upgrade-refactor-plan） |
-| 现行「研究台 + 模拟账本 + AI 旁路」 | **基本达成** |
-| N6 真·实盘 | **未启动**（策略验证成熟后再立项；不计入当前北极星分子） |
+> 总表与状态见上文 [北极星实现路径（N1–N6）](#北极星实现路径n1n6)；达成度见 [达成度评估](#达成度评估202607)；N6 闸门见 [N6 备忘](#n6-真实盘准入备忘)。本节只保留 P0–P3 规划摘要与 D1–D6 / 持仓配置，避免与上文重复。
 
 ### 北极星实现规划（P0–P3）
 
-> 策略：**北极星 = 纸面夏普/卡玛 × TTM × 回测–纸面拟合**（见 [design-spine · 产品北极星](design-spine.md#产品北极星)）；六大模块为能力地图。实现上把 N1–N5 做成**策略验证**闭环并仪表化二级指标；**N6 待验证成熟后另立项**。  
-> 路径原则：先验证可信度，再加深模块。扩功能面（Tick / 数仓 / NN 上线 / OMS）一律排在策略验证成熟之后。  
-> 本路径现行终点：**P0→P2++** + **R0–R5** + 样本加深；真·实盘 **N6 推迟**。
-
-#### 四阶段总览
-
-| 阶段 | 名称 | 周期 | 目标 | 达标信号 | 状态 |
-|------|------|------|------|----------|------|
-| **P0** | 做实骨架 | 2～3 周 | N1–N5 从「有代码」到「默认路径可答五问」 | ~55% 六大模块粗估 | **已完成** |
-| **P1** | 加深模块 | 4～6 周 | 清洗门禁 · 组合限额真约束 · 回测稳健性 | ~65%～70% | **已完成** |
-| **P2** | 准实盘稳态 | 3～4 周 | 纸面日更运维化 · 衰减→人审→晋升可演示 | N5 成功画像达标 | **已完成** |
-| **P3** | N6 闸门 | 另立项 | 策略验证成熟 + 合规后再评估 OMS | 有意推迟 | 规划中 |
-
-#### P0 · 做实骨架（已完成）
-
-对应「下一刀」四条；每条须有 Web 可见或 API 可查的验收物。
-
-| 轨道 | 工程动作 | 验收 | 状态 |
-|------|----------|------|------|
-| N5 日更五问 | `paper_daily` / `run_daily_cycle` 固定输出 `data_quality` · `strategy_id` · `cost_model` · `risk_blocks` · `monitor_alerts`；模拟页「调仓五问」 | 跑通一次日更并能答五问 | **已落地** |
-| N4 回测默认 | 组合回测 API/Web 默认附带 `cost_model` + `oos_summary` + `regime_summary` | 任意一次组合回溯报告头三项齐全 | **已落地** |
-| N3 限额真验收 | 调仓路径强制 `check_account_risk`（单票+行业）；超限拦加仓并写 `risk_block` 日志；集成测 | 故意超行业上限被拦，且日志可查 | **已落地** |
-| N1 质量可见 | 调仓/回测/日更与 DecisionRecord 可查 `data_quality`；`fallback_count` 进 UI | 一次调仓能指出源、复权、是否 fallback | **已落地** |
-
-落点摘要另见 [design-spine · P0 落地状态](design-spine.md#p0-落地状态202607)。
-
-#### P1 · 加深模块（已完成）
-
-| 模块 | 内容 | 状态 |
+| 阶段 | 目标 | 状态 |
 |------|------|------|
-| **清洗** | 复权策略写入 manifest；bars 质量 level 门禁（差数据不进生产 score）；PIT 最小约定文档化 | **门禁+manifest+PIT 文档已落地** |
-| **组合** | `optimize_weights` 默认进策略调仓建议；行业 map 覆盖观察池；限额进 StrategySpec UI | **目标权重+限额只读 UI 已落地** |
-| **回测** | 成本敏感对照（zero vs simple_cn）；OOS 失败时报告标红 | **已落地**（OOS 标红 · 成本对照） |
-| **因子** | IC 实验室一键导出；`weight_suggest` 只读 diff 在研究枢纽；情绪因子默认仍 0 | **已落地**（研究枢纽分析/导出；情绪默认 0） |
+| **P0** 做实骨架 | 日更五问 · 回测默认成本/OOS · 限额真拦 · 质量可见 | **已完成** |
+| **P1** 加深模块 | 清洗门禁 · 组合限额 · 回测稳健 · 因子导出 | **已完成** |
+| **P2 / P2+ / P2++** | 纸面日更稳态 · 滚动 IC · PIT/行业预算/撮合/归因/出站告警 | **已完成** |
+| **P3** N6 闸门 | 验证成熟 + 合规后再评估 OMS | **有意推迟** |
 
-#### P2 · 准实盘稳态（已完成）
+锁定：生产 Alpha = 线性 `score_bars` / ŷ；NN 仅离线；LLM 不改分；**现行不接 OMS**。开工顺序 P0→P2 已验收；勿并行冲 NN / OMS / 数仓。
 
-| 项 | 工程动作 | 验收 | 状态 |
-|----|----------|------|------|
-| 日更可定时 | `scripts/daily_paper.sh` · launchd · `POST /api/schedule/run` `paper_daily` · `GET /api/schedule/last` | cron/平台一键可跑 | **已落地** |
-| 告警进 UI | 横截面 `assess_strategy_health` → ops_report；平台/模拟展示 | 日更/调仓可见 monitor_alerts | **已落地** |
-| 演示闭环 | 告警 → 研究枢纽 `feedback/suggest(monitor_alerts)` → 策略页 promote → 再回测/纸面 | 人审路径可复现、不静默写盘 | **已落地** |
-
-- **成功画像**：一次纸面日更稳定回答数据质量、策略版本、成本、风控拦截、监控告警；生产分仍可引用。
-
-#### P2+ · 稳态加深（已完成）
-
-| 项 | 工程动作 | 验收 | 状态 |
-|----|----------|------|------|
-| 滚动 IC | 日更/调仓估合成分 IC，写入 `monitor_metrics`；IC&lt;0.02 → `ic_decay` | 调仓五问可见滚动 IC | **已落地** |
-| 行业覆盖 | `sector_map` 显式覆盖率告警；UI 展示 mapped/total | 覆盖不足时 info 告警 | **已落地** |
-
-#### P2++ · 专业差距补强（已完成）
-
-| 项 | 工程动作 | 验收 | 状态 |
-|----|----------|------|------|
-| 日线 PIT | `core/data_pit` · 回测窗口 as_of · `get_bars(as_of=)` · `pit_report` | 打分窗无未来 bar；报告含 PIT 标记 | **已落地** |
-| 行业预算 | 扩 `sector_map.json`；`optimize_weights` 返回 coverage / budget_alerts | 热门观察池显式覆盖↑；近上限告警 | **已落地** |
-| 撮合近似 | `matching.py`：next_open / 涨跌停过滤 / slippage_tier | 单票+组合回测可开关 | **已落地** |
-| 收益归因 | `attribution.py`：个股/行业/选股超额 | 组合回测返回 `attribution`；回溯页可见 | **已落地** |
-| 告警出站 | `alert_outbound`：本地 `data/alerts/` + 可选 webhook | `paper_daily` 写出 `alert_outbound` | **已落地** |
-
-#### P2+++ · 模拟账户风控加深（已完成）
-
-| 项 | 工程动作 | 验收 | 状态 |
-|----|----------|------|------|
-| 分数风险预算 | `optimize_weights` 默认 `score_budget`；可选 `greedy_cap` | 高分标的目标权重大于低分；仍受单票/行业上限 | **已落地** |
-| 市场波动缩放 | `core/risk/budget.market_vol_scale`；高波有效上限 ×0.8 | 五问「仓位预算」可见；`budget_alerts` 含 `market_vol_dampen` | **已落地** |
-| 撮合加深 | 板别涨跌停阈值；`resolve_exit_index` 跌停延后卖；单票+TopK | `skipped_limit_exit` / `exit_deferred` 可查 | **已落地** |
-
-#### P3 · N6 闸门（策略验证成熟后另立项）
-
-须 N4 OOS 可复现、N5 纸面运行达标、风控审计齐全、合规确认后，再评估 OMS；**现行不排期**（产品定位：先验证策略）。
-
-#### 依赖顺序
-
-```text
-P0-N1 质量可见 ──┬──► P0-N4 回测默认 ──► P1 回测加深 ──┐
-P0-N3 限额拦截 ──┤                                      ├──► P2 日更稳态 ──► (闸门) N6
-P0-N5 日更五问 ──┘                                      │
-                         P1 清洗门禁 / 因子导出 ─────────┘
-```
-
-#### 锁定取舍（全程）
-
-- 生产 Alpha = `score_bars` 线性加权；NN 不得直连 `score`
-- LLM 不得改写 `score` / `stance_label`
-- **现行不接**券商 OMS（N6：策略验证成熟后另立项）
-- 不扩 Tick/宏观/数仓大面，先把现有源质量做实
-- 不自动改权：监控只告警，晋升须人审
-
-**开工顺序**：P0→P1→P2 已验收；维持稳态，不要并行冲 NN / OMS / 数仓。
-
-```text
-N1 ──► N2 ──► N3 ──► N4 ──► N5 ──►（闸门）N6
-         │                      ▲
-         └── research/ml ───────┘ promote only
-```
-
-### N1 · DataService + 质量契约
-
-1. `core/data/service.py`：`get_quote` / `get_bars` / `get_fundamentals` 收口 ports。  
-2. Run Manifest 增加 `data_quality`（level、data_source、adjust、fallback 标记）。  
-3. 调度 kinds：`bars_warmup` · `spot_refresh`。  
-4. AkShare 继续 `ak_lock` 串行。
-
-### N2 · 因子实验室 + ML 隔离
-
-1. 巩固 IC / `weight_suggest`（只读 diff）。  
-2. 情绪因子可选（`signal_config` 权重默认 0，人审后启用）。  
-3. `research/ml/`：artifact 约定；禁止写入生产 `score`。
-
-### N3 · 组合限额 + 贪心权重
-
-1. StrategySpec.risk：`max_position_pct` · `max_sector_pct` · `max_positions` · `target_drawdown_pct`。  
-2. `core/portfolio_optimize.py`：`optimize_weights`（按 score 贪心填仓）。  
-3. `check_account_risk` 扩展行业集中度（`data/sector_map.json`）。
-
-### N4 · OOS / regime 报告
-
-1. 组合回测报告头强制 `cost_model`。  
-2. `oos_summary` / `regime_summary` 字段进 portfolio backtest 结果。  
-3. evals repro checklist 含 manifest 数据质量键。
-
-### N5 · 准实盘（纸面）
-
-1. 调度 `paper_daily` → `run_daily_cycle` + DecisionRecord。  
-2. `core/strategy_monitor.py`：滚动衰减/回撤告警（只告警，不自动改权）。  
-3. 演示路径：监控告警 → feedback suggest → 人审 promote → 再回测/纸面。
-
-### N6 · 真·实盘（策略验证成熟后另立项）
-
-须 N4 OOS 可复现、N5 纸面运行达标、风控审计齐全、合规确认后另立项。**现行产品定位为策略验证，暂不启动。**
-
-### 成功画像（N5 结束）
-
-- 六大模块各自落点与成熟度可指着仓库说清（见 [达成度评估](design-spine.md#达成度评估202607)）。  
-- 一次纸面日更可回答：数据质量、策略版本、成本、风控拦截、监控告警。  
-- 生产分仍可引用；NN 若存在只在研究轨。  
-
-**当前相对成功画像**：P0–P2 / R0–R5 主干已接线；日常复跑与 OOS 纪律仍须持续。N6 OMS **有意推迟**（验证成熟后再立）。
-
----
-
-### 架构升级 D1–D6（骨架）
-
-对应 [architecture.md · 控制论闭环](architecture.md#控制论视角感知决策执行反馈闭环) 的工程补强；**不**开通实盘 OMS / 在线 RL（RL 概念映射见 [architecture.md · RL 视角](component/rl.md#强化学习视角rl-layer)）。
-
-| 编号 | 方向 | 落点 | API |
-|------|------|------|-----|
-| **D1** | 统一 Observation + JobRegistry | `core/observation.py` · `core/job_progress.py`（多槽） | `GET /api/jobs` · `GET /api/jobs/{name}` |
-| **D2** | 长期偏好 Memory | `core/memory_store.py` → `data/memory.json` | `GET/PUT /api/memory` |
-| **D3** | DecisionRecord | `core/decision_record.py`；`advise` 默认可落盘 | `GET /api/decisions` · `POST /api/decisions/record` |
-| **D4** | 配置反馈建议（不写盘） | `core/feedback_suggest.py` | `POST /api/feedback/suggest` |
-| **D5** | 调度骨架（异动/盘后复盘） | `core/schedule_jobs.py` | `POST /api/schedule/run` · `GET /api/schedule/job` |
-| **D6** | 非交易订单预填 | `core/order_prefill.py` | `GET /api/orders/prefill` |
-
-门面：`services/platform_service.py` · 路由：`web/routers/platform.py`。  
-Web：平台面板（`partials/platform_panel.html` · `js/platform.js`，`/platform`）；纸面进度轮询统一为 `GET /api/jobs/paper`。  
-单测：`tests/test_d1_d6_platform.py`。
-
-**环境变量**：`QUANTLAB_MEMORY_PATH` · `QUANTLAB_DECISIONS_PATH` · `QUANTLAB_RECORD_DECISIONS=0`（关闭 advise 自动落盘）。
-
-**继续不做**：自动下单、保证收益、黑盒荐股、密码/资金划拨进本系统。
-
-### 持仓规则配置
-
-编辑 `data/position_rules.json` 可调阈值，例如：
-
-- `concentration_high`：降集中度触发权重%  
-- `take_profit_pnl` / `take_profit_day_change`：减仓锁定  
-- `stop_loss_pnl` / `stop_loss_day_change`：止损参考  
-
-对话也可直接传临时持仓（不必改文件）：「我有 100 股茅台成本 1400，现金 5 万，怎么看」。
-
-无 LLM 时测工具：
-
-```bash
-cd quantlab
-python3 -c "from skills.news.handler import NewsHandler; print(NewsHandler().execute({'parameters':{'stock_code':'茅台','limit':5}}))"
-python3 -c "from skills.position.handler import PositionHandler; print(PositionHandler().execute({'parameters':{'cash':50000,'holdings':[{'stock_code':'茅台','shares':100,'cost':1400}]}}))"
-```
-
-
----
-
-## 相关文档
-
-| 文档 | 关系 |
-|------|------|
-| [architecture.md](architecture.md) | 工程分层 · 架构图 · 目录结构 · 技术栈 · 数据/策略/风控/舆情/RL 各层说明 · 框架梳理 · A0–A4 / B0–B4 轨 · SQLite 迁移 |
-| [quant.md](quant.md) | 入门概念 · 因子/stance/回测/纸面原理 · 运维 preset · 复盘对账 · ŷ 全链路 · 训练/打分/回测/复盘 · 双层 ŷ_oo+ŷ_τ · 盘中剩余收益头 · τ 契约 |
-| [quant-ui.md](quant-ui.md) | Web 说明书 · 契约 · 差距 · 升级方案 |
-| [development.md](development.md) | 环境安装 · 测试/evals · 各 Skill 详解 |

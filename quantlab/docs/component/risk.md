@@ -212,7 +212,7 @@ LLM 可**解读**标题；**不得**写入 `sub_scores` / ŷ。`sentiment.includ
 
 徽章配置见 `signal_config.sentiment` · `core/sentiment_prior.py`；调仓软先验见 `core/news_archive.py` · `plan_rank_lot_day`。
 
-**相关**：开盘缺口等 **事件先验**（与 S 并列的 \(E\)，同属 ŷ 外旁路）及盘中剩余收益头规划见 [quant.md · 盘中剩余收益头](../quant.md#13-盘中剩余收益头intraday-residual方案)。
+**相关**：开盘缺口等 **事件先验**（与 S 并列的 \(E\)，同属 ŷ 外旁路）见 [quant.md · Live 旁路](../quant.md#live-出分与旁路) · [§2.5](../quant.md#25-双层-predictedscoreŷoo-ŷτ)。
 
 ---
 

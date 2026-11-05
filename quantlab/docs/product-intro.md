@@ -10,8 +10,8 @@
 
 | 模块 | 定位 | 核心产出 |
 |------|------|----------|
-| **选股（Signal）** | 横截面因子打分 + 双预测头融合 | 候选池 Top N 股票及 ŷ 评分 |
-| **调仓（Rebalance）** | 基于目标权重的组合再平衡 | 开/加/减/平仓交易单 |
+| **选股（Signal）** | 横截面因子打分 + 双预测头（ŷ_oo / ŷ_τc） | 观察池打分 · ŷ / rank |
+| **调仓（Rebalance）** | **rank_lots**：fuse 入场 + 入场/强档金额换手 | 开/加/清仓交易单（无目标权重再平衡） |
 | **做T（T0）** | 底仓日内高抛低吸 | 正向/反向做T 建议与盈亏 |
 | **模拟盘（Paper）** | 撮合 + 持仓 + 现金 + 手续费 | 净值曲线、交易记录、做T 盈亏 |
 | **Web 工作台** | 可视化研究 + 操作 + 复盘 | 因子 IC、ŷ 曲线、调仓报告、做T 分析 |
@@ -43,12 +43,12 @@
 
 ## 三、选股策略说明
 
-选股采用 **多因子横截面打分 + 双预测头融合**，输出候选股票排序。核心流程：观察池 → 逐股 `score_stock()`（取日线 → 因子计算 → `score_bars()` → `predicted_score`）→ 横截面排序（质量门禁 → Top N）。
+选股采用 **多因子横截面打分 + 双预测头**。核心流程：观察池 → `score_stock()`（日线 → 因子 → `score_bars` → `predicted_score`）→ 开盘立方 / open-pit 出分 → 调仓侧 **y_oo_fuse + y_oo_rank（rank_lots）**。
 
-- **因子库**：`core/signal/factors/`（动量 / 量价 / 相对强弱 / 波动 / 反转 / 基本面 / 情绪 / 风险 / 流动性等）；元数据由 `factors/meta/` 管理。
-- **生产打分**：线性回归 ŷ%（`factor_ols` / Ridge）。
-- **双预测头**：`core/signal/dual_score/` 维护 ŷ_oo（主排序 / 入池地板）、ŷ_τc（调仓 fuse）。
-- **质量门禁**：`production_ok` 过滤数据不完整 / 因子缺失；未通过不进入生产排序。
+- **因子库**：`core/signal/factors/`；元数据 `factors/meta/`。
+- **生产打分**：线性回归 / Ridge ŷ%（`ReturnScoreModel` · `factor_ols`）。
+- **双预测头**：`dual_score/` — ŷ_oo（入池地板 / fuse 成分）、ŷ_τc（fuse 的 τc 项）；买序看 **oo_rank**（缺则回退 fuse）。
+- **质量门禁**：`production_ok`；缺分 / hard_reject 不进生产开加。
 
 > 因子清单、双预测头公式、买入闸 / EOD gate 等细节见 [quant.md · ŷ 全链路](quant.md#predictedscoreŷ全链路) 与 [quant.md · 双层 ŷ](quant.md#25-双层-predictedscoreŷoo-ŷτ)。
 
@@ -58,7 +58,7 @@
 
 > 详细数学推导与参数见 [rebalance-logic.md](./rebalance-logic.md)。
 
-调仓按 **fuse / y_oo_fuse**（某一 τ：w_oo·((ŷ_oo+1)/(1+rot)−1)+w_τc·ŷ_τc；开盘 rot=0 即 w_oo·ŷ_oo+w_τc·ŷ_τc）决定买卖：fuse 过入场门槛则开/加仓，未过则清仓。金额按 `lot_base_amount` / `lot_strong_amount`（缺省 1 万 / 2 万）换算整手，不够一手则跳过；单票市值不超过强档×120%；现金不够缩到整百。
+调仓按 **y_oo_fuse**（配置键 `fusion_w_oo` / `fusion_w_oc`；开盘 rot=0 时即加权 ŷ_oo 与 ŷ_τc）决定买卖：fuse 过入场则开/加，未过则清仓；过线后按 **y_oo_rank** 买序。金额按 `lot_base_amount` / `lot_strong_amount`（缺省 1 万 / 2 万）换算整手；单票市值≤强档×120%；现金不够缩到整百。
 
 - **实现**：`core/paper/rebalance/rank_lots.py`，观察池与历史回测共用。
 - **风控**：T+1（当日买入不可卖）、单票市值≤强档×120%、组合持仓市值上限（live 默认 15 万）、OOS 失败组禁新开、手续费/滑点按成本模型扣除。
@@ -104,4 +104,5 @@
 - [调仓数学说明](./rebalance-logic.md) — 调仓策略的完整推导
 - [做T 策略说明](./t0-logic.md) — 做T 规则与盈亏计算详解
 - [ŷ 全链路规范](./quant.md) — 双预测头与打分链路
+- [量化运维](./quant-ops.md) — preset · cron · 归档
 - [文档索引](./README.md)

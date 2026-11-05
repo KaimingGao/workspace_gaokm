@@ -1,12 +1,14 @@
 # 量化原理与实现逻辑
 
-[← 文档索引](README.md) · **产品主轴**见 [design-spine.md](design-spine.md) · 入门名词见 **[§ 量化入门概念](#量化入门概念)** · **Web 面板用法**见 [量化研究台说明书](quant-ui.md) · 策略层抽象见 [architecture.md · 策略层](component/strategy.md#策略层strategy-layer)
+[← 文档索引](README.md) · **产品主轴**见 [design-spine.md](design-spine.md) · 入门名词见 **[§ 量化入门概念](#量化入门概念)** · **Web**见 [quant-ui.md](quant-ui.md) · **运维**见 [quant-ops.md](quant-ops.md) · 分层见 [architecture.md](architecture.md)
 
-本节说明本项目 **量化研究台** 的设计原理与代码实现路径：数字与结论由 **确定性 Python** 计算，LLM 只解读 JSON，**不得改写** `score` / `stance_label`。各阶段交付物见 [升级规划](design-spine.md#能力评估与升级规划路线图视角)；此处聚焦 **为什么这样设计** 与 **代码里怎么串**。
+**本文职责**：ŷ / stance / 回测–纸面**契约真源**（训练 → 打分 → 回测 → 纸面）。数字由确定性 Python 计算；LLM 只解读 JSON，**不得改写** `score` / `stance_label`。
 
-产品级「数据→信号→因子→倾向→动作」与两条轨，以 **[design-spine.md](design-spine.md)** 为准；本文展开因子权重、hard_reject、stance 阈值与纸面规则细节。
+产品叙事（因果链 · 北极星 · N 轨）以 [design-spine.md](design-spine.md) 为准；调仓/做 T 产品规则见 [rebalance-logic.md](rebalance-logic.md) · [t0-logic.md](t0-logic.md)。手把手跑通见 [getting-started.md](getting-started.md)。
 
-若从 **机器学习** 角度建立心智模型，可先读 [机器学习视角](#机器学习视角如何理解量化)，再对照下文各层实现。
+定位 = **策略验证**（研究台 + 模拟账户）；**现行不接券商 OMS**。边界见 [design-spine · 产品边界](design-spine.md#产品边界现行)。
+
+---
 
 ### 总体架构：AI 编排层 vs 量化主轴
 
@@ -15,75 +17,32 @@
 │  AI 编排层（旁路：Agent 选工具 / 解释 facts）              │
 │  · 「是否买入」须逐字引用 advise.stance_label             │
 ├─────────────────────────────────────────────────────────┤
-│  量化主轴（core/backtest + core/signal + research CLI）   │
-│  score_bars      → 0~100 短线分 + hard_reject            │
+│  量化主轴（core/signal · backtest · paper · research）   │
+│  score_bars → sub_scores / hard_reject                   │
+│  ReturnScoreModel → predicted_score（ŷ 真源）            │
 │  compute_buy_stance → 买/观望/试探（规则唯一结论）         │
-│  backtest_signal → Walk-forward 历史验证                  │
-│  paper           → 模拟持仓 + 净值 snapshots              │
-│  store           → 日线本地缓存，保证 evals 可复现         │
+│  paper_replay / rank_lots · paper 账本 · store 日线缓存  │
 └─────────────────────────────────────────────────────────┘
 ```
 
-典型量化系统链路：**信号 → 回测 → 执行 → 监控**。  
-本项目当前做到 **信号 → 回测 → 模拟账户交易**，定位为 **策略验证**；**现行不涉及真实账户交易、不代客下单、不接券商 API**。待策略在回测与纸面验证成熟后，再另立项支持实盘（N6）。产品边界见 [design-spine · 产品边界](design-spine.md#产品边界现行)。
+live 信号、`backtest`、模拟账本共用 `score_bars()`（`core/signal/scorer.py`）；`stance` 是分数之上的第二层规则；LLM **不在**数值计算链中。
 
-**共享核心**：live 信号、`backtest`、模拟账本 **共用同一套 `score_bars()`**（`core/signal/scorer.py`）；`stance` 是在分数之上的 **第二层规则**；LLM **不在** 数值计算链中。
+### 层速查（细节外链）
 
-### 第一层：短线因子引擎（`score_bars`）
+| 层 | 职责 | 入口 | 详见 |
+|----|------|------|------|
+| 1 · 因子 | `score_bars` → sub_scores · hard_reject | `core/signal/scorer.py` · Skill `signal` | 下文 score 用途 · [component/strategy.md](component/strategy.md) |
+| 2 · stance | `compute_buy_stance` → `stance_label` | `core/stance.py` · Skill `advise` | [architecture · 策略层](component/strategy.md) |
+| 3 · 回测 | Walk-forward / `paper_replay` · rank_lots | `core/backtest/` | [§ ŷ 回测链](#5-回测链paper_replay--rank_lots) · [rebalance-logic.md](rebalance-logic.md) |
+| 4 · 纸面 | 模拟账本 · 调仓 · 做 T | `core/paper/` · `core/t0/` | [§ 策略调仓 vs 底仓做 T](#策略调仓-vs-底仓做-t) · [t0-logic.md](t0-logic.md) |
+| 5 · 数据 | 日线/分钟缓存 · Feature Lake | `core/store` · `core/data` | [component/data.md](component/data.md) · [internal/feature-lake-daycube.md](internal/feature-lake-daycube.md) |
 
-**模块**：`core/signal/scorer.py`  
-**入口 Skill**：`signal`（观察池）  
-**原子函数**：`score_bars(bars, horizon_days, quote?) → dict`
-
-#### 输入 / 输出
-
-| 输入 | 来源 |
-|------|------|
-| 日线 OHLCV | `adapters/market/history.py` → AkShare；失败则 `quote_fallback` |
-| 当日涨跌 | `quote.change_raw` 或 bar 推算 |
-
-| 输出字段 | 含义 |
-|----------|------|
-| `score` | 0～100 综合分 |
-| `hard_reject` | 是否硬拒绝（True 则不宜短线参与） |
-| `reject_reason` | 硬拒绝原因 |
-| `factors` | 动量、量比、ATR% 等子因子 |
-| `invalidation` | 失效条件文案（约 -3% 参考位等） |
-| `sub_scores` | 动量/量价/相对强弱/波动子分 |
-
-#### 硬过滤（Hard Reject）
-
-不满足时 **score=0 且 hard_reject=True**，不进入观察池排序：
-
-| 条件 | 含义 |
-|------|------|
-| 日线不足（<2 根） | 无法计算 |
-| 近 3 日涨幅 ≥ **15%** | 追高风险 |
-| 近 3 日跌幅 ≤ **-12%** | 动能过弱 |
-
-#### 因子加权（实现逻辑）
-
-子分数各自映射到 0～100，再线性加权（权重见 `data/signal_config.json`；当前约 **20** 个注册因子）：
-
-```text
-score = 0.28×动量 + 0.20×量价 + 0.16×相对强弱 + 0.08×波动
-      + 0.09×反转 + 0.09×流动性 + 0.06×估值 + 0.05×质量
-```
-
-| 因子 | 权重 | 实现要点 |
-|------|------|----------|
-| **动量** | 28% | `mom3`/`mom5` 涨跌幅；0～6% 温和上涨得分高；≥12% 过热降分 |
-| **量价** | 20% | `volume_ratio`（近 3 日 / 近 10 日均量）；放量上涨加分，放量下跌扣分 |
-| **相对强弱** | 16% | 相对指数超额；无指数时 fallback 到 `last_change` |
-| **波动** | 7% | 近 5 日 ATR% 越高，`vol_penalty_score` 越低 |
-| **反转** | 9% | 近 3 日 -8%～-2% 温和回调区加分（P45） |
-| **流动性** | 9% | 成交额比 `turnover_ratio`（volume×close）（P45） |
-| **估值** | 6% | PE/PB 适中区间；缺数据中性 50（P46） |
-| **质量** | 5% | ROE / 盈利增速；缺数据中性 50（P46） |
+<a id="第二层买卖-stancecomputebuystance-advise"></a>
+<a id="第三层历史回测walkforward"></a>
 
 #### score 的用途
 
-`score` 是 **短线综合动能分（0～100）**，由配置因子加权得到；**不是**「会不会涨」的概率，也 **不是** 最终买卖指令。在全链路中的用途：
+`score` / `predicted_score` 是短线动能或收益分；**不是**「会不会涨」的概率，也 **不是** 最终买卖指令。
 
 | 用途 | 模块 | 作用 |
 |------|------|------|
@@ -91,510 +50,10 @@ score = 0.28×动量 + 0.20×量价 + 0.16×相对强弱 + 0.08×波动
 | **stance 初档** | `compute_buy_stance` | score 区间映射 avoid / wait / probe / buy_light，再经 K 线/peer/index 降档 |
 | **回测入场** | `backtest_signal_on_bars` | `score≥min_score` 且非 hard_reject → 模拟买入持有 |
 | **纸面跟单** | `core/paper/` · `simulate_buys` | 观察池项 score 达门槛才纸面买入 |
-| **横截面 / 组合** | `cross_section` · 组合回测 | 多股同日比相对强弱；调仓日可中性化后重算 score |
+| **横截面 / 组合** | `cross_section` · 组合回测 | 多股同日比相对强弱；产品调仓主路径为 **rank_lots + y_oo_fuse** |
 | **研究** | IC 面板 · `score_buckets` | 评估 score 与未来收益关系、分层胜率 |
 
-**不是**：买入 guarantee；LLM 可改写数字；单票绝对真理（截面场景看 **相对排序**）。
-
-ML 视角见 [机器学习视角 · 四件套对照](#四件套对照)。
-
-#### 横截面中性化（P47）
-
-单票 `score_bars` 仍用绝对子分；**watching 横截面排序**在 ≥3 只候选时，对各因子 `sub_scores` 做 **z-score**（或配置为 `rank`）映射回 0～100，再按权重重算 `score`。原始分保留在 `score_raw` / `sub_scores_raw`。配置见 `signal_config.json` → `cross_section.neutralize`。产品历史回测（`paper_replay`）不走这条组合 TopK 腿。
-
-**IC 实验（P50）**：`value` / `quality` 可在 `fundamentals.use_in_ic_experiment=true` 时注入最新基本面快照；IC 仅供方向参考，非 point-in-time。
-
-**组合回测（P51/P52）**：`use_in_backtest=true` 时批量注入基本面。
-
-**量化日报**：主叙事为组ŷ / 簿 / OOS / 横截面 / rank_lots 历史回测。
-
-#### 失效条件（Invalidation）
-
-规则生成 **观察失效参考**，不是自动止损单：
-
-- 最新收盘价 × (1 − 3%) 作为短线失效参考位
-- 放量下跌且跌破近 3 日低点 → 降低关注优先级
-
-#### 数据降级
-
-日线拉取失败时 `history.quote_fallback` 构造伪 bar → `data_source=quote_fallback`。  
-此时量比/ATR 信息变粗；下游 `compute_buy_stance` 会 **额外降档**，回复须标明「日线不完整」。
-
----
-
-### 第二层：买卖 stance（`compute_buy_stance` + `advise`）
-
-**模块**：`core/stance.py`（`compute_buy_stance`）、`skills/advise/engine.py`  
-**Skill**：`advise` — 内部串联 `quote → signal → kline → peer/index`，输出 **唯一** 买卖结论。
-
-`signal` 回答「短线动能强弱」；**「能不能买」** 由 stance 规则单独合成，LLM **只能引用** `stance_label` 原文。
-
-#### 决策流程（确定性）
-
-```text
-1. quote 不可用           → insufficient（信息不足暂不建议操作）
-2. signal hard_reject     → avoid（建议观望，暂不买入）
-3. 无 score               → insufficient
-4. 按 score 基础分档：
-     <45  → avoid
-     45~55 → wait
-     55~68 → probe（建议逢低分批关注但暂不追入）
-     ≥68  → buy_light（可考虑轻仓试探，非追涨）
-5. 惩罚项：每项向更保守方向降 1 档（最多到 avoid）
-     · 当日涨跌 ≤-5%（+2 档）或 ≤-3%（+1 档）
-     · K 线 tags 含「大阴」「放量下跌」「破位」等
-     · peer 相对同业「偏弱/最弱」
-     · index 超额收益 ≤-2%
-     · data_source=quote_fallback 或 kline depth=intraday_proxy
-6. 输出 stance_code / stance_label / reasons / invalidation / confidence
-```
-
-| `stance_code` | `stance_label`（LLM 须逐字引用） |
-|---------------|----------------------------------|
-| `insufficient` | 信息不足暂不建议操作 |
-| `avoid` / `wait` | 建议观望（暂不买入） |
-| `probe` | 建议逢低分批关注但暂不追入 |
-| `buy_light` | 可考虑轻仓试探（非追涨） |
-
-**与「持仓加减仓」区分**：空仓/新标的「能不能买」→ `advise`；已有仓「减不减、止不止」→ `position` + `position_rules.json`。
-
----
-
-### 第三层：历史回测（Walk-forward）
-
-**模块**：`core/backtest/engine.py`（`backtest_signal_on_bars`）  
-**Skill**：`backtest`（`strategy=short_conservative`）
-
-#### 原理：避免前视偏差
-
-对每个交易日 **T**（从 `min_history` 起至 `n - horizon_days`）：
-
-```text
-1. 取窗口 bars[start : T+1]（最多 max_window=30 根，仅用 T 及之前数据）
-2. 用截至 T 的 quote 近似（mock change_raw）调用 score_bars()
-3. 若 score ≥ min_score 且非 hard_reject：
-     · 在 T 日收盘价 entry
-     · 持有 horizon_days 后在收盘价 exit
-     · 记录 return_pct
-4. 默认 non-overlap：T 前进 horizon_days；overlap=True 时 T+1
-5. 汇总 _trade_metrics → 胜率、均收益、累计、最大回撤、Sharpe 近似
-```
-
-这是 **事件研究 / 固定持有期回测**，不是连续调仓的组合模拟。
-
-#### 基准与分层
-
-| 块 | 函数 / 字段 | 含义 |
-|----|-------------|------|
-| 买入持有 | `benchmark.buy_hold_period_pct` | 回测区间整段持有收益 |
-| 超额 | `excess_vs_buy_hold_pct` | 策略累计 − 买入持有 |
-| 指数 | `index_period_pct` / `excess_avg_vs_index_pct` | 每笔同期指数收益（A→沪深300，港→恒生） |
-| 分层 | `score_buckets` | 按入场 score（55-64 / 65-74 / 75+ / <55）看均收益与胜率 |
-
-**参数扫描**：`core/backtest/engine.py` 的 `scan_signal_parameters` 对 `(horizon_days, min_score)` 网格搜索；**易过拟合**，须样本外验证。
-
-#### 已知简化（解读时必须说明）
-
-- 未含手续费、滑点、涨跌停、T+1
-- live `signal` 可能 `quote_fallback`，回测用完整日线 → **数据源可能不一致**
-- **研究结果 ≠ 实盘建议**
-
----
-
-### 第四层：纸面账户（模拟执行）
-
-**模块**：`core/paper/` + CLI `research/paper_run.py` + Web `/api/paper*`  
-**数据**：`data/paper.json`（由 `paper.example.json` 初始化，不入 git）
-
-#### 纸面是什么？（给小白）
-
-**一句话**：纸面 = 用**假钱**在电脑里练手的**模拟账户**，**不是**券商里的真实账户。本系统**只做模拟账户交易，用于研究**。
-
-就像在本子上记账：「假如我买了茅台 100 股，现在赚多少」——钱不会真的进出，也不会真的下单。行情可以是网上拉的**真股价**，账户和成交是本地的**假账本**。
-
-| | 真实账户（券商） | 纸面账户（本项目） |
-|--|------------------|-------------------|
-| 钱从哪来 | 银行卡里的钱 | 电脑里写的「虚拟资金」（如 10 万） |
-| 买卖 | 真的成交、扣你的钱 | 只在 `paper.json` 里记一笔 |
-| 涨跌 | 真影响你资产 | 只影响模拟净值曲线 |
-| 风险 | 会亏真钱 | **不会亏真钱** |
-
-**为什么要有纸面？**
-
-1. **先验证想法**：规则、调仓、做 T 合不合理，先用假钱跑，再谈实盘。  
-2. **和「回测」互补**：回测是对着历史 K 线一次性算「假如当时怎样」；纸面是持续存在的「假账户」，可以今天跑、明天再跑，像影子盘。  
-3. **安全**：现行全程 **非实盘、不代客下单、不接券商 API**（策略验证阶段）。
-
-**容易混淆的几点**
-
-1. **纸面 ≠ 回测**：回测看历史（引擎内资金曲线，**不必**先有 `paper.json`）；纸面是一直活着的模拟账户。何时需要纸面见 [quant-concepts · 测试类型](quant.md#量化入门概念)。  
-2. **纸面 ≠ 券商官方模拟盘**：券商模拟更接近真实交易系统；本项目纸面是自己算、自己记账，用来检验投顾/量化规则。  
-3. **Watching 与纸面是测同一策略的两种方式**：研究池划定回溯「考试范围」，回测引擎交历史卷；纸面是假钱现场跟考。详见 [quant.md · 入门概念](quant.md#量化入门概念)。
-
-**怎么用（概念流程）**
-
-```text
-初始化纸面 → 系统给一笔虚拟资金（Web「纸面」或 paper_run --init）
-     ↓
-观察页建仓 → 填每只买多少股，看清花费与剩余现金后确认（Web 唯一开仓入口）
-     ↓
-模拟页管理 → 加仓 / 减仓 / 清仓；跑观察池打分、记净值
-     ↓
-可选：按策略调仓 / 做 T
-     ↓
-看净值曲线与流水 —— 全是模拟账本
-```
-
-#### 仓位出处（谁做的决定）
-
-每笔仓位记 `origin`，用来分清哪些是你的判断、哪些是规则的：
-
-| `origin` | 来源 | 写入位置 |
-|----------|------|----------|
-| `manual` | 观察页建仓（`buy_codes_direct`）、手动加仓（`manual_buy`） | 持仓与成交记录 |
-| `strategy` | 按策略调仓（`simulate_buys`） | 同上 |
-| `mixed` | 手动建的仓后来被策略加过（`merge_origin`） | 持仓 |
-
-早期记录没有该字段，Web 显示 `—`，不回填臆造值。这样「按策略调仓」可以保留，同时不破坏「模拟以人工为主」的口径。
-
-#### 建仓预演（`plan_buy_codes`）
-
-观察页建仓前先跑一次纯计算的预演：默认按**金额**（每只 2 万，可改）或**仓位%**反算股数，也可按股数 / `shares_by_code` / `amount_by_code` 覆盖。按现价算出每只买多少、合计花多少、建仓后剩多少现金，以及哪些因已持仓 / 取不到行情 / 现金不足买不进。预演标注 `cost_model: zero`（现价、零佣金/滑点/印花税），**不改账户**；`buy_codes_direct` 执行时复用同一份计划。
-
-策略调仓：`POST /api/paper/run` 传 `dry_run=true` 出 `rebalance_report` + `cash_impact`（买入/卖出金额、净现金流、调仓后现金），确认后再正式跑。
-
-#### 策略调仓 vs 底仓做 T
-
-**一句话**：**调仓决定「持有什么」；做 T 决定在「已经持有的底仓上，今天要不要用波动多赚一点」。**
-
-二者同属纸面 **ExecutionSpec**，但层级不同：横截面调仓 / `run_daily_cycle` = **组合配置（结构层）**；`overlays.t0` = **底仓上的日内 timing overlay（执行层）**。做 T **不是**独立选股 Alpha，而是在既定持仓上验 timing 规则。
-
-| 维度 | 策略调仓 | 底仓做 T |
-|------|----------|----------|
-| 在问什么 | 持有什么、各占多少？ | 在既有底仓上，今天能否用日内波动做往返？ |
-| 层级 | 主策略 · 截面 Alpha · 持仓结构 | Overlay · 不改变选股主线 |
-| 信号头 | **ŷ_trade** 排序 + **ŷ_oo** 买卖闸 + **ŷ_τ** 买入闸 | **纯 ŷ_τw** 定方向与金额；leg2 无预设目标价 |
-| 决策频率 | 常按**日**（日更 / 自动调仓；手动执行只复现 09:30 预估分） | live：每 5m 扫至已保存「前缀时间」（默认 **11:00**）；回测「前缀」另存，默认 **10:30**（Worker **5 分钟** tick） |
-| 收益类型 | **持有期**相对收益 + 换仓带来的结构改善 | **round-trip 价差**（`t0_ratio` 可卖量上；非账户浮动盈亏） |
-| 仓位出处 | `origin=strategy` | 做 T leg（`t0_batch` / 盘中落账明细） |
-| 验证含义 | 规则能否驱动合理的持仓结构 | 在既定底仓上能否条件性增强 |
-
-**常见误区**
-
-- **调仓 ≠ 只赌明天涨**：含减仓、换弱留强、风控拦截；Alpha 假设偏**短～中持有期**，收益在日～周尺度累积，不是单根 K 线。
-- **做 T ≠ 浮动盈亏**：是已实现 leg 价差；ŷ 门槛 / 带宽未破 / T+1 可卖量等门禁下，很多交易日 **0 成交**。
-- **可独立也可耦合**：`coupling.t0_vs_stance` 默认 `independent`；也可配置为 `avoid` 时跳过做 T。
-
-**ŷ_τ 是「重复使用」吗？**
-
-**模型层共用、决策层不重复。** **ŷ_τ 头**（`tau_ridge`）产出的 **ŷ_τ**（预估 open→close）在调仓与做 T 都会用到，但回答的问题不同：
-
-| | 策略调仓 | 底仓做 T（ŷ_τw） |
-|--|----------|----------------------|
-| **问什么** | 该不该**买/持/卖**、截面排第几 | 已有底仓今天 **正 T 还是反 T**、值不值得动 |
-| **ŷ_trade** | **排序键** / 持有对比（`rank_key_for_item`） | **不参与**选腿（仅复盘旁注） |
-| **ŷ_oo** | **买入地板**（`min_predicted_score` / `oo_gate_score_for_item`） | **不参与**选腿 |
-| **ŷ_τw** | 不参与调仓排序 | **选向+金额**：五窗相对中位点（默认 50%）符号和；≥入场正T、≤−入场反T |
-| **之后** | 换仓、权重、风控 | **触发根收盘**开第一腿；第二腿无预设目标，靠止损 / 锁赢 / 追价 / EOD（调仓无此步） |
-
-要点：
-
-- **不是**把调仓用过的 τ 再抄一遍赚第二遍 Alpha；是 **同一预测头、两种决策接口**（结构层 vs timing overlay）。
-- 做 T 默认 **`y_score_source=compute`**：开盘信息集（昨收因子 + 今开缺口）**即时重算** ŷ_τ* → ŷ_τw，不读冻结账本；与调仓扫池 **公式同源**。历史调仓回测成交钟>09:30 时 ŷ_τc 用截至该钟的前缀重算；前缀打分后注入分钟小包/开→τ 截面，再按 `features_tau` **重拆**（组成表与表列同口径）。live 调仓 ŷ_τc 用因果末根 5m（≤10:00，`causal_rebalance`）。
-- 上午刚通过 τ 买入闸的票，下午做 T 仍会重算 ŷ_τw 问「今天怎么动底仓」；\|ŷ_τw\| 未过入场时 **0 成交** 也正常。
-- 归因应分开：调仓 PnL（`origin=strategy`）vs 做 T leg（`t0_batch`）。双层 ŷ 契约见 [§2.5](quant.md#25-双层-predictedscoreŷoo-ŷτ) · 实现 `core/signal/dual_score/` · `core/t0/close_band.py`。
-
-**双层耦合（回测解读）**
-
-做 T 与调仓 **不是** 两个正交、可简单叠加的 Alpha 源；解读合并 PnL 时需分层：
-
-| 耦合点 | 说明 |
-|--------|------|
-| **资金回流** | 做 T leg 盈亏进入 `cash` / `shares_end` → 次日调仓的 equity、可用现金与回撤风控都会变。未回补敞口（`exposure_pnl`）也会进入净值。 |
-| **选股域依赖** | 做 T 在调仓给的底仓上运行；振幅小、缺分钟、流动性差 → 门禁跳过或整手不足，做 T 有效 α 高度依赖调仓选股域质量。 |
-| **成交口径** | 调仓预演/落账用实时 quote；做 T 回测默认 `fill_mode=trigger`（触价假设价）。两层 PnL 混看时，做 T 部分无法用真实 tick 成交验证。 |
-
-系统通过 **每日重置研究现金**（`backtest.py` 日循环）与 **`dry_run` 预演** 部分缓解资金耦合；`coupling.t0_vs_stance=independent` 可跳过 stance 联动。可接受，但 **必须** 把 `origin=strategy` 与 `t0_batch` 分开归因，否则无法判断 α 来自截面选股还是日内振幅。
-
-实现入口：`core/execution.resolve_effective_execution` · 调仓 `run_daily_cycle` / `POST /api/paper/run` · 做 T `core/t0/` · Web：规则在 `/replay`，落账在 `/follow`。
-
-#### 日循环（`run_daily_cycle`）
-
-```text
-watchlist
-  → run_signal_scan()    # SignalHandler 对观察池打分，写 signal_log
-  → simulate_buys()      # 可选：按 rules 纸面买入
-  → mark_to_market()     # StockAPI 现价 → 市值 / 净值 / 盈亏%
-  → append_snapshot()    # 写入 snapshots[]（Web Canvas 净值曲线，保留最近 120 条）
-```
-
-#### 纸面买入规则（`simulate_buys`）
-
-| 规则键 | 默认 | 逻辑 |
-|--------|------|------|
-| `min_score` | 55 | 观察池项 score 不足则跳过 |
-| `max_positions` | 20（短线）/ 15（保守） | 持仓数上限；与 StrategySpec `risk` / `paper_rules` 一致 |
-| `position_pct` | 0.15 | 单票预算 ≈ 可用现金 × 15% |
-| 硬拒绝 | — | `hard_reject=True` 不买 |
-| 整手 | — | A 股按 100 股整数 |
-| **T+1** | 结算锁 | 买入按批次 FIFO；**当日新买股不可卖**，下一交易日才计入可卖。加仓不把旧仓锁死。无批次的旧持仓视为已过 T+1。调仓/手动/止损/开盘成交/做 T 共用 `core/paper/tplus1.py` |
-| **成交时点** | `next_open` | **盘中按现价成交**（连续竞价可买卖）；**收盘后**确认调仓只挂次日开盘单。与 T+1 批次锁独立。回测默认 `next_open` 仍是研究侧防未来函数，口径不同。 |
-
-**非实盘、不代客下单**；可配合 cron 每日 `paper_run.py --run`。
-
-#### 底仓做 T（模拟，P93）
-
-**模块**：`core/t0/` · CLI `research/t0_backtest_run.py` · Web「预演做T / 确认做T / 做T回测」
-
-| 要点 | 说明 |
-|------|------|
-| 目标 | **底仓 overlay**：在既定持仓上对可卖量做日内往返，验 timing 规则；**非**独立选股 Alpha（见上节对照表） |
-| 语义 | A 股 **底仓做 T（T+1）**：**正 T** 先买后卖、**反 T** 先卖后买。**选腿**用 **纯 ŷ_τw**：≥入场正T、≤−入场反T；金额看 \|ŷ_τw\|；leg2 无预设目标价。禁卖当日新买股 |
-| 选向 | 09:30–截止钟每根 5m 用截至该根前缀估 ŷ_τ* → ŷ_τw。**ŷ_τw≥入场 → 正T** 现价买；**≤−入场 → 反T** 现价卖。**leg2 无预设目标价**。live 截止默认 **11:00**（交易执行「前缀时间」可改）；回测「前缀」默认 **10:30**，与 live 分立（`t0_last_leg1_hm`）。每轮默认 **40%**，累计至 **100%**。日分价闸只看 **昨收差%**。 |
-| 策略共用 | 多轮**共用一套**止损配方：止损%（默认 1.2%）/ 延迟根 / 收盘确认、fill、午后追价。leg1 成交瞬间冻结方向与成交价；之后新 ŷ 不影响本轮。**午后追价以现价为种子** |
-| 动仓 | 每轮 **日初可卖 × t0_round_ratio（默认 40%）**；累计不超过 `t0_max_position_pct`（默认 100%）；`t0_slots_max_rounds` 默认 5 |
-| 目标价 | **无**；第二腿靠止损 / 锁赢 / 午后中点追价 / 收盘强平 |
-| 成交 | 默认 **`fill_mode=trigger`**；leg1 为触发根**收盘价** |
-| 门禁 | 每根：纯 ŷ_τw 过入场才开仓；截止钟后只收第二腿（live「前缀时间」默认 11:00 / 回测「前缀」默认 10:30） |
-| 路径 | 各轮触发根开第一腿后**按同一套止损/第二腿公式**挂在本轮成交价上（止损默认 1.2%、延迟 6 根、收盘确认）。多轮可同时 `after_leg1`；任一轮未平则调仓跳过卖出 |
-| 风控 | **午后追价** `t0_pm_chase_interval_min` 默认 5；未知/历史遗留键加载时丢弃 |
-| 纸面 | `POST /api/paper/t0` 默认 **dry_run 预演**，`confirm=true` 才写账 |
-| 自动落账 | Follow Worker · **5m 盯盘触达即落账**（交易时段 **5 分钟**轮询 + 分钟缓存，不再日终整段回放） |
-| 手动补跑 | Follow「手动预演 / 手动落账」· `POST /api/paper/t0`（预演 dry_run / 确认 confirm） |
-| 回测 | 与纸面同一引擎：默认 **v6 多轮**（每 5m ŷ_τw 可触发第一腿 + 共用止损/锁赢/追价）；**仅 5m 第一触达**（缺分钟日跳过）；成交名单为手动候选池（最多 8 只，不跟纸面持仓对齐；未传 codes 的 API 仍可跑整份持仓）；**日初可卖=日初总持仓**（简化 T+1；合并/顺序落账按 sellable 约束）；dual_y 按 `dual_score_window` 决定是否 fuse ŷ_τ（`eod_next` 不 fuse）；**默认 CostPort 研究费率**（禁隐式零成本）；分钟未齐至 14:55 **不强平**（`incomplete_session`）；齐窗 `eod_cover` **用末根 5m 收价，不用日线收盘**；`y_score_source` 强制 `compute`；开盘 hydrate / 批量算分 **`use_minute_tau=False`**，各轮触发前再因果重算 ŷ。**截面宇宙=观察池∪持仓**（上限同拟合 `WATCHING_MAX_SIZE`）；板块中位全员（不再截 24）；每钟一次扫池写齐开→τ / 30–90m 中位，持仓回测截面灌一次后复用；live 盯盘灌同一宇宙 5m。汇总按槽位分向记账；**同日正+反记为多轮日**（正/反日不再重叠双计）；合并日带敞口 PnL。成功回测落盘 `data/last_t0_backtest.json`；打开 `/replay` 时 `GET /api/quant/last-t0-backtest` 恢复指标 / 图 / 成交明细，**不重跑**；点「做 T 回测」才重算。默认加载**研究套**（Holdout 前训 β）；「模型」下拉可选**执行**对照 live 槽版本（由研究槽晋级的同一份 β）。工具条「前缀」滑条只作用于本次回测（09:30…11:00，默认 **10:30**）：leg1 只扫到该钟，不写 live。live 截止由交易执行「自动做 T」的「前缀时间」写入同一键（默认 **11:00**）。 |
-| 边界 | **不接实盘**；不做日线 high/low 顺序猜测；不改变 `advice.stance_label`；正/反 T **PnL 基数**分别为卖出/买入名义（汇总 long_pnl/reverse_pnl 口径略异，量级通常很小） |
-
-##### 正T / 反T 选腿（纯 ŷ_τw）
-
-A 股 T+1 下 **正 T = 先买后卖**，**反 T = 先卖后买**。**选正/反 T** 只看本根 ŷ_τw：
-
-| 条件 | 涌现方向 | 第一腿 | 第二腿 |
-|------|----------|--------|--------|
-| ŷ_τw≥Y_τw入场 | 正 T（先买） | 触发根收盘买 | 无预设（止损/锁赢/追价/收盘） |
-| ŷ_τw≤−Y_τw入场 | 反 T（先卖） | 触发根收盘卖 | 无预设（止损/锁赢/追价/收盘） |
-| \|ŷ_τw\|未过入场 / 缺窗头 | — | 本轮跳过 | — |
-
-ŷ_τw = 五窗相对中位点（默认 50%）的符号和；\|p−mid\|≤Y_τ*弃权% 不计票。截止钟后不开 leg1（live「前缀时间」默认 11:00；回测「前缀」默认 10:30）；\|ŷ_τw\|过入场未过强用入场金额（默认 2 万），过强用强金额（默认 4 万），按成交价换算整手，不够一手则跳过。
-
-侧向配置后缀同枚举（`*_buy_then_sell` / `*_sell_then_buy`）。未知/历史遗留键加载时丢弃。
-
-```bash
-python3 research/t0_backtest_run.py --code 茅台 --json
-# 或 quant(task=t0_backtest) / POST /api/quant/t0-backtest / POST /api/paper/t0
-```
-
----
-
-### 第五层：数据缓存与可复现（`core/store.py`）
-
-数据层全景（采集 / 清洗 / 存储 / 服务 / 监控、PIT 边界、演进）见 **[architecture.md · 数据层](component/data.md#数据层data-layer)**。本节只记日线缓存与可复现。
-
-**路径**：`data/store/daily/{CN|HK|US}/{code}.json`（不入 git）
-
-```text
-fetch_daily_bars()
-  → 命中缓存且未过期（默认 24h）→ 读本地
-  → 否则 AkShare 拉取 → 写入 + quality 标记（good / thin / empty）
-```
-
-**evals**：`evals/run_repro.py` 对 `score_bars` / `backtest_signal` **双跑 SHA256 指纹**；改 scorer 或回测逻辑后应先跑 repro + 单测。
-
----
-
-### 全链路串联
-
-```mermaid
-flowchart TB
-  subgraph live [实时投顾]
-    Q[用户：能否买入] --> A[advise Skill]
-    A --> Q1[quote]
-    A --> S1[signal → score_bars]
-    A --> K1[kline]
-    A --> P1[peer / index]
-    S1 --> ST[compute_buy_stance]
-    Q1 --> ST
-    K1 --> ST
-    P1 --> ST
-    ST --> L[LLM 解读 facts + 逐字引用 stance_label]
-  end
-
-  subgraph research [量化研究 — 共用 score_bars]
-    S1 -.-> BT[backtest walk-forward]
-    BT --> M[胜率 / 回撤 / score_buckets]
-    S1 -.-> PA[paper 纸面买入]
-    PA --> EQ[snapshots 净值曲线]
-  end
-```
-
-**Agent 典型问法对照**：
-
-| 用户意图 | 主要模块 | 输出 |
-|----------|----------|------|
-| 短线评分 / 观察池 | `signal` → `score_bars` | `observation_pool` |
-| 能否买入 | `advise` → `compute_buy_stance` | `stance_label` + `facts` |
-| 规则历史表现 | `backtest` → `backtest_signal_on_bars` | `metrics` + `benchmark` |
-| 模拟跟单净值 | `paper` → `run_daily_cycle` | `snapshots` / Web 曲线 |
-
----
-
-### 机器学习视角：如何理解量化
-
-**一句话**：量化 ≈ 在金融市场里做 **有监督 / 排序学习**——用历史数据构造特征（因子），预测未来收益或相对排名，用回测做离线评估，再把得分映射成交易规则。本项目当前是 **手工特征 + 线性加权 + 规则决策层**（尚未端到端深度学习），但 ML 的完整问题框架已经具备。
-
-#### 四件套对照
-
-| ML 概念 | 量化含义 | 本项目对应 |
-|---------|----------|------------|
-| **样本** | 每个 (股票, 日期) 一条观测 | 日线 bar；watching 中某只股票在某交易日 |
-| **特征 X** | 因子 | 动量、量比、RS、反转、PE、ROE 等 `sub_scores` |
-| **标签 y** | 未来收益 | 持有 `horizon_days` 后的涨跌（回测中计算） |
-| **模型 f(X)** | 打分函数 | `score_bars()` 的加权求和 |
-| **评估指标** | 预测质量 | IC / IR、胜率、夏普、最大回撤 |
-| **推理** | 实盘打分 | live `signal`、观察池排序 |
-| **部署** | 执行 | 纸面 `paper`（不接券商 OMS） |
-
-#### 因子 = 特征工程
-
-配置因子加权（registry 白名单，当前约 20 个）：
-
-```text
-score = 0.28×动量 + 0.20×量价 + … + 0.05×质量
-```
-
-在 ML 术语下：
-
-- **手工特征**：每个因子是人类设计的变换（`mom3`、`volume_ratio`、ATR% 等）
-- **线性模型**：权重在 `data/signal_config.json`，相当于 `w·x`
-- **隐含非线性**：因子内部的分段规则（如「涨 6% 高分、涨 12% 降分」）类似树模型的阈值
-
-常见演进路径：规则因子（baseline）→ IC 调权 → GBDT / 线性模型学组合 → 序列深度模型。**本项目刻意保留可解释 baseline**，与 ML 里「先 logistic 再试 deep」同一思路。
-
-#### 横截面 = 排序学习（Learning to Rank）
-
-单票 `score_bars` 输出 **绝对分**；watching 多股同日比较，本质是：**给定截面特征，谁未来相对更好？**
-
-| LTR 范式 | 量化场景 |
-|----------|----------|
-| Pointwise | 每只股独立预测未来收益（回归） |
-| Pairwise | 两两比较相对强弱 |
-| Listwise | TopK 组合整体收益（列表优化） |
-
-**横截面中性化**（`core/signal/neutralize.py`，P47）在 ML 视角是 **去掉共同因子 / 组内标准化**：
-
-- 对各 `sub_scores` 做 z-score 或 rank，再重算 `score`
-- 类似按日 batch normalization，学 **相对 alpha** 而非跟大盘同涨同跌的 **beta**
-- 「中性化 vs 绝对分回测对照」（P52）≈ 比较 **是否做 feature normalization 能提升排序质量**
-
-#### IC / IR = 特征—标签相关性
-
-| 量化 | ML 类比 |
-|------|---------|
-| **IC**（因子与未来收益相关） | 特征与标签相关强度 |
-| **IC 不稳定** | 协变量漂移（covariate shift / 非平稳） |
-| **IR** = mean(IC) / std(IC) | 跨期信号信噪比 |
-
-`quant/research/factor_report.py` / Web 因子 IC 面板用于 **权重建议**，但 **不自动写** `signal_config.json`——等价于 ML 里看 feature importance 后 **人工** 决定是否改生产配置。
-
-#### 回测 = 带时间约束的离线评估
-
-Walk-forward（第三层）≈ **时间序列交叉验证**，而非 random K-fold：
-
-| 普通 ML CV | 量化回测 |
-|-----------|---------|
-| 样本常假设 i.i.d. | 金融序列 **非平稳、自相关** |
-| 可 shuffle 验证集 | **必须按时间切**（见 `core/research/split.py` OOS） |
-| accuracy / F1 | PnL、回撤、换手、成本 |
-| 过拟合 → 验证掉点 | 过拟合 → **回测很美、样本外很差** |
-
-回测模拟的是 **策略 PnL 路径**，更接近 **offline policy evaluation**（强化学习术语），而非单纯「分类准确率」。Policy / Reward / Environment 与本仓库边界见 [architecture.md · RL 视角](component/rl.md#强化学习视角rl-layer)。
-
-#### stance / hard_reject = 决策层（非模型本体）
-
-```text
-模型输出（score）  →  业务规则（阈值、拒识、合规）  →  最终动作（stance）
-```
-
-| 组件 | ML 类比 |
-|------|---------|
-| `score_bars` | 回归 / 排序模型输出 |
-| `hard_reject` | reject option / 拒识 |
-| `compute_buy_stance` | 阈值策略 → 离散动作 {avoid, wait, probe, buy_light} |
-| LLM 解读 | **与 serving 分离** 的可解释层，不得改写数值 |
-
-#### 量化 vs 经典 ML 项目的差异
-
-1. **标签噪声大**：短期收益接近随机，需 IC、组合统计，不能只看单次 accuracy。
-2. **非平稳**：有效因子会失效 → OOS、rolling IC、`regime` 门控（`core/signal/regime.py`）。
-3. **泄露风险**：前视偏差、 survivorship bias、非 point-in-time 基本面 → ML 里的 **label / train-serve leakage**（本项目基本面 IC 实验已注明非 point-in-time）。
-4. **目标不仅是预测**：最终优化 **收益 − 成本 − 回撤**，常拆成 预测 → 组合优化 → 执行 三段（组合回测、成本模型见 P7+）。
-5. **执行层**：预测正确但成交价不对也无效（纸面模拟 ≠ 真实 OMS）。
-
-#### ML 流程对照本仓库
-
-```mermaid
-flowchart LR
-  subgraph data [Data]
-    Bars[OHLCV bars]
-    Fund[Fundamentals snapshot]
-  end
-
-  subgraph features [Feature Engineering]
-    F1[registry factors / sub_scores]
-    F2[cross-section neutralize]
-  end
-
-  subgraph model [Model - linear rules today]
-    Score[score_bars weighted sum]
-  end
-
-  subgraph eval [Offline Eval]
-    IC[IC / factor panel]
-    BT[walk-forward backtest]
-    OOS[train/OOS split]
-  end
-
-  subgraph policy [Decision Policy]
-    HR[hard_reject]
-    Stance[compute_buy_stance]
-  end
-
-  subgraph deploy [Deployment]
-    Paper[paper trading]
-    Daily[quant_daily report]
-  end
-
-  Bars --> F1
-  Fund --> F1
-  F1 --> F2
-  F2 --> Score
-  Score --> IC
-  Score --> BT
-  BT --> OOS
-  Score --> HR --> Stance
-  Stance --> Paper
-  Score --> Daily
-```
-
-#### 代码路径 → ML 术语速查
-
-| 用户 / 研究问题 | 代码路径 | ML 术语 |
-|----------------|----------|---------|
-| 单票短线分 | `score_stock` · `ReturnScoreModel`（`score_bars`→sub_scores） | 特征 → 拟合线性 ŷ |
-| 观察池 Top N | `core/signal/cross_section.py` | 截面排序 / LTR |
-| 去市场共同因子 | `core/signal/neutralize.py` | 组内标准化 |
-| 因子有效性 | `quant/research/factor_report.py` | feature–label 相关 / IC |
-| 样本外 | `core/research/split.py` | time-based holdout |
-| 历史策略表现 | `core/backtest/engine.py` | offline eval / backtest |
-| 能否买入 | `core/stance.py` · `compute_buy_stance` | 阈值策略 / 动作空间 |
-| 纸面跟单 | `core/paper/` | shadow deployment |
-
-#### 心智模型（三句话）
-
-1. **因子 = 特征；score = 回归 ŷ（因子系数 β）；回测 = 带时间约束的 offline eval。**
-2. **横截面中性化 = 去掉市场共同因子，学相对排序而不是绝对水平。**
-3. **IC / OOS / 纸面 = 量化里的 train/val/test + shadow deployment，用来对抗过拟合与非平稳。**
-
-更复杂模型（GBDT / 序列等）仍属可选演进；现行已默认用 **线性回归收益分**。见下节。
+**不是**：买入 guarantee；LLM 可改写数字；单票绝对真理（截面看 **相对排序**）。硬拒绝条件与因子加权见 `data/signal_config.json` / `core/signal/factors/*`。
 
 #### 选股真源：线性回归因子系数
 
@@ -605,7 +64,7 @@ score_bars → sub_scores（特征）
 ŷ = α + Σ βᵢ · zᵢ     # ReturnScoreModel → predicted_score = 选股真源
 ```
 
-训练 / 打分 / 回测 / 纸面执行的时间口径与产物流转见 **[quant.md · ŷ 全链路](quant.md#predictedscoreŷ全链路)**。
+训练 / 打分 / 回测 / 纸面口径见 **[§ predicted_score（ŷ）全链路](#predictedscoreŷ全链路)**。
 
 | 层级 | 现在是什么 | 不是什么 |
 |------|------------|----------|
@@ -614,327 +73,156 @@ score_bars → sub_scores（特征）
 | **stance** | 仍基于分数阈值 / 策略层 | 分类器直接输出「买/卖」 |
 | **promote** | 人审冻结 `return_model`；**不**自动写 `signal_config.weights` | 静默 overwrite 生产配置 |
 
-`score_bars` 只算因子与 `sub_scores`（ŷ 输入）及硬门禁；无模型时主字段 `score` 为空。OOS 门禁为 ŷ 相对平坦 0%。
-
-**仍刻意不做的**：GBDT / 神经网络 end-to-end 荐股；黑盒直接改 `stance_label`；自动写盘。原因未变——可解释、审计、PIT/数据质量、OOS 与成本约束。复杂模型须 eval 证明增量后再人审 artifact。
-
-**演进路径**：
-
-```text
-线性回归 ŷ（现行）→ GBDT blend → 序列模型（需 eval 证明增量）
-```
-
-工业级因子库规模见 [与专业量化系统的差距](#与专业量化系统的差距)；工业常见 **候选因子数百～数千、生产 alpha 几十级**，与是否使用拟合模型是正交问题。分类对照见 [工业常见因子分类](#工业常见因子分类对照本仓库)。
-
----
+`score_bars` 只算因子与 `sub_scores`（ŷ 输入）及硬门禁；无模型时主字段 `score` 为空。复杂模型须 eval 证明增量后人审。演进：`线性回归 ŷ → GBDT blend → 序列模型`。
 
 #### 工业常见因子分类（对照本仓库）
 
-工业量化通常把 **alpha 因子**（选股/排序）与 **risk 因子**（Barra 风格：行业、规模、价值、动量等暴露）分开维护；候选库可达 **数百～数千**，经 IC/IR、相关性去冗、样本外验证后，生产 alpha 常见 **几十级**。下表为常见分类与本项目 **规则因子库（约 20）** 的对照（非 exhaustive）：
+工业把 **alpha** 与 **risk（Barra 风格）** 分开；**候选因子数百**～数千，生产 alpha 常见 **几十级**。本仓库固定 registry 白名单（约 20）+ 配置权重；`factor_ols` / IC 仅研究对比，不自动扩库。
 
 | 类别 | 工业常见示例 | 本项目 |
 |------|-------------|--------|
-| 价量 / 微观结构 | 换手率、Amihud、买卖价差、订单不平衡 | `volume_price`、`liquidity`、`amihud`；`money_flow`（OHLCV **proxy**，真净流入可注入） |
-| 动量 / 趋势 | 1/3/12 月收益、52 周高点距离、均线斜率 | `momentum`、`ma_slope`、`technical_pattern`、`weekly_confirm`、`idio_momentum` |
-| 反转 | 短期反转、隔夜反转 | `reversal`、`gap_risk` |
-| 波动 / 风险 | 历史波动、Beta、下行波动、ATR | `volatility` |
-| 基本面价值 | EP/BP/CFP、盈利收益率 | `value`、`earnings_yield`（PIT `as_of` 可用） |
-| 基本面质量 / 成长 | ROE、毛利率、增速 | `quality`（ROE）、`growth`、`dividend`、`size` |
-| 另类 / 事件 | 舆情、供应链、卫星、ESG | `alt_sentiment`（标题词表；小权重） |
-| 风险模型（Barra） | 行业/国家/风格暴露、特异收益 | 横截面 **z-score** + **industry/size residual**（默认开） |
-
-**规模对照**：工业 **候选 >> 生产**；本项目固定 **registry 白名单 + 配置权重**，IC / 截面相关 / `factor_ols` 仅供 **研究对比**，不自动扩库或写配置。
-
-研究向 OLS 实验（对比 `signal_config.weights`，不写生产配置）：
+| 价量 / 微观结构 | 换手、Amihud、订单不平衡 | `volume_price`、`liquidity`、`amihud`；`money_flow`（OHLCV proxy） |
+| 动量 / 趋势 | 1/3/12 月收益、均线斜率 | `momentum`、`ma_slope`、`technical_pattern`、`weekly_confirm`、`idio_momentum` |
+| 反转 | 短期 / 隔夜反转 | `reversal`、`gap_risk` |
+| 波动 / 风险 | 历史波动、Beta、ATR | `volatility` |
+| 基本面价值 | EP/BP/CFP | `value`、`earnings_yield`（PIT `as_of` 可用） |
+| 基本面质量 / 成长 | ROE、增速 | `quality`、`growth`、`dividend`、`size` |
+| 另类 / 事件 | 舆情、ESG | `alt_sentiment`（标题词表；小权重）；**调仓旁路**另见 news.db 软先验 |
+| 风险模型（Barra） | 行业/风格暴露 | 横截面 **z-score** + **industry/size residual**（默认开） |
 
 ```bash
 # Agent / quant(task=factor_ols)
 ```
 
----
+<a id="机器学习视角如何理解量化"></a>
+<a id="四件套对照"></a>
+
+### 机器学习视角（摘要）
+
+量化 ≈ 有监督 / 排序学习：因子 = 特征，ŷ = 模型输出，回测 = 带时间约束的 offline eval，纸面 = shadow deployment。
+
+| ML 概念 | 本项目 |
+|---------|--------|
+| 样本 (code, date) | 日线 bar / watching 截面 |
+| 特征 X | `sub_scores` · `z_oo_*` · `raw_aoo_*` 等 |
+| 标签 y | `open[T+1]/open[T]-1`（ŷ_oo）；τ→close（ŷ_τc） |
+| 模型 f | `ReturnScoreModel` / Ridge · LambdaRank · τ 头 |
+| 评估 | IC / IR · OOS · paper_replay · 纸面净值 |
+| 决策层 | `hard_reject` · `compute_buy_stance` · rank_lots 闸 |
+
+心智三句：① 因子=特征、score=ŷ、回测=offline eval；② 横截面中性化学相对排序；③ IC/OOS/纸面对抗过拟合与非平稳。Policy/Reward 映射见 [component/rl.md](component/rl.md)。
+
+#### 策略调仓 vs 底仓做 T
+
+**一句话**：**调仓决定「持有什么」；做 T 决定在既有底仓上今天要不要用波动做往返。**
+
+| 维度 | 策略调仓 | 底仓做 T |
+|------|----------|----------|
+| 层级 | 组合结构 · rank_lots | Overlay · 不改选股主线 |
+| 信号 | **y_oo_fuse** 入场 + **y_oo_rank** 买序 + τ 闸 | **纯 ŷ_τw** 选向/金额 |
+| 频率 | 日 / 开盘窗 | 每 5m 至截止钟 |
+| 验证 | 持仓结构是否合理 | 既定底仓上 timing 是否增强 |
+
+**ŷ_τ 模型共用、决策不重复**：调仓侧为买入闸 / fuse 成分；做 T 侧为 ŷ_τ*→ŷ_τw 选腿。细则见 [rebalance-logic.md](rebalance-logic.md) · [t0-logic.md](t0-logic.md) · [§2.5](#25-双层-predictedscoreŷoo-ŷτ)。
+
+实现：`core/execution.resolve_effective_execution` · `run_daily_cycle` / `POST /api/paper/run` · `core/t0/` · Web 规则在 `/replay`、落账在 `/follow`。纸面 `simulate_buys` / 建仓预演 `plan_buy_codes` 见 `core/paper/`。
 
 ### 代码模块索引
 
 | 职责 | 路径 |
 |------|------|
 | 因子打分 | `core/signal/scorer.py` — `score_bars` |
-| 模拟账本 | `core/paper/` — 读写 `paper.json`（对话 position 默认） |
-| 单票评分 | `core/signal/score_stock.py` — Signal/Position 共用 |
-| 事实采集 | `core/facts.py` — `collect_stock_facts` |
-| 买卖管线 | `core/advise.py` — `evaluate_buy_advice` |
-| 买卖 stance | `core/stance.py` — `compute_buy_stance` |
-| 持仓 + stance | `core/position.py` — `attach_stance_to_advice`（position 参数 `include_stance`） |
-| Walk-forward 回测 | `core/backtest/engine.py` |
-| 参数扫描 | `core/backtest/engine.py` — `scan_signal_parameters` |
-| 日线缓存 | `core/store.py` |
-| 纸面账户 | `core/paper/` |
-| 底仓做 T | `core/t0/` — 仅 5m 第一触达（回测/纸面预演；缺分钟跳过） |
-| 信号可复现 evals | `evals/run_repro.py` + `evals/repro_fixtures.json` |
-| Agent 约束 | `agent/prompts.py` — `BUY_QUESTION_HINT`；`agent.py` 注入买入提示 |
-| 因子配置 | `data/signal_config.json` + `core/signal/config.py` |
-| 因子子模块 | `core/signal/factors/*` |
-| 市场门控 | `core/signal/regime.py` |
-| 成本模型 | `core/backtest/costs.py` |
-| IC 报告 | `quant/research/factor_report.py` |
-| OLS 实验 | `quant/research/factor_ols.py` |
-| OOS 切分 | `core/research/split.py` |
-| 报告导出预览 | `quant/services/quant_report_export.py` — Web daily 后自动 Markdown 导出预览 + TOC |
+| 单票 / 截面 | `score_stock.py` · `cross_section_batch.py` · `core/signal_service.py` |
+| stance / advise | `core/stance.py` · `core/advise.py` |
+| 纸面 / 调仓 | `core/paper/` · `core/paper/rebalance/` |
+| 做 T | `core/t0/` |
+| 回测 | `core/backtest/paper_replay.py` · `engine.py` |
+| ŷ 头训练 | `oo_ridge_compact` · `tc_ridge` · `oo_rank_*` · `horizon_*` |
+| 报告导出预览 | `quant/services/quant_report_export.py` |
 | 规则 / LLM 解读 | `quant/services/quant_interpret.py` — `offline: true` → `source=rule_based` |
+| 日更 / 运维 | `core/platform/schedule_jobs.py` · [quant-ops.md](quant-ops.md) |
 
-### 回测成本 / 撮合方法论脚注（V1）
+### 回测成本 / 撮合脚注
 
-| 项 | 本仓库做法 | 诚实边界 |
-|----|------------|----------|
-| 佣金 + 印花税 | `simple_cn`（默认进组合回测与纸面）；`cost_compare` 对照 `zero` | 非券商实时费率表 |
-| 冲击 | `estimate_impact_cost` 按成交额/日均额近似 bps；验证报告可分列 | 非盘口冲击模型 |
-| 撮合 | T+1 · 板别涨跌停近似 · 跌停延后卖（`skipped_limit*` / `exit_deferred`） | **非**交易所撮合引擎 |
-| 回测–纸面落差 | `fit_gap` 启发式（成本 · 宇宙 · 频率 · 数据源）+ Corr/TE | 需真实日更样本才可解释 |
-| 同策略对照 | 验证包导出须带 `cost_model` 版本；五问含成本假设 | 禁止口头归因「市场变了」而无结构字段 |
+| 项 | 本仓库 | 边界 |
+|----|--------|------|
+| 佣金+印花 | `simple_cn`（默认） | 非券商实时表 |
+| 冲击 | 成交额/日均额近似 bps | 非盘口模型 |
+| 撮合 | T+1 · 涨跌停近似 | **非**交易所引擎 |
+| 回测–纸面 | `fit_gap` + Corr/TE | 需日更样本 |
 
----
+<a id="与专业量化系统的差距"></a>
 
-> **日常运维与 preset**见 **[§ 量化运维](#量化运维)**。
+### 与专业量化系统的差距（摘要）
 
----
+完整北极星与能力地图见 [design-spine](design-spine.md#产品北极星)。本仓库：规则+线性 ŷ + 纸面；专业栈：大规模因子库 / QP / OMS。风控见 [component/risk.md](component/risk.md)。
 
-### 与专业量化系统的差距
+<a id="量化运维"></a>
 
-完整北极星定义见 **[design-spine · 产品北极星](design-spine.md#产品北极星)**；能力地图对照（专业栈 vs 本仓库采纳目标 vs 现状）见 **[能力地图](design-spine.md#能力地图六大模块)**（旧锚点仍可用）。下表为因子/信号层摘要：
+### 量化运维（摘要）
 
-| 维度 | 本项目 | 专业量化（能力地图对照） |
-|------|--------|------------------------|
-| 因子 | 规则因子 + IC 面板 + 横截面中性化（基本面非 point-in-time） | 大规模因子库 + point-in-time + 自动化 alpha 挖掘 |
-| 信号 | 加权 + hard_reject + stance 降档 | 多策略组合、优化器 |
-| 回测 | 单票/组合 + 成本/撮合近似 + 简化归因 | 事件驱动、冲击模型、完整 Brinson/因子归因 |
-| 执行 | 纸面 JSON | OMS、券商 API |
-| 风控 | 纸面止损/仓位上限 + 行业限额 + regime（详见 [architecture.md · 风控层](component/risk.md#风控模型risk-layer)） | 实时止损、VaR、限额、多风险因子 |
-| 决策 | stance 规则 + LLM 解读 | 纯代码为主 |
-
-
----
+preset（`advisor` / `quant` / `quant_paper` / `full`）、cron / launchd、报告归档、watching 文件 API、信号配置只读与 diff 导出 → **全文见 [quant-ops.md](quant-ops.md)**。日更**不改 β**；改模型须人审启用。
 
 ---
 
 ## 量化入门概念
 
-[← 文档索引](README.md) · **产品主轴**见 [design-spine.md](design-spine.md) · 面板怎么用见 [Web 说明书](quant-ui.md) · 原理见 [量化原理](#量化原理与实现逻辑)
+[← 文档索引](README.md) · 操作步骤见 [getting-started.md](getting-started.md) · [quant-ui.md](quant-ui.md) · 产品主轴 [design-spine.md](design-spine.md)
 
-**产品聚焦**：① **观察**（长期名单）② **模拟**（假钱买卖）③ **回溯**（历史验证）——现行定位 = **策略验证**。  
-**本质**：根据已发生、可审计的事实，估计对股票/组合的影响——见 [design-spine · 因果链](design-spine.md#因果链已发生-影响估计-动作)。  
-逻辑链：**数据 → 信号(`score_bars`) → 因子 → 倾向(`stance_label`) → 动作**；两条轨见 [design-spine.md](design-spine.md)。
+**产品聚焦**：观察（长期名单）· 模拟（假钱）· 回溯（历史验证）。本质见 [design-spine · 因果链](design-spine.md#因果链已发生-影响估计-动作)。
 
-Web **主路径**：对话 · **观察** · **模拟** · **回溯**。纸面/策略/枢纽等仍有独立路由。  
-策略图纸见 [策略层说明](architecture.md)。
-
-**不是**自动实盘：现行不代客下单；纸面 / 做 T 均为模拟。待策略验证成熟后再评估实盘（N6）。
-
----
-
-## 0. 主线
+### 主线
 
 ```text
-观察（长期名单）  +  对话（解读）
-        ↓
-   ┌────┴────┐
-回溯（历史回测）  模拟（假钱买卖）     ← 两种验证
-        ↑
-     纸面（假账配置，`/paper`）
+观察 + 对话 → 回溯（历史）∥ 模拟（纸面） ← 两种验证
 ```
 
-| 页 | 回答什么 | 典型文件 / API |
-|----|----------|----------------|
-| **观察** | 长期看哪些票？ | `watching.json` |
-| **对话** | 现在怎样 / 能不能买？ | Skills + Agent |
-| **回溯** | 历史上这一局怎样？ | `portfolio-backtest` |
-| **模拟** | 假钱买卖怎样？ | `/api/paper/*` |
-| **纸面** | 假账规则与初始化 | `paper.json` |
+| 页 | 回答什么 |
+|----|----------|
+| `/watching` 观察 | 长期看哪些；**建仓入口** |
+| `/follow` 交易执行 | 已有仓管理 · 调仓/做 T 落账 |
+| `/replay` 历史回测 | rank_lots / 做 T 历史卷 |
+| `/quant` 研究枢纽 | 拟合 ŷ · 分档 · 落地 |
+| `/dashboard` | 开盘态势（`/` 重定向至此） |
 
-AI 只解读数字，**不得改写** `score` / `stance_label`。
-
-### 观察名单与纸面
-
-| | 观察 / Watching | 纸面账户 |
-|--|-----------------|----------|
-| 角色 | 长期看的标的名单；也供回溯用 | 模拟页的**假账户**（假钱） |
-| 配置页 | `/watching` | `/paper` |
-| 实验页 | 被 `/replay` 读取 | 被 `/follow` 执行 |
-
-一句话：观察里放几只票；对话做解读；回溯交历史卷；模拟用假钱买卖。
-
-### 一只票的生命周期
-
-```text
-搜索发现 ──► 观察（只看） ──► 模拟持仓（有钱在里面） ──► 平仓（回到只看）
-                 │                      │
-            观察页建仓              模拟页加减仓 / 清仓
-```
-
-**观察页**是这条链路的总览与入口，**模拟页**是「有钱那段」的账本与管理。所以新仓只从观察页建，模拟页不设开仓入口。
-
-### 出处：谁做的决定
-
-每笔仓位都记录来源，方便回头分清哪些是自己的判断、哪些是规则的：
-
-| 出处 | 怎么来的 |
-|------|----------|
-| **手动** | 观察页建仓，或模拟页持仓表加减仓 |
-| **策略** | 模拟页「进阶 · 按策略调仓」由 signal 规则生成 |
-| **手动+策略** | 手动建的仓后来被策略加过 |
-
-原则：谁决定「买什么、买多少」，就归谁。你决定的走主路径，规则决定的收进进阶区并标出处。
-
----
-
-## 1. 票从哪来
-
-| 东西 | 回答什么 | 文件 |
-|------|----------|------|
-| **观察名单** | 长期看哪些？ | `watching.json` |
-| **纸面** | 模拟假账户怎样？ | `paper.json` |
-| **持仓** | 模拟仓 | `paper.json` |
-| **策略** | 决策规则（进阶） | `signal_config.json` |
-
-持仓**不是**观察名单；也不等于纸面。
-
----
-
-## 2. 回溯 ≠ 模拟
+### 回溯 ≠ 模拟
 
 | | 回溯 | 模拟 |
 |--|------|------|
-| 时间 | 对着历史 K 线一次推演 | 活着的假账本持续记账 |
-| 页面 | `/replay` | `/follow` |
-| 共用 | 同一套 `score_bars` / `stance` | 同左 |
-| 模型 | **研究套**（Holdout 前训 β → `*_research.json`。各头卡头 **Holdout** 默认 20；观察池分档 Holdout 独立默认 60，不读 ŷ_oo 卡）。`/replay` 调仓/做 T **默认研究套**；「模型」可选 **执行** 对照 live 槽版本 | **执行套**（由研究槽晋级的同一份 Holdout 前训 β；非全样本重估） |
-| 是否要 `paper.json` | **否**（回测引擎自带资金曲线） | **是**（读写假账户） |
+| 时间 | 历史一次推演 | 活着的假账本 |
+| 模型默认 | **研究套** | **执行套**（研究槽晋级） |
+| 要 `paper.json`？ | **否** | **是** |
+
+### 五类测试（何时要纸面）
+
+| # | 类型 | 要资金模拟？ | 要 `paper.json`？ |
+|---|------|--------------|-------------------|
+| 1 | 逻辑与信号 | 否 | 否 |
+| 2 | 历史回测 | 是（引擎内） | **否** |
+| 3 | 模拟盘 | 是 | **是** |
+| 4 | 压力 / MC | 可选 | 否（远期） |
+| 5 | 实盘 | 真实资金 | 否 · **现行不做 N6** |
+
+### 边界：不强因子
+
+当前以短线技术面 + 轻量基本面为主；`news` 对话解读，调仓可选 **news.db 软先验**（不进 ŷ 主字段）。不把「涨跌归因完整」当近期目标。
+
+操作入门：[getting-started.md](getting-started.md) · [quant-ui · 操作流程](quant-ui.md#操作流程照着做)。
 
 ---
-
-## 3. 测试类型：何时需要纸面？
-
-并不是所有验证都要建「纸面账户」。是否模拟资金与持仓，取决于测试目的。
-
-先分清两个词：
-
-| 说法 | 含义 |
-|------|------|
-| **资金模拟（泛称）** | 回测/模拟里用假钱记账：进出、持仓、费用、净值 |
-| **本仓库纸面 `paper.json`** | 模拟专用的持久假账本；**不等于**「只要算盈亏就必须先初始化纸面」 |
-
-### 五类测试对照
-
-| # | 类型 | 目的 | 要资金模拟？ | 要 `paper.json`？ | 本仓库落点 |
-|---|------|------|--------------|-------------------|------------|
-| 1 | **逻辑与信号** | 信号准不准、何时买卖 | 否 | 否 | `score_bars` / `signal` · `/strategy` · 信号时间列表 |
-| 2 | **历史回测** | 历史盈亏与风险（回撤、夏普等） | **是**（引擎内记账） | **否** | `/replay` · `backtest` Skill · `core/backtest` |
-| 3 | **模拟盘** | 实时（或按日）前瞻，减轻「未来函数」错觉 | **是** | **是** | `/paper` 配置 → `/follow` 跑一日/买入/调仓 |
-| 4 | **压力 / 蒙特卡洛** | 极端滑点、乱序、高成本下会否爆仓 | 可选（情景参数） | 否 | **尚未落地**（远期） |
-| 5 | **实盘对接** | 券商连通与真实成交 | 真实资金 | 否（真账户） | **现行不做**：策略验证成熟后另立项 N6 |
-
-```text
-只看信号准不准  ──►  不必纸面，也不必回测资金曲线
-想看赚多少 / 风险  ──►  要资金模拟 → 走「回溯」（不必先建 paper.json）
-想看从今往后跟得怎样 ──►  要 paper.json + 模拟
-真刀真枪            ──►  本系统不做实盘
-```
-
-### 和主线怎么对齐
-
-```text
-信号测试（1）     ← 策略页 / signal · 无账户
-      ↓
-历史回测（2）     ← 回溯页 · 引擎内假钱 · 无 paper.json
-      ↓
-模拟盘（3）       ← 纸面初始化 + 模拟 · 有 paper.json
-      ✕
-实盘（5）         ← 明确不做
-```
-
-**适用节奏**：开发初期先做（1）；规则成型后做（2）；准备「当真用」前再跑一段时间（3）。（4）用于鲁棒性，当前缺口见 [roadmap](design-spine.md#能力评估与升级规划路线图视角)。
-
----
-
-## 4. 涨跌归因与本系统边界（不强因子）
-
-价格涨跌的本质是 **资金供求**：买盘多于卖盘则涨，反之则跌。驱动买卖决策的常见归因可粗分为三类：
-
-| 归因 | 典型内容 | 时间尺度 |
-|------|----------|----------|
-| **基本面** | 业绩、行业景气、宏观利率/增长 | 偏长期价值 |
-| **资金面 / 情绪面** | 机构与游资、北向、恐慌/狂热、消息刺激 | 偏中短期波动 |
-| **技术面** | 趋势与形态、量价、均线突破 | 偏买卖点与短线动能 |
-
-人类常看「逻辑与故事」；量化常看「数据与历史概率」，把归因写成可计算的 **因子**。但这不意味着本仓库要覆盖全部三类。
-
-### 本仓库当前落点
-
-| 归因 | 现状 | 说明 |
-|------|------|------|
-| 基本面 | **轻量** | `score_bars` 里估值/质量权重很小；基本面实验注明非严格 point-in-time |
-| 资金 / 情绪 | **基本没有** | 无 Level-2、无主力/北向跟随；`news` 供对话解读，不进 stance 主算 |
-| 技术面 | **主力** | 动量、量比、ATR、反转等 → 短线 `score` |
-
-一句话：当前是 **短线技术面为主 + 轻量基本面的规则量化**，外加对话（可联网）解读；**不是**全市场基本面多因子，也 **不是** 高频资金微观结构。
-
-### 明确边界：不强因子
-
-- **不**把「涨跌归因完整」当成近期目标去堆新因子族。  
-- 模拟页验证的是 **假钱纪律与记账**（你点买卖才成交），不是自动捕捉全部市场驱动。  
-- 对话可帮你理解基本面/消息/情绪叙事；**数字结论仍只来自 Skill / `score` / `stance_label`**。  
-- 量化资金在真实市场可能助涨助跌——本系统 **不参与、不代客下单**，纸面也不会后台自动买卖。
-
-想改因子权重或做研究实验，走进阶页 `/strategy` · `/quant`；主路径仍是：观察 → 对话 → 模拟 → 回溯。
-
----
-
-## 5. 推荐入门顺序
-
-详细逐步说明见 **[quant-ui.md · 操作流程](quant-ui.md)**。
-
-摘要：
-
-1. `/watching` **观察**里放几只票。  
-2. 对话做解读与问答。  
-3. `/replay` **回溯**看历史（不必纸面）。  
-4. `/paper` 初始化 → `/follow` **模拟**买卖几天。  
-
-```bash
-bash scripts/setup_quant.sh
-# 或
-python3 research/watching_run.py --init && python3 research/watching_run.py --refresh
-python3 research/paper_run.py --init
-```
-
----
-
-## 6. 相关文档
-
-| 文档 | 内容 |
-|------|------|
-| [Web 说明书](quant-ui.md) | 五页说明书 |
-| [策略层说明](architecture.md) | 策略层与设计文档模板 |
-| [architecture.md · 风控层](component/risk.md#风控模型risk-layer) | 风控 · Alpha×Risk |
-| [architecture.md · RL 视角](component/rl.md#强化学习视角rl-layer) | 强化学习视角（远期） |
-| [architecture.md · 舆情层](component/risk.md#舆情与另类数据sentiment-altdata) | 舆情 → 风险分（研究向） |
-| [量化原理](#量化原理与实现逻辑) | 量化原理 |
-| [architecture.md · 数据层](component/data.md#数据层data-layer) | 数据层与 PIT 边界 |
-| [architecture.md](architecture.md) | 系统架构 |
-
----
-
 
 ---
 
 ## predicted_score（ŷ）全链路
 
-[← 文档索引](README.md) · 产品主轴 [design-spine.md](design-spine.md) · 运维定时 [quant.md · 运维](quant.md#量化运维) · **盘中/实时增强** [quant.md · 盘中剩余收益头](quant.md#13-盘中剩余收益头intraday-residual方案) · **τ 契约** [quant.md · τ 契约升级](quant.md#25-双层-predictedscoreŷoo-ŷτ)
+[← 文档索引](README.md) · 产品主轴 [design-spine.md](design-spine.md) · 运维 [quant-ops.md](quant-ops.md) · **Live 旁路** [§ Live 出分与旁路](#live-出分与旁路) · **τ 契约** [§2.5](#25-双层-predictedscoreŷoo-ŷτ)
 
 本文梳理 **训练 → 打分 → 回测 / 验证 → 纸面执行** 的同一套时间口径与产物流转。  
 目标：任何人看到页面上的「评分 / score / ŷ」，都能回答「它在预测什么、该和谁对账、会不会自动改 β」。
 
-> **实时 / 主题日**：ŷ_oo 主轴不变；开盘缺口与剩余收益头见 [quant.md · 盘中剩余收益头](quant.md#13-盘中剩余收益头intraday-residual方案)。  
-> **双层 predicted_score**：日线 ŷ_oo + 当日 ŷ_τ 并存、分标签对账、决策层融合；见下文 **§2.5** 与 [quant.md · τ 契约升级 §9](quant.md#25-双层-predictedscoreŷoo-ŷτ)。  
-> **契约缺口与升级**：现网 = ŷ_oo 选股 + 卖出保护，尚未完整实现「给定 τ → ℱ_τ → ŷ(τ)」进买卖；升级顺序见同专文。
+> **实时 / 主题日**：ŷ_oo 主轴不变；开盘缺口与盘中头见 [§ Live 出分与旁路](#live-出分与旁路) · [§2.5](#25-双层-predictedscoreŷoo-ŷτ)。  
+> **双层 predicted_score**：日线 ŷ_oo + 当日 ŷ_τ 并存、分标签对账、决策层融合；见 **§2.5**。  
+> **契约缺口**：现网 = ŷ_oo 选股 + 卖出保护；完整「给定 τ → ℱ_τ → ŷ(τ)」仍按 §2.5 阶梯推进。
 
 ---
 
@@ -1064,7 +352,7 @@ y_oo_fuse = fusion_w_oo·((ŷ_oo+1)/(1+rot)−1) + fusion_w_oc·ŷ_τc  # 某一
 
 **研究枢纽 UI（信息架构）**：主路径「ŷ_oo → IC 时序 → ŷ_τc → 交易执行」；IC 时序嵌在 ŷ_oo 卡内；ŷ_τc 为次级 CTA；数据中心 / 交易执行表列 y_oo / y_τc / fuse（y_oo_fuse）。训练：`POST /api/quant/tc-ridge`（`/tau-ridge` 同入口）→ `tau_ridge_model.json`。
 
-建模、训练面板、OOS 与字段细节见 [quant.md · τ 契约升级 §9](quant.md#25-双层-predictedscoreŷoo-ŷτ)；盘中落地阶段见 [quant.md · 盘中剩余收益头](quant.md#13-盘中剩余收益头intraday-residual方案)。
+建模、训练面板、OOS 与字段细节见 [§2.5](#25-双层-predictedscoreŷoo-ŷτ)；盘中落地见 [§ Live 出分与旁路](#live-出分与旁路)。
 
 ### 2.6 预估周期：\(y_{\mathrm{oo}}\) · \(y_\tau\)
 
@@ -1100,7 +388,7 @@ open(t) ──y_τ(t)──► close(t) ──隔夜──► open(t+1)
 | **`gap_pct`**（已实现） | \(\mathrm{open}[t]/\mathrm{close}[t-1]-1\) | 今开相对**昨收**；`resolve_open_t` |
 | **\(y_{\mathrm{ON}}(t)\)**（规划标签） | \(\mathrm{open}[t]/\mathrm{open}[t-1]-1\) | 今开相对**昨开** |
 
-旧文档 [intraday-residual-score.md §3 方案 C](quant.md#13-盘中剩余收益头intraday-residual方案) 曾写 \(\mathrm{open}/\mathrm{close}[T-1]\) 为「隔夜头」——**收→开缺口** 口径；与本节 **\(y_{\mathrm{ON}}=\mathrm{open}/\mathrm{open}\)** 不同，以本节为准。
+旧口径文档曾写 \(\mathrm{open}/\mathrm{close}[T-1]\) 为「隔夜头」——**收→开缺口** 口径；与本节 **\(y_{\mathrm{ON}}=\mathrm{open}/\mathrm{open}\)** 不同，以本节为准。
 
 **与旧 close→close \(y_{\mathrm{EOD}}\) 的关系（仅几何对照）**
 
@@ -1123,7 +411,7 @@ open(t) ──y_τ(t)──► close(t) ──隔夜──► open(t+1)
 1. 三个 y **各用独立 `y_spec`、独立训练**；禁止写进同一 `predicted_score` 字段。  
 2. **禁止**用 \(\mathrm{open}[t+1]/\mathrm{close}[t]-1\) 作盘中标签（依赖当日收盘，不满足收盘前风控）。盘中锚 **`open[t]`** 或 **`price[τ]`**，标签 **`open[t+1]/open[t]-1`**。  
 3. \(y_{\mathrm{ON}}\) 规划为 **风控旁路**（缩仓 / 撤买单），**默认不进主排序**；落地前以 `gap_risk` · `event_prior` 作弱替代。  
-4. 执行：收盘前减仓若要 **挡当夜隔夜**，须 **当日收盘前可成交**。纸面 `next_open`：**盘中按现价可成交**；**收盘后**只挂次日开盘，**挡不住当夜**。回测默认 `next_open` 仍是信号日收盘决策、次日开盘成交（见 [quant.md · 运维](quant.md#量化运维)）。
+4. 执行：收盘前减仓若要 **挡当夜隔夜**，须 **当日收盘前可成交**。纸面 `next_open`：**盘中按现价可成交**；**收盘后**只挂次日开盘，**挡不住当夜**。回测默认 `next_open` 仍是信号日收盘决策、次日开盘成交（见 [quant-ops.md](quant-ops.md)）。
 
 **分钟 K 形状**：研究枢纽分钟画像只保留 τ 开→收。
 
@@ -1308,7 +596,7 @@ score_stock(code) 续——
 
 | 项 | 历史 paper_replay（本页 / 日报） | Live 纸面调仓 |
 |--|--|--|
-| 选股排序键 | **y_oo_fuse**（UI fuse）= w_oo·((ŷ_oo+1)/(1+rot)−1) + w_τc·ŷ_τc。rot=该 τ 相对开盘的涨跌；τ=开盘时 rot=0，即 w_oo·ŷ_oo + w_τc·ŷ_τc | 同左 |
+| 选股排序键 | **y_oo_fuse**（UI fuse）= `fusion_w_oo·((ŷ_oo+1)/(1+rot)−1) + fusion_w_oc·ŷ_τc`。rot=该 τ 相对开盘的涨跌；τ=开盘时 rot=0 | 同左 |
 | 宇宙 | 主头与排序头：**整观察池**进截面 z。排序头 `train_universe`（`tier_a` / `tier`）只影响拟合损失，不影响打分 μ/σ。分档打开时 ŷ/名次只写允许档，档外不开仓（现金用完即止） | 同左。另加持仓市值上限（默认 15 万）；开加不按 `max_positions` 截断 |
 | 模型 | 默认**研究套**（Holdout 前训 β）；表单「模型」可选**执行**对照 live 槽版本。所选槽缺失时该头不挂分，**不**静默换另一槽（ŷ_oo 研究档可回落草稿预览，仍不读执行套） | 执行套（研究槽晋级）；缺执行套不回落研究套 |
 | 金额 | 表单入场/强档金额；不够一手则跳过；单票≤强档×120%；保存规则写入交易执行 | 已保存 `lot_base_amount` / `lot_strong_amount`（缺省 1 万 / 2 万）；同上单票上限 |
@@ -1369,7 +657,7 @@ flowchart TD
   end
 ```
 
-推荐工作日节奏（见 [quant.md · 运维](quant.md#量化运维)）：
+推荐工作日节奏（见 [quant-ops.md](quant-ops.md)）：
 
 | 时刻 | 任务 | 改 β？ |
 |------|------|--------|
@@ -1501,241 +789,41 @@ A 改进「估得准」；B 改进「做得对」。北极星乘积两者都要�
 | 产品回测 | `core/backtest/paper_replay.py`（+ `replay_*.py` 按用例拆分） |
 | TopK（研究探针，冻结） | 默认 `topk_oos_curve`；完整引擎 `legacy/topk_backtest`（`full_engine=True`）；产品回测走 paper_replay |
 | 配置 | `data/signal_config.json` → `scoring.horizon_days` / `dual_score` |
-| 日更 | `core/schedule_jobs.py` · [quant.md · 运维](quant.md#量化运维) |
+| 日更 | `core/schedule_jobs.py` · [quant-ops.md](quant-ops.md) |
 | 测试 | `tests/test_dual_score.py` · `tests/test_rem_ridge.py`（覆盖 `tau_*` 与 `rem_*` 别名） |
 | 产品定位 | [design-spine.md](design-spine.md) · [quant.md · 入门概念](quant.md#量化入门概念) |
 | RL 边界 | [architecture.md · RL 视角](component/rl.md#强化学习视角rl-layer) |
 
 ---
 
-## 13. 盘中剩余收益头（Intraday Residual）方案
-
-## 量化运维
-
-定时任务、preset 组合、报告归档与任务状态查询。
-
 ---
 
-## 每日 preset
+## Live 出分与旁路
 
-| preset | 说明 | 包含步骤 |
-|--------|------|----------|
-| `advisor` | 投顾日常（工作日收盘后） | 纸面观察池 · eval mock |
-| `quant` | 量化研究 | watching 刷新 · sync watchlist · 横截面 · quant 日报 · 导出 md/html |
-| `quant_paper` | 量化 + 纸面调仓 | 同上 + 纸面调仓（显式 opt-in，非实盘） |
-| `full` | 全量 | advisor + quant（不含纸面调仓与 Agent 回归） |
+ŷ 主轴不变时，下列旁路只影响**执行/展示**，不改写 `predicted_score` 主字段（除非另注）。
 
-**CLI**：
-
-```bash
-cd quantlab
-python3 research/daily_run.py --preset advisor --json
-python3 research/daily_run.py --preset quant --json
-python3 research/daily_run.py --preset quant_paper --json
-python3 research/daily_run.py --preset full --json
-```
-
-**Shell 封装**（供 cron / launchd）：
-
-```bash
-bash scripts/daily_advisor.sh
-bash scripts/daily_quant.sh
-bash scripts/daily_quant_paper.sh
-bash scripts/daily_full.sh
-bash scripts/daily_paper.sh   # P2 / N5：paper_daily（五问 + DecisionRecord + 衰减告警）
-```
-
-环境变量（`daily_paper.sh`）：
-
-| 变量 | 默认 | 说明 |
+| 主题 | 行为 | 详见 |
 |------|------|------|
-| `PAPER_DAILY_SIMULATE_BUY` | `0` | `1` 时日更模拟买入 |
-| `PAPER_DAILY_STRATEGY` | `short_conservative` | 策略 ID |
+| **open-pit** | 会话日官方 open 立方未齐：昨收日线 + 行情今开现场建截面；补训练同款风格因子，缺列/覆盖不足则拒单；落账禁回退昨日立方 | [internal/live-open-pit-rebalance.md](internal/live-open-pit-rebalance.md) |
+| **物化写穿** | 物化写入时日线新于湖必须重算（`allow_l1_end_lag()=False`），禁止只切交集仍报成功 | [internal/feature-lake-daycube.md](internal/feature-lake-daycube.md) |
+| **舆情软先验** | 勾选闸：读 `news.db`，fuse±0.1% · rank×2/×0.5；不清仓、不进 ŷ | [component/risk.md](component/risk.md#舆情与另类数据sentiment-altdata) |
+| **今日收益** | `当前净值 − session_nav[昨收]`；快照裁剪后仍可对账 | [rebalance-logic.md](rebalance-logic.md) · [quant-ui.md](quant-ui.md) `/follow` |
+| **滚动验证** | 研究枢纽 Walk-forward Top1（默认 **A 档**）；不写模型 | [quant-ui.md](quant-ui.md) `#quant-section-roll-gate` |
 
-**Web / API**：
+<a id="13-盘中剩余收益头intraday-residual方案"></a>
 
-- `GET /api/daily/presets` — 列出 preset 与 flags
-- `POST /api/daily/run` — body 可传 `{ "preset": "quant" }`；显式 flag 会覆盖 preset 对应项
-- `GET /api/daily/last` — 上次任务摘要（`data/daily_last_run.json`）
-- `POST /api/schedule/run` — `{ "kind": "paper_daily", "strategy": "short", "simulate_buy": false }`
-- `GET /api/schedule/last` — 上次调度摘要（`data/schedule_last_run.json`，含五问字段）
-
-量化面板 **「每日量化」** 按钮等价于 `preset: "quant"`。平台页 **「运行纸面日更」** / 模拟页 **「纸面日更」** 等价于 `kind: "paper_daily"`。
-
-**P2 演示闭环**：纸面日更告警 → 研究枢纽 `POST /api/feedback/suggest` → 策略页人审 **promote** → 再回测/纸面。
-
-**P23 运维区**：打开量化面板 →「运维状态」→ 下拉选择 `advisor` / `quant` / `full` / `quant_paper` → **「运行 daily」**（与底部快捷按钮共用同一 API）。
-
----
-
-## cron（Linux / macOS）
-
-工作日 16:30 跑投顾日常：
-
-```cron
-30 16 * * 1-5 cd /path/to/quantlab && bash scripts/daily_advisor.sh >> data/logs/daily-advisor.log 2>&1
-```
-
-工作日 17:00 跑量化：
-
-```cron
-0 17 * * 1-5 cd /path/to/quantlab && bash scripts/daily_quant.sh >> data/logs/daily-quant.log 2>&1
-```
-
-工作日 16:35 跑纸面日更（P2）：
-
-```cron
-35 16 * * 1-5 cd /path/to/quantlab && bash scripts/daily_paper.sh >> data/logs/paper-daily.log 2>&1
-```
-
-可选周末 Agent 回归（需 `DASHSCOPE_API_KEY`）：
-
-```cron
-0 10 * * 6 cd /path/to/quantlab && python3 research/daily_run.py --eval-agent --json
-```
-
----
-
-## launchd（macOS）
-
-1. 复制并编辑 `scripts/launchd/*.plist.example`，将 `CHANGE_ME` 替换为项目绝对路径
-2. `mkdir -p data/logs`
-3. `launchctl load ~/Library/LaunchAgents/com.quantlab.daily-advisor.plist`
-
----
-
-## 报告归档
-
-| 文件 | 说明 |
-|------|------|
-| `data/quant_daily.json` | 最新量化日报 JSON（API `/api/quant/last`） |
-| `data/last_portfolio_backtest.json` | 最近一次 `/replay` 产品回测（刷新恢复，不重跑） |
-| `data/last_t0_backtest.json` | 最近一次 `/replay` 做 T 回测（刷新恢复，不重跑） |
-| `data/reports/quant_daily_YYYYMMDD.md` | preset quant/full 自动导出 Markdown |
-| `data/reports/quant_daily_YYYYMMDD.html` | 同上 HTML |
-| `data/daily_last_run.json` | 最近一次 daily 任务状态 |
-
-手动导出：
-
-```bash
-python3 research/daily_run.py --quant-report --export-quant-report
-```
-
----
-
-## 前置条件
-
-| 任务 | 需要先 |
-|------|--------|
-| `advisor` / `full` 纸面步骤 | `python3 research/paper_run.py --init` 或 Web「纸面」初始化 |
-| `quant` / `full` watching | `python3 research/watching_run.py --init`（或 `bash scripts/setup_quant.sh`）：`watching.example.json` → `watching.json`。模板 `sources` 为空即手动名单；要按规则重算再写 `sources` 后 `--refresh` |
-
-失败时 CLI 退出码为 `1`，JSON 中 `failures` 列出原因；Web 返回 HTTP 422 与同样结构。
-
----
-
-## 健康检查与报告索引（P17）
-
-| API | 说明 |
-|-----|------|
-| `GET /api/daily/health` | 聚合 daily 上次运行 + watching 健康 + 最近归档报告 |
-| `GET /api/watching/health` | watchlist 数量、stale、issues/warnings |
-| `GET /api/quant/reports` | 列出 `data/reports/quant_daily_*.md/html` |
-| `GET /api/quant/reports/{filename}` | 读取单个归档报告 |
-
-Agent：`quant(task=health)` · `quant(task=package_info)` 查看包模块树。量化 preset 跑完后会追加 `watching_health` 步骤（watchlist 为空等会记为失败）。
-
-Web 量化面板 **「运维状态」** 区可 **「量化 CI」**（9 quant_* + preset）、**运行 daily**、复制报告链接；包模块树见 `GET /api/quant/package`。
-
-Agent：`quant(task=daily_presets)` 列出 preset；`quant(task=config_diff)` 预览 signal_config diff；`quant(task=portfolio_bridge)` 汇总持仓/纸面/量化联动。
-
-归档报告含 `share_url`（如 `/api/quant/reports/quant_daily_YYYYMMDD.html`）；Web 运维区可 **复制链接**。导出 MD/HTML 顶部含 **一页摘要**（`GET /api/quant/export/summary`）。
-
-### 持仓 ↔ 量化联动（P24）
-
-| 入口 | 说明 |
-|------|------|
-| Web 持仓 ·「打开量化」 | 关闭持仓弹窗，打开量化面板并加载联动摘要 |
-| Web · 持仓联动 | `GET /api/portfolio/quant-bridge`（只读：模拟持仓 ↔ 观察重叠） |
-| Agent | `quant(task=portfolio_bridge)` |
-
-### Agent 周末回归（P24，可选）
-
-需 `DASHSCOPE_API_KEY`，**不**加入 `ci_quant.sh` / PR CI：
-
-```bash
-bash scripts/agent_regression.sh
-bash scripts/agent_regression_quant.sh
-python3 evals/run_agent_check.py --case quant_portfolio_backtest
-python3 evals/run_agent_check.py --quant-only --presets
-python3 evals/run_checklist.py --mock --quant-only --presets
-```
-
----
-
-## Watching 编辑（P18）
-
-Web 量化面板 **「编辑 watching.json」** 可修改 `sources` / `max_size` / `watchlist`（保存后不会自动 refresh，需点「刷新」）。
-
-| API | 说明 |
-|-----|------|
-| `GET /api/watching/file` | 读取完整 watching JSON |
-| `PUT /api/watching/file` | 保存并校验（与 portfolio 编辑同类） |
-
----
-
-## Cron 失败检查（P18）
-
-任务跑完后可用本地脚本判断是否应告警（非远端 webhook）：
-
-```bash
-# 量化 daily 后检查
-bash scripts/daily_quant.sh && bash scripts/daily_check.sh
-
-# 严格模式：尚无 daily 记录也视为失败
-python3 research/daily_check.py --require-run --json
-```
-
-配合 crontab `MAILTO=you@example.com` 时，`daily_check.sh` exit 1 会触发邮件。
-
----
-
-## 信号配置（P19）
-
-Web 量化面板 **「信号配置（只读）」** 展示当前 `signal_config.json` 合并后的权重、stance 阈值与 rank 参数。
-
-| API | 说明 |
-|-----|------|
-| `GET /api/signal/config` | 完整元信息 + merged config |
-| `GET /api/signal/config/file` | 同上（Web 编辑器只读预览） |
-
-**不提供 PUT**：权重/阈值调整仍通过 IC/OOS 建议 → 导出 diff → 手动合并 `signal_config.json`。
-
-### Diff 预览（P20）
-
-| API | 说明 |
-|-----|------|
-| `GET /api/signal/config/diff-preview` | 合并 quant_daily 中权重/阈值 diff（或即时计算） |
-
-Web 研究枢纽不挂「预览 diff」。API 仍可用：`GET /api/signal/config/diff-preview`、`GET /api/signal/config/diff-export`。日报 preset `quant_paper` 仍走 `POST /api/daily/run`。
-
-### 一键初始化（P21）
-
-```bash
-bash scripts/setup_quant.sh
-```
-
-### Diff 导出包
-
-```bash
-curl -s 'localhost:8000/api/signal/config/diff-export?use_saved=true'
-```
-
-`merged_patch` 须手动合并到 `signal_config.json`，系统不会自动写盘。
+盘中剩余收益 / τ 几何与融合阶梯以 **[§2.5](#25-双层-predictedscoreŷoo-ŷτ)** 与 [design-spine · Ensemble](design-spine.md#预估方法论多频率-多目标-ensemble) 为准（旧独立「盘中剩余收益头」专文已并入）。
 
 ---
 
 ## 相关文档
 
-- [量化原理](#量化原理与实现逻辑) — 量化原理；[机器学习视角](quant.md#机器学习视角如何理解量化)
-- [design-spine.md · 路线图](design-spine.md#能力评估与升级规划路线图视角) — 投顾层 cron 说明
+| 文档 | 内容 |
+|------|------|
+| [quant-ops.md](quant-ops.md) | preset · cron · 归档 |
+| [rebalance-logic.md](rebalance-logic.md) | 调仓产品规则 |
+| [t0-logic.md](t0-logic.md) | 做 T 产品规则 |
+| [quant-ui.md](quant-ui.md) | Web 契约 |
+| [design-spine.md](design-spine.md) | 产品主轴 · 北极星 |
+| [architecture.md](architecture.md) | 工程分层 |
+| [getting-started.md](getting-started.md) | 手把手入门 |

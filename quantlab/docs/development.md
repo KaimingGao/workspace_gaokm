@@ -293,7 +293,7 @@ Web 研究枢纽可查看子目录 README；无 LLM 时「AI 解读」可走 `PO
 
 顶栏 **「纸面」** → 净值曲线、初始化、跑观察池、**每日任务**。  
 顶栏 **「持仓」** → 规则 action / stance；**「打开量化」** / **「量化对照」** 跳转量化联动面板。  
-顶栏 **「量化」** → watching / 横截面 / 组合回测 / diff / daily preset 运维等，详见 [quant.md · 量化运维](quant.md#量化运维)。
+顶栏 **「量化」** → watching / 横截面 / 组合回测 / diff / daily preset 运维等，详见 [quant-ops.md](quant-ops.md)。
 
 ## 扩展新 Skill（约定）
 

@@ -390,7 +390,7 @@ def _b_track_gate(fund: dict, add) -> None:
         True,
         "B 轨：y_spec · 共线策略 · Ridge 选 λ · 重估 demote · OOS respect_regime",
         severity="soft",
-        action="见 docs/archive/beta-regression-strengthen.md",
+        action="见 docs/quant.md · ŷ 全链路 / docs/design-spine.md",
     )
     try:
         ann_ratio = fund.get("ann_missing_code_ratio")
@@ -439,7 +439,7 @@ def _dc_fm_rk_gate(ss: dict, fund: dict, add) -> None:
                 f"label={pit.get('honest_label')}"
             ),
             severity="soft",
-            action="平台 DQ → 催办 ingest TopN；见 pro-core-strengthen DC0",
+            action="平台 DQ → 催办 ingest TopN；见 docs/component/data.md",
         )
         add(
             "dc_track",
@@ -475,7 +475,7 @@ def _dc_fm_rk_gate(ss: dict, fund: dict, add) -> None:
             unlabeled_n == 0,
             f"风险拦截未标注 outcome={unlabeled_n}",
             severity="soft",
-            action="策略页标注真拦/误拦；见 pro-core-strengthen RK2",
+            action="策略页标注真拦/误拦；见 docs/component/risk.md",
         )
     except Exception as exc:
         logger.exception('unexpected error in evaluate_maturity_gate')
