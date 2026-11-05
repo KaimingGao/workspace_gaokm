@@ -95,10 +95,12 @@ def _shared_oos_backtest_kwargs(
 
         d = backtest_portfolio_defaults()
     except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+        from core.risk.limits import DEFAULT_RISK_LIMITS
+
         d = {
             "weight_mode": "equal",
-            "max_position_pct": 25.0,
-            "max_sector_pct": 40.0,
+            "max_position_pct": float(DEFAULT_RISK_LIMITS["max_position_pct"]),
+            "max_sector_pct": float(DEFAULT_RISK_LIMITS["max_sector_pct"]),
             "exclude_st": True,
         }
     _ = d, fundamentals_by_code

@@ -113,14 +113,83 @@ def _next_snapshot_ts(paper: dict) -> str:
         return ts
 
 
+# 毒字段：ŷ 门槛由 score_display.resolve_*_floor 统一管理，禁止留在 paper.rules（C2 / P-V1）
+_TOXIC_RULE_KEYS = ("min_score", "min_hold_score")
+
+
+def validate_paper(data: dict, *, on_load: bool = True) -> List[str]:
+    """就地规范化 paper dict；返回 warnings（不写进 paper.json）。
+
+    硬：cash 缺失/非有限数；holdings/trades/logs 类型；rules 须为 dict。
+    软：剥离 rules.min_score / min_hold_score；清洗非法限额标量。
+    """
+    if not isinstance(data, dict):
+        raise ValueError("paper 必须为 dict")
+    if "cash" not in data:
+        raise ValueError("paper.json 缺少 cash")
+    try:
+        cash_f = float(data["cash"])
+    except (TypeError, ValueError) as exc:
+        raise ValueError(f"paper.cash 无法解析为数字: {data.get('cash')!r}") from exc
+    if cash_f != cash_f or cash_f in (float("inf"), float("-inf")):
+        raise ValueError(f"paper.cash 非有限数: {data.get('cash')!r}")
+    data["cash"] = cash_f
+
+    warnings: List[str] = []
+
+    for key in ("holdings", "trades", "signal_log", "snapshots", "operation_log"):
+        if key in data and data[key] is not None and not isinstance(data[key], list):
+            raise ValueError(f"paper.{key} 必须为 list")
+
+    if "rules" in data and data["rules"] is not None and not isinstance(data["rules"], dict):
+        raise ValueError("paper.rules 必须为 dict")
+
+    rules = data.get("rules")
+    if isinstance(rules, dict):
+        for tk in _TOXIC_RULE_KEYS:
+            if tk in rules:
+                rules.pop(tk, None)
+                warnings.append(f"stripped rules.{tk} (ŷ path; use scoring.min_predicted_score)")
+        # 非法限额标量：丢掉，交给 resolve_account_risk_limits 用 Spec/DEFAULT
+        for rk, kind in (
+            ("max_positions", "int"),
+            ("max_position_pct", "float"),
+            ("max_sector_pct", "float"),
+            ("max_drawdown_pct", "float"),
+            ("position_pct", "float"),
+        ):
+            if rk not in rules or rules[rk] is None:
+                continue
+            raw = rules[rk]
+            try:
+                if kind == "int":
+                    if isinstance(raw, bool):
+                        raise ValueError("bool")
+                    iv = int(raw)
+                    if iv < 1:
+                        raise ValueError("lt1")
+                    rules[rk] = iv
+                else:
+                    fv = float(raw)
+                    if fv != fv or fv in (float("inf"), float("-inf")):
+                        raise ValueError("nan")
+                    rules[rk] = fv
+            except (TypeError, ValueError):
+                rules.pop(rk, None)
+                warnings.append(f"dropped rules.{rk} (invalid: {raw!r})")
+
+    if on_load:
+        for w in warnings:
+            logger.warning("validate_paper: %s", w)
+    return warnings
+
+
 def load_paper(path: Optional[str] = None) -> dict:
     p = path or DEFAULT_PAPER_PATH
     if not os.path.isfile(p):
         raise FileNotFoundError(f"模拟账户不存在: {p}（可先初始化）")
     with open(p, encoding="utf-8") as f:
         data = json.load(f)
-    if "cash" not in data:
-        raise ValueError("paper.json 缺少 cash")
     data.pop("watchlist", None)  # 已废弃：名单只在 watching，仓位只在 holdings
     data.setdefault("holdings", [])
     data.setdefault("trades", [])
@@ -130,6 +199,8 @@ def load_paper(path: Optional[str] = None) -> dict:
     data.setdefault("rules", {})
     data.setdefault("cost_model", "simple_cn")
     data.setdefault("cost_params", {})
+    # cash 类型/缺失由 validate_paper 硬校验
+    validate_paper(data, on_load=True)
     try:
         from core.t0.intraday import stamp_resolved_stock_names
 
@@ -156,6 +227,8 @@ def holding_codes(paper: dict) -> List[str]:
 def save_paper(data: dict, path: Optional[str] = None) -> str:
     p = path or DEFAULT_PAPER_PATH
     data.pop("watchlist", None)
+    # 写盘前 strip 毒字段；warnings 仅日志，不落盘
+    validate_paper(data, on_load=False)
     trim_paper_lists(data)
     with paper_write_lock(p):
         atomic_write_json(p, data)

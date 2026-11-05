@@ -1,18 +1,19 @@
-## 工程结构轨（A0–A4 · B0–B4）
+## 工程结构轨（A0–A4 · B0–B4 · C0–C3 · C1.x）
 
 [← 文档索引](../README.md) · 产品边界见 [design-spine.md](../design-spine.md) · 存储选型见 [data.md · 数据层](../component/data.md#数据层data-layer) · Bars 迁库细则见 [sqlite-migration.md](sqlite-migration.md) · 债务台账见 [framework-review.md](framework-review.md)
 
-**定位**：产品能力轨（P/Q/R/V、DC/FM/RK）已收口后的 **工程结构**。**A0–A4 · B0–B4 均已落地**，不扩 Tick / 数仓 / SPA / OMS。
+**定位**：产品能力轨（P/Q/R/V、DC/FM/RK）已收口后的 **工程结构**。**A0–A4 · B0–B4 均已落地**；**C 轨**收紧 paper/risk/strategy 状态不变量（SSOT + 校验）。不扩 Tick / 数仓 / SPA / OMS。
 
 ## 一句话
 
 - A 轨：契约冻结 → Bars SQLite → Job 运行时硬化 → 领域门面对称 → 前端稳态
 - B 轨：契约冻结 → 拆 paper_replay + 去层倒置 → yhat 契约解环 → 持久化/prior 归位 → t0/root 收尾
+- C 轨：风险限额单一真源 → `validate_paper` → promote/cycle 卫生（不引入富领域模型）
 
 ## 锁定
 
-- **做**：日线/分钟线 SQLite WAL（`QUANTLAB_BARS_BACKEND`）；Job stale/cancel 统一 + 长任务进程隔离评估；BacktestService 信封 + 按用例拆巨石；paper/quant 编排继续下沉岛。
-- **不做**：微服务 / Redis / Celery / Postgres；把 paper/watching/config 全部迁库；全站 React / Vite / Ant Design Pro；NN→生产 ŷ / OMS（N6 另立）。
+- **做**：日线/分钟线 SQLite WAL（`QUANTLAB_BARS_BACKEND`）；Job stale/cancel 统一 + 长任务进程隔离评估；BacktestService 信封 + 按用例拆巨石；paper/quant 编排继续下沉岛；状态层限额/门槛 SSOT + paper 结构校验。
+- **不做**：微服务 / Redis / Celery / Postgres；把 paper/watching/config 全部迁库；全站 React / Vite / Ant Design Pro；NN→生产 ŷ / OMS（N6 另立）；`Portfolio` 聚合根 / 领域事件 / 重写 paper 引擎。
 
 ## 环境变量
 
@@ -89,3 +90,38 @@ python3 -m unittest tests.test_paper_replay tests.test_replay_score_cache tests.
 - **B2**：`core/yhat/{keys,model_load,fingerprint}.py`；`core/market/priors/`；守卫测禁 signal↔research 顶层互引。
 - **B3**：`core/persistence/{bars,json_doc,result_snapshot}.py`；`watching/{repository,sources,sync_paper,policy}.py`。
 - **B4**：`core/t0/intraday.py` 供 t0；`core/platform/` 归档 jobs/manifest；legacy TopK 仅 `full_engine=True`。
+
+## C 轨 · 状态层 SSOT（C0–C3）
+
+**定位**：在不动数值层（factors/research/backtest）与边界门面（ports/services/agent）的前提下，收紧 `paper / risk / strategy` 的限额与结构一致性。ŷ 门槛主路径（Y-S1–S3）已由 `score_display.resolve_*_floor` 收口，本轨不重做。
+
+### C 轨锁定
+
+- **做**：`DEFAULT_RISK_LIMITS` + `resolve_account_risk_limits`；`validate_paper` 挡毒字段；cycle/promote 禁止 `params.min_score` 渗入 `paper.rules`。
+- **不做**：Portfolio 富对象 / Aggregate / Repository 重写；draft→staging→active 状态机；改 rank_lots 产品语义；改写 regime/adaptive 研究侧 0–100 词汇。
+
+### 真源约定
+
+| 概念 | 唯一读口 | 禁止 |
+|------|----------|------|
+| ŷ 入场/持有门槛 | `core/signal/score_display.resolve_*_floor` | 交易路径字面量 55/60/45；`paper.rules.min_score` 当 ŷ 门 |
+| 账户风控限额 | `core/risk/limits.resolve_account_risk_limits` | 各处私自 `or 5` / `or 25` / `or 40` |
+| Strategy 限额填空 | 与 `DEFAULT_RISK_LIMITS` 同值（`get_strategy_spec` 引用） | checks 失败落到 `max_positions=5` 等分叉 |
+| 策略落地到 paper | `apply_strategy_to_paper` 只合并 `paper_rules` + risk/execution | exception 路径把 `params` 打进 `paper.rules` |
+
+### C 轨阶段状态
+
+**C0–C3 · C1.x 已落地**（含鲁棒夹紧 / 脏输入清洗）：台账 → `limits.py` → `validate_paper` → cycle 卫生 → kelly 单位 / DEFAULT 末级兜底。
+
+- **C0** 台账（本节 + framework-review R-S1 / P-V1 / Y-S5）+ `tests/test_c_track_invariants.py`
+- **C1** `core/risk/limits.py`；checks / cycle / exposure / monitor / book_constraints / exec 统一读口
+- **C1.x** `pct_to_fraction` + kelly；末级 DEFAULT；`RiskLimits`；脏值夹紧 / Spec warning
+- **C2** `ledger.validate_paper`；load/save strip 毒字段 + 非法限额标量
+- **C3** cycle apply 失败路径卫生；报告文案对齐 ŷ floor
+
+### C 轨验收命令
+
+```bash
+cd quantlab
+python3 -m unittest tests.test_c_track_invariants tests.test_score_display_floor tests.test_q2_q5_strategy tests.test_framework_hardening -v
+```

@@ -65,6 +65,9 @@ Web 主路径：观察建仓 → 确认调仓（`run_daily_cycle`）→ 轮询 *
 | **Y-S1** | 日更 `min_score=55` 当 ŷ 门槛 → 目标簿近空 | `resolve_optimize_score_floor`；`paper_cycle` 传 `None`；≥10 视为遗留 0–100 |
 | **Y-S2 / Y-S3** | StrategySpec/`promote`/feedback 写 0–100 选股门 | `paper_rules` 仅限额，promote 剥离 legacy keys；建议改 `scoring.min_predicted_score`，不写 weights |
 | **Y-S4** | services/core 直调 minute/财务 skills | `ports.fetch_minute_bars` · `fetch_cn_financial_series` + ports_bind |
+| **Y-S5** | `cycle._resolve_strategy_spec` 失败路径把 `params`（含研究 `min_score`）打进 `paper.rules` | **已落地**：仅合并 `get_strategy_spec` 的 `paper_rules`/risk 安全子集（C3） |
+| **R-S1** | 风控限额兜底分叉：`checks` `max_positions or 5`、cycle `or 5`、book `40`、spec 填空 `20` | **已落地**：`core/risk/limits.py` + `resolve_account_risk_limits`（C1）；C1.x 收 kelly 单位 / 末级 DEFAULT / Spec warning |
+| **P-V1** | `paper.json` 无结构校验；任意函数可写 `rules.min_score` 等毒字段 | **已落地**：`ledger.validate_paper` load/save strip（C2） |
 | **F-C1** | core→quant.research 分层倒置 | `core/research/*`；quant 再导出 |
 | **F-C2** | ŷ/0–100 渗入 neutralize·回测 UI·stance | neutralize 保 ŷ；JS `min_predicted_score`；stance 无静默回退 |
 | **F-C3** | 三条调仓语义 | `core/paper/rebalance/orchestrator` + preset 别名 |
@@ -91,8 +94,9 @@ Web 主路径：观察建仓 → 确认调仓（`run_daily_cycle`）→ 轮询 *
 - **整体**：研究台 + 纸面准实盘分层已理顺；框架急债 **O1–O9 / Y-S / F-C1–C3·H\* 已落地**，维持 ports 与 ŷ 单标尺 + live manifest 纪律。
 - **A 轨（工程结构）**：**A0–A4 已落地**——契约冻结 → Bars SQLite → Job 运行时硬化 → BacktestService + 按用例拆巨石 → 前端稳态；SS-E1～E5 / FH0–FH5 已收口。
 - **工程结构 B 轨**：**B0–B4 已落地**——拆 `paper_replay` + 去层倒置 → `yhat` 契约解环 → 持久化/prior 归位 → t0/root（见 [engineering-track.md · B 轨](engineering-track.md#b-轨-core-结构收口b0b4) · [core/README.md](../../core/README.md)）。
+- **状态层 C 轨**：**C0–C3 · C1.x 已落地**——风险限额 SSOT · kelly 单位 · `validate_paper` · promote/cycle 卫生（见 [engineering-track.md · C 轨](engineering-track.md#c-轨--状态层-ssotc0c3)；债项 R-S1 / P-V1 / Y-S5）。
 - **产品缺口**：仍见 design-spine / quant.md ŷ 全链路（非本表）；**体量债**：`quant.js` 已拆域 + 工厂，巨石按用例再切归 **A3/A4**（非为拆而拆）。
-- 单测锚点：`tests/test_framework_hardening.py`（core 无硬 skills import、Skill→DataService）· `tests/test_m1_data_collection.py` · `tests/test_d1_d6_platform.py`。
+- 单测锚点：`tests/test_framework_hardening.py`（core 无硬 skills import、Skill→DataService）· `tests/test_c_track_invariants.py` · `tests/test_m1_data_collection.py` · `tests/test_d1_d6_platform.py`。
 
 ## 7. 快速对照：文档 ↔ 代码
 
@@ -100,7 +104,8 @@ Web 主路径：观察建仓 → 确认调仓（`run_daily_cycle`）→ 轮询 *
 |------|------|
 | 唯一读口 | `core/data/facade.py` |
 | 端口 / 绑定 | `core/ports/{market,adapters,signal}.py` · `adapters/bind.py` |
-| 账本 / 成交 / 日循环 | `core/paper/`（ledger · exec · cycle · rebalance） |
+| 账户风控限额 SSOT | `core/risk/limits.py`（`resolve_account_risk_limits` · `pct_to_fraction`） |
+| 账本 / 成交 / 日循环 | `core/paper/`（ledger · exec · cycle · rebalance · `validate_paper`） |
 | Live 清单 | `core/live_config_manifest.py` · `data/live/live_config_manifest.json` |
 | 研究共享（core） | `core/research/{factor_ols_fit,oo_panel,tau_panel,portfolio_bars}.py`（`panel.py` 仅兼容再导出） |
 | 风控门禁 | `core/risk/checks.py` |

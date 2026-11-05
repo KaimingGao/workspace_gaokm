@@ -81,7 +81,7 @@ def selection_min_score(paper: Optional[dict] = None) -> Optional[float]:
     - 配置显式 ``null`` → ``None``（不设下限）
     - 配置数值 → 该值
     """
-    del paper
+    _ = paper  # 门槛只读 signal_config.scoring；保留参数兼容旧调用
     try:
         from core.signal.config import load_signal_config
 
@@ -100,10 +100,8 @@ def resolve_buy_floor(
     paper: Optional[dict] = None,
     *,
     explicit: Optional[float] = None,
-    heuristic_default: float = 55.0,
 ) -> float:
     """买入/入簿分数下限。默认 +1（ŷ≥1%）；配置显式 null → -inf。"""
-    del heuristic_default
     if explicit is not None:
         try:
             v = float(explicit)
@@ -125,11 +123,9 @@ DEFAULT_MIN_HOLD_PREDICTED_SCORE = -1.0
 
 def resolve_hold_floor(
     paper: Optional[dict] = None,
-    *,
-    heuristic_default: float = 45.0,
 ) -> float:
     """持仓卖出门槛。默认 -1（ŷ<-1% 才卖）；显式 null → -inf（不按分卖）。"""
-    del paper, heuristic_default
+    _ = paper  # 门槛只读 signal_config.scoring；保留参数兼容旧调用
     try:
         from core.signal.config import load_signal_config
 

@@ -544,10 +544,34 @@ def optimize_weights(
     - min_score：ŷ% 入选下限；默认 None → ``resolve_buy_floor``；≥10 视为遗留 0–100 并改走 ŷ 门槛。
       入选对比用 ``oo_gate_score_for_item``（ŷ_oo）；权重分配用 ``decision_score_for_item``（ŷ_trade）。
     """
+    from core.risk.limits import DEFAULT_RISK_LIMITS
+
     smap = sector_map if sector_map is not None else load_sector_map()
-    max_pos = max(0.1, float(max_position_pct or 2.0))
-    max_sec = max(0.1, float(max_sector_pct or 5.0))
-    max_n = max(1, int(max_positions or 20))
+    # 入参缺省时用账户限额 DEFAULT（非历史 2/5 紧兜底）
+    max_pos = max(
+        0.1,
+        float(
+            max_position_pct
+            if max_position_pct is not None
+            else DEFAULT_RISK_LIMITS["max_position_pct"]
+        ),
+    )
+    max_sec = max(
+        0.1,
+        float(
+            max_sector_pct
+            if max_sector_pct is not None
+            else DEFAULT_RISK_LIMITS["max_sector_pct"]
+        ),
+    )
+    max_n = max(
+        1,
+        int(
+            max_positions
+            if max_positions is not None
+            else DEFAULT_RISK_LIMITS["max_positions"]
+        ),
+    )
     from core.signal.score_display import resolve_optimize_score_floor
 
     floor = resolve_optimize_score_floor(min_score)

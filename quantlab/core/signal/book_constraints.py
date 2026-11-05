@@ -45,34 +45,26 @@ def resolve_book_risk_limits(
     strategy: Optional[str] = None,
     paper: Optional[dict] = None,
 ) -> Dict[str, Any]:
-    """与纸面调仓同一套上限：StrategySpec.risk + paper.rules 换手。"""
-    max_position_pct = 25.0
-    max_sector_pct = 40.0
-    max_positions = 40
-    max_turnover_pct = None
-    try:
-        from core.strategy import get_strategy_spec
+    """与纸面调仓同一套上限：账户 risk SSOT + paper.rules 换手 + book max_names。"""
+    from core.risk.limits import resolve_account_risk_limits
 
-        spec = get_strategy_spec(strategy) if strategy else get_strategy_spec()
-        risk = (spec or {}).get("risk") or {}
-        if risk.get("max_position_pct") is not None:
-            max_position_pct = float(risk["max_position_pct"])
-        if risk.get("max_sector_pct") is not None:
-            max_sector_pct = float(risk["max_sector_pct"])
-        if risk.get("max_positions") is not None:
-            max_positions = int(risk["max_positions"])
-    except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
-        pass
-    rules = {}
-    if isinstance(paper, dict):
-        rules = paper.get("rules") or {}
-    else:
+    paper_obj: Optional[dict] = paper if isinstance(paper, dict) else None
+    if paper_obj is None:
         try:
             from core.paper import load_paper
 
-            rules = (load_paper() or {}).get("rules") or {}
+            paper_obj = load_paper() or {}
         except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
-            rules = {}
+            paper_obj = {}
+    lim = resolve_account_risk_limits(
+        paper=paper_obj,
+        strategy_id=strategy,
+    )
+    max_position_pct = float(lim["max_position_pct"])
+    max_sector_pct = float(lim["max_sector_pct"])
+    max_positions = int(lim["max_positions"])
+    max_turnover_pct = None
+    rules = (paper_obj or {}).get("rules") or {}
     raw_mto = rules.get("max_turnover_pct", rules.get("max_turnover"))
     if raw_mto is not None:
         try:
@@ -174,8 +166,20 @@ def _sector_of(row: dict, sector_map: Optional[dict]) -> str:
 
 def max_names_per_sector(max_names: int, max_sector_pct: float) -> int:
     """等权簿近似：行业名额 ≤ floor(max_names × max_sector_pct/100)，至少 1。"""
+    from core.risk.limits import DEFAULT_RISK_LIMITS
+
     n = max(1, int(max_names or 1))
-    pct = max(1.0, min(100.0, float(max_sector_pct or 40.0)))
+    pct = max(
+        1.0,
+        min(
+            100.0,
+            float(
+                max_sector_pct
+                if max_sector_pct is not None
+                else DEFAULT_RISK_LIMITS["max_sector_pct"]
+            ),
+        ),
+    )
     return max(1, int(n * pct / 100.0))
 
 
@@ -193,10 +197,23 @@ def fill_book_with_constraints(
 
     返回 ``book`` · ``skipped`` · ``stats``。
     """
+    from core.risk.limits import DEFAULT_RISK_LIMITS
+
     cfg = get_book_constraints_cfg() if constraints is None else {**DEFAULT_BOOK_CONSTRAINTS, **constraints}
     limits = risk_limits or resolve_book_risk_limits()
-    max_n = max(1, int(max_names or limits.get("max_positions") or 40))
-    max_sec_pct = float(limits.get("max_sector_pct") or 40.0)
+    max_n = max(
+        1,
+        int(
+            max_names
+            or limits.get("max_positions")
+            or DEFAULT_RISK_LIMITS["max_positions"]
+        ),
+    )
+    max_sec_pct = float(
+        limits.get("max_sector_pct")
+        if limits.get("max_sector_pct") is not None
+        else DEFAULT_RISK_LIMITS["max_sector_pct"]
+    )
     per_sec_cap = max_names_per_sector(max_n, max_sec_pct)
     qmap = quotes or {}
     skipped: List[dict] = []

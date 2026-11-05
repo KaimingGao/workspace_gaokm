@@ -111,13 +111,33 @@ def adaptive_position_sizing(
     Returns:
         建议的仓位比例
     """
-    rules = rules or {}
-    base_position = float(rules.get("position_pct") or 0.15)
-    max_position = float(rules.get("max_position_pct") or 0.25)
-    min_position = float(rules.get("min_position_pct") or 0.05)
+    from core.risk.limits import DEFAULT_RISK_LIMITS, pct_to_fraction, resolve_account_risk_limits
+
+    if not isinstance(paper, dict):
+        paper = {}
+    rules = rules if isinstance(rules, dict) else {}
+    try:
+        score_f = float(score)
+    except (TypeError, ValueError):
+        score_f = 0.0
+    if score_f != score_f or score_f in (float("inf"), float("-inf")):
+        score_f = 0.0
+
+    lim = resolve_account_risk_limits(paper=paper, risk=None)
+    # position_pct：产品约定 0–1；max_position_pct：Spec/rules 多为百分数（20→0.20）
+    base_position = pct_to_fraction(rules.get("position_pct"), default=0.15)
+    default_max_frac = float(DEFAULT_RISK_LIMITS["max_position_pct"]) / 100.0
+    if rules.get("max_position_pct") is not None:
+        max_position = pct_to_fraction(rules.get("max_position_pct"), default=default_max_frac)
+    else:
+        max_position = pct_to_fraction(lim["max_position_pct"], default=default_max_frac)
+    min_position = pct_to_fraction(rules.get("min_position_pct"), default=0.05)
+    if min_position > max_position:
+        min_position = min(0.05, max_position)
+    max_position = max(min_position, min(1.0, max_position))
 
     # 1. 基于凯利公式计算
-    trades = paper.get("trades") or []
+    trades = paper.get("trades") if isinstance(paper.get("trades"), list) else []
     if len(trades) >= 10:
         win_rate, pl_ratio = estimate_strategy_stats(trades)
         kelly_position = calculate_kelly_fraction(
@@ -128,11 +148,11 @@ def adaptive_position_sizing(
 
     # 2. 根据评分调整（高评分给更高仓位）
     score_adjustment = 1.0
-    if score >= 80:
+    if score_f >= 80:
         score_adjustment = 1.3  # 高评分，加仓30%
-    elif score >= 70:
+    elif score_f >= 70:
         score_adjustment = 1.15  # 中高评分，加仓15%
-    elif score < 55:
+    elif score_f < 55:
         score_adjustment = 0.7  # 低评分，减仓30%
 
     # 3. 考虑市场状态
@@ -172,15 +192,29 @@ def calculate_position_for_portfolio(
     Returns:
         建议的仓位比例
     """
-    rules = rules or {}
-    base_position = float(rules.get("position_pct") or 0.15)
-    max_positions = int(rules.get("max_positions") or 5)
+    from core.risk.limits import resolve_account_risk_limits
+
+    if not isinstance(paper, dict):
+        paper = {}
+    rules = rules if isinstance(rules, dict) else {}
+    lim = resolve_account_risk_limits(paper=paper)
+    if rules.get("max_positions") is not None:
+        try:
+            if isinstance(rules.get("max_positions"), bool):
+                raise ValueError("bool")
+            max_positions = int(rules.get("max_positions"))
+        except (TypeError, ValueError):
+            max_positions = int(lim["max_positions"])
+    else:
+        max_positions = int(lim["max_positions"])
+    max_positions = max(1, max_positions)
 
     # 计算自适应基础仓位
     adaptive_base = adaptive_position_sizing(paper, new_score, rules)
 
     # 考虑已有持仓数量，分散化
-    current_count = len(existing_scores)
+    scores = existing_scores if isinstance(existing_scores, list) else []
+    current_count = len(scores)
     remaining_slots = max_positions - current_count
 
     if remaining_slots <= 0:

@@ -229,14 +229,24 @@ def get_risk_controls(
     Returns:
         风控状态
     """
+    from core.risk.limits import resolve_account_risk_limits
+
     config = config or {}
     trades = paper.get("trades") or []
+    lim = resolve_account_risk_limits(paper=paper)
+    if config.get("max_positions") is not None:
+        try:
+            default_max_pos = int(config.get("max_positions"))
+        except (TypeError, ValueError):
+            default_max_pos = int(lim["max_positions"])
+    else:
+        default_max_pos = int(lim["max_positions"])
 
     controls = {
         "trading_allowed": True,
         "position_limit": 1.0,
-        "max_positions": config.get("max_positions", 5),
-        "min_score": 55.0,
+        "max_positions": default_max_pos,
+        "min_score": 55.0,  # adaptive 路径遗留；exec 生产关闭 use_adaptive_threshold
         "warning_messages": [],
     }
 
@@ -267,7 +277,7 @@ def get_risk_controls(
         )
         # 限制仓位
         controls["position_limit"] = 0.5
-        controls["max_positions"] = min(3, config.get("max_positions", 5))
+        controls["max_positions"] = min(3, default_max_pos)
     elif adjustments["risk_level"] == "elevated":
         controls["warning_messages"].append(
             f"⚡ 中风险状态：胜率{adjustments['win_rate']:.1%}"

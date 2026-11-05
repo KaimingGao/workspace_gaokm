@@ -57,7 +57,7 @@ adapters.bind（出站）
 | `t0/` | 做 T 内核 | 与 replay 共享 `intraday/` 成交钟 / 价空间 |
 | `watching/` | 候选宇宙 | `policy` · `repository` · `sources` · `sync_paper`（`store.py` 为兼容门面） |
 | `market/` | 代码 · 日历 · 上下文 · **priors** | priors 在 `market/priors/`（旧根路径 shim） |
-| `risk/` | 调仓前门禁 · 敞口 | 不 re-export 舆情 prior |
+| `risk/` | 限额 SSOT（`limits`）· 调仓前门禁 · 敞口 | 不 re-export 舆情 prior |
 
 ### 回测主路径（`backtest/`）
 

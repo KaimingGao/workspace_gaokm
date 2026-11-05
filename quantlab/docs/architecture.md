@@ -1163,6 +1163,7 @@ BS → core/backtest/service.py → engine · topk_probe / topk_oos_curve · top
 
 | 模块 | 功能 |
 |------|------|
+| `limits.py` | 账户限额 SSOT（`DEFAULT_RISK_LIMITS` · `resolve_account_risk_limits` · `pct_to_fraction`） |
 | `checks.py` | 调仓前门禁 |
 | `budget.py` · `exposure.py` | 风险预算与敞口 |
 

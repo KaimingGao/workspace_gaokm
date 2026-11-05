@@ -100,7 +100,7 @@ def build_exposure_matrix(
     over_limit 与 check_account_risk 同源（max_sector_pct / max_position_pct）。
     """
     from core.portfolio_optimize import _sector_for, load_sector_map
-    from core.strategy import get_strategy_spec
+    from core.risk.limits import resolve_account_risk_limits
 
     paper = paper or {}
     sm = summary or {}
@@ -109,15 +109,9 @@ def build_exposure_matrix(
     if equity <= 0:
         equity = float(paper.get("cash") or 0) + sum(_holding_mv(h) for h in holdings)
 
-    spec_risk = risk
-    if spec_risk is None:
-        sid = paper.get("strategy_id") or "short_conservative"
-        try:
-            spec_risk = get_strategy_spec(str(sid)).get("risk") or {}
-        except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
-            spec_risk = {}
-    max_sector = float((spec_risk or {}).get("max_sector_pct") or 40.0)
-    max_pos = float((spec_risk or {}).get("max_position_pct") or 25.0)
+    lim = resolve_account_risk_limits(paper=paper, risk=risk)
+    max_sector = float(lim["max_sector_pct"])
+    max_pos = float(lim["max_position_pct"])
 
     smap = sector_map if sector_map is not None else load_sector_map()
 

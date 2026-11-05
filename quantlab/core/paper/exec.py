@@ -1009,10 +1009,10 @@ def simulate_buys(
     # 生产仅 ŷ：不用 0–100 的 min_score/加仓分档；入选靠池排序与 scoring 门槛
     base_min_score = resolve_buy_floor(paper)
     base_sell_score = float("-inf")
-    try:
-        max_positions = int(rules.get("max_positions") or 5)
-    except (TypeError, ValueError):
-        max_positions = 5
+    from core.risk.limits import resolve_account_risk_limits
+
+    _lim = resolve_account_risk_limits(paper=paper)
+    max_positions = int(_lim["max_positions"])
     position_pct = _rule_num("position_pct", 0.15)
     add_size_pct = _rule_num("add_size_pct", 0.5)  # 加仓比例50%
     cost_model = resolve_cost_model(paper)
@@ -1415,7 +1415,7 @@ def simulate_sells(paper: dict, pool=None) -> List[dict]:
     rules = paper.get("rules") or {}
     stop_loss_pnl = float(rules.get("stop_loss_pnl") or -8.0)
     max_hold_days = int(rules.get("max_hold_days") or 5)
-    min_score = resolve_buy_floor(paper, heuristic_default=60.0)
+    min_score = resolve_buy_floor(paper)
     use_score_reduce = False
 
     # 动态止损配置

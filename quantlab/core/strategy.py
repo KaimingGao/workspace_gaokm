@@ -57,17 +57,10 @@ def get_strategy_spec(name: str = DEFAULT_STRATEGY) -> Dict[str, Any]:
     paper_rules.pop("t0", None)
     execution = execution_from_lifecycle(extra)
     risk = deepcopy(extra.get("risk") or {})
-    # 补全风控真源，避免回测/纸面各自散落 or 25/40/5
-    if risk.get("max_drawdown_pct") is None:
-        risk["max_drawdown_pct"] = 20.0
-    if risk.get("max_position_pct") is None:
-        risk["max_position_pct"] = 25.0
-    if risk.get("max_sector_pct") is None:
-        risk["max_sector_pct"] = 40.0
-    if risk.get("max_positions") is None:
-        risk["max_positions"] = int(paper_rules.get("max_positions") or 20)
-    if risk.get("weight_mode") is None:
-        risk["weight_mode"] = str(paper_rules.get("weight_mode") or "score_budget")
+    # 补全风控真源：与 core.risk.limits.DEFAULT_RISK_LIMITS 同源（C1 / R-S1）
+    from core.risk.limits import fill_risk_defaults
+
+    risk = fill_risk_defaults(risk, paper_rules=paper_rules)
     return {
         "strategy_id": key,
         "version": str(extra.get("version") or "1.0.0"),
@@ -84,22 +77,28 @@ def get_strategy_spec(name: str = DEFAULT_STRATEGY) -> Dict[str, Any]:
 def backtest_portfolio_defaults(
     strategy: str = DEFAULT_STRATEGY,
 ) -> Dict[str, Any]:
-    """Top-K / 组合回测默认：权重/限额/持有期对齐纸面；K 默认 3（研究用小组合，≠纸面 max_positions）。"""
+    """Top-K / 组合回测默认：权重/限额/持有期对齐纸面；K 默认 3（研究用小组合，≠纸面 max_positions）。
+
+    ``min_score`` 仅为研究 Top-K / WF 遗留键（0–100），**不得**写入 ``paper.rules``；
+    纸面交易门槛用 ``min_predicted_score`` / ``resolve_buy_floor``。
+    """
+    from core.risk.limits import resolve_account_risk_limits
+
     spec = get_strategy_spec(strategy)
     risk = spec.get("risk") or {}
     params = spec.get("params") or {}
     paper_rules = spec.get("paper_rules") or {}
+    lim = resolve_account_risk_limits(
+        strategy_id=str(spec.get("strategy_id") or strategy),
+        risk=risk,
+    )
     try:
         from core.signal.score_display import resolve_buy_floor
 
         min_pred = float(resolve_buy_floor())
     except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
         min_pred = 1.0
-    max_pos = int(
-        risk.get("max_positions")
-        or paper_rules.get("max_positions")
-        or 20
-    )
+    max_pos = int(lim["max_positions"])
     return {
         "strategy_id": spec.get("strategy_id") or DEFAULT_STRATEGY,
         "top_k": 3,
@@ -109,16 +108,13 @@ def backtest_portfolio_defaults(
             or params.get("horizon_days")
             or 3
         ),
-        "weight_mode": str(
-            risk.get("weight_mode")
-            or paper_rules.get("weight_mode")
-            or "score_budget"
-        ),
-        "max_position_pct": float(risk.get("max_position_pct") or 25.0),
-        "max_sector_pct": float(risk.get("max_sector_pct") or 40.0),
+        "weight_mode": str(lim.get("weight_mode") or "score_budget"),
+        "max_position_pct": float(lim["max_position_pct"]),
+        "max_sector_pct": float(lim["max_sector_pct"]),
         "max_positions": max_pos,
         "exclude_st": True,
         "min_predicted_score": min_pred,
+        # 研究遗留：仅 Top-K/WF；禁止 apply/cycle 写入 paper.rules
         "min_score": float(params.get("min_score") or 55.0),
     }
 

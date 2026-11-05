@@ -275,7 +275,7 @@ def assess_strategy_health(
     codes: Optional[Sequence[str]] = None,
 ) -> Dict[str, Any]:
     """根据纸面回撤、持仓、可选滚动 IC、行业覆盖产出告警。"""
-    from core.strategy import get_strategy_spec
+    from core.risk.limits import resolve_account_risk_limits
 
     paper = paper or {}
     sm = summary or {}
@@ -283,13 +283,9 @@ def assess_strategy_health(
     suggestions: List[str] = []
 
     sid = paper.get("strategy_id") or "short_conservative"
-    try:
-        spec_risk = risk or (get_strategy_spec(str(sid)).get("risk") or {})
-    except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
-        spec_risk = risk or {}
-
-    max_dd = float(spec_risk.get("max_drawdown_pct") or 20.0)
-    target_dd = float(spec_risk.get("target_drawdown_pct") or max_dd * 0.6)
+    lim = resolve_account_risk_limits(paper=paper, strategy_id=str(sid), risk=risk)
+    max_dd = float(lim["max_drawdown_pct"])
+    target_dd = float(lim["target_drawdown_pct"])
     dd = sm.get("max_drawdown_pct")
     try:
         dd_f = float(dd) if dd is not None else None

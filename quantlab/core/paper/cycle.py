@@ -1,5 +1,6 @@
 """纸面调仓 / 日循环流水线（从 paper.py 拆出，降低单文件集中度）。"""
 
+import logging
 from typing import Any, Dict, List
 
 from core.paper.costs import resolve_cost_model
@@ -14,6 +15,8 @@ from core.paper.ledger import (
     build_ops_report,
     run_signal_scan,
 )
+
+logger = logging.getLogger(__name__)
 
 
 def run_daily_cycle(
@@ -171,21 +174,49 @@ def run_daily_cycle(
 
 def _resolve_strategy_spec(paper: dict, strategy: str) -> None:
     # 根据策略规格合并 paper.rules / 成本默认（Q2）
-    strategy_spec = None
-    if strategy:
-        try:
-            from core.strategy import apply_strategy_to_paper
+    # 失败路径禁止把研究 params（含 min_score）打进 paper.rules（Y-S5 / C3）
+    if not strategy:
+        return
+    try:
+        from core.strategy import apply_strategy_to_paper
 
-            strategy_spec = apply_strategy_to_paper(paper, strategy)
-        except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
-            from core.backtest.strategies import get_strategy
+        apply_strategy_to_paper(paper, strategy)
+        return
+    except Exception as exc:  # noqa: BLE001 — best-effort：只合并安全子集
+        logger.warning(
+            "apply_strategy_to_paper failed (%s); merging paper_rules/risk subset only",
+            exc,
+        )
+    try:
+        from core.strategy import get_strategy_spec
 
-            try:
-                strategy_spec = get_strategy(strategy)
-                paper_rules = paper.get("rules") or {}
-                paper["rules"] = {**paper_rules, **(strategy_spec.get("params") or {})}
-            except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
-                pass
+        spec = get_strategy_spec(strategy)
+        rules = dict(paper.get("rules") or {})
+        pr = dict(spec.get("paper_rules") or {})
+        pr.pop("min_score", None)
+        pr.pop("min_hold_score", None)
+        rules.update(pr)
+        risk = spec.get("risk") or {}
+        for rk in (
+            "max_position_pct",
+            "max_sector_pct",
+            "max_positions",
+            "weight_mode",
+            "max_drawdown_pct",
+        ):
+            if risk.get(rk) is not None and rules.get(rk) is None:
+                rules[rk] = risk[rk]
+        rules.pop("min_score", None)
+        rules.pop("min_hold_score", None)
+        paper["rules"] = rules
+        paper["strategy_id"] = spec.get("strategy_id") or strategy
+        if spec.get("version"):
+            paper["strategy_version"] = spec["version"]
+    except Exception as exc:  # noqa: BLE001 — 保留原 rules
+        logger.warning(
+            "_resolve_strategy_spec: safe-subset merge failed (%s); keeping paper.rules",
+            exc,
+        )
 
 
 def _get_holdings_info(paper: dict):
@@ -234,19 +265,17 @@ def _optimize_target_weights(paper: dict, pool: list, strategy: str) -> None:
     # P1：目标权重建议（风控拦截时仍可见）
     try:
         from core.portfolio_optimize import optimize_weights
-        from core.strategy import get_strategy_spec
+        from core.risk.limits import resolve_account_risk_limits
 
         sid_opt = paper.get("strategy_id") or strategy
-        rr = (get_strategy_spec(str(sid_opt)).get("risk") or {})
+        lim = resolve_account_risk_limits(paper=paper, strategy_id=str(sid_opt))
         paper["last_optimize"] = optimize_weights(
             pool,
-            max_position_pct=float(rr.get("max_position_pct") or 25.0),
-            max_sector_pct=float(rr.get("max_sector_pct") or 40.0),
-            max_positions=int(rr.get("max_positions") or 5),
+            max_position_pct=float(lim["max_position_pct"]),
+            max_sector_pct=float(lim["max_sector_pct"]),
+            max_positions=int(lim["max_positions"]),
             min_score=None,  # ŷ 滞回：resolve_buy_floor，勿读 paper.rules.min_score
-            weight_mode=str(
-                (paper.get("rules") or {}).get("weight_mode") or "score_budget"
-            ),
+            weight_mode=str(lim.get("weight_mode") or "score_budget"),
         )
     except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
         paper["last_optimize"] = None
@@ -422,11 +451,13 @@ def _build_rebalance_report(
     summary,
     simulate_buy: bool,
 ) -> List[dict]:
-    # 构建调仓报告：每只股票的评分和决策
-    rules = paper.get("rules") or {}
-    add_score_threshold = float(rules.get("add_score") or 60.0)
-    reduce_score_threshold = float(rules.get("reduce_score") or 50.0)
-    min_hold_score = float(rules.get("min_hold_score") or 45.0)
+    # 构建调仓报告：ŷ 门槛（非遗留 0–100 add_score/45）
+    from core.signal.score_display import resolve_buy_floor, resolve_hold_floor
+
+    add_score_threshold = float(resolve_buy_floor(paper))
+    min_hold_score = float(resolve_hold_floor(paper))
+    # 中性区上沿：买门槛与持有门槛中点（仅报告文案，非交易门）
+    reduce_score_threshold = (add_score_threshold + min_hold_score) / 2.0
 
     # 交易索引：code -> trade
     buy_by_code = {str(t.get("stock_code")): t for t in new_trades}
@@ -483,16 +514,16 @@ def _build_rebalance_report(
             if simulate_buy and s >= add_score_threshold:
                 decision = "持有（评分达标但未加仓）"
                 skip = (signal or {}).get("skip_reason")
-                reason = skip or f"评分{s:.1f}≥{add_score_threshold}，未加仓"
+                reason = skip or f"ŷ={s:.3f}≥买门槛{add_score_threshold:g}，未加仓"
             elif s < min_hold_score:
                 decision = "持有（评分过低）"
-                reason = f"评分{s:.1f}<{min_hold_score}"
+                reason = f"ŷ={s:.3f}<持有门槛{min_hold_score:g}"
             elif s < reduce_score_threshold:
                 decision = "持有（评分偏低）"
-                reason = f"评分{s:.1f}<{reduce_score_threshold}"
+                reason = f"ŷ={s:.3f}<中性上沿{reduce_score_threshold:g}"
             else:
                 decision = "持有"
-                reason = f"评分{s:.1f}，处于中性区间"
+                reason = f"ŷ={s:.3f}，处于中性区间"
         else:
             reason = "无评分数据"
 

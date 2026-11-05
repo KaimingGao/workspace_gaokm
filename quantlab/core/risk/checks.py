@@ -19,21 +19,24 @@ def check_account_risk(
     from core.paper.costs import resolve_cost_model
     from core.portfolio_optimize import _sector_for, load_sector_map, sector_map_coverage
     from core.risk.exposure import build_exposure_matrix
+    from core.risk.limits import resolve_account_risk_limits
     from core.strategy import get_strategy_spec
 
-    spec_risk = risk
-    if spec_risk is None:
+    lim = resolve_account_risk_limits(paper=paper, risk=risk)
+    max_dd = float(lim["max_drawdown_pct"])
+    target_dd = float(lim["target_drawdown_pct"])
+    max_pos_pct = float(lim["max_position_pct"])
+    max_sector_pct = float(lim["max_sector_pct"])
+    max_positions = int(lim["max_positions"])
+
+    # 行业图覆盖等扩展键仍读 Spec.risk（不在 DEFAULT 四限额内）
+    spec_risk: Dict[str, Any] = dict(risk or {})
+    if risk is None:
         sid = paper.get("strategy_id") or "short_conservative"
         try:
             spec_risk = get_strategy_spec(str(sid)).get("risk") or {}
         except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
             spec_risk = {}
-
-    max_dd = float(spec_risk.get("max_drawdown_pct") or 20.0)
-    target_dd = float(spec_risk.get("target_drawdown_pct") or max_dd * 0.6)
-    max_pos_pct = float(spec_risk.get("max_position_pct") or 25.0)
-    max_sector_pct = float(spec_risk.get("max_sector_pct") or 40.0)
-    max_positions = int(spec_risk.get("max_positions") or 5)
 
     min_cov_warn = float(
         spec_risk.get("min_sector_map_coverage")

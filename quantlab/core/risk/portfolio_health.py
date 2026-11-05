@@ -70,9 +70,16 @@ def build_portfolio_health(
         st = str(s.get("skip_stage") or "other")
         skip_by_stage[st] = skip_by_stage.get(st, 0) + 1
 
+    from core.risk.limits import DEFAULT_RISK_LIMITS
+
     tau_fail_in_book = sum(1 for r in book_rows if r.get("tau_gate_fail"))
     alerts: List[Dict[str, Any]] = []
-    max_sec = float(limits.get("max_sector_pct") or 40.0)
+    # limits 应由 resolve_book_risk_limits / resolve_account_risk_limits 填好
+    max_sec = float(
+        limits.get("max_sector_pct")
+        if limits.get("max_sector_pct") is not None
+        else DEFAULT_RISK_LIMITS["max_sector_pct"]
+    )
     if top_sector_pct is not None and top_sector_pct > max_sec + 1e-6:
         alerts.append(
             {

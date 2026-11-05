@@ -9,7 +9,7 @@
 
 在产品因果链中，Risk 负责估计「已发生敞口」对组合的影响（能买多少、要不要停），与 Alpha 的「相对吸引力」估计并列——见 [design-spine.md](../design-spine.md)。
 
-**Q4 已落地**：`core/risk/checks.py` · `check_account_risk` —— 账户最大回撤、单票仓位上限、持仓只数；`blocks` 非空时 `run_daily_cycle` **跳过加仓**（减仓/止损仍执行）。限额来自 `StrategySpec.lifecycle.risk`。
+**Q4 已落地**：`core/risk/checks.py` · `check_account_risk` —— 账户最大回撤、单票仓位上限、持仓只数；`blocks` 非空时 `run_daily_cycle` **跳过加仓**（减仓/止损仍执行）。限额经 `core/risk/limits.resolve_account_risk_limits`（DEFAULT ← Spec.risk ← paper.rules）。
 
 ---
 

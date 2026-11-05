@@ -9,9 +9,21 @@ from core.risk.budget import (
 )
 from core.risk.checks import check_account_risk
 from core.risk.exposure import board_style_for, build_exposure_matrix
+from core.risk.limits import (
+    DEFAULT_RISK_LIMITS,
+    RiskLimits,
+    fill_risk_defaults,
+    pct_to_fraction,
+    resolve_account_risk_limits,
+)
 from core.risk.portfolio_health import build_portfolio_health
 
 __all__ = [
+    "DEFAULT_RISK_LIMITS",
+    "RiskLimits",
+    "fill_risk_defaults",
+    "pct_to_fraction",
+    "resolve_account_risk_limits",
     "check_account_risk",
     "clip_buy_to_risk_budget",
     "market_vol_scale",

@@ -47,6 +47,7 @@ from core.paper.ledger import (
     save_paper,
     snapshots_for_ui,
     trim_paper_lists,
+    validate_paper,
 )
 from core.paper.sizing import (
     DEFAULT_SYNC_AMOUNT,
@@ -98,4 +99,5 @@ __all__ = [
     "sellable_shares",
     "TPLUS1_LOCK_REASON",
     "trim_paper_lists",
+    "validate_paper",
 ]
