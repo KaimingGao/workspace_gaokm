@@ -326,3 +326,110 @@ class ReleaseRowsTests(unittest.TestCase):
         loaded.assert_called_once()
         for fn in (oo, tc, rank):
             self.assertIs(fn.call_args.kwargs.get("stock_bars"), bars)
+
+    def test_writer_disables_l1_end_lag(self) -> None:
+        from core.research.materialize.consumer import (
+            allow_l1_end_lag,
+            materialize_writer,
+        )
+
+        self.assertTrue(allow_l1_end_lag())
+        with materialize_writer():
+            self.assertFalse(allow_l1_end_lag())
+        self.assertTrue(allow_l1_end_lag())
+
+    def test_writer_oo_job_does_not_slice_when_bars_ahead(self) -> None:
+        """日线新于湖时，物化工人不得 allow_end_lag 短路返回旧 L1。"""
+        from core.research.feature_lake import load_stock_dates, read_stock_meta
+        from core.research.lake_bridge import FAMILY_OO
+        from core.research.materialize.consumer import materialize_writer
+        from core.research.oo_ridge_compact import _oo_stock_job
+
+        lake_bars = _bars()
+        self._write_oo("000001", lake_bars)
+        ahead = list(lake_bars) + [
+            {
+                "date": "2024-01-08",
+                "open": 10.0,
+                "high": 11.0,
+                "low": 9.0,
+                "close": 10.5,
+                "volume": 1000.0,
+            }
+        ]
+        lag_pack = (
+            np.ones((4, 2), dtype=np.float64),
+            np.ones(4, dtype=np.float64),
+            ["f0", "f1"],
+            ["2024-01-02", "2024-01-03", "2024-01-04", "2024-01-05"],
+        )
+        seen_lag: list = []
+
+        def _slice(*_a, **kw):
+            seen_lag.append(bool(kw.get("allow_end_lag")))
+            if kw.get("allow_end_lag"):
+                return lag_pack
+            return None
+
+        rebuilt = {
+            "x": np.ones((5, 2), dtype=np.float64),
+            "y": np.ones(5, dtype=np.float64),
+            "names": ["f0", "f1"],
+            "dates": [
+                "2024-01-02",
+                "2024-01-03",
+                "2024-01-04",
+                "2024-01-05",
+                "2024-01-08",
+            ],
+        }
+
+        class _FakePanel:
+            names = ["f0", "f1"]
+
+            def finalize(self):
+                return (
+                    rebuilt["x"],
+                    rebuilt["y"],
+                    rebuilt["names"],
+                    rebuilt["dates"],
+                )
+
+        # 拟合：允许 end_lag → 直接返回旧切片、不写盘
+        with mock.patch(
+            "core.signal.factors.alpha_oo.ALPHA_OO_PANEL_WINDOW", 2
+        ), mock.patch(
+            "core.research.incremental_panel.try_slice_shorter_lookback",
+            side_effect=_slice,
+        ):
+            x, _y, _n, dates = _oo_stock_job(("000001", ahead, 1, False))
+        self.assertEqual(seen_lag, [True])
+        self.assertEqual(dates[-1], "2024-01-05")
+        self.assertEqual(
+            str((read_stock_meta(FAMILY_OO, "000001") or {}).get("end_date"))[:10],
+            "2024-01-07",
+        )
+        self.assertEqual(int(x.shape[0]), 4)
+
+        seen_lag.clear()
+        with materialize_writer(), mock.patch(
+            "core.signal.factors.alpha_oo.ALPHA_OO_PANEL_WINDOW", 2
+        ), mock.patch(
+            "core.research.incremental_panel.try_slice_shorter_lookback",
+            side_effect=_slice,
+        ), mock.patch(
+            "core.research.oo_ridge_compact.OoPanelMatrix",
+            side_effect=lambda **_k: _FakePanel(),
+        ), mock.patch(
+            "core.research.oo_ridge_compact._fill_stock",
+        ), mock.patch(
+            "core.research.incremental_panel.try_incremental_merge",
+            return_value=None,
+        ):
+            _x2, _y2, _n2, dates2 = _oo_stock_job(("000001", ahead, 1, False))
+        self.assertEqual(seen_lag, [False])
+        self.assertEqual(dates2[-1], "2024-01-08")
+        meta = read_stock_meta(FAMILY_OO, "000001") or {}
+        self.assertEqual(str(meta.get("end_date"))[:10], "2024-01-08")
+        ds = load_stock_dates(FAMILY_OO, "000001") or []
+        self.assertIn("2024-01-08", set(ds) if not isinstance(ds, set) else ds)

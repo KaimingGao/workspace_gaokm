@@ -323,14 +323,17 @@ def _oo_rank_stock_job(
         from core.research.incremental_panel import try_slice_shorter_lookback
         from core.research.lake_bridge import FAMILY_OO_RANK
 
+        from core.research.materialize.consumer import allow_l1_end_lag
+
         want_names = OoPanelMatrix().names
+        end_lag = allow_l1_end_lag()
         sliced = try_slice_shorter_lookback(
             code_s,
             bars_l,
             family=FAMILY_OO_RANK,
             spec_fp=_rank_spec,
             names=want_names,
-            allow_end_lag=True,
+            allow_end_lag=end_lag,
         )
         if sliced is None and _can_adopt_oo_panel(
             eff_mh=eff_mh,
@@ -356,7 +359,7 @@ def _oo_rank_stock_job(
                 family=FAMILY_OO,
                 spec_fp=_oo_spec,
                 names=want_names,
-                allow_end_lag=True,
+                allow_end_lag=end_lag,
             )
         if sliced is not None:
             x, y, names, dates_out = sliced

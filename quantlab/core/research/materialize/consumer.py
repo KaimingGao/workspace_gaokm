@@ -35,6 +35,16 @@ def writer_active() -> bool:
     return bool(_writer.get())
 
 
+def allow_l1_end_lag() -> bool:
+    """拟合可切共同末日；物化写入时日线新于湖必须重算写穿。
+
+    ``try_slice_shorter_lookback(allow_end_lag=True)`` 在 bars 末日晚于湖时
+    只返回交集、不写盘。写入路径若走该短路，Job 仍报 ok，但 L1 停在旧日，
+    下游拟合会 ``oo 缺 1 日``。
+    """
+    return not writer_active()
+
+
 def context_initargs() -> Tuple[bool, bool]:
     """父进程采样，传给池 initializer。写入优先于只读。"""
     writing = writer_active()

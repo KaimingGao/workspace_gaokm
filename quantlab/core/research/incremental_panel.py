@@ -480,6 +480,8 @@ def try_slice_shorter_lookback(
     （无价矩阵则为 ``None, []``）。
     ``allow_end_lag=True``：拟合末日早于或晚于湖时，只留双方都有的日期，
     且这段 K 线必须是湖序列在该末日上的真后缀。默认仍要求末日相同。
+    物化写入请用 ``allow_l1_end_lag()``（写入上下文为假）：bars 新于湖时
+    必须重算写穿，不能只切交集。
     """
     if not family or not code:
         return None

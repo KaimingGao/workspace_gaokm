@@ -533,9 +533,12 @@ def _tau_stock_job(
             from core.research.incremental_panel import try_slice_shorter_lookback
             from core.research.lake_bridge import FAMILY_TC
 
+            from core.research.materialize.consumer import allow_l1_end_lag
+
             slice_families = [l1_family]
             if rank_cache and l1_family != FAMILY_TC:
                 slice_families.append(FAMILY_TC)
+            end_lag = allow_l1_end_lag()
             for fam in slice_families:
                 sliced = try_slice_shorter_lookback(
                     code,
@@ -543,7 +546,7 @@ def _tau_stock_job(
                     family=fam,
                     spec_fp=_tau_open_spec,
                     names=col_names,
-                    allow_end_lag=True,
+                    allow_end_lag=end_lag,
                 )
                 if sliced is None:
                     continue
