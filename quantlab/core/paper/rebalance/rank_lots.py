@@ -701,7 +701,7 @@ def y_oo_fuse_pct_of(
     τc（行上有 y_spec）：用成交价 rot 把 ŷ_oo 映到 τ→open[T+1]，ŷ_τc 已是 τ→close。
     缺 y_spec 的旧行：开盘基准融合再减 (price(τ)/open−1)。
 
-    有 ŷ_oo/ŷ_oc 一律现算，不信落盘 ``y_oo_fuse``（旧戳可能是 ŷ_trade）。
+    有 ŷ_oo/ŷ_τc（兼容旧字段 y_oc）一律现算，不信落盘 ``y_oo_fuse``（旧戳可能是 ŷ_trade）。
     两头都抽不出时才回退显式 y_oo_fuse。
     """
     from core.signal.yhat_windows import (

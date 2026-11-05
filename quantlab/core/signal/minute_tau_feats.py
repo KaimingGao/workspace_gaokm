@@ -401,7 +401,7 @@ def causal_rebalance_tau_hm(
     trade_date: str,
     cap_hm: Optional[str] = None,
 ) -> Optional[str]:
-    """调仓 ŷ_oc 因果钟：当日已有 5m 末根，且不超过调仓窗结束（默认 10:00）。
+    """调仓 ŷ_τc 因果钟：当日已有 5m 末根，且不超过调仓窗结束（默认 10:00）。
 
     无当日根 / 尚无 09:30 根 → None（只用开盘 Z）。
     """
@@ -1318,7 +1318,7 @@ def _pin_rebalance_cs_key(day: str, hm: str, n_rets: int) -> bool:
     """钉住已到点的调仓窗（≤10:00）截面，避免 flush / 补仓把早盘中位漂掉。
 
     09:40 在 09:40 就算出来也要钉住并落盘。若等墙钟 10:00 再钉，早盘槽
-    会在 10:30 锁之后变成缺特征（板块中位 z=0，ŷ_oc 比同钟早盘高一截）。
+    会在 10:30 锁之后变成缺特征（板块中位 z=0，ŷ_τc 比同钟早盘高一截）。
     墙钟未到该 hm 时不钉，避免把未来 10:00 钉成残缺中位。
     """
     if int(n_rets or 0) < _SECTOR_RET_PIN_MIN_N:
@@ -1431,7 +1431,7 @@ def seed_peer_minute_bars(
     """把本轮已 hydrate 的 5m 写入同伴仓。
 
     预演补拉 / 回测刷新后，内存仓若仍顶着早盘残缺日，``sector_ret_*`` 会漂，
-    ŷ_oc / ŷ_τ30/45/60/75/90 / Ĉ_τ 就和历史回测对不齐。
+    ŷ_τc / ŷ_τ30/45/60/75/90 / Ĉ_τ 就和历史回测对不齐。
     """
     key = str(code or "").strip()
     rows = [b for b in (bars or []) if isinstance(b, dict)]

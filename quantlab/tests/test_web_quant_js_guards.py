@@ -1937,6 +1937,10 @@ class TestWebQuantJsGuards(unittest.TestCase):
         self.assertIn('id: "y_oo_fuse"', trades_js)
         self.assertIn("ŷ_oo ${fmtScore(yf, { signed: true })}", trades_js)
         self.assertIn("ŷ_τc ${fmtScore(ytau, { signed: true })}", trades_js)
+        self.assertIn("仅 ŷ_τc（缺 ŷ_oo）", trades_js)
+        self.assertIn("仅 ŷ_oo（缺 ŷ_τc）", trades_js)
+        self.assertNotIn("仅 ŷ_oc（缺 ŷ_oo）", trades_js)
+        self.assertNotIn("仅 ŷ_oo（缺 ŷ_oc）", trades_js)
         self.assertIn(
             "r.y_oo_fuse != null",
             trades_js,
@@ -2494,6 +2498,12 @@ class TestWebQuantJsGuards(unittest.TestCase):
         self.assertIn("export const Y_OC_REBALANCE_TITLE", fmt)
         self.assertIn("export const FUSE_REBALANCE_TITLE", fmt)
         self.assertIn("09:30–10:00", fmt)
+        self.assertIn("ŷ_τc · 09:30–10:00", fmt)
+        wr = self._read("web", "static", "js", "quant", "watching_render.js")
+        self.assertIn('d.scoreTauTitle || "ŷ_τc"', wr)
+        self.assertIn('scoreTauTitle: "暂无 ŷ_τc"', wr)
+        self.assertNotIn('d.scoreTauTitle || "ŷ_oc"', wr)
+        self.assertNotIn('scoreTauTitle: "暂无 ŷ_oc"', wr)
         watching = self._read("web", "static", "js", "watching_table_island.js")
         self.assertIn("Y_OC_REBALANCE_TITLE", watching)
         self.assertIn("FUSE_REBALANCE_TITLE", watching)

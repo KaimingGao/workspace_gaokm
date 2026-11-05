@@ -109,7 +109,7 @@ export function watchingScoreDetail(it) {
     score_formula_terms_tc_rank: tcRankTerms,
     fusion_w_oo: it && it.fusion_w_oo,
     fusion_w_oc: it && it.fusion_w_oc,
-    // ŷ_oc OC 靠前，防止 data-score-detail 截断后 tip 退化成剩余映射分
+    // ŷ_τc（及兼容 y_oc）靠前，防止 data-score-detail 截断后 tip 退化成剩余映射分
     y_tau_oc: yTauOc,
     predicted_score_tau_oc: yTauOc,
     y_to: it && (it.y_to != null ? it.y_to : it.y_pc != null ? it.y_pc : it.y_r),
@@ -658,16 +658,16 @@ export function renderWatchingWatchTableFallback(rows, { onPickCountUpdate, tier
         )}" data-q="score_tau" data-score-tip="tau" data-score-detail="${escapeHtml(
           d.scoreDetail || ""
         )}" title="${escapeHtml(
-          d.scoreTauTitle || "ŷ_oc"
+          d.scoreTauTitle || "ŷ_τc"
         )}">${escapeHtml(String(d.scoreTau ?? "—"))}</td>` +
         (() => {
           const singleHead = !!d.scoreSingleHead;
           const head = d.dualScoreHead || "";
           const headTitle =
             head === "single_tau"
-              ? "fuse 单头降级：仅 ŷ_oc（缺 ŷ_oo）· 与双头票不同量纲"
+              ? "fuse 单头降级：仅 ŷ_τc（缺 ŷ_oo）· 与双头票不同量纲"
               : head === "single_oo"
-                ? "fuse 单头降级：仅 ŷ_oo（缺 ŷ_oc）· 与双头票不同量纲"
+                ? "fuse 单头降级：仅 ŷ_oo（缺 ŷ_τc）· 与双头票不同量纲"
                 : "fuse 单头降级 · 与双头票不同量纲";
           const badge = singleHead
             ? `<span class="watching-single-head-badge" title="${escapeHtml(
@@ -788,7 +788,7 @@ export function buildWatchingWatchRows(wl, names, paperCodes, scores, deps) {
       scoreTau: "…",
       scoreTauNum: null,
       scoreTauCls: "",
-      scoreTauTitle: "暂无 ŷ_oc",
+      scoreTauTitle: "暂无 ŷ_τc",
       stance: "…",
       excess: "…",
       excessNum: null,

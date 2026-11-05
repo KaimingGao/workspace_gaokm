@@ -34,7 +34,7 @@ const BT_SIM_TRADE_COLS_BASE = [
     widthPct: 6.5,
     num: true,
     sortable: true,
-    title: "历史 Top-K 表列 = ŷ_oo（选股键）· 关 τ 闸 · 悬停可看字段；日线通常无可靠 ŷ_oc",
+    title: "历史 Top-K 表列 = ŷ_oo（选股键）· 关 τ 闸 · 悬停可看字段；日线通常无可靠 ŷ_τc",
   },
   {
     id: "intent",
@@ -1014,7 +1014,7 @@ function buildSimTradeRow(r, i, deps) {
       : blendRaw;
   const scoreColTitleBase = hasTau
     ? "fuse = w_oo·ŷ_oo + w_τc·ŷ_τc · 悬停看组成"
-    : "ŷ_oo（历史 Top-K 选股键）· 日线无可靠 ŷ_oc · 关 τ 闸";
+    : "ŷ_oo（历史 Top-K 选股键）· 日线无可靠 ŷ_τc · 关 τ 闸";
   const singleHead =
     r.dual_score_single_head === true ||
     String(r.dual_score_head || "") === "single_oo" ||
@@ -1140,7 +1140,7 @@ export function simTradesCaptionHtml({ rowsLen, filled, skipped, showIntent }) {
     `模拟成交账（含涨跌停跳过）· ${rowsLen} 笔` +
     `（成交 ${filled}` +
     (skipped ? ` · 跳过 ${skipped}` : "") +
-    `）· 按买入日新→旧 · 信号日→次日买入 · 表列 ŷ_oo（历史选股键；关 τ 闸，日线无可靠 ŷ_oc）` +
+    `）· 按买入日新→旧 · 信号日→次日买入 · 表列 ŷ_oo（历史选股键；关 τ 闸，日线无可靠 ŷ_τc）` +
     (showIntent ? "" : " · 意图价=买入价已省略") +
     `</p>` +
     `<div class="quant-bt-trades-host"></div>`
@@ -1372,9 +1372,9 @@ export function btTradesCellHtml(col, d, deps) {
     const head = d.dualScoreHead || "";
     const headTitle =
       head === "single_tau"
-        ? "fuse 单头降级：仅 ŷ_oc（缺 ŷ_oo）· 与双头票不同量纲"
+        ? "fuse 单头降级：仅 ŷ_τc（缺 ŷ_oo）· 与双头票不同量纲"
         : head === "single_oo"
-          ? "fuse 单头降级：仅 ŷ_oo（缺 ŷ_oc）· 与双头票不同量纲"
+          ? "fuse 单头降级：仅 ŷ_oo（缺 ŷ_τc）· 与双头票不同量纲"
           : "fuse 单头降级 · 与双头票不同量纲";
     const badge = singleHead
       ? `<span class="watching-single-head-badge" title="${escapeHtml(

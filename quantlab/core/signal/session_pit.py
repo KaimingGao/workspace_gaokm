@@ -149,7 +149,7 @@ def resolve_minute_tau_trade_date(
     win = clock_dual_score_window(now=n)
     if win == "intraday" and (not asof or _is_latest_complete_offline_asof(asof, now=n)):
         return session or asof
-    # 收盘后仍在 T 开→T+1 开周期：ŷ_oc 继续用 T 日 10:00，不要退回昨收 K
+    # 收盘后仍在 T 开→T+1 开周期：ŷ_τc 继续用 T 日 10:00，不要退回昨收 K
     if cycle and (not asof or _is_latest_complete_offline_asof(asof, now=n) or asof == cycle):
         return cycle
     try:

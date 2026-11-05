@@ -365,7 +365,7 @@ def score_stock(
         try:
             from core.signal.minute_tau_feats import minutes_for_open_t
 
-            # ŷ_oo 只读本地 5m 仓；拉网留给后面 ŷ_oc，避免每票开盘先打行情
+            # ŷ_oo 只读本地 5m 仓；拉网留给后面 ŷ_τc，避免每票开盘先打行情
             mins = minutes_for_open_t(str(code), fetch=False)
             if mins:
                 open_t_info = resolve_open_t(

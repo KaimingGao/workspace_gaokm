@@ -334,7 +334,7 @@ def format_shared_tau_formula(base: str, grid: Optional[Sequence[str]] = None) -
 
 
 def _t0_leg1_end_hm() -> str:
-    """ŷ_oc 训练窗终点 = 做 T 第一腿最晚钟。"""
+    """ŷ_τc / 窗头训练窗终点 = 做 T 第一腿最晚钟。"""
     try:
         from core.t0.config import T0_LAST_LEG1_HM
 
@@ -343,7 +343,7 @@ def _t0_leg1_end_hm() -> str:
         return "11:00"
 
 
-# 自动调仓窗结束（auto_worker.WINDOW_UNTIL）；live ŷ_oc 前缀不超过此时
+# 自动调仓窗结束（auto_worker.WINDOW_UNTIL）；live ŷ_τc 前缀不超过此时
 REBALANCE_TAU_CAP_HM = "10:00"
 LIVE_PREFIX_CAUSAL_REBALANCE = "causal_rebalance"
 TRAIN_TAU_END_HM = _t0_leg1_end_hm()
