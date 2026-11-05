@@ -157,9 +157,7 @@
     "role": "prior",
     "prior": {
       "mode": "off"
-    },
-    "append_history": true,
-    "history_max_lines_per_code": 500
+    }
   },
   "cross_section": {
     "neutralize": true,

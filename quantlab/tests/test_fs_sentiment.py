@@ -135,24 +135,19 @@ class TestFsFactorPanelYhatKeys(unittest.TestCase):
 class TestFsSentimentAsOf(unittest.TestCase):
     def test_history_and_as_of(self):
         from core import sentiment as sent_mod
+        from core.news_archive import ingest_title_rows
 
         with tempfile.TemporaryDirectory() as td:
-            with patch.object(sent_mod, "NEWS_HISTORY_DIR", td), signal_config_overlay(
-                {"sentiment": {"append_history": True}}
-            ):
-                path = sent_mod.append_headline_history(
+            with patch.dict(os.environ, {"QUANTLAB_NEWS_ARCHIVE_DIR": td}):
+                ingest_title_rows(
                     "600000",
-                    {
-                        "ok": True,
-                        "updated_at": "2024-06-01T12:00:00",
-                        "items": [
-                            {"title": "业绩大增利好", "time": "2024-05-30"},
-                            {"title": "涉嫌违规处罚", "time": "2024-06-02"},
-                        ],
-                        "sentiment": {"label": "mixed", "score": 0.5},
-                    },
+                    [
+                        {"title": "业绩大增利好", "time": "2024-05-30"},
+                        {"title": "涉嫌违规处罚", "time": "2024-06-02"},
+                    ],
+                    fetched_at="2024-06-01T12:00:00",
+                    store_dir=td,
                 )
-                self.assertTrue(path and os.path.isfile(path))
                 asof = sent_mod.sentiment_as_of("600000", "2024-06-01")
                 self.assertTrue(asof.get("ok"))
                 self.assertGreaterEqual(

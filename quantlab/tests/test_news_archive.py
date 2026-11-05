@@ -1087,6 +1087,150 @@ class NewsArchiveStoreTests(unittest.TestCase):
             conn.close()
         self.assertEqual(skipped, 0)
 
+    def test_empty_payload_not_fresh_for_watch(self):
+        """空成功写库后不当 TTL 命中，下一次仍会打网。"""
+        from core.news_archive import ingest_title_rows, serve_watch_headlines
+
+        ingest_title_rows(
+            "600000",
+            [],
+            fetched_at="2026-11-04T15:55:00",
+            store_dir=self.store,
+            ok=True,
+        )
+        calls = []
+
+        def fetcher(code):
+            calls.append(code)
+            return [{"title": "公司增持", "time": "2026-11-04 10:00:00"}]
+
+        out = serve_watch_headlines(
+            ["600000"],
+            limit=3,
+            store_dir=self.store,
+            now=datetime(2026, 11, 4, 16, 0, 0),
+            fetcher=fetcher,
+            lexicon=_LEX,
+        )
+        self.assertEqual(calls, ["600000"])
+        self.assertFalse(out["items"][0]["from_cache"])
+        self.assertEqual(out["items"][0]["items"][0]["title"], "公司增持")
+
+    def test_failed_fetch_log_not_fresh_for_watch(self):
+        from core.news_archive import ingest_title_rows, serve_watch_headlines
+
+        ingest_title_rows(
+            "600000",
+            [{"title": "旧标题", "time": "2026-11-04 09:00:00"}],
+            fetched_at="2026-11-04T15:50:00",
+            store_dir=self.store,
+            ok=False,
+            degraded=True,
+            error="timeout",
+        )
+        calls = []
+
+        def fetcher(code):
+            calls.append(code)
+            return [{"title": "新标题", "time": "2026-11-04 10:00:00"}]
+
+        out = serve_watch_headlines(
+            ["600000"],
+            limit=3,
+            store_dir=self.store,
+            now=datetime(2026, 11, 4, 16, 0, 0),
+            fetcher=fetcher,
+            lexicon=_LEX,
+        )
+        self.assertEqual(calls, ["600000"])
+        self.assertEqual(out["items"][0]["items"][0]["title"], "新标题")
+
+    def test_poll_claim_blocks_concurrent_second(self):
+        import sqlite3
+
+        from core.news_archive import (
+            _try_claim_poll_slot,
+            maybe_poll_news_archive,
+            news_db_path,
+        )
+
+        slot = "2026-11-04T09:20"
+        self.assertTrue(
+            _try_claim_poll_slot(
+                slot,
+                store_dir=self.store,
+                ran_at="2026-11-04T09:20:00",
+                now=datetime(2026, 11, 4, 9, 20),
+            )
+        )
+        with patch.dict(os.environ, {"QUANTLAB_NEWS_ARCHIVE_POLL": "1"}):
+            second = maybe_poll_news_archive(
+                now=datetime(2026, 11, 4, 9, 21),
+                store_dir=self.store,
+                codes=["600519"],
+                fetcher=lambda code: [{"title": "x", "time": "2026-11-04 08:00:00"}],
+                holidays=_HOLIDAYS,
+            )
+        self.assertFalse(second["ran"])
+        self.assertEqual(second["reason"], "already")
+        conn = sqlite3.connect(news_db_path(self.store))
+        try:
+            reason = conn.execute(
+                "SELECT stop_reason FROM poll_slot WHERE slot_key = ?",
+                (slot,),
+            ).fetchone()[0]
+        finally:
+            conn.close()
+        self.assertEqual(reason, "running")
+
+    def test_stale_poll_claim_can_reclaim(self):
+        from core.news_archive import _POLL_CLAIM_STALE_SEC, _try_claim_poll_slot
+
+        slot = "2026-11-04T09:20"
+        self.assertTrue(
+            _try_claim_poll_slot(
+                slot,
+                store_dir=self.store,
+                ran_at="2026-11-04T09:20:00",
+                now=datetime(2026, 11, 4, 9, 20),
+            )
+        )
+        from datetime import timedelta
+
+        later = datetime(2026, 11, 4, 9, 20) + timedelta(
+            seconds=_POLL_CLAIM_STALE_SEC + 1
+        )
+        self.assertTrue(
+            _try_claim_poll_slot(
+                slot,
+                store_dir=self.store,
+                ran_at=later.strftime("%Y-%m-%dT%H:%M:%S"),
+                now=later,
+            )
+        )
+
+    def test_corrupt_db_quarantined_on_create(self):
+        from core.news_archive import ingest_title_rows, news_db_path
+
+        path = news_db_path(self.store)
+        os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
+        with open(path, "wb") as f:
+            f.write(b"not a sqlite database")
+        out = ingest_title_rows(
+            "600000",
+            [{"title": "公司增持", "time": "2026-11-04 10:00:00"}],
+            fetched_at="2026-11-04T16:00:00",
+            store_dir=self.store,
+        )
+        self.assertEqual(out.get("n_inserted"), 1)
+        self.assertTrue(os.path.isfile(path))
+        corrupt = [
+            name
+            for name in os.listdir(self.store)
+            if name.startswith("news.db.corrupt.")
+        ]
+        self.assertEqual(len(corrupt), 1)
+
 
 class NewsArchiveScheduleTests(unittest.TestCase):
     def test_schedule_kind_disabled_in_tests(self):
@@ -1158,3 +1302,72 @@ class NewsArchiveScheduleTests(unittest.TestCase):
             css,
         )
         self.assertNotIn("watching-news-sample-wrap", css)
+
+class TestNewsStorageUnify(unittest.TestCase):
+    def setUp(self):
+        self._td = tempfile.TemporaryDirectory()
+        self.store = self._td.name
+
+    def tearDown(self):
+        self._td.cleanup()
+
+    def test_headlines_as_of_and_sentiment(self):
+        from core.news_archive import ingest_title_rows, load_headlines_as_of
+        from core.sentiment import sentiment_as_of
+
+        ingest_title_rows(
+            "600000",
+            [
+                {"title": "业绩大增利好", "time": "2024-05-30"},
+                {"title": "涉嫌违规处罚", "time": "2024-06-02"},
+            ],
+            fetched_at="2024-06-01T12:00:00",
+            store_dir=self.store,
+        )
+        early = load_headlines_as_of("600000", "2024-06-01", store_dir=self.store)
+        self.assertEqual(len(early), 1)
+        self.assertIn("业绩", early[0]["title"])
+        late = load_headlines_as_of("600000", "2024-06-03", store_dir=self.store)
+        self.assertEqual(len(late), 2)
+        with patch.dict(os.environ, {"QUANTLAB_NEWS_ARCHIVE_DIR": self.store}):
+            asof = sentiment_as_of("600000", "2024-06-01")
+        self.assertTrue(asof.get("ok"))
+        self.assertEqual((asof.get("sentiment") or {}).get("n_titles"), 1)
+
+    def test_migrate_jsonl_dry_run_and_apply(self):
+        from scripts.migrate_news_jsonl_to_sqlite import migrate
+        import json
+        import sqlite3
+        from core.news_archive import news_db_path
+
+        hist = os.path.join(self.store, "history")
+        os.makedirs(hist)
+        path = os.path.join(hist, "600519.jsonl")
+        with open(path, "w", encoding="utf-8") as f:
+            f.write(
+                json.dumps(
+                    {
+                        "code": "600519",
+                        "fetched_at": "2024-06-02T10:00:00",
+                        "ok": True,
+                        "titles": [
+                            {"title": "茅台增持", "time": "2024-06-01", "source": "em"}
+                        ],
+                    },
+                    ensure_ascii=False,
+                )
+                + "\n"
+            )
+        with patch("scripts.migrate_news_jsonl_to_sqlite.NEWS_HISTORY_DIR", hist), patch(
+            "scripts.migrate_news_jsonl_to_sqlite.NEWS_STORE_DIR", self.store
+        ):
+            dry = migrate(dry_run=True, store_dir=self.store)
+            self.assertTrue(dry["ok"])
+            self.assertEqual(dry["n_codes"], 1)
+            self.assertEqual(dry["n_inserted"], 0)
+            out = migrate(dry_run=False, store_dir=self.store)
+        self.assertGreaterEqual(out["n_inserted"], 1)
+        conn = sqlite3.connect(news_db_path(self.store))
+        n = conn.execute("SELECT COUNT(*) FROM headline WHERE code=?", ("600519",)).fetchone()[0]
+        conn.close()
+        self.assertEqual(n, 1)

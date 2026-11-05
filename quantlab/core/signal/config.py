@@ -133,15 +133,13 @@ DEFAULT_SIGNAL_CONFIG: Dict[str, Any] = {
         "ann_missing_code_ratio_warn": 0.3,
         "ann_missing_code_ratio_block": 0.5,
     },
-    # 舆情：观察徽章。已退出因子集；调仓软先验见 news.db / sentiment_gate_enabled。
+    # 舆情：观察徽章。已退出因子集；标题仓 / 调仓软先验见 news.db。
     "sentiment": {
         "include_in_score": False,
         "role": "prior",
         "prior": {
             "mode": "off",
         },
-        "append_history": True,
-        "history_max_lines_per_code": 500,
     },
     "cross_section": {
         "neutralize": True,

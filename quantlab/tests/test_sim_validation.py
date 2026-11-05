@@ -152,28 +152,16 @@ class TestSentimentDegradedPrior(unittest.TestCase):
 
     def test_sentiment_as_of_and_panel(self):
         from core import sentiment as sent_mod
+        from core.news_archive import ingest_title_rows
 
         with tempfile.TemporaryDirectory() as td:
-            hist = os.path.join(td, "history")
-            os.makedirs(hist, exist_ok=True)
-            path = os.path.join(hist, "600000.jsonl")
-            rows = [
-                {
-                    "code": "600000",
-                    "fetched_at": "2024-06-02T10:00:00",
-                    "ok": True,
-                    "titles": [
-                        {"title": "回购注销", "time": "2024-06-01", "source": "em"}
-                    ],
-                    "rule_label": "bullish",
-                    "rule_score": 0.2,
-                    "n_titles": 1,
-                }
-            ]
-            with open(path, "w", encoding="utf-8") as f:
-                for r in rows:
-                    f.write(json.dumps(r, ensure_ascii=False) + "\n")
-            with patch.object(sent_mod, "NEWS_HISTORY_DIR", hist):
+            with patch.dict(os.environ, {"QUANTLAB_NEWS_ARCHIVE_DIR": td}):
+                ingest_title_rows(
+                    "600000",
+                    [{"title": "回购注销", "time": "2024-06-01", "source": "em"}],
+                    fetched_at="2024-06-02T10:00:00",
+                    store_dir=td,
+                )
                 asof = sent_mod.sentiment_as_of("600000", "2024-06-01")
                 self.assertTrue(asof.get("ok"))
                 panel = sent_mod.build_sentiment_panel_coverage(

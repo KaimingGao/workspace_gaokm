@@ -145,7 +145,8 @@ Ready 默认要求最近 40 个交易日无缺，且 `fetched_at` 未超过 24 �
 | `daily_bars` + `daily_cache_meta` | 开高低收、成交量、复权策略、末根日期、条数、`fetched_at` | TTL 24 小时；`adjust_policy` 不一致则不用 |
 | `minute_bars` + `minute_cache_meta` | 分钟 OHLCV | TTL 12 小时；同日整段替换 |
 | `data/store/fundamentals/` | 财务快照 | 24 小时 |
-| `data/store/news/` | 舆情标题 | 6 小时；和快照分目录，避免互相覆盖 |
+| `data/store/news.db` | 舆情标题仓（SSOT） | 只向前追加；软先验 / as_of |
+| `data/store/news_snap/` | 东财短 TTL 快照 | 与标题仓分目录，避免互相覆盖 |
 | 现价内存 | 腾讯 quote | 60 秒；过期上限 30 分钟 |
 | 调仓打分 | `replay_score_cache` | 按开盘日输入指纹；只缓存 09:30 的打分，其它成交时刻命中后仍重算 |
 

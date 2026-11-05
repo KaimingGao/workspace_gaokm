@@ -1,7 +1,8 @@
-"""观察名单舆情：标题缓存 · 规则情绪分 · 扫描告警 · as_of 历史（FS）。
+"""观察名单舆情：news.db 标题仓 · 规则情绪分 · 扫描告警 · as_of PIT。
 
 Live 评分默认 ``sentiment.include_in_score=false``（不进 ŷ）；UI 徽章仍可用。
-研究可用 ``sentiment_as_of`` 做 PIT 面板。LLM 分析不得写入 sub_scores。
+标题单一事实源见 ``core.news_archive``（``data/store/news.db``）。
+LLM 解读缓存仍在 ``data/store/news/llm/``（非标题仓）。
 """
 
 
@@ -18,8 +19,6 @@ from typing import Any, Dict, List, Optional, Sequence, Set
 from core.io_atomic import atomic_write_json
 from core.paths import (
     LLM_SENTIMENT_DIR,
-    NEWS_HISTORY_DIR,
-    NEWS_STORE_DIR,
     SCHEDULE_LAST_RUN_PATH,
     SENTIMENT_LEXICON_PATH,
     WATCHING_PATH,
@@ -171,10 +170,6 @@ def _safe_code(code: str) -> str:
     raw = str(code or "").strip()
     cleaned = re.sub(r"[^\w.\-]", "_", raw)[:32]
     return cleaned or "unknown"
-
-
-def _cache_path(code: str) -> str:
-    return os.path.join(NEWS_STORE_DIR, f"{_safe_code(code)}.json")
 
 
 def load_lexicon(path: Optional[str] = None) -> Dict[str, List[str]]:
@@ -463,135 +458,18 @@ def _mark_sentiment_degraded(
     return out
 
 
-def _read_cache(code: str) -> Optional[Dict[str, Any]]:
-    path = _cache_path(code)
-    if not os.path.isfile(path):
-        return None
-    try:
-        with open(path, encoding="utf-8") as f:
-            data = json.load(f)
-        return data if isinstance(data, dict) else None
-    except (OSError, json.JSONDecodeError, TypeError):
-        return None
-
-
-def _write_cache(code: str, payload: Dict[str, Any]) -> str:
-    os.makedirs(NEWS_STORE_DIR, exist_ok=True)
-    path = _cache_path(code)
-    atomic_write_json(path, payload)
-    try:
-        append_headline_history(code, payload)
-    except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
-        pass
-    return path
-
-
-def _history_path(code: str) -> str:
-    return os.path.join(NEWS_HISTORY_DIR, f"{_safe_code(code)}.jsonl")
-
-
-def append_headline_history(code: str, payload: Dict[str, Any]) -> Optional[str]:
-    """FS2：成功/失败拉取均追加一行，供 as_of 研究（不改 live ŷ）。"""
-    from core.signal.config import load_signal_config
-
-    cfg = (load_signal_config() or {}).get("sentiment") or {}
-    if not bool(cfg.get("append_history", True)):
-        return None
-    os.makedirs(NEWS_HISTORY_DIR, exist_ok=True)
-    path = _history_path(code)
-    sent = payload.get("sentiment") if isinstance(payload.get("sentiment"), dict) else {}
-    items = list(payload.get("items") or [])
-    titles = []
-    for it in items[:20]:
-        if not isinstance(it, dict):
-            continue
-        titles.append(
-            {
-                "title": str(it.get("title") or "")[:200],
-                "time": str(it.get("time") or it.get("datetime") or "")[:32],
-                "source": str(it.get("source") or "")[:40],
-            }
-        )
-    row = {
-        "code": str(code or "").strip(),
-        "fetched_at": payload.get("updated_at")
-        or time.strftime("%Y-%m-%dT%H:%M:%S", time.localtime()),
-        "ok": bool(payload.get("ok", True)),
-        "titles": titles,
-        "rule_label": sent.get("label"),
-        "rule_score": sent.get("score"),
-        "n_titles": len(titles),
-    }
-    with open(path, "a", encoding="utf-8") as f:
-        f.write(json.dumps(row, ensure_ascii=False) + "\n")
-    # 截断过长日志
-    max_lines = max(50, min(int(cfg.get("history_max_lines_per_code") or 500), 5000))
-    try:
-        with open(path, encoding="utf-8") as f:
-            lines = f.readlines()
-        if len(lines) > max_lines:
-
-            tmp = path + ".tmp"
-            with open(tmp, "w", encoding="utf-8") as f:
-                f.writelines(lines[-max_lines:])
-            os.replace(tmp, path)
-    except OSError:
-        pass
-    return path
-
-
-def _parse_item_date(raw: Any) -> Optional[str]:
-    s = str(raw or "").strip()
-    if not s:
-        return None
-    # 常见：2024-01-02 / 2024-01-02 15:00:00 / 01-02
-    if len(s) >= 10 and s[4] == "-" and s[7] == "-":
-        return s[:10]
-    return None
-
-
 def sentiment_as_of(
     code: str,
     as_of: str,
     *,
     lexicon: Optional[Dict[str, List[str]]] = None,
 ) -> Dict[str, Any]:
-    """FS2：决策日 as_of 舆情——只用 history 中 time≤as_of 的标题重跑 lexicon。"""
+    """决策日 as_of 舆情：news.db 中发布日 ≤ as_of 的标题重跑 lexicon。"""
+    from core.news_archive import load_headlines_as_of
+
     as_of_d = str(as_of or "")[:10]
-    path = _history_path(code)
-    titles: List[dict] = []
-    if os.path.isfile(path):
-        try:
-            with open(path, encoding="utf-8") as f:
-                for line in f:
-                    line = line.strip()
-                    if not line:
-                        continue
-                    try:
-                        row = json.loads(line)
-                    except json.JSONDecodeError:
-                        continue
-                    for t in row.get("titles") or []:
-                        if not isinstance(t, dict):
-                            continue
-                        td = _parse_item_date(t.get("time")) or _parse_item_date(
-                            row.get("fetched_at")
-                        )
-                        if td and td <= as_of_d:
-                            titles.append(t)
-        except OSError:
-            pass
-    # 去重标题
-    seen = set()
-    uniq = []
-    for t in titles:
-        title = str(t.get("title") or "").strip()
-        if not title or title in seen:
-            continue
-        seen.add(title)
-        uniq.append(t)
+    uniq = load_headlines_as_of(code, as_of_d)
     sent = score_headlines(uniq, lexicon=lexicon or load_lexicon())
-    # 特征小升级：覆盖与强度（保留 score_headlines 的数值 coverage）
     n = len(uniq)
     sent = dict(sent)
     sent["n_titles"] = n
@@ -603,7 +481,7 @@ def sentiment_as_of(
         "as_of": as_of_d,
         "sentiment": sent,
         "metrics": {"n_titles": n},
-        "note": "PIT 标题 as_of；无日志则 missing。不进因子集。",
+        "note": "PIT 标题 as_of（news.db）；无库则 missing。不进因子集。",
     }
 
 
@@ -612,7 +490,7 @@ def build_sentiment_panel_coverage(
     *,
     as_of: Optional[str] = None,
 ) -> Dict[str, Any]:
-    """验证宇宙舆情 history 面板覆盖（只读）。"""
+    """验证宇宙舆情 as_of 面板覆盖（只读 news.db）。"""
     as_of_d = str(as_of or "").strip()[:10] or time.strftime("%Y-%m-%d")
     items: List[Dict[str, Any]] = []
     ok_n = 0
@@ -646,7 +524,7 @@ def build_sentiment_panel_coverage(
         "missing_count": missing_n,
         "coverage": round(ok_n / total, 3) if total else 1.0,
         "items": items,
-        "note": "history jsonl as_of 面板；缺失不进 ŷ，仅诊断。",
+        "note": "news.db as_of 面板；缺失不进 ŷ，仅诊断。",
     }
 
 
@@ -655,7 +533,7 @@ def warmup_sentiment_history(
     *,
     limit: int = 5,
 ) -> Dict[str, Any]:
-    """强制拉取标题并写入 history，供 as_of 面板。"""
+    """强制拉取标题并写入 news.db，供 as_of 面板。"""
     lexicon = load_lexicon()
     scanned: List[Dict[str, Any]] = []
     ok_n = 0
@@ -693,16 +571,8 @@ def warmup_sentiment_history(
         "scanned": len(scanned),
         "ok_count": ok_n,
         "items": scanned,
-        "note": "写入 news/history；prior-only，不进 ŷ。",
+        "note": "写入 news.db；prior-only，不进 ŷ。",
     }
-
-
-def _cache_fresh(cached: Dict[str, Any], *, ttl_sec: int) -> bool:
-    try:
-        ts = float(cached.get("fetched_at") or 0)
-    except (TypeError, ValueError):
-        return False
-    return (time.time() - ts) <= max(0, int(ttl_sec))
 
 
 def _attach_sentiment(items: List[dict], lexicon: Optional[Dict[str, List[str]]] = None) -> Dict[str, Any]:
@@ -717,7 +587,7 @@ def fetch_stock_headlines(
     ttl_sec: int = DEFAULT_TTL_SEC,
     lexicon: Optional[Dict[str, List[str]]] = None,
 ) -> Dict[str, Any]:
-    """单票标题；默认读短 TTL 缓存，force 时绕过。"""
+    """单票标题；读/写 news.db（与观察池同一 TTL 逻辑），force 时绕过。"""
     limit = max(1, min(int(limit or 5), 15))
     code_key = str(code or "").strip()
     if not code_key:
@@ -732,140 +602,50 @@ def fetch_stock_headlines(
             "from_cache": False,
         }
 
-    cached = _read_cache(code_key)
-    if cached and not force and _cache_fresh(cached, ttl_sec=ttl_sec):
-        items = list(cached.get("items") or [])[:limit]
-        if items:
-            # 标题缓存可复用；标签按当前规则重算，避免词典更新后 TTL 内仍是旧「中」。
-            sent = _annotate_include_gate(_attach_sentiment(items, lexicon=lexicon))
-            sent.setdefault("degraded", False)
-            sent.setdefault("prior_eligible", True)
-            return {
-                "ok": True,
-                "stock_code": cached.get("stock_code") or code_key,
-                "stock_name": cached.get("stock_name") or "",
-                "items": items,
-                "sentiment": sent,
-                "updated_at": cached.get("updated_at"),
-                "from_cache": True,
-                "error": None,
-            }
-        # 失败缓存仍按 TTL 复用，避免空源狂打网；ok=True 的空标题是毒缓存，须重拉
-        if cached.get("ok") is False or cached.get("error"):
-            sent = cached.get("sentiment")
-            if not isinstance(sent, dict):
-                sent = score_headlines([], lexicon=lexicon, degraded=True)
-            sent = _annotate_include_gate(sent if isinstance(sent, dict) else {})
-            return {
-                "ok": False,
-                "stock_code": cached.get("stock_code") or code_key,
-                "stock_name": cached.get("stock_name") or "",
-                "items": [],
-                "sentiment": sent,
-                "updated_at": cached.get("updated_at"),
-                "from_cache": True,
-                "error": cached.get("error") or "未获取到相关资讯",
-            }
+    from core.news_archive import serve_watch_headlines
 
-    from core.data.facade import get_news
+    lex = lexicon if lexicon is not None else load_lexicon()
 
-    try:
-        raw = get_news(code_key, limit=limit, use_cache=not force)
-    except Exception as exc:
-        logger.exception('unexpected error in fetch_stock_headlines')
-        # 超时/网络异常：优先回退过期缓存，避免 UI 永久加载中
-        reason = f"资讯源超时：{exc}"
-        if cached and (cached.get("items") or []):
-            items = list(cached.get("items") or [])[:limit]
-            sent = _mark_sentiment_degraded(
-                _attach_sentiment(items, lexicon=lexicon), reason=reason
-            )
-            return {
-                "ok": True,
-                "stock_code": cached.get("stock_code") or code_key,
-                "stock_name": cached.get("stock_name") or "",
-                "items": items,
-                "sentiment": sent,
-                "updated_at": cached.get("updated_at"),
-                "from_cache": True,
-                "stale": True,
-                "error": f"资讯源超时，已显示缓存：{exc}",
-            }
-        return {
-            "ok": False,
-            "stock_code": code_key,
-            "stock_name": "",
-            "items": [],
-            "sentiment": score_headlines(
-                [], lexicon=lexicon, degraded=True, degrade_reason=reason
-            ),
-            "error": f"资讯拉取失败：{exc}",
-            "updated_at": None,
-            "from_cache": False,
-        }
-    now = time.time()
-    updated_at = time.strftime("%Y-%m-%dT%H:%M:%S", time.localtime(now))
-    live_items = list(raw.get("items") or [])[:limit]
-    if not raw.get("success") or not live_items:
-        err = str(raw.get("error") or "未获取到相关资讯")
-        if cached and (cached.get("items") or []):
-            items = list(cached.get("items") or [])[:limit]
-            sent = _mark_sentiment_degraded(
-                _attach_sentiment(items, lexicon=lexicon), reason=err
-            )
-            return {
-                "ok": True,
-                "stock_code": cached.get("stock_code") or code_key,
-                "stock_name": cached.get("stock_name") or "",
-                "items": items,
-                "sentiment": sent,
-                "updated_at": cached.get("updated_at"),
-                "from_cache": True,
-                "stale": True,
-                "error": f"资讯源不可用，已显示缓存：{err}",
-            }
-        payload = {
-            "ok": False,
-            "stock_code": raw.get("stock_code") or code_key,
-            "stock_name": raw.get("stock_name") or "",
-            "items": [],
-            "sentiment": score_headlines(
-                [], lexicon=lexicon, degraded=True, degrade_reason=err
-            ),
-            "error": err,
-            "updated_at": updated_at,
-            "fetched_at": now,
-            "from_cache": False,
-        }
-        _write_cache(code_key, payload)
-        return {
-            "ok": False,
-            "stock_code": payload["stock_code"],
-            "stock_name": payload["stock_name"],
-            "items": [],
-            "sentiment": payload["sentiment"],
-            "error": err,
-            "updated_at": updated_at,
-            "from_cache": False,
-        }
+    def _fetcher(c: str) -> List[dict]:
+        from core.data.facade import get_news
 
-    items = live_items
-    sent = _attach_sentiment(items, lexicon=lexicon)
-    payload = {
-        "ok": True,
-        "stock_code": raw.get("stock_code") or code_key,
-        "stock_name": raw.get("stock_name") or "",
-        "items": items,
+        # 刷新标题仓时不读 6h news_snap，避免把旧快照重新 stamp 成「新鲜」
+        try:
+            raw = get_news(c, limit=limit, use_cache=False)
+        except Exception as exc:
+            logger.exception("unexpected error in fetch_stock_headlines")
+            raise RuntimeError(f"资讯拉取失败：{exc}") from exc
+        if not raw.get("success"):
+            raise RuntimeError(str(raw.get("error") or "未获取到相关资讯"))
+        items = list(raw.get("items") or [])[:limit]
+        if not items:
+            raise RuntimeError(str(raw.get("error") or "未获取到相关资讯"))
+        return items
+
+    pack = serve_watch_headlines(
+        [code_key],
+        limit=limit,
+        max_age_sec=ttl_sec,
+        force=force,
+        fetcher=_fetcher,
+        lexicon=lex,
+    )
+    rows = list(pack.get("items") or [])
+    row = rows[0] if rows else {}
+    sent = row.get("sentiment") if isinstance(row.get("sentiment"), dict) else {}
+    sent = _annotate_include_gate(dict(sent))
+    return {
+        "ok": bool(row.get("ok")),
+        "stock_code": row.get("stock_code") or code_key,
+        "stock_name": row.get("stock_name") or "",
+        "items": list(row.get("items") or []),
         "sentiment": sent,
-        "error": None,
-        "updated_at": updated_at,
-        "fetched_at": now,
-        "from_cache": False,
+        "updated_at": row.get("updated_at"),
+        "from_cache": bool(row.get("from_cache")),
+        "from_archive": bool(row.get("from_archive", True)),
+        "stale": bool(row.get("stale")),
+        "error": row.get("error"),
     }
-    _write_cache(code_key, payload)
-    out = dict(payload)
-    out.pop("fetched_at", None)
-    return out
 
 
 def _watchlist_codes(codes: Optional[Sequence[str]] = None) -> List[str]:
@@ -977,8 +757,10 @@ def scan_watchlist_sentiment(
     lexicon = load_lexicon()
     alerts: List[Dict[str, Any]] = []
     scanned: List[Dict[str, Any]] = []
+    from core.news_archive import peek_code_headlines
+
     for code in watch:
-        before = _read_cache(code) or {}
+        before = peek_code_headlines(code, limit=limit, lexicon=lexicon)
         after = fetch_stock_headlines(
             code,
             limit=limit,

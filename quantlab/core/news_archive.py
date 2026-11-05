@@ -49,6 +49,8 @@ CREATE TABLE IF NOT EXISTS headline (
 );
 CREATE INDEX IF NOT EXISTS idx_headline_code_fetched
   ON headline(code, fetched_at);
+CREATE INDEX IF NOT EXISTS idx_headline_code_pub
+  ON headline(code, published_date);
 
 CREATE TABLE IF NOT EXISTS fetch_log (
   id INTEGER PRIMARY KEY,
@@ -258,6 +260,23 @@ def assign_decision_day(
     return slot or ""
 
 
+def _quarantine_corrupt_db(path: str) -> None:
+    ts = datetime.now().strftime("%Y%m%d%H%M%S")
+    dest = f"{path}.corrupt.{ts}"
+    try:
+        os.replace(path, dest)
+        logger.warning("quarantined corrupt news.db -> %s", dest)
+    except OSError:
+        logger.exception("failed to quarantine corrupt news.db at %s", path)
+    for suffix in ("-wal", "-shm"):
+        side = path + suffix
+        if os.path.isfile(side):
+            try:
+                os.replace(side, f"{side}.corrupt.{ts}")
+            except OSError:
+                logger.debug("failed to quarantine %s", side, exc_info=True)
+
+
 def _connect(store_dir: Optional[str], *, create: bool) -> Optional[sqlite3.Connection]:
     path = news_db_path(store_dir)
     if not create and not os.path.isfile(path):
@@ -265,14 +284,29 @@ def _connect(store_dir: Optional[str], *, create: bool) -> Optional[sqlite3.Conn
     parent = os.path.dirname(path)
     if parent:
         os.makedirs(parent, exist_ok=True)
-    conn = sqlite3.connect(path, timeout=5.0)
-    conn.row_factory = sqlite3.Row
-    conn.execute("PRAGMA journal_mode=WAL")
-    conn.execute("PRAGMA synchronous=NORMAL")
-    conn.execute("PRAGMA busy_timeout=5000")
-    conn.executescript(_SCHEMA)
-    _migrate_poll_slot(conn)
-    return conn
+
+    def _open() -> sqlite3.Connection:
+        conn = sqlite3.connect(path, timeout=5.0)
+        conn.row_factory = sqlite3.Row
+        conn.execute("PRAGMA journal_mode=WAL")
+        conn.execute("PRAGMA synchronous=NORMAL")
+        conn.execute("PRAGMA busy_timeout=5000")
+        conn.executescript(_SCHEMA)
+        _migrate_poll_slot(conn)
+        return conn
+
+    try:
+        return _open()
+    except sqlite3.DatabaseError:
+        logger.exception("news.db open failed at %s", path)
+        if not create:
+            return None
+        _quarantine_corrupt_db(path)
+        try:
+            return _open()
+        except sqlite3.DatabaseError:
+            logger.exception("news.db recreate failed at %s", path)
+            return None
 
 
 def _migrate_poll_slot(conn: sqlite3.Connection) -> None:
@@ -421,12 +455,17 @@ def ingest_title_rows(
     error: str = "",
     degraded: bool = False,
 ) -> Dict[str, Any]:
-    """把一次拉取的标题写入库，并记 fetch_log。"""
+    """把一次拉取的标题写入库，并记 fetch_log。
+
+    空成功仍记 ok（决策窗覆盖为 empty），但展示 TTL 要求非空标题，不会挡重拉。
+    """
     fetched = str(fetched_at or "").strip() or datetime.now().strftime("%Y-%m-%dT%H:%M:%S")
     items = [r for r in (rows or []) if isinstance(r, Mapping)]
     n_inserted = 0
     n_kept = 0
     n_rejected = 0
+    empty_payload = bool(ok) and not items
+    err_eff = str(error or "") or ("empty_payload" if empty_payload else "")
     with _write_lock:
         conn = _connect(store_dir, create=True)
         if conn is None:
@@ -465,7 +504,7 @@ def ingest_title_rows(
                 ok=bool(ok) and not degraded,
                 n_rows=len(items),
                 n_inserted=n_inserted,
-                error=error,
+                error=err_eff,
                 degraded=bool(degraded) or not ok,
             )
             conn.commit()
@@ -478,6 +517,7 @@ def ingest_title_rows(
         "n_kept": n_kept,
         "n_rejected": n_rejected,
         "fetched_at": fetched,
+        "empty_payload": empty_payload,
     }
 
 
@@ -575,13 +615,19 @@ def _titles_by_publish(
         title = str(row["title"] or "").strip()
         if title:
             grouped[code].append({"title": title})
-    date_only = conn.execute(
-        """
-        SELECT code, title, published_at, published_date, clock_quality, fetched_at
-        FROM headline
-        WHERE clock_quality = 'date_only'
-        """
-    ).fetchall()
+    if wanted:
+        marks = ",".join("?" for _ in wanted)
+        date_only = conn.execute(
+            f"""
+            SELECT code, title, published_at, published_date, clock_quality, fetched_at
+            FROM headline
+            WHERE clock_quality = 'date_only'
+              AND code IN ({marks})
+            """,
+            tuple(wanted),
+        ).fetchall()
+    else:
+        date_only = []
     for row in date_only:
         code = str(row["code"] or "")
         if code not in wanted:
@@ -708,36 +754,38 @@ def load_decision_labels(
             out[code] = row
             if not by_publish:
                 pending.append(row)
-        for row in pending:
-            conn.execute(
-                """
-                INSERT INTO decision_label (
-                  code, decision_date, fill_clock, lexicon_version, label,
-                  n_titles, n_hit, degraded, coverage_status, computed_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                ON CONFLICT(code, decision_date, fill_clock, lexicon_version)
-                DO UPDATE SET
-                  label = excluded.label,
-                  n_titles = excluded.n_titles,
-                  n_hit = excluded.n_hit,
-                  degraded = excluded.degraded,
-                  coverage_status = excluded.coverage_status,
-                  computed_at = excluded.computed_at
-                """,
-                (
-                    row["code"],
-                    row["decision_date"],
-                    row["fill_clock"],
-                    row["lexicon_version"],
-                    row["label"],
-                    row["n_titles"],
-                    row["n_hit"],
-                    row["degraded"],
-                    row["coverage_status"],
-                    row["computed_at"],
-                ),
-            )
-        conn.commit()
+        if pending:
+            with _write_lock:
+                for row in pending:
+                    conn.execute(
+                        """
+                        INSERT INTO decision_label (
+                          code, decision_date, fill_clock, lexicon_version, label,
+                          n_titles, n_hit, degraded, coverage_status, computed_at
+                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        ON CONFLICT(code, decision_date, fill_clock, lexicon_version)
+                        DO UPDATE SET
+                          label = excluded.label,
+                          n_titles = excluded.n_titles,
+                          n_hit = excluded.n_hit,
+                          degraded = excluded.degraded,
+                          coverage_status = excluded.coverage_status,
+                          computed_at = excluded.computed_at
+                        """,
+                        (
+                            row["code"],
+                            row["decision_date"],
+                            row["fill_clock"],
+                            row["lexicon_version"],
+                            row["label"],
+                            row["n_titles"],
+                            row["n_hit"],
+                            row["degraded"],
+                            row["coverage_status"],
+                            row["computed_at"],
+                        ),
+                    )
+                conn.commit()
     finally:
         conn.close()
     return out
@@ -915,12 +963,29 @@ def due_poll_slot(
     return f"{day}T{due}"
 
 
-def _slot_done(conn: sqlite3.Connection, slot_key: str) -> bool:
+_POLL_CLAIM_STALE_SEC = 45 * 60
+
+
+def _slot_done(
+    conn: sqlite3.Connection,
+    slot_key: str,
+    *,
+    now: Optional[datetime] = None,
+) -> bool:
     row = conn.execute(
-        "SELECT 1 FROM poll_slot WHERE slot_key = ?",
+        "SELECT stop_reason, ran_at FROM poll_slot WHERE slot_key = ?",
         (slot_key,),
     ).fetchone()
-    return row is not None
+    if row is None:
+        return False
+    if str(row["stop_reason"] or "") != "running":
+        return True
+    # running 认领：未过期视为占用；崩溃遗留超时后可抢回
+    ran = _parse_stored_ts(str(row["ran_at"] or ""))
+    if ran is None:
+        return False
+    ref = now or datetime.now()
+    return (ref - ran).total_seconds() <= _POLL_CLAIM_STALE_SEC
 
 
 def archive_universe_codes(*, cap: Optional[int] = None) -> List[str]:
@@ -1246,6 +1311,65 @@ def _display_items(conn: sqlite3.Connection, code: str, limit: int) -> List[dict
     return items
 
 
+def load_headlines_as_of(
+    code: str,
+    as_of: str,
+    *,
+    store_dir: Optional[str] = None,
+    limit: int = 200,
+) -> List[dict]:
+    """PIT：发布日 ≤ as_of 的标题；无发布时间则用 fetched_at 日。"""
+    bare = bare_a_share(code)
+    as_of_d = str(as_of or "").strip()[:10]
+    if not bare or not as_of_d:
+        return []
+    conn = _connect(store_dir, create=False)
+    if conn is None:
+        return []
+    try:
+        rows = conn.execute(
+            """
+            SELECT title, published_at, published_date, fetched_at, source, url
+            FROM headline
+            WHERE code = ?
+              AND (
+                (published_date IS NOT NULL AND published_date != '' AND published_date <= ?)
+                OR (
+                  (published_date IS NULL OR published_date = '')
+                  AND substr(fetched_at, 1, 10) <= ?
+                )
+              )
+            ORDER BY COALESCE(NULLIF(published_at, ''), published_date) DESC, id DESC
+            LIMIT ?
+            """,
+            (bare, as_of_d, as_of_d, max(1, min(int(limit or 200), 500))),
+        ).fetchall()
+        out: List[dict] = []
+        seen: Set[str] = set()
+        for row in rows:
+            title = str(row["title"] or "").strip()
+            if not title or title in seen:
+                continue
+            seen.add(title)
+            published = str(row["published_at"] or "")
+            when = (
+                published.replace("T", " ")
+                if published
+                else str(row["published_date"] or row["fetched_at"] or "")[:19]
+            )
+            out.append(
+                {
+                    "title": title,
+                    "time": when,
+                    "source": str(row["source"] or ""),
+                    "url": str(row["url"] or ""),
+                }
+            )
+        return out
+    finally:
+        conn.close()
+
+
 def _read_code_archive(
     code: str, limit: int, store_dir: Optional[str]
 ) -> Dict[str, Any]:
@@ -1253,6 +1377,7 @@ def _read_code_archive(
         "items": [],
         "fetched_at": "",
         "ok": None,
+        "degraded": None,
         "error": "",
     }
     conn = _connect(store_dir, create=False)
@@ -1264,10 +1389,53 @@ def _read_code_archive(
             "items": _display_items(conn, code, limit),
             "fetched_at": str(log["fetched_at"] or "") if log else "",
             "ok": None if log is None else bool(int(log["ok"] or 0)),
+            "degraded": None if log is None else bool(int(log["degraded"] or 0)),
             "error": str(log["error"] or "") if log else "",
         }
     finally:
         conn.close()
+
+
+def _display_cache_eligible(
+    local: Mapping[str, Any],
+    *,
+    now: datetime,
+    max_age_sec: int,
+) -> bool:
+    """展示缓存可用：时间新鲜 + 上次成功 + 有标题（空/失败不当新鲜）。"""
+    if not _fetch_is_fresh(str(local.get("fetched_at") or ""), now, max_age_sec):
+        return False
+    if local.get("ok") is not True:
+        return False
+    if local.get("degraded") is True:
+        return False
+    return bool(local.get("items"))
+
+
+def peek_code_headlines(
+    code: str,
+    *,
+    limit: int = 5,
+    store_dir: Optional[str] = None,
+    lexicon: Optional[Mapping[str, Any]] = None,
+) -> Dict[str, Any]:
+    """只读本地库快照（不拉网），供告警对比 before。"""
+    bare = bare_a_share(code)
+    names: Dict[str, str] = {}
+    try:
+        from core.t0.intraday import _load_a_code_name_map
+
+        names = dict(_load_a_code_name_map() or {})
+    except Exception:  # noqa: BLE001
+        names = {}
+    local = _read_code_archive(bare, limit, store_dir)
+    return _watch_row(
+        bare,
+        local,
+        names=names,
+        lexicon=lexicon,
+        from_cache=True,
+    )
 
 
 def _fetch_is_fresh(fetched_at: str, now: datetime, max_age_sec: int) -> bool:
@@ -1370,8 +1538,8 @@ def serve_watch_headlines(
     fail_streak = 0
     for code in bare:
         local = _read_code_archive(code, limit, store_dir)
-        fresh = (not force) and _fetch_is_fresh(
-            str(local.get("fetched_at") or ""), now_dt, max_age_sec
+        fresh = (not force) and _display_cache_eligible(
+            local, now=now_dt, max_age_sec=max_age_sec
         )
         if fresh or stop_reason:
             rows_out.append(
@@ -1958,6 +2126,56 @@ def poll_allowed() -> bool:
     return flag not in ("0", "false", "no", "off")
 
 
+def _try_claim_poll_slot(
+    slot_key: str,
+    *,
+    store_dir: Optional[str] = None,
+    ran_at: str = "",
+    now: Optional[datetime] = None,
+) -> bool:
+    """槽位抢占：INSERT 成功才算拿到；已有完成/新鲜认领则 False。过期 running 可抢回。"""
+    key = str(slot_key or "").strip()
+    if not key:
+        return True
+    stamp = str(ran_at or "").strip() or datetime.now().strftime("%Y-%m-%dT%H:%M:%S")
+    ref = now or datetime.now()
+    with _write_lock:
+        conn = _connect(store_dir, create=True)
+        if conn is None:
+            return False
+        try:
+            row = conn.execute(
+                "SELECT stop_reason, ran_at FROM poll_slot WHERE slot_key = ?",
+                (key,),
+            ).fetchone()
+            if row is not None:
+                reason = str(row["stop_reason"] or "")
+                if reason == "running":
+                    ran = _parse_stored_ts(str(row["ran_at"] or ""))
+                    stale = ran is None or (ref - ran).total_seconds() > _POLL_CLAIM_STALE_SEC
+                    if stale:
+                        conn.execute(
+                            "DELETE FROM poll_slot WHERE slot_key = ? AND stop_reason = 'running'",
+                            (key,),
+                        )
+                    else:
+                        return False
+                else:
+                    return False
+            cur = conn.execute(
+                """
+                INSERT OR IGNORE INTO poll_slot (
+                  slot_key, ran_at, n_codes, n_ok, n_fail, n_skipped, stop_reason
+                ) VALUES (?, ?, 0, 0, 0, 0, 'running')
+                """,
+                (key, stamp),
+            )
+            conn.commit()
+            return int(cur.rowcount or 0) > 0
+        finally:
+            conn.close()
+
+
 def maybe_poll_news_archive(
     *,
     now: Optional[datetime] = None,
@@ -1978,11 +2196,19 @@ def maybe_poll_news_archive(
         conn = _connect(store_dir, create=False)
         if conn is not None:
             try:
-                done = _slot_done(conn, slot)
+                done = _slot_done(conn, slot, now=dt)
             finally:
                 conn.close()
             if done:
                 return {"ok": True, "ran": False, "reason": "already", "slot": slot}
+        # 开跑前抢占槽位，避免多进程 TOCTOU 双拉
+        if not _try_claim_poll_slot(
+            slot,
+            store_dir=store_dir,
+            ran_at=dt.strftime("%Y-%m-%dT%H:%M:%S"),
+            now=dt,
+        ):
+            return {"ok": True, "ran": False, "reason": "already", "slot": slot}
     return poll_news_archive(
         codes=codes,
         now=dt,

@@ -83,7 +83,7 @@ class TestSnapshotCache(unittest.TestCase):
         from core import store as st
 
         with tempfile.TemporaryDirectory() as td:
-            path = st.snapshot_cache_path("news", "300750", td)
+            path = st.snapshot_cache_path("news_snap", "300750", td)
             os.makedirs(os.path.dirname(path), exist_ok=True)
             with open(path, "w", encoding="utf-8") as f:
                 json.dump(
@@ -158,6 +158,25 @@ class TestDataServiceWrappers(unittest.TestCase):
             self.assertEqual(len(out.get("items") or []), 1)
             snap = os.path.join(td, "news_snap", "300750.json")
             self.assertTrue(os.path.isfile(snap))
+
+    def test_get_news_does_not_cache_empty_items(self):
+        from core.data.facade import get_news
+
+        with tempfile.TemporaryDirectory() as td:
+            empty_live = {
+                "success": True,
+                "stock_code": "300750",
+                "stock_name": "宁德时代",
+                "items": [],
+            }
+            with patch("core.store.get_store_dir", return_value=td), patch(
+                "core.ports.market.build_news", return_value=empty_live
+            ):
+                out = get_news("300750", limit=5, use_cache=True)
+            self.assertFalse(out.get("success"))
+            self.assertEqual(out.get("items") or [], [])
+            snap = os.path.join(td, "news_snap", "300750.json")
+            self.assertFalse(os.path.isfile(snap))
 
 class TestDataCoverage(unittest.TestCase):
     def test_empty_universe(self):

@@ -84,8 +84,9 @@ LAST_PORTFOLIO_BACKTEST_PATH = os.path.join(DATA_DIR, "last_portfolio_backtest.j
 # 最近一次做 T 研究回测（/follow 刷新恢复指标 / 图 / 成交明细；不重跑）
 LAST_T0_BACKTEST_PATH = os.path.join(DATA_DIR, "last_t0_backtest.json")
 TTM_EVENTS_PATH = os.path.join(DATA_DIR, "ttm_events.jsonl")
+# 标题仓 SSOT 是 STORE_DIR/news.db；NEWS_STORE_DIR 仅留 llm 与一次性迁移脚本读旧 history。
 NEWS_STORE_DIR = os.path.join(STORE_DIR, "news")
-NEWS_HISTORY_DIR = os.path.join(NEWS_STORE_DIR, "history")
+NEWS_HISTORY_DIR = os.path.join(NEWS_STORE_DIR, "history")  # 旧 jsonl；迁移后可空
 LLM_SENTIMENT_DIR = os.path.join(NEWS_STORE_DIR, "llm")
 SENTIMENT_LEXICON_PATH = os.path.join(DATA_DIR, "sentiment_lexicon.json")
 JOBS_DIR = os.path.join(DATA_DIR, "jobs")

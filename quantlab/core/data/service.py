@@ -32,7 +32,7 @@ _METRICS: Dict[str, int] = {
     "bars_offline_miss": 0,
     "pool_worker_failed": 0,
 }
-# 与舆情 TTL（data/store/news/{code}.json）分目录，避免互相覆盖后读成空标题
+# 东财拉取短 TTL 快照（data/store/news_snap/）；标题仓 SSOT 是 news.db
 _NEWS_SNAPSHOT_KIND = "news_snap"
 _METRICS_LOCK = threading.Lock()
 
@@ -662,17 +662,20 @@ class MarketDataService:
         if not isinstance(live, dict):
             live = {"success": False, "items": []}
         src = "akshare_news"
-        if use_cache and (live.get("success") or live.get("items")):
+        items_live = list(live.get("items") or [])
+        # 只缓存有标题的载荷；空成功不落盘，避免毒快照
+        if use_cache and items_live:
             try:
                 self.ports.snapshots.save(
                     _NEWS_SNAPSHOT_KIND, raw, live, data_source=src
                 )
             except OSError:
                 pass
-        ok = bool(live.get("items") or live.get("success"))
+        ok = bool(items_live)
         data = {
             **live,
             "stock_code": raw,
+            "items": items_live,
             "cache_hit": False,
             "success": ok,
             "note": "资讯为实时拉取快照；非 PIT。",

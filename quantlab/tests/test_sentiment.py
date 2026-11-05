@@ -252,18 +252,30 @@ class TestScoreHeadlines(unittest.TestCase):
 class TestFetchAndCache(unittest.TestCase):
     def test_fetch_uses_cache(self):
         with tempfile.TemporaryDirectory() as td:
-            # 经 ports 适配器拉资讯；patch 适配器而非 skills 直连
-            with patch.object(sentiment_mod, "NEWS_STORE_DIR", td), patch(
-                "core.ports.market.build_news",
-                return_value={
+            calls = []
+
+            def fetcher(code):
+                calls.append(code)
+                return [
+                    {
+                        "title": "茅台增持公告",
+                        "time": "2024-06-01 10:00:00",
+                        "source": "s",
+                        "url": "",
+                    }
+                ]
+
+            with patch.dict(os.environ, {"QUANTLAB_NEWS_ARCHIVE_DIR": td}), patch(
+                "core.news_archive._default_fetcher", side_effect=fetcher
+            ), patch(
+                "core.data.facade.get_news",
+                side_effect=lambda code, limit=5, use_cache=True: {
                     "success": True,
-                    "stock_code": "600519",
+                    "stock_code": code,
                     "stock_name": "贵州茅台",
-                    "items": [
-                        {"title": "茅台增持公告", "time": "t", "source": "s", "url": ""},
-                    ],
+                    "items": fetcher(code),
                 },
-            ) as mock_news:
+            ):
                 first = fetch_stock_headlines(
                     "600519",
                     limit=3,
@@ -281,36 +293,42 @@ class TestFetchAndCache(unittest.TestCase):
                     lexicon={"positive": ["增持"], "negative": ["减持"]},
                 )
                 self.assertTrue(second["from_cache"])
-                self.assertEqual(mock_news.call_count, 1)
+                self.assertEqual(len(calls), 1)
 
     def test_empty_ok_cache_refetches(self):
-        """ok=True 且无标题的毒缓存不得挡住 live 拉取。"""
+        """空成功写库后不占 TTL；单票路径会打网，且刷新时 bypass news_snap。"""
         with tempfile.TemporaryDirectory() as td:
-            with open(os.path.join(td, "300750.json"), "w", encoding="utf-8") as f:
-                json.dump(
-                    {
-                        "ok": True,
-                        "stock_code": "300750",
-                        "stock_name": "",
-                        "items": [],
-                        "error": None,
-                        "fetched_at": 1e12,
-                    },
-                    f,
-                )
-            with patch.object(sentiment_mod, "NEWS_STORE_DIR", td), patch(
-                "core.store.get_store_dir", return_value=td
-            ), patch(
-                "core.ports.market.build_news",
-                return_value={
+            from core.news_archive import ingest_title_rows
+
+            ingest_title_rows(
+                "300750",
+                [],
+                fetched_at="2099-01-01T00:00:00",
+                store_dir=td,
+                ok=True,
+                degraded=False,
+            )
+            calls = []
+
+            def get_news(code, limit=5, use_cache=True):
+                calls.append({"code": code, "use_cache": use_cache})
+                return {
                     "success": True,
                     "stock_code": "300750",
                     "stock_name": "宁德时代",
                     "items": [
-                        {"title": "宁德时代公告", "time": "t", "source": "s", "url": ""},
+                        {
+                            "title": "宁德时代公告",
+                            "time": "2024-06-01",
+                            "source": "s",
+                            "url": "",
+                        },
                     ],
-                },
-            ) as mock_news:
+                }
+
+            with patch.dict(os.environ, {"QUANTLAB_NEWS_ARCHIVE_DIR": td}), patch(
+                "core.data.facade.get_news", side_effect=get_news
+            ):
                 out = fetch_stock_headlines(
                     "300750",
                     limit=3,
@@ -320,8 +338,8 @@ class TestFetchAndCache(unittest.TestCase):
             self.assertTrue(out["ok"])
             self.assertEqual(len(out["items"]), 1)
             self.assertEqual(out["items"][0]["title"], "宁德时代公告")
-            self.assertFalse(out["from_cache"])
-            self.assertEqual(mock_news.call_count, 1)
+            self.assertEqual(len(calls), 1)
+            self.assertFalse(calls[0]["use_cache"])
 
     def test_list_watchlist_sentiment(self):
         with tempfile.TemporaryDirectory() as td:
@@ -406,43 +424,44 @@ class TestAlerts(unittest.TestCase):
 
     def test_scan_and_read_alerts(self):
         with tempfile.TemporaryDirectory() as td:
-            news_dir = os.path.join(td, "news")
-            os.makedirs(news_dir)
+            from core.news_archive import ingest_title_rows
+
+            archive = os.path.join(td, "archive")
+            os.makedirs(archive)
             last_run = os.path.join(td, "schedule_last_run.json")
             uni = os.path.join(td, "watching.json")
             with open(uni, "w", encoding="utf-8") as f:
                 json.dump({"watchlist": ["600519"], "sources": [{"type": "static"}]}, f)
-            # seed previous cache (neutral)
-            with open(os.path.join(news_dir, "600519.json"), "w", encoding="utf-8") as f:
-                json.dump(
-                    {
-                        "ok": True,
-                        "stock_code": "600519",
-                        "stock_name": "茅台",
-                        "items": [{"title": "旧闻"}],
-                        "sentiment": {"label": "neutral", "score": None},
-                        "fetched_at": 1,
-                    },
-                    f,
-                )
-            with patch.object(sentiment_mod, "NEWS_STORE_DIR", news_dir), patch.object(
-                sentiment_mod, "WATCHING_PATH", uni
-            ), patch.object(sentiment_mod, "SCHEDULE_LAST_RUN_PATH", last_run            ), patch(
-                "core.ports.market.build_news",
+            ingest_title_rows(
+                "600519",
+                [{"title": "旧闻", "time": "2024-06-01"}],
+                fetched_at="2024-06-01T10:00:00",
+                store_dir=archive,
+            )
+            with patch.dict(
+                os.environ, {"QUANTLAB_NEWS_ARCHIVE_DIR": archive}
+            ), patch.object(sentiment_mod, "WATCHING_PATH", uni), patch.object(
+                sentiment_mod, "SCHEDULE_LAST_RUN_PATH", last_run
+            ), patch(
+                "core.data.facade.get_news",
                 return_value={
                     "success": True,
                     "stock_code": "600519",
                     "stock_name": "茅台",
                     "items": [
-                        {"title": "旧闻", "time": "", "source": "", "url": ""},
-                        {"title": "公司被立案调查", "time": "", "source": "", "url": ""},
+                        {"title": "旧闻", "time": "2024-06-01", "source": "", "url": ""},
+                        {
+                            "title": "公司被立案调查",
+                            "time": "2024-06-02",
+                            "source": "",
+                            "url": "",
+                        },
                     ],
                 },
             ):
                 scanned = scan_watchlist_sentiment(["600519"], limit=5)
                 self.assertTrue(scanned["ok"])
                 self.assertGreaterEqual(scanned["alert_count"], 1)
-                # write like schedule does
                 with open(last_run, "w", encoding="utf-8") as f:
                     json.dump({"ts": 1000.0, **scanned}, f)
                 alerts = read_last_sentiment_alerts()

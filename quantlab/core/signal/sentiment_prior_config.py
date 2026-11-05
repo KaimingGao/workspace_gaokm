@@ -41,8 +41,9 @@ def save_sentiment_prior(*, note: str = "") -> Dict[str, Any]:
     sent["include_in_score"] = False
     sent["role"] = "prior"
     sent["prior"] = prior
-    if "append_history" not in sent:
-        sent["append_history"] = True
+    # 旧 jsonl 流水键：读盘剥掉，不再写回
+    sent.pop("append_history", None)
+    sent.pop("history_max_lines_per_code", None)
     raw["sentiment"] = sent
 
     atomic_write_json(path, raw)

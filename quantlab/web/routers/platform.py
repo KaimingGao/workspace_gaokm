@@ -250,7 +250,7 @@ class ValidationPrepareBody(BaseModel):
 @router.post("/api/ops/validation-prepare")
 
 def ops_validation_prepare(body: ValidationPrepareBody | None = None) -> Dict[str, Any]:
-    """一键准备验证宇宙（预热日线/舆情 history；write_excludes 已废弃忽略）。"""
+    """一键准备验证宇宙（预热日线/舆情 news.db；write_excludes 已废弃忽略）。"""
     body = body or ValidationPrepareBody()
     return deps.platform.run_validation_prepare(
         codes=body.codes,
@@ -263,7 +263,7 @@ def ops_validation_prepare(body: ValidationPrepareBody | None = None) -> Dict[st
 @router.get("/api/ops/sentiment-as-of")
 
 def ops_sentiment_as_of(code: str, as_of: str) -> Dict[str, Any]:
-    """FS · 决策日 as_of 舆情面板（history jsonl；不进 ŷ）。"""
+    """FS · 决策日 as_of 舆情面板（news.db PIT；不进 ŷ）。"""
     from core.sentiment import sentiment_as_of
 
     if not str(code or "").strip() or not str(as_of or "").strip():

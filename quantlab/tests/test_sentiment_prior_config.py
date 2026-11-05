@@ -47,6 +47,8 @@ class TestSentimentPriorConfigSave(unittest.TestCase):
                 self.assertEqual(raw["sentiment"]["prior"]["mode"], "off")
                 self.assertNotIn("block_new_buys", raw["sentiment"]["prior"])
                 self.assertNotIn("scale_buy_pct", raw["sentiment"]["prior"])
+                self.assertNotIn("append_history", raw["sentiment"])
+                self.assertNotIn("history_max_lines_per_code", raw["sentiment"])
                 pub = read_sentiment_prior_public()
                 self.assertEqual(pub["mode"], "off")
                 self.assertNotIn("scale_holds", pub)

@@ -182,7 +182,7 @@ S = score_headlines(当日标题)            ← 徽章参考；勾选「舆情�
 live 调仓 = rank_lots(y_oo_fuse)     ← 不进 ŷ；可选读 news.db 软先验
 ```
 
-本仓库 **已有**：标题拉取与缓存；观察徽章；徽章侧 `sentiment_prior`（产品强制 `mode=off`，已删硬闸/缩仓 actions）；本地 `news.db` 调仓软先验（勾选 `sentiment_gate_enabled`：空/多调 fuse±0.1%·rank×2/×0.5，不清仓）；标题 history jsonl；`GET /api/ops/sentiment-as-of`。  
+本仓库 **已有**：标题拉取写入本地 `news.db`（单一事实源）；观察徽章；徽章侧 `sentiment_prior`（产品强制 `mode=off`，已删硬闸/缩仓 actions）；调仓软先验（勾选 `sentiment_gate_enabled`：空/多调 fuse±0.1%·rank×2/×0.5，不清仓）；`GET /api/ops/sentiment-as-of`（按发布日 PIT 查库）。东财短 TTL 适配缓存见 `data/store/news_snap/`；LLM 解读缓存见 `news/llm/`（均非标题仓）。  
 **没有**：完整可估 β 的全市场 news 仓、用 S 拟合 OLS β、LLM 写分进 ŷ、主回测把 S 写进 ŷ、个股舆情硬禁买/硬清仓。
 
 LLM 可**解读**标题；**不得**写入 `sub_scores` / ŷ。`sentiment.include_in_score` **恒保持 false**；`get_sentiment_prior_cfg` 强制 `mode=off`（徽章侧旧 prior，与调仓软先验无关）。
@@ -218,8 +218,8 @@ LLM 可**解读**标题；**不得**写入 `sub_scores` / ŷ。`sentiment.includ
 
 ## 为何不是因子
 
-缺可按决策日切片的历史 news → 无法合格 as_of 回测 → 估不出可信 `alt_sentiment` β。  
-因此 **不进** 主回测 / OLS / promote；history 仅作将来诊断 IC，不支撑「开闸进 ŷ」。
+缺可按决策日切片的全市场历史 news → 无法合格 as_of 回测 → 估不出可信 `alt_sentiment` β。  
+因此 **不进** 主回测 / OLS / promote；`news.db` as_of 仅作诊断 IC，不支撑「开闸进 ŷ」。
 
 ---
 
@@ -245,7 +245,7 @@ LLM ────────► 叙事（不进分）
 |------|------|
 | 规则情绪 S | **有** · `score_headlines`（强度=`polar×标题覆盖`，防稀疏负向虚高） |
 | 降级跳过 gate | **有** · `degraded` / `prior_eligible=false` |
-| as_of 面板 API | **有** · `GET /api/ops/sentiment-as-of` · history 覆盖进 hygiene |
+| as_of 面板 API | **有** · `GET /api/ops/sentiment-as-of` · news.db PIT 覆盖进 hygiene |
 | 先验 policy | **有** · `role=prior` · `prior.mode` |
 | Live 进 ŷ | **否** · `include_in_score=false` · X5 边界诚实 |
 | 调仓旁路 | **有** · `news.db` 软先验调 fuse/rank；`predicted_score` 不改写 |
