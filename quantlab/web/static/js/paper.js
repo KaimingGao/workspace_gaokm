@@ -25,13 +25,6 @@ import {
   disposeChart,
 } from "./lw_charts.js";
 import { apiFetch } from "./api_client.js";
-import {
-  buildPaperHoldingsTableHtml,
-  buildPaperOriginBarHtml,
-  buildPaperHoldActionBarHtml,
-  holdActionHintText,
-} from "./paper/holdings_ui.js?v=p3591";
-import { renderPaperRulesHtml } from "./paper/rules_ui.js?v=p2298";
 const _EXEC_V =
   (typeof window !== "undefined" && window.__ASSET_V__) || "dev";
 const {
@@ -49,34 +42,19 @@ const {
 const { applyExecutionToUi } = await import(
   `./paper/execution_forms.js?v=${encodeURIComponent(_EXEC_V)}`
 );
-import { buildPaperLogsView, buildPaperLogsCsv } from "./paper/logs_ui.js?v=p3226";
-import { downloadBlob } from "./shared.js";
-import {
-  renderPaperT0Preview as renderPaperT0PreviewUi,
-  renderPaperT0WorkerTrades as renderPaperT0WorkerTradesUi,
-  renderPaperT0WorkerDesk as renderPaperT0WorkerDeskUi,
-} from "./paper/t0_ui.js?v=p3319";
-import {
+const { renderPaperRulesHtml } = await import(
+  `./paper/rules_ui.js?v=${encodeURIComponent(_EXEC_V)}`
+);
+const {
   renderPaperRebalanceWorkerDesk as renderPaperRebalanceWorkerDeskUi,
   sentimentDeskBadgeHtml,
-} from "./paper/rebalance_desk.js?v=p3626";
-import { wireT0SkipTips } from "./paper/t0_viz.js?v=p2746";
-import { wireT0ProcessTips, wireT0DayDebugExpand } from "./paper/t0_table.js?v=p3541";
-import { wireHoldingsChgTips } from "./paper/holding_chg_tip.js?v=p2746";
-import { createHoldingsIslandController } from "./paper/holdings_island.js?v=p3359";
-import { createClusterRebalanceController } from "./paper/cluster_rebalance.js?v=p3371";
-import {
-  getDataOfflineOnly,
-  installDataOfflineToggle,
-  offlineOnlyQuery,
-} from "./data_offline.js";
-import { rebalanceDataFoot, t0DataFoot } from "./data_policy.js?v=p1736";
-import { ensureWarehouseTopup } from "./data_warehouse_topup.js";
-import { BARS_WATCHING_LIMIT } from "./quant/params.js";
-import { createRebalanceReportController } from "./paper/rebalance_report.js?v=p3626";
-import { waitPaperJob as waitPaperJobPoll } from "./paper/job_poll.js?v=p1416";
-import { renderFollowNorthStar as renderFollowNorthStarUi } from "./paper/north_star_ui.js?v=p2182";
-import {
+} = await import(
+  `./paper/rebalance_desk.js?v=${encodeURIComponent(_EXEC_V)}`
+);
+const { createRebalanceReportController } = await import(
+  `./paper/rebalance_report.js?v=${encodeURIComponent(_EXEC_V)}`
+);
+const {
   formatWeightSourceNote,
   formatFactorWeightsSection,
   formatFormulaTermsSection,
@@ -89,7 +67,43 @@ import {
   tailAnomalyDetailFields,
   overheatDetailFields,
   createScoreTooltipController,
-} from "./score_tooltip.js?v=p3626";
+} = await import(
+  `./score_tooltip.js?v=${encodeURIComponent(_EXEC_V)}`
+);
+const {
+  buildPaperHoldingsTableHtml,
+  buildPaperOriginBarHtml,
+  buildPaperHoldActionBarHtml,
+  holdActionHintText,
+} = await import(
+  `./paper/holdings_ui.js?v=${encodeURIComponent(_EXEC_V)}`
+);
+const {
+  renderPaperT0Preview as renderPaperT0PreviewUi,
+  renderPaperT0WorkerTrades as renderPaperT0WorkerTradesUi,
+  renderPaperT0WorkerDesk as renderPaperT0WorkerDeskUi,
+} = await import(
+  `./paper/t0_ui.js?v=${encodeURIComponent(_EXEC_V)}`
+);
+const { wireT0ProcessTips, wireT0DayDebugExpand } = await import(
+  `./paper/t0_table.js?v=${encodeURIComponent(_EXEC_V)}`
+);
+import { buildPaperLogsView, buildPaperLogsCsv } from "./paper/logs_ui.js?v=p3226";
+import { downloadBlob } from "./shared.js";
+import { wireT0SkipTips } from "./paper/t0_viz.js?v=p2746";
+import { wireHoldingsChgTips } from "./paper/holding_chg_tip.js?v=p2746";
+import { createHoldingsIslandController } from "./paper/holdings_island.js?v=p3359";
+import { createClusterRebalanceController } from "./paper/cluster_rebalance.js?v=p3371";
+import {
+  getDataOfflineOnly,
+  installDataOfflineToggle,
+  offlineOnlyQuery,
+} from "./data_offline.js";
+import { rebalanceDataFoot, t0DataFoot } from "./data_policy.js?v=p1736";
+import { ensureWarehouseTopup } from "./data_warehouse_topup.js";
+import { BARS_WATCHING_LIMIT } from "./quant/params.js";
+import { waitPaperJob as waitPaperJobPoll } from "./paper/job_poll.js?v=p1416";
+import { renderFollowNorthStar as renderFollowNorthStarUi } from "./paper/north_star_ui.js?v=p2182";
 
 import { formatDailySteps, runDaily } from "./shared.js";
 
@@ -2614,7 +2628,7 @@ export function initPaper(ctx) {
             resultText += ` · 市场缩仓 ${marketTrimN}`;
         }
         if (priorSkipN > 0) {
-            resultText += ` · 舆情先验 ${priorSkipN}`;
+            resultText += ` · 舆情跳过 ${priorSkipN}`;
         }
         if (marketSkipN > 0) {
             resultText += ` · 市场跳过 ${marketSkipN}`;

@@ -54,6 +54,7 @@ from core.backtest.replay_fill import (
     LIVE_FILL_CLOCK,
     LIVE_FILL_CLOCKS,
     REPLAY_AMOUNT_BASE,
+    REPLAY_AMOUNT_HIGH,
     REPLAY_AMOUNT_MAX,
     REPLAY_AMOUNT_MIN,
     REPLAY_AMOUNT_STRONG,
@@ -61,6 +62,7 @@ from core.backtest.replay_fill import (
     REPLAY_FILL_CLOCK,
     REPLAY_FILL_CLOCKS,
     REPLAY_FUSE_ENTER,
+    REPLAY_FUSE_HIGH,
     REPLAY_FUSE_STRONG,
     REPLAY_FUSION_W_NOWCAST,
     REPLAY_FUSION_W_TRADE,
@@ -172,6 +174,7 @@ def backtest_paper_replay(
     cash_floor: Optional[float] = None,
     fuse_enter: Optional[float] = None,
     fuse_strong: Optional[float] = None,
+    fuse_high: Optional[float] = None,
     fusion_w_oo: Optional[float] = None,
     fusion_w_oc: Optional[float] = None,
     include_session_day: bool = True,
@@ -181,12 +184,14 @@ def backtest_paper_replay(
     minute_bars_by_code: Optional[Dict[str, Dict[str, List[dict]]]] = None,
     lot_base_amount: Optional[float] = None,
     lot_strong_amount: Optional[float] = None,
+    lot_high_amount: Optional[float] = None,
     y_oo_gt0: Optional[bool] = None,
     y_τc_gt0: Optional[bool] = None,
     morph_gate_enabled: Optional[bool] = None,
     sentiment_gate_enabled: Optional[bool] = None,
     oo_rank_max: Optional[int] = None,
     oo_rank_strong_max: Optional[int] = None,
+    oo_rank_high_max: Optional[int] = None,
     oo_rank_top_frac: Optional[float] = None,
     price_space_cfg: Optional[dict] = None,
     score_model_role: Optional[str] = None,
@@ -233,6 +238,7 @@ def backtest_paper_replay(
     from core.paper.rebalance.rank_lots import (
         clamp_fusion_weight,
         coerce_fuse_threshold,
+        fuse_high_from_cfg,
         get_rank_lot_cfg,
         oo_rank_max_from_cfg,
         oo_rank_strong_max_from_cfg,
@@ -471,6 +477,17 @@ def backtest_paper_replay(
         lot_base_amount,
         lot_strong_amount,
     )
+    lot_high_n = clamp_replay_amount(
+        REPLAY_AMOUNT_HIGH if lot_high_amount is None else lot_high_amount,
+        REPLAY_AMOUNT_HIGH,
+    )
+    high_raw = fuse_high
+    if high_raw is None:
+        # API 缺省=关；UI 表单始终显式传值（默认 1%=REPLAY_FUSE_HIGH）
+        high_n = 0.0
+    else:
+        high_n = coerce_fuse_threshold(high_raw, REPLAY_FUSE_HIGH)
+        high_n = max(0.0, min(1.0, float(high_n)))
     gt0_τc = y_τc_gt0
     from core.t0.config import coerce_cfg_bool
 
@@ -486,6 +503,7 @@ def backtest_paper_replay(
         "mode": "rank_lots",
         "fuse_enter": enter,
         "fuse_strong": strong,
+        "fuse_high": high_n,
         "cash_floor": floor,
         "holdings_mv_cap": 0.0,
         "fusion_w_oo": w_oo,
@@ -497,11 +515,8 @@ def backtest_paper_replay(
             if morph_gate_enabled is None
             else bool(coerce_cfg_bool(morph_gate_enabled, False))
         ),
-        "sentiment_gate_enabled": (
-            False
-            if sentiment_gate_enabled is None
-            else bool(coerce_cfg_bool(sentiment_gate_enabled, False))
-        ),
+        # 规则栏已下掉舆情软先验；回测恒关
+        "sentiment_gate_enabled": False,
         "oo_rank_max": oo_rank_max_from_cfg(
             {"oo_rank_max": oo_rank_max} if oo_rank_max is not None else {}
         ),
@@ -510,6 +525,11 @@ def backtest_paper_replay(
             if oo_rank_strong_max is not None
             else {}
         ),
+        "oo_rank_high_max": (
+            int(oo_rank_high_max)
+            if oo_rank_high_max is not None
+            else (100 if high_n > 0 else None)
+        ),
         "oo_rank_top_frac": oo_rank_top_frac_from_cfg(
             {"oo_rank_top_frac": oo_rank_top_frac}
             if oo_rank_top_frac is not None
@@ -517,6 +537,7 @@ def backtest_paper_replay(
         ),
         "lot_base_amount": lot_base_n,
         "lot_strong_amount": lot_strong_n,
+        "lot_high_amount": lot_high_n,
     }
     paper.setdefault("rules", {})["execution"] = {
         "rebalance_timing": {
@@ -528,16 +549,19 @@ def backtest_paper_replay(
     rl_cfg["cash_floor"] = floor
     rl_cfg["lot_base_amount"] = lot_base_n
     rl_cfg["lot_strong_amount"] = lot_strong_n
+    rl_cfg["lot_high_amount"] = lot_high_n
     rl_cfg["fusion_w_oo"] = w_oo
     rl_cfg["fusion_w_oc"] = w_τc
     rl_cfg["fuse_enter"] = enter
     rl_cfg["fuse_strong"] = strong
+    rl_cfg["fuse_high"] = fuse_high_from_cfg(replay_lots)
     rl_cfg["y_oo_gt0"] = replay_lots["y_oo_gt0"]
     rl_cfg["y_τc_gt0"] = replay_lots["y_τc_gt0"]
     rl_cfg["morph_gate_enabled"] = bool(replay_lots["morph_gate_enabled"])
     rl_cfg["sentiment_gate_enabled"] = bool(replay_lots["sentiment_gate_enabled"])
     rl_cfg["oo_rank_max"] = replay_lots.get("oo_rank_max")
     rl_cfg["oo_rank_strong_max"] = replay_lots.get("oo_rank_strong_max")
+    rl_cfg["oo_rank_high_max"] = replay_lots.get("oo_rank_high_max")
     rl_cfg["oo_rank_top_frac"] = replay_lots.get("oo_rank_top_frac")
     rl_cfg["score_backend"] = current_rebalance_score_backend()
     rl_cfg["holdings_mv_cap"] = 0.0
@@ -1166,6 +1190,7 @@ def backtest_paper_replay(
             "cash_floor": floor,
             "fuse_enter": rl_cfg.get("fuse_enter"),
             "fuse_strong": rl_cfg.get("fuse_strong"),
+            "fuse_high": rl_cfg.get("fuse_high"),
             "y_oo_gt0": rl_cfg.get("y_oo_gt0"),
             "y_τc_gt0": rl_cfg.get("y_τc_gt0"),
             "morph_gate_enabled": bool(rl_cfg.get("morph_gate_enabled")),
@@ -1183,11 +1208,13 @@ def backtest_paper_replay(
             ),
             "oo_rank_max": rl_cfg.get("oo_rank_max"),
             "oo_rank_strong_max": rl_cfg.get("oo_rank_strong_max"),
+            "oo_rank_high_max": rl_cfg.get("oo_rank_high_max"),
             "oo_rank_top_frac": rl_cfg.get("oo_rank_top_frac"),
             "fusion_w_oo": w_oo,
             "fusion_w_oc": w_τc,
             "lot_base_amount": float(rl_cfg.get("lot_base_amount") or REPLAY_AMOUNT_BASE),
             "lot_strong_amount": float(rl_cfg.get("lot_strong_amount") or REPLAY_AMOUNT_STRONG),
+            "lot_high_amount": float(rl_cfg.get("lot_high_amount") or REPLAY_AMOUNT_HIGH),
             "cost_model": cost_model,
             "execution_mode": exec_mode,
             "fill_clock": clock,

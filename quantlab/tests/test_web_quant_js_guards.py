@@ -4242,11 +4242,19 @@ class TestWebQuantJsGuards(unittest.TestCase):
         self.assertNotIn("paper-t0-cfg-gates", pm)
         self.assertIn("follow-path-matrix-body--row5", pm)
         self.assertIn('name="pm_morph_gate"', pm)
-        self.assertIn('name="pm_sentiment_gate"', pm)
-        self.assertIn("follow-path-matrix-box--sent", pm)
-        self.assertIn(".follow-path-matrix-box--sent", self._read("web", "static", "css", "follow.css"))
-        self.assertIn("舆情先验", pm)
-        self.assertIn('aria-label="舆情先验说明"', pm)
+        self.assertNotIn('name="pm_sentiment_gate"', pm)
+        self.assertNotIn("follow-path-matrix-box--sent", pm)
+        self.assertNotIn(".follow-path-matrix-box--sent", self._read("web", "static", "css", "follow.css"))
+        self.assertNotIn("舆情先验", pm)
+        self.assertNotIn('aria-label="舆情先验说明"', pm)
+        self.assertIn(
+            'name="pm_fuse_high" min="0" max="10" step="0.01" value="1"',
+            pm,
+        )
+        self.assertIn(
+            'name="pm_oo_rank_high_max" min="0" max="500" step="1" value="100"',
+            pm,
+        )
         self.assertNotIn("follow-path-matrix-body--row4", t0)
         self.assertNotIn("follow-path-matrix-body--row5", t0)
         fuse = pm[pm.find('data-panel="rank"') : pm.find('data-panel="other"')]
@@ -4351,8 +4359,15 @@ class TestWebQuantJsGuards(unittest.TestCase):
         self.assertIn("pm_y_oo_gt0", exe_ui)
         self.assertIn("pm_morph_gate", exe_ui)
         self.assertIn("morph_gate_enabled", exe_ui)
-        self.assertIn("pm_sentiment_gate", exe_ui)
-        self.assertIn("sentiment_gate_enabled", exe_ui)
+        self.assertNotIn("pm_sentiment_gate", exe_ui)
+        self.assertIn("sentiment_gate_enabled: false", exe_ui)
+        # 高阈 UI 缺省回落 1.0%（旧盘 ≤0 不再填 0）
+        self.assertIn(
+            'highScore != null && Number(highScore) > 0 ? fuseScoreToPct(highScore) : 1',
+            exe_ui,
+        )
+        self.assertIn('numFirst(["pm_fuse_high"], 1)', exe_ui)
+        self.assertIn('num("pm_oo_rank_high_max", 100)', exe_ui)
         # 门槛写死在引擎：UI/保存体/回测请求均不带 morph_* 门槛字段
         self.assertNotIn("pm_morph_vol_pctl", exe_ui)
         self.assertNotIn("pm_morph_a1_max", exe_ui)
@@ -4443,7 +4458,7 @@ class TestWebQuantJsGuards(unittest.TestCase):
         self.assertIn("已恢复默认", forms)
         self.assertIn("quantlab-replay-desk-persist", forms)
         self.assertNotIn("已保存规则 · 交易执行将按此落地", forms)
-        # 嵌套 execution_ui 必须跟 __ASSET_V__，否则旧 ?v=p3378 缓存会丢掉 morph_gate 等新字段
+        # 嵌套 execution_ui 必须跟 __ASSET_V__，否则旧 ?v= 硬钉缓存会丢掉 morph_gate / 高阈等新字段
         self.assertIn("__ASSET_V__", forms)
         self.assertIn("execution_ui.js?v=", forms)
         self.assertNotIn("execution_ui.js?v=p3378", forms)
@@ -4451,6 +4466,13 @@ class TestWebQuantJsGuards(unittest.TestCase):
         self.assertIn("__ASSET_V__", paper)
         self.assertNotIn("execution_ui.js?v=p3378", paper)
         self.assertNotIn("execution_forms.js?v=p3378", paper)
+        self.assertNotIn("execution_ui.js?v=p2594", paper)
+        t0_ui = self._read("web", "static", "js", "paper", "t0_ui.js")
+        self.assertIn("__ASSET_V__", t0_ui)
+        self.assertNotIn("execution_ui.js?v=p2594", t0_ui)
+        t0_table = self._read("web", "static", "js", "paper", "t0_table.js")
+        self.assertIn("__ASSET_V__", t0_table)
+        self.assertNotIn("execution_ui.js?v=p2594", t0_table)
         self.assertIn("/api/paper/rebalance/worker", paper)
         self.assertIn("paper-rebalance-worker-enabled", paper)
         self.assertIn("paper-t0-live-prefix", paper)
@@ -4507,8 +4529,8 @@ class TestWebQuantJsGuards(unittest.TestCase):
         self.assertIn(".paper-t0-desk-dir.is-morph", css)
         self.assertIn(".paper-t0-desk-dir.is-sent", css)
         self.assertIn(".paper-t0-desk-chip.is-sent", css)
-        self.assertIn('deskChip("is-sent", "舆情先验"', desk_js)
-        self.assertIn("舆情软先验 · 未过入场", self._read("web", "static", "js", "paper", "rebalance_report.js"))
+        self.assertIn('deskChip("is-sent", "舆情跳过"', desk_js)
+        self.assertIn("历史舆情跳过 · 未过入场", self._read("web", "static", "js", "paper", "rebalance_report.js"))
         tip = self._read("web", "static", "js", "score_tooltip.js")
         self.assertIn("标题徽章 · 不进 ŷ", tip)
         self.assertNotIn("舆情先验只读 09:30 前新闻库", tip)

@@ -1375,7 +1375,7 @@ quantlab/
 |----|------|------|
 | 数据层 | [component/data.md](component/data.md) | 采集/清洗/存储/服务/监控 · 分钟线 · 存储选型 · PIT |
 | 策略层 | [component/strategy.md](component/strategy.md) | 选股/择时/仓位/风控 · 设计模板 · 默认短线策略 |
-| 风控层 | [component/risk.md](component/risk.md) | Alpha×Risk · 风控因子 · 舆情 / news.db 软先验 |
+| 风控层 | [component/risk.md](component/risk.md) | Alpha×Risk · 风控因子 · 舆情徽章 / news.db 标签 |
 | RL 视角 | [component/rl.md](component/rl.md) | Policy/Reward/Env（远期） |
 | 框架梳理 | [internal/framework-review.md](internal/framework-review.md) | 工程债台账 |
 | 工程结构轨 | [internal/engineering-track.md](internal/engineering-track.md) | A0–A4 · B0–B4 |

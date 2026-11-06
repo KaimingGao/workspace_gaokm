@@ -1,8 +1,8 @@
 """本地新闻舆情库（data/store/news.db）。
 
-只向前追加标题，供调仓舆情软先验和回测按决策日重放。不进 ŷ，不回补东财当前页。
+只向前追加标题，供表列标签与回测按决策日重放。不进 ŷ，不回补东财当前页。
 一条标题进入的决策日，是发布时间之后、且本地当时已经拿到它的第一根 fill_clock。
-勾选闸时：空/多调入场 fuse±0.1% 与名次 ×2/×0.5；明细写原始值，不因舆情清仓。
+规则栏已下掉舆情软先验闸（配置恒关）；引擎仍保留软先验实现供单测/旧账。
 """
 
 from __future__ import annotations
@@ -854,7 +854,7 @@ def load_library_labels(
 
 
 def sentiment_gate_enabled(cfg: Optional[Mapping[str, Any]]) -> bool:
-    """总开关。缺键视为关。"""
+    """读盘兼容旧账本；产品路径恒关（execution / UI 不再暴露）。缺键视为关。"""
     from core.t0.config import coerce_cfg_bool
 
     d = cfg if isinstance(cfg, Mapping) else {}

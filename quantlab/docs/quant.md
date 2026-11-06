@@ -87,7 +87,7 @@ score_bars → sub_scores（特征）
 | 波动 / 风险 | 历史波动、Beta、ATR | `volatility` |
 | 基本面价值 | EP/BP/CFP | `value`、`earnings_yield`（PIT `as_of` 可用） |
 | 基本面质量 / 成长 | ROE、增速 | `quality`、`growth`、`dividend`、`size` |
-| 另类 / 事件 | 舆情、ESG | `alt_sentiment`（标题词表；小权重）；**调仓旁路**另见 news.db 软先验 |
+| 另类 / 事件 | 舆情、ESG | `alt_sentiment`（标题词表；小权重）；调仓仅表列标签、不改 fuse/rank |
 | 风险模型（Barra） | 行业/风格暴露 | 横截面 **z-score** + **industry/size residual**（默认开） |
 
 ```bash
@@ -205,7 +205,7 @@ preset（`advisor` / `quant` / `quant_paper` / `full`）、cron / launchd、报�
 
 ### 边界：不强因子
 
-当前以短线技术面 + 轻量基本面为主；`news` 对话解读，调仓可选 **news.db 软先验**（不进 ŷ 主字段）。不把「涨跌归因完整」当近期目标。
+当前以短线技术面 + 轻量基本面为主；`news` 对话解读，调仓表列可写 **news.db 标签**（不进 ŷ，不改 fuse/rank）。不把「涨跌归因完整」当近期目标。
 
 操作入门：[getting-started.md](getting-started.md) · [quant-ui · 操作流程](quant-ui.md#操作流程照着做)。
 
@@ -599,7 +599,7 @@ score_stock(code) 续——
 | 选股排序键 | **y_oo_fuse**（UI fuse）= `fusion_w_oo·((ŷ_oo+1)/(1+rot)−1) + fusion_w_oc·ŷ_τc`。rot=该 τ 相对开盘的涨跌；τ=开盘时 rot=0 | 同左 |
 | 宇宙 | 主头与排序头：**整观察池**进截面 z。排序头 `train_universe`（`tier_a` / `tier`）只影响拟合损失，不影响打分 μ/σ。分档打开时 ŷ/名次只写允许档，档外不开仓（现金用完即止） | 同左。另加持仓市值上限（默认 15 万）；开加不按 `max_positions` 截断 |
 | 模型 | 默认**研究套**（Holdout 前训 β）；表单「模型」可选**执行**对照 live 槽版本。所选槽缺失时该头不挂分，**不**静默换另一槽（ŷ_oo 研究档可回落草稿预览，仍不读执行套） | 执行套（研究槽晋级）；缺执行套不回落研究套 |
-| 金额 | 表单入场/强档金额；不够一手则跳过；单票≤强档×120%；保存规则写入交易执行 | 已保存 `lot_base_amount` / `lot_strong_amount`（缺省 1 万 / 2 万）；同上单票上限 |
+| 金额 | 表单入场/强档/高阈金额；不够一手则跳过；单票≤max(强档, 高阈若开)×120%；保存规则写入交易执行 | 已保存 `lot_base_amount` / `lot_strong_amount` / `lot_high_amount`（缺省 1 万 / 2 万 / 10 万）；同上单票上限 |
 | 成交 | 开盘 rank_lots；T+1；本金默认 **20 万**（表单可改，不留地板）；**成交钟**默认 09:30（可选至 10:00）。**09:30 用日 K 开盘、不读 5m**（本地首根标 09:35）；09:35–10:00 才加载分钟线。缺该钟：买入跳过、清仓回退其后～10:00 再回退日开盘；「日分价闸」要窗内分钟才生效（09:30 跳过加载后闸空跑；阈跟做 T） | 同规则，账本为 `paper.json`；live 另受 15 万市值帽；现价；**不**套日分价闸 |
 | 成交明细 | 列序股数 / 开盘价 / 收盘价 / 成交价 / 收益率（卖出总额/买入总额−1；未卖完含收盘市值）/ fuse 预估(真实)=open[T+1]/price(τ)−1 / y_oo / y_τc / **oo_rank**（ŷ_oo_rank 1..n）/ **τc_rank**（ŷ_τc_rank；与 oo_rank 取 max 作入场闸）。不挂 R_τ / y_τw / y_τ30 / y_τ60 / y_τ90。09:30 冷启动不写因子组成表。逐日退路与 live 的 **y_τc tip** 仍用日截面 z 算 β·z（Top‑N）。**oo_rank / τc_rank tip**（LambdaRank）另列 **gain%**（模型 `coefficients` 份额，与研究枢纽同口径） | live 仍可透传对照头 |
 
@@ -806,7 +806,7 @@ A 改进「估得准」；B 改进「做得对」。北极星乘积两者都要�
 |------|------|------|
 | **open-pit** | 会话日官方 open 立方未齐：昨收日线 + 行情今开现场建截面；补训练同款风格因子，缺列/覆盖不足则拒单；落账禁回退昨日立方 | [internal/live-open-pit-rebalance.md](internal/live-open-pit-rebalance.md) |
 | **物化写穿** | 物化写入时日线新于湖必须重算（`allow_l1_end_lag()=False`），禁止只切交集仍报成功 | [internal/feature-lake-daycube.md](internal/feature-lake-daycube.md) |
-| **舆情软先验** | 勾选闸：读 `news.db`，fuse±0.1% · rank×2/×0.5；不清仓、不进 ŷ | [component/risk.md](component/risk.md#舆情与另类数据sentiment-altdata) |
+| **舆情标签** | 读 `news.db` 决策窗标签写表列；规则栏已下掉软先验闸；不进 ŷ | [component/risk.md](component/risk.md#舆情与另类数据sentiment-altdata) |
 | **今日收益** | `当前净值 − session_nav[昨收]`；快照裁剪后仍可对账 | [rebalance-logic.md](rebalance-logic.md) · [quant-ui.md](quant-ui.md) `/follow` |
 | **滚动验证** | 研究枢纽 Walk-forward Top1（默认 **A 档**）；不写模型 | [quant-ui.md](quant-ui.md) `#quant-section-roll-gate` |
 

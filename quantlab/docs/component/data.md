@@ -228,7 +228,7 @@ flowchart TD
 | `data/store/daily/{CN\|HK\|US}/{code}.json` | 日线 bars + `fetched_at` + quality + `date_min/max`（增量合并；默认不入 git） |
 | `data/store/bars.db` · `minute_bars` / `minute_cache_meta` | 分钟线（默认 SQLite）；或 `data/store/minute/{period}/CN/{code}.json` |
 | `data/store/fundamentals/{code}.json` | 基本面快照 + `history[]`（真实多期 / 可选 synthetic_demo）+ `fetched_at` |
-| `data/store/news.db` | 舆情标题仓（headline / decision_label；调仓软先验 + as_of） |
+| `data/store/news.db` | 舆情标题仓（headline / decision_label；表列标签 + as_of） |
 | `data/store/news_snap/{code}.json` | 东财拉取短 TTL 快照（non_pit；非标题仓） |
 | `data/store/news/llm/` | LLM 解读缓存（可选；非标题仓） |
 | `data/store/spot_a_em.json` | A 股现货筛选磁盘兜底 |
@@ -254,7 +254,7 @@ flowchart TD
 | **信号 / 规则配置** | JSON | `signal_config.json` · `position_rules.json` | 人审可改；晋升有备份约定 |
 | **日线 / 分钟线** | SQLite（默认）或 JSON | `data/store/bars.db` · 或 `daily\|minute/**/*.json` | `QUANTLAB_BARS_BACKEND`；上层经 DataService / ports |
 | **基本面** | 按标的 JSON | `data/store/fundamentals/` | 快照 + PIT 面板；不进 bars.db |
-| **舆情标题** | SQLite | `data/store/news.db` | 软先验 / as_of；东财短 TTL 另见 `news_snap/` |
+| **舆情标题** | SQLite | `data/store/news.db` | 表列标签 / as_of；东财短 TTL 另见 `news_snap/` |
 | **决策 / TTM 事件** | JSONL 追加 | `decisions.jsonl` · `ttm_events.jsonl` | 流水审计，轻量追加写 |
 | **日报 / 告警** | JSON · MD | `quant_daily.json` · `reports/` · `alerts/` | 运行时产物 |
 | **回测快照** | JSON | `last_portfolio_backtest.json` · `last_t0_backtest.json` | 刷新恢复 KPI / 做 T 结果；不重跑 |

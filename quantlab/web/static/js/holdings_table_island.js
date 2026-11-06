@@ -3,7 +3,10 @@
  */
 
 import { fmtPriceUnit, fmtPct, metricCls, fmtTableScore, scoreCls, resolveFuseScore, resolveEodScore, resolveTauScore, isHeuristicScoreScale, Y_EOD_TITLE, Y_OC_REBALANCE_TITLE, FUSE_REBALANCE_TITLE } from "./paper/fmt.js?v=p3540";
-import { sentimentBadgeHtml, watchingScoreDetail } from "./quant/watching_render.js?v=p3565";
+const _WR_V = (typeof window !== "undefined" && window.__ASSET_V__) || "dev";
+const { sentimentBadgeHtml, watchingScoreDetail } = await import(
+  `./quant/watching_render.js?v=${encodeURIComponent(_WR_V)}`
+);
 import {
   isSingleHeadItem,
   singleHeadBadgeHtml,

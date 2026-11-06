@@ -1,6 +1,7 @@
 /** Paper · 做T 指标与预演表渲染（从 paper.js 抽出）。 */
 
-import { yTauMapScoreTip } from "./execution_ui.js?v=p2594";
+const _V = (typeof window !== "undefined" && window.__ASSET_V__) || "dev";
+const { yTauMapScoreTip } = await import(`./execution_ui.js?v=${encodeURIComponent(_V)}`);
 import { renderT0Viz, wireT0SkipTips } from "./t0_viz.js?v=p2746";
 import { buildT0ReportHtml, fmtT0DirDays } from "./t0_report.js?v=p3319";
 import {

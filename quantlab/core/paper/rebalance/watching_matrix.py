@@ -2000,7 +2000,7 @@ def _row_score_payload(
 ) -> Dict[str, Any]:
     """表列用 ŷ_oo / ŷ_τc；y_oo_fuse（UI fuse）按头现算。
 
-    计划腿 / 跳过行（``src``）里的原始名次盖过 item，避免舆情先验缩放名次进表。
+    计划腿 / 跳过行（``src``）里的原始名次盖过 item，避免历史软先验缩放名次进表。
     """
     from core.paper.rebalance.path_matrix import scores_from_rebalance_item
     from core.paper.rebalance.rank_lots import aux_yhat_fields, y_oo_fuse_pct_of

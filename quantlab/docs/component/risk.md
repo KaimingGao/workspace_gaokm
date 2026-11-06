@@ -178,16 +178,16 @@ Alpha 条目（选股择时）与 Risk 条目分开写，避免「一个大 if�
 
 ```text
 ŷ = ReturnScoreModel(价量 / 财务 / …)   ← 唯一生产排序轴
-S = score_headlines(当日标题)            ← 徽章参考；勾选「舆情先验」时另作 fuse/rank 软先验
-live 调仓 = rank_lots(y_oo_fuse)     ← 不进 ŷ；可选读 news.db 软先验
+S = score_headlines(当日标题)            ← 仅徽章 / 表列参考
+live 调仓 = rank_lots(y_oo_fuse)     ← 不进 ŷ；不再套舆情软先验闸
 ```
 
-本仓库 **已有**：标题拉取写入本地 `news.db`（单一事实源）；观察徽章；徽章侧 `sentiment_prior`（产品强制 `mode=off`，已删硬闸/缩仓 actions）；调仓软先验（勾选 `sentiment_gate_enabled`：空/多调 fuse±0.1%·rank×2/×0.5，不清仓）；`GET /api/ops/sentiment-as-of`（按发布日 PIT 查库）。东财短 TTL 适配缓存见 `data/store/news_snap/`；LLM 解读缓存见 `news/llm/`（均非标题仓）。  
-**没有**：完整可估 β 的全市场 news 仓、用 S 拟合 OLS β、LLM 写分进 ŷ、主回测把 S 写进 ŷ、个股舆情硬禁买/硬清仓。
+本仓库 **已有**：标题拉取写入本地 `news.db`（单一事实源）；观察徽章；徽章侧 `sentiment_prior`（产品强制 `mode=off`，已删硬闸/缩仓 actions）；表列写决策窗标签；`GET /api/ops/sentiment-as-of`（按发布日 PIT 查库）。东财短 TTL 适配缓存见 `data/store/news_snap/`；LLM 解读缓存见 `news/llm/`（均非标题仓）。  
+**没有**：调仓规则栏舆情软先验勾选（已下掉，配置键恒 `false`）、完整可估 β 的全市场 news 仓、用 S 拟合 OLS β、LLM 写分进 ŷ、主回测把 S 写进 ŷ、个股舆情硬禁买/硬清仓。
 
-LLM 可**解读**标题；**不得**写入 `sub_scores` / ŷ。`sentiment.include_in_score` **恒保持 false**；`get_sentiment_prior_cfg` 强制 `mode=off`（徽章侧旧 prior，与调仓软先验无关）。
+LLM 可**解读**标题；**不得**写入 `sub_scores` / ŷ。`sentiment.include_in_score` **恒保持 false**；`get_sentiment_prior_cfg` 强制 `mode=off`（徽章侧旧 prior）。
 
-超时 / 空标题 / 过期缓存回退时标记 `degraded=true` · `prior_eligible=false`，徽章不标触发；调仓软先验同样跳过缺测行。
+超时 / 空标题 / 过期缓存回退时标记 `degraded=true` · `prior_eligible=false`，徽章不标触发。
 
 ---
 
@@ -198,19 +198,19 @@ LLM 可**解读**标题；**不得**写入 `sub_scores` / ŷ。`sentiment.includ
 | 旁路 | 行为 |
 |------|------|
 | 徽章 / `stock_sentiment.py` | 只展示；文件里残留的 `risk` / `gate` 运行时忽略；无 block/scale actions |
-| `news.db` 调仓软先验 | 勾选「舆情先验」：空/多调 fuse±0.1%·rank×2/×0.5；表列写原始值；不清仓 |
+| `news.db` 决策窗标签 | 表列 / 明细可写；**不再**调 fuse/rank；配置 `sentiment_gate_enabled` 读盘恒关 |
 
 | 表面 | 行为 |
 |------|------|
 | 观察 / 持仓 / 分数 tip | 看空/看多徽章 + `risk_hints` |
-| Follow `rank_lots` / `/replay` / 手动执行 | 默认可关；勾选闸时读 `news.db` 作 fuse/rank 软先验 |
+| Follow `rank_lots` / `/replay` / 手动执行 | 只展示舆情标签；不因舆情改入场 |
 | 旧横截面编排 | 读到的 cfg 也是 `off`，不拦买不缩仓 |
 
 `apply_prior_to_buy` / `apply_prior_to_hold` 是 **M 层** `policy.py` 共用 helper（及合成 pack）；徽章 `build_sentiment_prior` 不产出 block/scale actions。
 
-**Web**：策略中心不再编辑徽章侧 prior；`POST /api/signal/config/sentiment-prior` 仅规范化为 `mode=off` 并剥掉旧硬闸键。调仓软先验开关在回测 / 交易执行规则栏。
+**Web**：策略中心不再编辑徽章侧 prior；`POST /api/signal/config/sentiment-prior` 仅规范化为 `mode=off` 并剥掉旧硬闸键。调仓规则栏已下掉舆情软先验勾选。
 
-徽章配置见 `signal_config.sentiment` · `core/sentiment_prior.py`；调仓软先验见 `core/news_archive.py` · `plan_rank_lot_day`。
+徽章配置见 `signal_config.sentiment` · `core/sentiment_prior.py`；标签读取见 `core/news_archive.py`。
 
 **相关**：开盘缺口等 **事件先验**（与 S 并列的 \(E\)，同属 ŷ 外旁路）见 [quant.md · Live 旁路](../quant.md#live-出分与旁路) · [§2.5](../quant.md#25-双层-predictedscoreŷoo-ŷτ)。
 
@@ -227,14 +227,14 @@ LLM 可**解读**标题；**不得**写入 `sub_scores` / ŷ。`sentiment.includ
 
 ```text
 日线/财务 ──► ŷ（排序真源）
-标题/规则 ──► S ──► 徽章；勾选闸时 fuse/rank 软先验（不进 ŷ）
+标题/规则 ──► S ──► 徽章 / 表列（不进 ŷ；不改 fuse/rank）
 LLM ────────► 叙事（不进分）
 ```
 
 | 层 | 关系 |
 |----|------|
 | Alpha / ŷ | 不含 S |
-| [risk-layer](#风控模型risk-layer) | S → 徽章；可选调仓软先验（不清仓） |
+| [risk-layer](#风控模型risk-layer) | S → 徽章 / 表列 |
 | 投顾 | `news` 供解读；不参与 stance / sub_scores |
 
 ---
@@ -248,7 +248,7 @@ LLM ────────► 叙事（不进分）
 | as_of 面板 API | **有** · `GET /api/ops/sentiment-as-of` · news.db PIT 覆盖进 hygiene |
 | 先验 policy | **有** · `role=prior` · `prior.mode` |
 | Live 进 ŷ | **否** · `include_in_score=false` · X5 边界诚实 |
-| 调仓旁路 | **有** · `news.db` 软先验调 fuse/rank；`predicted_score` 不改写 |
+| 调仓旁路 | **否** · 规则栏已下掉；标签可写、不改 fuse/rank / ŷ |
 | 主回测注入 S | **否** |
 | OLS 求 S 的 β | **否** |
 | LLM 分析 | **有** · 叙事；不得进 `sub_scores` |
@@ -260,7 +260,7 @@ LLM ────────► 叙事（不进分）
 | 能力 | 路径 |
 |------|------|
 | 徽章 prior | `core/sentiment_prior.py` · `core/market/priors/stock_sentiment.py` |
-| 调仓软先验 | `core/news_archive.py` · `plan_rank_lot_day` |
+| 舆情标签 | `core/news_archive.py`（软先验闸已下掉） |
 | Live 打分 | `core/signal/score_stock.py`（输出徽章字段） |
 | 调仓接入 | `core/paper/rebalance/` |
 | 不进 ŷ | `sentiment.include_in_score=false` |

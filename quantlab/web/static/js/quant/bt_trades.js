@@ -258,7 +258,7 @@ export const BT_LEDGER_TRADE_COLS = [
     label: "舆情",
     widthPct: 4,
     widthMin: "2.8rem",
-    title: "该日 09:30 前已发布。不进 ŷ。勾选闸时空/多调 fuse±0.1%·rank×2/×0.5，不清仓；缺测不调",
+    title: "该日 09:30 前已发布。不进 ŷ；缺测不调",
   },
   {
     id: "open_date",

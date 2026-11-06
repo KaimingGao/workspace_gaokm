@@ -15,7 +15,7 @@ def read_sentiment_prior_public(*, config: Optional[dict] = None) -> Dict[str, A
         "role": "prior",
         "include_in_score": bool(cfg.get("include_in_score", False)),
         "mode": cfg["mode"],
-        "note": "个股舆情仅观察徽章 · 不进 ŷ；调仓软先验见 news.db / sentiment_gate_enabled",
+        "note": "个股舆情仅观察徽章 · 不进 ŷ；调仓规则栏已下掉软先验闸",
     }
 
 

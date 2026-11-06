@@ -1640,7 +1640,7 @@ export function formatFeatureIsoSection(raw) {
   );
 }
 
-/** 个股舆情徽章（ŷ 外）。调仓 soft prior 另见 news.db / 规则栏「舆情先验」。 */
+/** 个股舆情徽章（ŷ 外）。不进 ŷ；调仓规则栏已不下发舆情先验闸。 */
 export function formatSentimentGateSection(raw) {
   if (!raw) return "";
   const meta = [];
@@ -1705,7 +1705,7 @@ export function formatSentimentGateSection(raw) {
   return (
     `<div class="score-sentiment-section">` +
     `<div class="score-section-title">舆情</div>` +
-    `<div class="score-sentiment-lead">标题徽章 · 不进 ŷ · 调仓软先验另读 09:30 前新闻库</div>` +
+    `<div class="score-sentiment-lead">标题徽章 · 不进 ŷ</div>` +
     metaHtml +
     notesHtml +
     `</div>`

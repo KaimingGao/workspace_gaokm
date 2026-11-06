@@ -133,7 +133,7 @@ DEFAULT_SIGNAL_CONFIG: Dict[str, Any] = {
         "ann_missing_code_ratio_warn": 0.3,
         "ann_missing_code_ratio_block": 0.5,
     },
-    # 舆情：观察徽章。已退出因子集；标题仓 / 调仓软先验见 news.db。
+    # 舆情：观察徽章。已退出因子集；标题仓见 news.db（规则栏软先验闸已下掉）。
     "sentiment": {
         "include_in_score": False,
         "role": "prior",

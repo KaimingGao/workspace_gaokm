@@ -90,7 +90,7 @@ def signal_config_stance_thresholds(body: StanceThresholdsRequest) -> Dict[str, 
 @router.get("/api/signal/config/sentiment-prior")
 
 def signal_config_sentiment_prior_get() -> Dict[str, Any]:
-    """徽章侧 prior 只读（mode 恒 off；调仓软先验另见 sentiment_gate_enabled）。"""
+    """徽章侧 prior 只读（mode 恒 off；调仓软先验闸已下掉）。"""
     try:
         return deps.quant.read_sentiment_prior()
     except Exception as e:

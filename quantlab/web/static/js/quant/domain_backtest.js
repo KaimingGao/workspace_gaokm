@@ -399,6 +399,7 @@ export function installBacktest(q) {
       if (req.initial_cash != null) setName("pm_initial_cash", req.initial_cash);
       if (req.lot_base_amount != null) setName("pm_lot_base_amount", req.lot_base_amount);
       if (req.lot_strong_amount != null) setName("pm_lot_strong_amount", req.lot_strong_amount);
+      if (req.lot_high_amount != null) setName("pm_lot_high_amount", req.lot_high_amount);
       // 历史回测不再按拟合档过滤；只用观察池分档勾选
       if (Array.isArray(req.predictability_tiers)) {
         const set = new Set(
@@ -448,6 +449,15 @@ export function installBacktest(q) {
     if (strongPct) {
       setName("pm_fuse_strong", strongPct);
     }
+    const highScore = req.fuse_high;
+    if (highScore != null && Number(highScore) > 0) {
+      const highPct = scoreToRankPct(highScore);
+      if (highPct) setName("pm_fuse_high", highPct);
+      else setName("pm_fuse_high", 1);
+    } else {
+      // UI 默认 1.0%；旧盘 ≤0 / 缺键不再填 0
+      setName("pm_fuse_high", 1);
+    }
     const setChk = (name, val, fallback) => {
       const el = form && form.querySelector(`[name="${name}"]`);
       if (!el || el.type !== "checkbox") return;
@@ -456,7 +466,6 @@ export function installBacktest(q) {
     setChk("pm_y_oo_gt0", req.y_oo_gt0, false);
     setChk("pm_y_τc_gt0", req.y_τc_gt0, false);
     setChk("pm_morph_gate", req.morph_gate_enabled, false);
-    setChk("pm_sentiment_gate", req.sentiment_gate_enabled, false);
     const ooMax = Number(req.oo_rank_max);
     if (Number.isFinite(ooMax) && ooMax > 0) {
       setName("pm_oo_rank_max", Math.max(0, Math.min(500, Math.round(ooMax))));
@@ -477,6 +486,17 @@ export function installBacktest(q) {
       );
     } else {
       setName("pm_oo_rank_strong_max", 100);
+    }
+    if (Object.prototype.hasOwnProperty.call(req, "oo_rank_high_max")) {
+      const ooHigh = Number(req.oo_rank_high_max);
+      setName(
+        "pm_oo_rank_high_max",
+        Number.isFinite(ooHigh) && ooHigh > 0
+          ? Math.max(1, Math.min(500, Math.round(ooHigh)))
+          : 0
+      );
+    } else {
+      setName("pm_oo_rank_high_max", 100);
     }
   }
 
@@ -761,13 +781,15 @@ export function installBacktest(q) {
     let lot_base_amount = val("pm_lot_base_amount", 10000);
     let lot_strong_amount = val("pm_lot_strong_amount", lot_base_amount);
     if (lot_strong_amount < lot_base_amount) lot_strong_amount = lot_base_amount;
+    const lot_high_amount = val("pm_lot_high_amount", 100000);
     const setIf = (name, v) => {
       const el = form && form.querySelector(`[name="${name}"]`);
       if (el && el.value !== String(v)) el.value = String(v);
     };
     setIf("pm_lot_base_amount", lot_base_amount);
     setIf("pm_lot_strong_amount", lot_strong_amount);
-    return { lot_base_amount, lot_strong_amount };
+    setIf("pm_lot_high_amount", lot_high_amount);
+    return { lot_base_amount, lot_strong_amount, lot_high_amount };
   }
 
   function readPriceSpaceGate() {
@@ -822,18 +844,28 @@ export function installBacktest(q) {
           lots.oo_rank_strong_max != null && Number(lots.oo_rank_strong_max) > 0
             ? Math.max(1, Math.min(500, Math.round(Number(lots.oo_rank_strong_max))))
             : 0;
+        const ooHigh =
+          lots.oo_rank_high_max != null && Number(lots.oo_rank_high_max) > 0
+            ? Math.max(1, Math.min(500, Math.round(Number(lots.oo_rank_high_max))))
+            : 0;
         const enter = lots.fuse_enter;
         const strong =
           lots.fuse_strong != null ? lots.fuse_strong : enter;
+        const high =
+          lots.fuse_high != null && Number(lots.fuse_high) > 0
+            ? Number(lots.fuse_high)
+            : 0;
         return {
           fuse_enter: enter,
           fuse_strong: strong,
+          fuse_high: high,
           y_oo_gt0: lots.y_oo_gt0 === true,
           y_τc_gt0: lots.y_τc_gt0 === true,
           morph_gate_enabled: lots.morph_gate_enabled === true,
-          sentiment_gate_enabled: lots.sentiment_gate_enabled === true,
+          sentiment_gate_enabled: false,
           oo_rank_max: ooMax,
           oo_rank_strong_max: ooStrong,
+          oo_rank_high_max: ooHigh,
           oo_rank_top_frac: null,
         };
       }
@@ -842,8 +874,10 @@ export function installBacktest(q) {
     return {
       fuse_enter: enter,
       fuse_strong: enter,
+      fuse_high: 0.01,
       oo_rank_max: 10,
       oo_rank_strong_max: 100,
+      oo_rank_high_max: 100,
       oo_rank_top_frac: null,
       morph_gate_enabled: false,
       sentiment_gate_enabled: false,
@@ -1482,16 +1516,18 @@ export function installBacktest(q) {
         fusion_w_oc,
         fuse_enter,
         fuse_strong,
+        fuse_high,
         y_oo_gt0,
         y_τc_gt0,
         morph_gate_enabled,
-        sentiment_gate_enabled,
         oo_rank_max,
         oo_rank_strong_max,
+        oo_rank_high_max,
         initial_cash,
         fill_clock,
         lot_base_amount,
         lot_strong_amount,
+        lot_high_amount,
         use_predictability_tiers,
         predictability_tiers,
         price_space_gate,
@@ -1499,6 +1535,13 @@ export function installBacktest(q) {
       const enterThresh = fuse_enter;
       const strongThresh =
         fuse_strong != null ? fuse_strong : enterThresh;
+      // 缺省跟 UI 高阈 1%；显式 0=关
+      const highThresh =
+        fuse_high == null
+          ? 0.01
+          : Number(fuse_high) > 0
+            ? Number(fuse_high)
+            : 0;
       const ctx = portfolioRunContextLabel({
         lookback,
         score_model_role,
@@ -1524,10 +1567,11 @@ export function installBacktest(q) {
         fusion_w_oc,
         fuse_enter: enterThresh,
         fuse_strong: strongThresh,
+        fuse_high: highThresh,
         y_oo_gt0: y_oo_gt0 === true,
         y_τc_gt0: y_τc_gt0 === true,
         morph_gate_enabled: morph_gate_enabled === true,
-        sentiment_gate_enabled: sentiment_gate_enabled === true,
+        sentiment_gate_enabled: false,
         oo_rank_max:
           oo_rank_max != null && Number(oo_rank_max) > 0
             ? Math.max(1, Math.min(500, Math.round(Number(oo_rank_max))))
@@ -1536,10 +1580,15 @@ export function installBacktest(q) {
           oo_rank_strong_max != null && Number(oo_rank_strong_max) > 0
             ? Math.max(1, Math.min(500, Math.round(Number(oo_rank_strong_max))))
             : 0,
+        oo_rank_high_max:
+          oo_rank_high_max != null && Number(oo_rank_high_max) > 0
+            ? Math.max(1, Math.min(500, Math.round(Number(oo_rank_high_max))))
+            : 0,
         initial_cash,
         fill_clock,
         lot_base_amount,
         lot_strong_amount,
+        lot_high_amount,
         use_predictability_tiers: !!use_predictability_tiers,
         predictability_tiers: use_predictability_tiers
           ? predictability_tiers || ["A"]

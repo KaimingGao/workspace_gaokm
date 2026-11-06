@@ -10,17 +10,18 @@
     τ = 开盘时 rot = 0，简化为 w_oo·ŷ_oo + w_τc·ŷ_τc
   - 过入场（y_oo_fuse>fuse_enter）→ 按 oo_rank 升序（1=最好）开仓或加仓；
     缺 oo_rank 回退 y_oo_fuse 降序；y_oo>0 / y_τc>0 看原始百分点符号
+  - 高阈旁路（fuse_high>0）：fuse>fuse_high 且可选 rank&lt;oo_rank_high_max 时
+    与入场/强档 OR，用 lot_high_amount；不绕过形态闸；已买过不叠第二笔
   - 可选形态硬闸（默认关，门槛写死）：高波弱开（vol_p≥0.9 且 a1<0）、
     异常低开（a1≤−8%）、或开盘已到板块涨停价 → 禁止新开/加仓（已持仓不清仓）
-  - 舆情标签始终读本地新闻库并写入明细。闸动作仅在勾选时执行（软先验）：
-    窗口内判空 → 入场 fuse −0.1%、有效名次 ×2；判多 → fuse +0.1%、名次 ×0.5。
-    只改入场判定与买序，不因舆情单独清仓。未勾选只显示。缺测、超时、零标题放过。不改 ŷ
-  - 已持仓且未过入场、缺 y_oo_fuse、或 hard_reject → 清仓（T+1 可卖部分；形态闸 / 舆情先验不触发清仓）
-    缺分不能假装过门槛续持；无「持」动作
+  - 舆情标签始终读本地新闻库并写入明细；规则栏已下掉软先验闸（配置恒关），不改 fuse/rank
+  - 已持仓且未过入场、缺 y_oo_fuse、或 hard_reject → 清仓（T+1 可卖部分；形态闸不清仓）
+    缺分不能假装过门槛续持；高阈过线可续持；无「持」动作
   - y_oo_fuse > fuse_strong → lot_strong_amount，否则 lot_base_amount（缺省 2 万 / 1 万）
     同一比较：过强档改看 oo_rank_strong_max（默认 100；≤0=关），不再用入场 oo_rank_max
+    高阈过线时金额取 max(上述, lot_high_amount)
     股数 = 金额/价 向下取整到一手；不够一手则跳过
-  - 单票持仓市值上限 = lot_strong_amount × 120%；买后将超过则跳过（防单票过重）
+  - 单票持仓市值上限 = max(强档, 高阈若开) × 120%；买后将超过则跳过（防单票过重）
   - 不留现金地板：现金不够该手则缩到整百（最少一手）；仍买不起才跳过。
     强档买不下先试入场金额，再缩。live 另受组合持仓市值上限约束。
     调用方传入 min_cash_pct 时，买腿另保留「调仓前净值 × 比例」；缺省不启用。
@@ -36,15 +37,18 @@ logger = logging.getLogger(__name__)
 
 DEFAULT_FUSE_ENTER = 0.001
 DEFAULT_FUSE_STRONG = 0.001
+DEFAULT_FUSE_HIGH = 0.0  # coerce 回退；缺键关闸。产品 UI 默认见 path_matrix 0.01
 DEFAULT_CASH_FLOOR = 0.0
 DEFAULT_HOLDINGS_MV_CAP = 150_000.0
 DEFAULT_INITIAL_CASH = 1_000_000.0
 LOT_AMOUNT_BASE = 10_000.0
 LOT_AMOUNT_STRONG = 20_000.0
+LOT_AMOUNT_HIGH = 100_000.0
 LOT_AMOUNT_MIN = 1_000.0
 LOT_AMOUNT_MAX = 1_000_000.0
 LOT_MIN = 100
 STOCK_MV_CAP_MULT = 1.2
+DEFAULT_OO_RANK_HIGH_MAX = 100
 
 
 def _display_name(code: str, *cands: Any) -> str:
@@ -254,6 +258,77 @@ def oo_rank_top_frac_from_cfg(cfg: Optional[dict]) -> Optional[float]:
     return float(v)
 
 
+def fuse_high_from_cfg(cfg: Optional[dict]) -> Optional[float]:
+    """高阈 fuse 旁路阈值（净收益）。缺键/None/≤0=关。"""
+    d = cfg if isinstance(cfg, dict) else {}
+    if "fuse_high" not in d:
+        return None
+    raw = d.get("fuse_high")
+    if raw in (None, "", False):
+        return None
+    high = coerce_fuse_threshold(raw, DEFAULT_FUSE_HIGH)
+    high = max(0.0, min(float(high), 10.0))
+    if high <= 0.0:
+        return None
+    return float(high)
+
+
+def oo_rank_high_max_from_cfg(cfg: Optional[dict]) -> Optional[int]:
+    """高阈名次闸：须 max(y_oo_rank, y_τc_rank) < max。
+
+    缺键且高阈开着时默认 100；显式 ≤0/None=关。两侧都缺不拦。
+    """
+    d = cfg if isinstance(cfg, dict) else {}
+    if "oo_rank_high_max" not in d:
+        return DEFAULT_OO_RANK_HIGH_MAX if fuse_high_from_cfg(d) is not None else None
+    raw = d.get("oo_rank_high_max")
+    if raw in (None, "", False):
+        return None
+    try:
+        v = int(float(raw))
+    except (TypeError, ValueError):
+        return None
+    if v <= 0:
+        return None
+    return max(1, min(v, 500))
+
+
+def lot_high_amount_from_cfg(cfg: Optional[dict]) -> float:
+    """高阈金额；高阈关时仍可读（落盘对称），下单仅在旁路过线时用。"""
+    d = cfg if isinstance(cfg, dict) else {}
+    raw = d.get("lot_high_amount") if isinstance(d, dict) else None
+    return _normalize_amount(
+        raw if raw is not None else LOT_AMOUNT_HIGH,
+        LOT_AMOUNT_HIGH,
+    )
+
+
+def high_gate_pass(
+    item: Optional[dict],
+    cfg: Optional[dict],
+    *,
+    rs: Optional[float],
+) -> bool:
+    """高阈旁路是否过线：fuse>fuse_high，且可选 rank。关则 False。"""
+    high = fuse_high_from_cfg(cfg)
+    if high is None:
+        return False
+    if rs is None:
+        return False
+    try:
+        score = float(rs)
+    except (TypeError, ValueError):
+        return False
+    if score != score or score in (float("inf"), float("-inf")):
+        return False
+    if score <= float(high):
+        return False
+    mx = oo_rank_high_max_from_cfg(cfg)
+    if mx is not None and _oo_rank_abs_skip(item, mx) is not None:
+        return False
+    return True
+
+
 def _rank_from_item(
     item: Optional[dict],
     *,
@@ -372,20 +447,14 @@ def _oo_rank_enter_skip(item: Optional[dict], cfg: Optional[dict]) -> Optional[s
     return None
 
 
-def rank_lot_enter_skip_reason(
+def _corridor_enter_skip_reason(
     item: Optional[dict],
     cfg: Optional[dict],
     *,
     rs: Optional[float],
     apply_morph_gate: bool = True,
 ) -> Optional[str]:
-    """入场：y_oo_fuse ≥ fuse_enter；可选 y_oo>0 / y_τc>0。
-
-    ``y_oo_gt0`` / ``y_τc_gt0`` 开则对应 ŷ 须 >0。缺分不拦。
-    未过强档时可选 ``oo_rank_max``（须 max(y_oo_rank, y_τc_rank) < max）或旧键 ``oo_rank_top_frac``。
-    y_oo_fuse > fuse_strong 时改看 ``oo_rank_strong_max``（缺键默认 100；≤0=关）。
-    ``apply_morph_gate=False``：已持仓清仓判定用——形态闸只拦新开/加，不清仓。
-    """
+    """入场/强档主通路（不含高阈旁路）。"""
     from core.paper.rebalance.path_matrix import scores_from_rebalance_item
     from core.signal.yhat_windows import pick_y_oo, pick_y_τc
 
@@ -424,6 +493,34 @@ def rank_lot_enter_skip_reason(
     if _fuse_strong_met(rs, cfg_d):
         return _oo_rank_abs_skip(item, oo_rank_strong_max_from_cfg(cfg_d))
     return _oo_rank_enter_skip(item, cfg_d)
+
+
+def rank_lot_enter_skip_reason(
+    item: Optional[dict],
+    cfg: Optional[dict],
+    *,
+    rs: Optional[float],
+    apply_morph_gate: bool = True,
+) -> Optional[str]:
+    """入场：y_oo_fuse ≥ fuse_enter；可选 y_oo>0 / y_τc>0。
+
+    ``y_oo_gt0`` / ``y_τc_gt0`` 开则对应 ŷ 须 >0。缺分不拦。
+    未过强档时可选 ``oo_rank_max``（须 max(y_oo_rank, y_τc_rank) < max）或旧键 ``oo_rank_top_frac``。
+    y_oo_fuse > fuse_strong 时改看 ``oo_rank_strong_max``（缺键默认 100；≤0=关）。
+    高阈旁路：主通路未过时，若 ``fuse_high>0`` 且 fuse>高阈、rank 过线则放行；
+    **不**绕过形态闸。
+    ``apply_morph_gate=False``：已持仓清仓判定用——形态闸只拦新开/加，不清仓。
+    """
+    skip = _corridor_enter_skip_reason(
+        item, cfg, rs=rs, apply_morph_gate=apply_morph_gate
+    )
+    if skip is None:
+        return None
+    if apply_morph_gate and str(skip).startswith("形态闸"):
+        return skip
+    if high_gate_pass(item, cfg, rs=rs):
+        return None
+    return skip
 
 
 def _display_enter_skip_reason(
@@ -611,9 +708,16 @@ def get_rank_lot_cfg(
     else:
         k = pool_cap
     lot_base_amount, lot_strong_amount = _lot_amounts_from_cfg(pm)
+    lot_high_amount = lot_high_amount_from_cfg(pm)
+    fuse_high = fuse_high_from_cfg(pm)
+    cap_base = max(
+        lot_strong_amount,
+        lot_high_amount if fuse_high is not None else 0.0,
+    )
     return {
         "fuse_enter": enter,
         "fuse_strong": strong,
+        "fuse_high": fuse_high,
         "cash_floor": floor,
         "holdings_mv_cap": mv_cap,
         "top_k": k,
@@ -621,13 +725,15 @@ def get_rank_lot_cfg(
         "fusion_w_oc": float(pm.get("fusion_w_oc") or 0.4),
         "lot_base_amount": lot_base_amount,
         "lot_strong_amount": lot_strong_amount,
-        "stock_mv_cap": stock_mv_cap_from_strong(lot_strong_amount),
+        "lot_high_amount": lot_high_amount,
+        "stock_mv_cap": stock_mv_cap_from_strong(cap_base),
         "y_oo_gt0": bool(y_oo_gt0),
         "y_τc_gt0": bool(y_τc_gt0),
         "morph_gate_enabled": bool(pm.get("morph_gate_enabled")),
-        "sentiment_gate_enabled": bool(pm.get("sentiment_gate_enabled", False)),
+        "sentiment_gate_enabled": False,
         "oo_rank_max": oo_rank_max_from_cfg(pm),
         "oo_rank_strong_max": oo_rank_strong_max_from_cfg(pm),
+        "oo_rank_high_max": oo_rank_high_max_from_cfg(pm),
         "oo_rank_top_frac": oo_rank_top_frac_from_cfg(pm),
         "fill_clock": str(pm.get("fill_clock") or "09:30"),
         "live_fill_clock": str(pm.get("live_fill_clock") or "09:30"),
@@ -1281,8 +1387,7 @@ def plan_rank_lot_day(
     舆情：有决策日（``as_of`` 回测 / ``sentiment_as_of`` live）就读 ``news.db`` 标签写入明细。
     ``sentiment_clock`` 给定时决策钟固定为该时刻（回测与 live 手动执行固定 09:30）。
     ``sentiment_align="publish"`` 时只卡标题发布时间；缺省仍要求该钟前已入库。
-    ``sentiment_gate_enabled`` 缺省关：关时只显示；开时对空/多做 fuse±0.1% 与
-    rank×2/×0.5 入场软先验，不因舆情清仓。
+    ``sentiment_gate_enabled`` 规则栏已下掉：读盘恒关，只写标签不调 fuse/rank。
     """
     fuse_enter = _cfg_fuse_threshold(cfg, "fuse_enter", DEFAULT_FUSE_ENTER)
     fuse_strong = _cfg_fuse_threshold(cfg, "fuse_strong", DEFAULT_FUSE_STRONG)
@@ -1303,7 +1408,11 @@ def plan_rank_lot_day(
     except (TypeError, ValueError):
         top_k = 15
     amount_base, amount_strong = _lot_amounts_from_cfg(cfg)
-    stock_cap = stock_mv_cap_from_strong(amount_strong)
+    amount_high = lot_high_amount_from_cfg(cfg)
+    fuse_high = fuse_high_from_cfg(cfg)
+    stock_cap = stock_mv_cap_from_strong(
+        max(amount_strong, amount_high if fuse_high is not None else 0.0)
+    )
     from core.paper.sizing import shares_from_amount
     px_buy = prices if isinstance(prices, dict) else {}
     px_sell = sell_prices if isinstance(sell_prices, dict) else px_buy
@@ -1620,7 +1729,7 @@ def plan_rank_lot_day(
         code = str(h.get("stock_code") or "").strip()
         item = item_by.get(code) or {}
         rp = rp_by.get(code)
-        # 持仓退出看原始 fuse / 名次；舆情先验不单独清仓。
+        # 持仓退出看原始 fuse / 名次；舆情不单独清仓。
         rs_raw = _rs_ratio(rp)
         name = _display_name(code, item.get("stock_name"), h.get("stock_name"))
         held_sh = _f(h.get("shares")) or 0.0
@@ -1820,15 +1929,31 @@ def plan_rank_lot_day(
             )
             continue
         is_strong = float(rs) > float(fuse_strong_eff)
+        # 买序阶段用与入场相同的先验缩放名次看高阈
+        eff_for_high = _rank_scaled_item(code, item) if gate_on else item
+        is_high = high_gate_pass(eff_for_high, enter_cfg, rs=rs)
         amt = amount_strong if is_strong else amount_base
-        lots = shares_from_amount(amt, px, LOT_MIN)
         lot_kind = "strong" if is_strong else "base"
+        if is_high and float(amount_high) > float(amt):
+            amt = float(amount_high)
+            lot_kind = "high"
+        lots = shares_from_amount(amt, px, LOT_MIN)
         need = float(lots) * float(px) if lots > 0 else 0.0
-        if lots > 0 and cash_sim - need < spend_floor - 1e-6 and is_strong:
-            amt = amount_base
-            lots = shares_from_amount(amt, px, LOT_MIN)
-            lot_kind = "base"
-            need = float(lots) * float(px) if lots > 0 else 0.0
+        if lots > 0 and cash_sim - need < spend_floor - 1e-6 and lot_kind in (
+            "strong",
+            "high",
+        ):
+            # 强/高买不下：先退强档，再退入场
+            if lot_kind == "high" and is_strong and float(amount_strong) < float(amt):
+                amt = float(amount_strong)
+                lots = shares_from_amount(amt, px, LOT_MIN)
+                lot_kind = "strong"
+                need = float(lots) * float(px) if lots > 0 else 0.0
+            if lots > 0 and cash_sim - need < spend_floor - 1e-6:
+                amt = amount_base
+                lots = shares_from_amount(amt, px, LOT_MIN)
+                lot_kind = "base"
+                need = float(lots) * float(px) if lots > 0 else 0.0
         if lots <= 0:
             skips.append(
                 {
@@ -1948,12 +2073,24 @@ def plan_rank_lot_day(
         rs_show = _rs_ratio(rp)
         if rs_show is None:
             rs_show = rs
-        buy_reason = (
-            (
-                f"fuse={float(rs_show) * 100.0:.3f}%>{fuse_strong * 100.0:g}% 买{lots}股"
-                if is_strong
-                else f"fuse={float(rs_show) * 100.0:.3f}%>入场{fuse_enter * 100.0:g}% 买{lots}股"
+        if lot_kind == "high" or (
+            is_high and float(amount_high) >= float(amount_strong if is_strong else amount_base)
+        ):
+            high_th = fuse_high_from_cfg(enter_cfg) or 0.0
+            buy_reason = (
+                f"fuse={float(rs_show) * 100.0:.3f}%>高阈{float(high_th) * 100.0:g}% "
+                f"买{lots}股"
             )
+        elif is_strong:
+            buy_reason = (
+                f"fuse={float(rs_show) * 100.0:.3f}%>{fuse_strong * 100.0:g}% 买{lots}股"
+            )
+        else:
+            buy_reason = (
+                f"fuse={float(rs_show) * 100.0:.3f}%>入场{fuse_enter * 100.0:g}% 买{lots}股"
+            )
+        buy_reason = (
+            buy_reason
             + (f"（现金不够{want}）" if cash_short else "")
             + turn_note
         )
@@ -2065,7 +2202,10 @@ __all__ = [
     "DEFAULT_INITIAL_CASH",
     "DEFAULT_FUSE_ENTER",
     "DEFAULT_FUSE_STRONG",
+    "DEFAULT_FUSE_HIGH",
+    "DEFAULT_OO_RANK_HIGH_MAX",
     "LOT_AMOUNT_BASE",
+    "LOT_AMOUNT_HIGH",
     "LOT_AMOUNT_MAX",
     "LOT_AMOUNT_MIN",
     "LOT_AMOUNT_STRONG",
@@ -2077,13 +2217,17 @@ __all__ = [
     "clip_lot_to_cash",
     "clamp_fusion_weight",
     "coerce_fuse_threshold",
+    "fuse_high_from_cfg",
     "fuse_score_net",
     "get_rank_lot_cfg",
     "held_exit_reason",
+    "high_gate_pass",
+    "lot_high_amount_from_cfg",
     "lot_shares_for_rank",
     "plan_rank_lot_day",
     "stock_mv_cap_from_strong",
     "rank_lot_enter_skip_reason",
+    "oo_rank_high_max_from_cfg",
     "oo_rank_max_from_cfg",
     "oo_rank_strong_max_from_cfg",
     "oo_rank_top_frac_from_cfg",

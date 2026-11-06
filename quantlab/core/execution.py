@@ -154,6 +154,7 @@ DEFAULT_REBALANCE_TIMING: Dict[str, Any] = {
         "mode": "rank_lots",
         "fuse_enter": 0.001,
         "fuse_strong": 0.001,
+        "fuse_high": 0.01,
         "cash_floor": 0.0,
         "holdings_mv_cap": 150000.0,
         "fusion_w_oo": 0.6,
@@ -162,11 +163,13 @@ DEFAULT_REBALANCE_TIMING: Dict[str, Any] = {
         "y_τc_gt0": False,
         "oo_rank_max": None,
         "oo_rank_strong_max": 100,
+        "oo_rank_high_max": 100,
         "oo_rank_top_frac": None,
         "fill_clock": "09:30",
         "live_fill_clock": "09:30",
         "lot_base_amount": 10000.0,
         "lot_strong_amount": 20000.0,
+        "lot_high_amount": 100000.0,
         "morph_gate_enabled": False,
         "sentiment_gate_enabled": False,
     },
@@ -790,6 +793,11 @@ def validate_execution_patch(raw: Any) -> Tuple[bool, Dict[str, Any], List[str]]
                     "mode": "rank_lots",
                     "fuse_enter": float(pm.get("fuse_enter") or 0.001),
                     "fuse_strong": float(pm.get("fuse_strong") or 0.001),
+                    "fuse_high": (
+                        float(pm["fuse_high"])
+                        if pm.get("fuse_high") is not None
+                        else 0.01
+                    ),
                     "cash_floor": 0.0,
                     "holdings_mv_cap": float(
                         pm.get("holdings_mv_cap")
@@ -805,6 +813,7 @@ def validate_execution_patch(raw: Any) -> Tuple[bool, Dict[str, Any], List[str]]
                     "oo_rank_max": pm.get("oo_rank_max"),
                     # 过强档后的名次；缺键默认 100；≤0/None=关
                     "oo_rank_strong_max": pm.get("oo_rank_strong_max"),
+                    "oo_rank_high_max": pm.get("oo_rank_high_max"),
                     # 旧相对比例闸；与绝对闸并存时优先 max
                     "oo_rank_top_frac": pm.get("oo_rank_top_frac"),
                     "fill_clock": str(pm.get("fill_clock") or "09:30"),
@@ -814,9 +823,11 @@ def validate_execution_patch(raw: Any) -> Tuple[bool, Dict[str, Any], List[str]]
                     "lot_strong_amount": float(
                         pm.get("lot_strong_amount") or 20_000.0
                     ),
+                    "lot_high_amount": float(pm.get("lot_high_amount") or 100_000.0),
                     # 形态硬闸（默认关）；门槛写死在 morph_gate，不入配置
                     "morph_gate_enabled": bool(pm.get("morph_gate_enabled")),
-                    "sentiment_gate_enabled": bool(pm.get("sentiment_gate_enabled", False)),
+                    # 规则栏已下掉；落盘恒关
+                    "sentiment_gate_enabled": False,
                 }
                 lots = {k: full[k] for k in full if k in pm_in}
                 lots["mode"] = "rank_lots"

@@ -25,6 +25,8 @@ DEFAULT_PATH_MATRIX: Dict[str, Any] = {
     "mode": "rank_lots",
     "fuse_enter": 0.001,
     "fuse_strong": 0.001,
+    # 高阈旁路：默认 1%；≤0=关
+    "fuse_high": 0.01,
     "cash_floor": 0.0,
     "holdings_mv_cap": 150_000.0,
     "fusion_w_oo": 0.6,
@@ -36,6 +38,8 @@ DEFAULT_PATH_MATRIX: Dict[str, Any] = {
     "oo_rank_max": None,
     # 缺键=100；≤0/None=关。fuse 过强档后改看这个名次
     "oo_rank_strong_max": 100,
+    # 高阈名次；缺键且高阈开着=100；≤0=关
+    "oo_rank_high_max": 100,
     # 旧相对比例闸；UI 已改绝对名次，API 仍认
     "oo_rank_top_frac": None,
     # 历史回测成交钟（/replay）；不驱动 live 自动调仓。
@@ -46,9 +50,10 @@ DEFAULT_PATH_MATRIX: Dict[str, Any] = {
     # 手数：按金额/价换算整手，不够一手则跳过；保存规则写入交易执行。缺省 live 1万/2万。
     "lot_base_amount": 10_000.0,
     "lot_strong_amount": 20_000.0,
+    "lot_high_amount": 100_000.0,
     # 形态硬闸（默认关）；门槛在 morph_gate 写死，不进配置
     "morph_gate_enabled": False,
-    # 舆情软先验（默认关）：空/多调 fuse±0.1% 与 rank×2/×0.5。历史回测按发布时间。
+    # 规则栏已下掉舆情软先验；键保留恒 false，读盘强制关
     "sentiment_gate_enabled": False,
 }
 
@@ -142,9 +147,8 @@ def get_path_matrix_cfg(
     out["y_oo_gt0"] = coerce_cfg_bool(out.get("y_oo_gt0"), False)
     out["y_τc_gt0"] = coerce_cfg_bool(out.get("y_τc_gt0"), False)
     out["morph_gate_enabled"] = coerce_cfg_bool(out.get("morph_gate_enabled"), False)
-    out["sentiment_gate_enabled"] = coerce_cfg_bool(
-        out.get("sentiment_gate_enabled"), False
-    )
+    # 规则栏已下掉舆情软先验：读盘恒关，清掉旧 True
+    out["sentiment_gate_enabled"] = False
     # 旧门槛字段不再进配置；读盘时丢掉
     for _dead in (
         "morph_vol_pctl",
@@ -156,6 +160,9 @@ def get_path_matrix_cfg(
         out.pop(_dead, None)
     try:
         from core.paper.rebalance.rank_lots import (
+            fuse_high_from_cfg,
+            lot_high_amount_from_cfg,
+            oo_rank_high_max_from_cfg,
             oo_rank_max_from_cfg,
             oo_rank_strong_max_from_cfg,
             oo_rank_top_frac_from_cfg,
@@ -174,11 +181,32 @@ def get_path_matrix_cfg(
             out["oo_rank_top_frac"] = oo_rank_top_frac_from_cfg(raw)
         else:
             out["oo_rank_top_frac"] = oo_rank_top_frac_from_cfg(out)
+        if isinstance(raw, dict) and "fuse_high" in raw:
+            high = fuse_high_from_cfg(raw)
+            # 显式 0/空 = 关；缺键走默认 1%
+            out["fuse_high"] = float(high) if high is not None else 0.0
+        else:
+            high = fuse_high_from_cfg(out)
+            out["fuse_high"] = float(high) if high is not None else 0.01
+        high_rank_src = (
+            raw if isinstance(raw, dict) and "oo_rank_high_max" in raw else out
+        )
+        out["oo_rank_high_max"] = oo_rank_high_max_from_cfg(
+            {**high_rank_src, "fuse_high": out["fuse_high"]}
+        )
+        if out["oo_rank_high_max"] is None and out["fuse_high"] > 0:
+            out["oo_rank_high_max"] = 100
+        out["lot_high_amount"] = lot_high_amount_from_cfg(
+            raw if isinstance(raw, dict) and "lot_high_amount" in raw else out
+        )
     except Exception:  # noqa: BLE001
-        logger.debug("oo_rank gate coerce failed", exc_info=True)
+        logger.debug("oo_rank / high gate coerce failed", exc_info=True)
         out["oo_rank_max"] = None
         out["oo_rank_strong_max"] = 100
         out["oo_rank_top_frac"] = None
+        out["fuse_high"] = 0.01
+        out["oo_rank_high_max"] = 100
+        out["lot_high_amount"] = 100_000.0
 
     enter = _pick_fuse_threshold(raw, out, "fuse_enter", 0.001)
     strong = _pick_fuse_threshold(raw, out, "fuse_strong", 0.001)
@@ -237,6 +265,9 @@ def get_path_matrix_cfg(
         strong_amt = base
     out["lot_base_amount"] = base
     out["lot_strong_amount"] = strong_amt
+    out["lot_high_amount"] = _clamp_lot_amount(
+        out.get("lot_high_amount"), 100_000.0
+    )
     return out
 
 

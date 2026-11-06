@@ -1124,20 +1124,24 @@ body[data-page="replay"] #paper-path-matrix-form {
   --pm-field-gap: 8px;
   --pm-pair-gap: 6px;
   --pm-box-pad-x: 8px;
-  /* 14 个等宽输入铺满表单。留白按做 T 的白框间距，卡片内边距略收，避免把数字挤没。 */
-  --pm-slot: calc((100% - 322px) / 14);
+  /*
+   * 16 个等宽输入铺满一行：权重 2 + 门槛 9（入场/强档/高阈×3）+ 其他 5。
+   * 固定开销 = 栏内 padding/gap/边框（mode 65 + rank 128 + other 142）。
+   */
+  --pm-slot: calc((100% - 335px) / 16);
+  --pm-mode-w: calc(2 * var(--pm-slot) + 65px);
+  --pm-rank-w: calc(9 * var(--pm-slot) + 128px);
+  --pm-other-w: calc(5 * var(--pm-slot) + 142px);
   width: 100%;
   max-width: 100%;
   box-sizing: border-box;
+  overflow-x: auto;
 }
 
 body[data-page="replay"] #paper-path-matrix-form .follow-path-matrix-panels {
   display: grid;
-  /* 同一行铺满。栏间距 8px、成对白框 6px、卡片内边距对齐做 T。 */
-  grid-template-columns:
-    calc(2 * var(--pm-slot) + 65px)
-    calc(6 * var(--pm-slot) + 89px)
-    calc(6 * var(--pm-slot) + 168px);
+  /* 同一行铺满；三栏比例跟输入格数对齐，避免门槛区挤换行。 */
+  grid-template-columns: var(--pm-mode-w) var(--pm-rank-w) var(--pm-other-w);
   grid-template-rows: auto;
   grid-template-areas: "mode rank other";
   justify-content: stretch;
@@ -1151,15 +1155,12 @@ body[data-page="replay"] #paper-path-matrix-form .follow-path-matrix-panels {
 /* 压过 follow.css ≤900px 单列 / row5 折两列，保持三栏单行铺满 */
 @media (max-width: 900px) {
   body[data-page="replay"] #paper-path-matrix-form .follow-path-matrix-panels {
-    grid-template-columns:
-      calc(2 * var(--pm-slot) + 65px)
-      calc(6 * var(--pm-slot) + 89px)
-      calc(6 * var(--pm-slot) + 168px);
+    grid-template-columns: var(--pm-mode-w) var(--pm-rank-w) var(--pm-other-w);
     grid-template-rows: auto;
     grid-template-areas: "mode rank other";
   }
   body[data-page="replay"] #paper-path-matrix-form .follow-path-matrix-body--row5 {
-    grid-template-columns: repeat(6, minmax(0, 1fr));
+    grid-template-columns: repeat(5, minmax(0, 1fr));
   }
   body[data-page="replay"] #paper-path-matrix-form .follow-path-matrix-panel[data-panel="mode"],
   body[data-page="replay"] #paper-path-matrix-form .follow-path-matrix-panel[data-panel="rank"] {
@@ -1202,6 +1203,7 @@ body[data-page="replay"] #paper-path-matrix-form .follow-path-matrix-body {
   width: 100%;
   box-sizing: border-box;
   justify-content: stretch;
+  align-items: stretch;
 }
 
 body[data-page="replay"] #paper-path-matrix-form .follow-path-matrix-box {
@@ -1219,12 +1221,17 @@ body[data-page="replay"] #paper-path-matrix-form .follow-path-matrix-box:not(.fo
   align-items: stretch;
 }
 
+/* 权重 2 格 / 门槛 3 卡 / 其他 5 格：等分，不折行 */
+body[data-page="replay"] #paper-path-matrix-form .follow-path-matrix-body--row2 {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
 body[data-page="replay"] #paper-path-matrix-form .follow-path-matrix-body--row3 {
   grid-template-columns: repeat(3, minmax(0, 1fr));
 }
 
 body[data-page="replay"] #paper-path-matrix-form .follow-path-matrix-body--row5 {
-  grid-template-columns: repeat(6, minmax(0, 1fr));
+  grid-template-columns: repeat(5, minmax(0, 1fr));
 }
 
 /* 形态闸：? 贴标题旁；tips 走悬浮层，不改格子布局 */
@@ -1262,18 +1269,23 @@ body[data-page="replay"] .follow-path-matrix-morph-tip-pop p:last-child {
   margin-bottom: 0;
 }
 
-/* 数字框铺满等宽格子，靠左 */
-body[data-page="replay"] #paper-path-matrix-form input[type="number"] {
+/* 数字框铺满等宽格子，靠左；禁止内容撑破栅格导致换行 */
+body[data-page="replay"] #paper-path-matrix-form input[type="number"],
+body[data-page="replay"] #paper-path-matrix-form input[type="text"] {
   -moz-appearance: textfield;
   appearance: textfield;
   box-sizing: border-box;
   width: 100%;
   min-width: 0;
   max-width: 100%;
-  padding-left: 0.2rem;
-  padding-right: 0.15rem;
+  height: 1.5rem;
+  min-height: 1.5rem;
+  padding: 0.1rem 0.25rem;
   text-align: left;
   font-variant-numeric: tabular-nums;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 body[data-page="replay"] #paper-path-matrix-form input[type="number"]::-webkit-outer-spin-button,
@@ -1282,34 +1294,43 @@ body[data-page="replay"] #paper-path-matrix-form input[type="number"]::-webkit-i
   margin: 0;
 }
 
-/* 入场 / 强档：两对并排，各 3 槽等分 */
-body[data-page="replay"] #paper-path-matrix-form .follow-path-matrix-panel[data-panel="rank"] .follow-path-matrix-body--row2 {
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+/* 入场 / 强档 / 高阈：三卡等宽，卡内三槽等宽 */
+body[data-page="replay"] #paper-path-matrix-form .follow-path-matrix-panel[data-panel="rank"] .follow-path-matrix-body--row3 {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   justify-content: stretch;
+  align-items: stretch;
   width: 100%;
 }
 
-body[data-page="replay"] #paper-path-matrix-form .follow-path-matrix-panel[data-panel="rank"] .follow-path-matrix-body--row2 > .follow-path-matrix-box--pair {
+body[data-page="replay"] #paper-path-matrix-form .follow-path-matrix-panel[data-panel="rank"] .follow-path-matrix-body--row3 > .follow-path-matrix-box--pair {
   align-self: stretch;
-  height: auto;
+  height: 100%;
   width: auto;
   min-width: 0;
   max-width: none;
-  grid-template-rows: auto auto;
+  grid-template-rows: auto 1fr;
 }
 
 body[data-page="replay"] #paper-path-matrix-form .follow-path-matrix-panel[data-panel="rank"] .follow-path-matrix-box-pair {
+  display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
   justify-content: stretch;
+  align-items: end;
   gap: var(--pm-pair-gap);
   width: 100%;
+  min-width: 0;
 }
 
 body[data-page="replay"] #paper-path-matrix-form .follow-path-matrix-box-slot {
+  display: grid;
   grid-template-columns: minmax(0, 1fr);
+  grid-template-rows: auto 1.5rem;
+  gap: 2px;
   width: auto;
   min-width: 0;
   max-width: none;
+  align-content: end;
+  cursor: pointer;
 }
 
 body[data-page="replay"] #paper-path-matrix-form .follow-path-matrix-box-slot-label {
@@ -1318,13 +1339,19 @@ body[data-page="replay"] #paper-path-matrix-form .follow-path-matrix-box-slot-la
   text-overflow: ellipsis;
   white-space: nowrap;
   text-align: left;
+  font-size: 0.62rem;
+  color: var(--pm-muted, var(--ink-3));
+  line-height: 1.2;
+  font-weight: 650;
 }
 
 body[data-page="replay"] .follow-path-matrix-box-pair {
   display: grid;
+  /* 默认双槽（做 T）；调仓门槛三槽见上方 rank 专规 */
   grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
-  gap: 6px;
+  gap: var(--pm-pair-gap, 6px);
   align-items: end;
+  min-width: 0;
 }
 
 body[data-page="replay"] .follow-path-matrix-box-slot {
@@ -1339,12 +1366,16 @@ body[data-page="replay"] .follow-path-matrix-box-slot-label {
   color: var(--pm-muted, var(--ink-3));
   line-height: 1.2;
   font-weight: 650;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 body[data-page="replay"] .follow-path-matrix-box--pair input[type="number"],
 body[data-page="replay"] .follow-path-matrix-box--pair input[type="text"] {
   min-width: 0;
   width: 100%;
+  max-width: 100%;
 }
 
 body[data-page="replay"] #paper-path-matrix-form .follow-path-matrix-box > input[type="checkbox"] {

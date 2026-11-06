@@ -16,8 +16,8 @@ export function sentimentDeskBadgeHtml(label, basis) {
   const pair = SENT_BADGE[key] || ["is-neutral", "中"];
   const title =
     basis === "library"
-      ? "库内现有标题。09:30 前未入库，闸不动作。不进 ŷ。"
-      : "不进 ŷ。勾选闸时空/多调 fuse±0.1%·rank×2/×0.5，不清仓；缺测不调";
+      ? "库内现有标题。09:30 前未入库。不进 ŷ。"
+      : "决策窗舆情标签。不进 ŷ；缺测不调";
   return `<span class="watching-sent-badge ${pair[0]}" title="${title}">${pair[1]}</span>`;
 }
 
@@ -68,7 +68,7 @@ function actionCell(action, row) {
     return `<td class="paper-t0-col-dir"><span class="paper-t0-desk-dir is-morph" title="形态闸跳过，未下单">跳</span></td>`;
   }
   if (a === "skip" && isSentimentGateSkip(row)) {
-    return `<td class="paper-t0-col-dir"><span class="paper-t0-desk-dir is-sent" title="舆情软先验 fuse/rank 未过入场，未下单">跳</span></td>`;
+    return `<td class="paper-t0-col-dir"><span class="paper-t0-desk-dir is-sent" title="历史舆情软先验跳过（规则栏已下掉；仅旧账）">跳</span></td>`;
   }
   return `<td class="paper-t0-col-dir"><span class="paper-t0-desk-dir is-none">${escapeHtml(
     actionLabel(a)
@@ -128,7 +128,7 @@ function isMorphGateSkip(r) {
   return String((r && r.reason) || "").trim().startsWith("形态闸");
 }
 
-/** 舆情先验跳过。认 sentiment_gate / sentiment_prior，或原因含舆情闸/舆情空/舆情多。 */
+/** 历史舆情软先验跳过（规则栏已下掉；旧账仍可能带标记）。 */
 function isSentimentGateSkip(r) {
   if (!isDeskSkip(r)) return false;
   if (r && (r.sentiment_gate === true || r.sentiment_prior)) return true;
@@ -252,7 +252,7 @@ export function renderPaperRebalanceWorkerDesk(el, desk) {
     deskChip("is-legs", "清仓", desk.exit_count) +
     deskChip("is-legs", "减仓", desk.reduce_count) +
     deskChip("is-locked", "形态闸", morphSkips.length) +
-    deskChip("is-sent", "舆情先验", sentSkips.length);
+    deskChip("is-sent", "舆情跳过", sentSkips.length);
   const openAttr = keepOpen ? " open" : "";
   const sessLine = `<span class="paper-t0-desk-sess" title="交易日会话">${escapeHtml(
     String(sess)
@@ -374,7 +374,7 @@ export function renderPaperRebalanceWorkerDesk(el, desk) {
     `</colgroup>` +
     `<thead><tr>` +
     `<th scope="col" class="paper-t0-col-stock">标的</th>` +
-    `<th scope="col" class="paper-rb-col-sent" title="决策窗舆情。不进 ŷ。勾选闸时空/多调 fuse±0.1%·rank×2/×0.5，不清仓；缺测不调">舆情</th>` +
+    `<th scope="col" class="paper-rb-col-sent" title="决策窗舆情标签。不进 ŷ；缺测不调">舆情</th>` +
     `<th scope="col" class="num paper-rb-col-time" title="本笔落账时间">时间</th>` +
     `<th scope="col" class="paper-t0-col-dir">动作</th>` +
     `<th scope="col" class="num paper-t0-col-legs" title="本笔股数">手数</th>` +

@@ -2470,12 +2470,6 @@ a.dialog-btn[aria-disabled="true"] {
   border: 1px solid transparent;
 }
 
-.score-sentiment-chip.is-gate {
-  background: color-mix(in srgb, var(--ink, #0f172a) 6%, #fff);
-  color: #475569;
-  border-color: color-mix(in srgb, var(--ink, #0f172a) 12%, transparent);
-}
-
 .score-sentiment-chip.is-off {
   background: #f8fafc;
   color: #64748b;

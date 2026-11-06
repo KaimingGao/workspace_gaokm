@@ -19,7 +19,10 @@ import {
   FUSE_REBALANCE_TITLE,
 } from "./fmt.js?v=p3540";
 import { paginateItems, renderPagerHtml } from "../api_client.js";
-import { watchingScoreDetail } from "../quant/watching_render.js?v=p3565";
+const _WR_V = (typeof window !== "undefined" && window.__ASSET_V__) || "dev";
+const { watchingScoreDetail } = await import(
+  `../quant/watching_render.js?v=${encodeURIComponent(_WR_V)}`
+);
 import {
   isSingleHeadItem,
   singleHeadBadgeHtml,

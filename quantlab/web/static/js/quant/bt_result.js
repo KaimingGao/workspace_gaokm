@@ -428,6 +428,17 @@ function _replayGateBits(data) {
   if (strongRank != null && Number(strongRank) > 0) {
     bits.push(`强rank<${Math.round(Number(strongRank))}`);
   }
+  const high = p.fuse_high != null ? p.fuse_high : req.fuse_high;
+  const highPct = _fmtGatePct(high);
+  if (highPct) {
+    const highRank =
+      p.oo_rank_high_max != null ? p.oo_rank_high_max : req.oo_rank_high_max;
+    bits.push(
+      highRank != null && Number(highRank) > 0
+        ? `高阈≥${highPct}%·rank<${Math.round(Number(highRank))}`
+        : `高阈≥${highPct}%`
+    );
+  }
   if (p.y_oo_gt0 === true || req.y_oo_gt0 === true) bits.push("ŷ_oo>0");
   if (p.y_τc_gt0 === true || req.y_τc_gt0 === true) bits.push("ŷ_τc>0");
   const pool = Number(p.stock_count);

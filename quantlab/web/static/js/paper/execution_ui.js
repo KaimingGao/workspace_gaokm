@@ -330,7 +330,8 @@ function fusePctToScore(raw, fallbackPct = FUSE_PCT_DEFAULT) {
     if (Number.isFinite(n)) pct = n;
   }
   const score = pct / 100;
-  return Math.round(Math.max(0, Math.min(0.1, score)) * 10000) / 10000;
+  // 与 domain_backtest 对齐：净收益上限 1（100%）；高阈常用 1%→0.01
+  return Math.round(Math.max(0, Math.min(1, score)) * 10000) / 10000;
 }
 
 /** 从 execution.rebalance_timing.rank_lots（旧键 path_matrix）填调仓表单。 */
@@ -361,13 +362,15 @@ export function fillPathMatrixForm(root, execution) {
     pm.fuse_strong != null ? pm.fuse_strong : enterScore;
   set("pm_fuse_enter", fuseScoreToPct(enterScore));
   set("pm_fuse_strong", fuseScoreToPct(strongScore));
+  const highScore = pm.fuse_high;
+  // UI 默认 1.0%；缺键 / ≤0（旧默认关）都回落到 1，避免表单显示 0
+  set(
+    "pm_fuse_high",
+    highScore != null && Number(highScore) > 0 ? fuseScoreToPct(highScore) : 1
+  );
   set("pm_y_oo_gt0", coerceCfgBool(pm.y_oo_gt0, false));
   set("pm_y_τc_gt0", coerceCfgBool(pm.y_τc_gt0, false));
   set("pm_morph_gate", coerceCfgBool(pm.morph_gate_enabled, false));
-  set(
-    "pm_sentiment_gate",
-    coerceCfgBool(pm.sentiment_gate_enabled, false)
-  );
   const ooRankMax = Number(pm.oo_rank_max);
   if (Number.isFinite(ooRankMax) && ooRankMax > 0) {
     set("pm_oo_rank_max", Math.max(0, Math.min(500, Math.round(ooRankMax))));
@@ -389,6 +392,17 @@ export function fillPathMatrixForm(root, execution) {
     );
   } else {
     set("pm_oo_rank_strong_max", 100);
+  }
+  if (Object.prototype.hasOwnProperty.call(pm, "oo_rank_high_max")) {
+    const ooHigh = Number(pm.oo_rank_high_max);
+    set(
+      "pm_oo_rank_high_max",
+      Number.isFinite(ooHigh) && ooHigh > 0
+        ? Math.max(1, Math.min(500, Math.round(ooHigh)))
+        : 0
+    );
+  } else {
+    set("pm_oo_rank_high_max", 100);
   }
   const clamp01 = (v, fb) => {
     const n = Number(v);
@@ -413,8 +427,10 @@ export function fillPathMatrixForm(root, execution) {
     Math.max(lotBase, 20000)
   );
   if (lotStrong < lotBase) lotStrong = lotBase;
+  const lotHigh = clampLotAmount(pm.lot_high_amount, 100000);
   set("pm_lot_base_amount", lotBase);
   set("pm_lot_strong_amount", lotStrong);
+  set("pm_lot_high_amount", lotHigh);
 }
 
 function _normWeightPair(a, b) {
@@ -450,6 +466,11 @@ export function collectPathMatrixForm(root) {
     numFirst(["pm_fuse_strong"], FUSE_PCT_DEFAULT)
   );
   if (strong < enter) strong = enter;
+  const highPctRaw = numFirst(["pm_fuse_high"], 1);
+  const high =
+    Number.isFinite(highPctRaw) && highPctRaw > 0
+      ? fusePctToScore(highPctRaw, 1)
+      : 0;
   const chk = (name, fallback = true) => {
     const el = root.querySelector(`[name="${name}"]`);
     if (!el) return fallback;
@@ -469,7 +490,6 @@ export function collectPathMatrixForm(root) {
   const yOoGt0 = chk("pm_y_oo_gt0", false);
   const yOcGt0 = chk("pm_y_τc_gt0", false);
   const morphGate = chk("pm_morph_gate", false);
-  const sentimentGate = chk("pm_sentiment_gate", false);
   const ooRankMaxRaw = num("pm_oo_rank_max", 10);
   const ooRankMax =
     Number.isFinite(ooRankMaxRaw) && ooRankMaxRaw > 0
@@ -480,26 +500,35 @@ export function collectPathMatrixForm(root) {
     Number.isFinite(ooRankStrongRaw) && ooRankStrongRaw > 0
       ? Math.max(1, Math.min(500, Math.round(ooRankStrongRaw)))
       : 0;
+  const ooRankHighRaw = num("pm_oo_rank_high_max", 100);
+  const ooRankHigh =
+    Number.isFinite(ooRankHighRaw) && ooRankHighRaw > 0
+      ? Math.max(1, Math.min(500, Math.round(ooRankHighRaw)))
+      : 0;
   let lotBase = clampLotAmount(num("pm_lot_base_amount", 10000), 10000);
   let lotStrong = clampLotAmount(num("pm_lot_strong_amount", lotBase), lotBase);
   if (lotStrong < lotBase) lotStrong = lotBase;
+  const lotHigh = clampLotAmount(num("pm_lot_high_amount", 100000), 100000);
   const lots = {
         enabled: true,
         mode: "rank_lots",
         fuse_enter: enter,
         fuse_strong: strong,
+        fuse_high: high,
         y_oo_gt0: yOoGt0,
         y_τc_gt0: yOcGt0,
         morph_gate_enabled: morphGate,
-        sentiment_gate_enabled: sentimentGate,
+        sentiment_gate_enabled: false,
         oo_rank_max: ooRankMax,
         oo_rank_strong_max: ooRankStrong,
+        oo_rank_high_max: ooRankHigh,
         oo_rank_top_frac: null,
         holdings_mv_cap: Math.round(mvCap),
         fusion_w_oo: Math.round(wOo * 1000) / 1000,
         fusion_w_oc: Math.round(wOc * 1000) / 1000,
         lot_base_amount: lotBase,
         lot_strong_amount: lotStrong,
+        lot_high_amount: lotHigh,
   };
   const clockEl = document.getElementById("quant-fill-clock");
   if (clockEl && clockEl.value) {

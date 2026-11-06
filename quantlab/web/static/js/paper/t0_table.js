@@ -26,7 +26,8 @@ import {
   blendYtw,
   fmtYtwVote,
 } from "./fmt.js?v=p3540";
-import { adaptiveSizingDayTip } from "./execution_ui.js?v=p2594";
+const _V = (typeof window !== "undefined" && window.__ASSET_V__) || "dev";
+const { adaptiveSizingDayTip } = await import(`./execution_ui.js?v=${encodeURIComponent(_V)}`);
 import {
   fitTierBadgeForCode,
   ensureFitTierMap,

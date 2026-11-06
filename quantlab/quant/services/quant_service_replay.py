@@ -70,17 +70,20 @@ class QuantReplayMixin:
         fusion_w_oc: Optional[float] = None,
         fuse_enter: Optional[float] = None,
         fuse_strong: Optional[float] = None,
+        fuse_high: Optional[float] = None,
         y_oo_gt0: Optional[bool] = None,
         y_τc_gt0: Optional[bool] = None,
         morph_gate_enabled: Optional[bool] = None,
         sentiment_gate_enabled: Optional[bool] = None,
         oo_rank_max: Optional[int] = None,
         oo_rank_strong_max: Optional[int] = None,
+        oo_rank_high_max: Optional[int] = None,
         oo_rank_top_frac: Optional[float] = None,
         initial_cash: Optional[float] = None,
         fill_clock: str = "09:30",
         lot_base_amount: Optional[float] = None,
         lot_strong_amount: Optional[float] = None,
+        lot_high_amount: Optional[float] = None,
         use_predictability_tiers: bool = False,
         predictability_tiers: Optional[Sequence[str]] = None,
         holdout_trading_days: Optional[int] = None,
@@ -349,6 +352,7 @@ class QuantReplayMixin:
             REPLAY_FUSION_W_TRADE,
             REPLAY_INITIAL_CASH,
             REPLAY_FUSE_ENTER,
+            REPLAY_FUSE_HIGH,
             REPLAY_FUSE_STRONG,
             backtest_paper_replay,
             clamp_replay_fill_clock,
@@ -364,6 +368,11 @@ class QuantReplayMixin:
         raw_oc = fusion_w_oc
         w_oo = clamp_fusion_weight(raw_oo, REPLAY_FUSION_W_TRADE)
         w_τc = clamp_fusion_weight(raw_oc, REPLAY_FUSION_W_NOWCAST)
+        from core.backtest.replay_fill import (
+            REPLAY_AMOUNT_HIGH,
+            clamp_replay_amount,
+        )
+
         enter_raw = fuse_enter
         strong_raw = fuse_strong
         enter = coerce_fuse_threshold(enter_raw, REPLAY_FUSE_ENTER)
@@ -372,12 +381,22 @@ class QuantReplayMixin:
         strong = max(0.0, min(1.0, float(strong)))
         if strong < enter:
             strong = enter
+        if fuse_high is None:
+            # API 缺省=关；UI 表单始终显式传值（默认 REPLAY_FUSE_HIGH=1%）
+            high = 0.0
+        else:
+            high = coerce_fuse_threshold(fuse_high, REPLAY_FUSE_HIGH)
+            high = max(0.0, min(1.0, float(high)))
         cash = clamp_replay_initial_cash(
             REPLAY_INITIAL_CASH if initial_cash is None else initial_cash
         )
         lot_base_n, lot_strong_n = clamp_replay_amount_pair(
             lot_base_amount,
             lot_strong_amount,
+        )
+        lot_high_n = clamp_replay_amount(
+            REPLAY_AMOUNT_HIGH if lot_high_amount is None else lot_high_amount,
+            REPLAY_AMOUNT_HIGH,
         )
         clock = clamp_replay_fill_clock(fill_clock, REPLAY_FILL_CLOCK)
         gate_on = True if price_space_gate is None else bool(price_space_gate)
@@ -390,11 +409,8 @@ class QuantReplayMixin:
             if morph_gate_enabled is None
             else bool(coerce_cfg_bool(morph_gate_enabled, False))
         )
-        sentiment_gate_b = (
-            False
-            if sentiment_gate_enabled is None
-            else bool(coerce_cfg_bool(sentiment_gate_enabled, False))
-        )
+        # 规则栏已下掉舆情软先验；回测恒关
+        sentiment_gate_b = False
         minute_span = min(max(int(effective_lookback or 30) + 20, 15), 120)
         if _cancelled():
             return {"success": False, "error": "已取消", "cancelled": True}
@@ -460,17 +476,20 @@ class QuantReplayMixin:
                     fusion_w_oc=w_τc,
                     fuse_enter=enter,
                     fuse_strong=strong,
+                    fuse_high=high,
                     y_oo_gt0=y_oo_gt0_b,
                     y_τc_gt0=y_τc_gt0_b,
                     morph_gate_enabled=morph_gate_b,
                     sentiment_gate_enabled=sentiment_gate_b,
                     oo_rank_max=oo_rank_max,
                     oo_rank_strong_max=oo_rank_strong_max,
+                    oo_rank_high_max=oo_rank_high_max,
                     oo_rank_top_frac=oo_rank_top_frac,
                     fill_clock=clock,
                     minute_bars_by_code=minute_bars,
                     lot_base_amount=lot_base_n,
                     lot_strong_amount=lot_strong_n,
+                    lot_high_amount=lot_high_n,
                     price_space_cfg=(
                         None if price_space_gate is None else {"price_space_gate": gate_on}
                     ),
@@ -524,25 +543,41 @@ class QuantReplayMixin:
             "fusion_w_oc": w_τc,
             "fuse_enter": enter,
             "fuse_strong": strong,
+            "fuse_high": high if high > 0 else 0.0,
             "y_oo_gt0": y_oo_gt0_b,
             "y_τc_gt0": y_τc_gt0_b,
             "morph_gate_enabled": morph_gate_b,
             "sentiment_gate_enabled": sentiment_gate_b,
             "oo_rank_max": oo_rank_max,
             "oo_rank_strong_max": oo_rank_strong_max,
+            "oo_rank_high_max": oo_rank_high_max,
             "oo_rank_top_frac": oo_rank_top_frac,
             "fill_clock": clock,
             "lot_base_amount": lot_base_n,
             "lot_strong_amount": lot_strong_n,
+            "lot_high_amount": lot_high_n,
             "price_space_gate": gate_on,
             "score_model_role": role,
             "score_backend": backend,
             "score_axis_note": (
                 "引擎=paper_replay：每个交易日 09:30 rank_lots"
                 f"（成交 {clock} 5m · 初始 {cash / 10000:g} 万 · fuse={FORMULA_OO_FUSE} · "
-                f"{lot_base_n:g}/{lot_strong_n:g} 元；"
+                f"{lot_base_n:g}/{lot_strong_n:g}"
+                + (f"/{lot_high_n:g}" if high > 0 else "")
+                + " 元；"
                 f"w_oo={w_oo:g}；w_τc={w_τc:g}；"
-                f"门槛1/2 入场；"
+                f"门槛1/2 入场"
+                + (
+                    f"；高阈{high * 100:g}%"
+                    + (
+                        f"·rank<{int(oo_rank_high_max)}"
+                        if oo_rank_high_max is not None and int(oo_rank_high_max) > 0
+                        else "·rank100"
+                    )
+                    if high > 0
+                    else ""
+                )
+                + "；"
                 f"宇宙=观察池 {universe_n} 只"
                 + ("；日分价闸开" if gate_on else "；日分价闸关")
                 + (

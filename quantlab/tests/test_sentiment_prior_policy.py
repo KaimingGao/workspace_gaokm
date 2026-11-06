@@ -1,4 +1,4 @@
-"""个股舆情：仅观察徽章；调仓软先验见 news.db。"""
+"""个股舆情：仅观察徽章；调仓规则栏已下掉软先验闸。"""
 
 from __future__ import annotations
 

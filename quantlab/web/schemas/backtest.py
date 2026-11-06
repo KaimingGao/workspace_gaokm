@@ -59,6 +59,12 @@ class PaperReplayBacktestRequest(BaseModel):
         le=10.0,
         description="y_oo_fuse 强手门槛（净收益；回测单一手数时与入场同）",
     )
+    fuse_high: Optional[float] = Field(
+        default=None,
+        ge=0.0,
+        le=10.0,
+        description="高阈旁路：y_oo_fuse 下限（净收益；≤0/缺=关；UI 默认 0.01=1%）。与入场/强档 OR，不绕过形态闸",
+    )
     y_oo_gt0: bool = Field(
         default=False,
         description="开=入场须 y_oo>0；关=不看。缺分不拦。未过则已持仓清仓",
@@ -69,7 +75,7 @@ class PaperReplayBacktestRequest(BaseModel):
     )
     sentiment_gate_enabled: bool = Field(
         default=False,
-        description="开=舆情软先验：空 fuse−0.1%·rank×2，多 fuse+0.1%·rank×0.5；只改入场/买序，不清仓。缺测不调。默认关。",
+        description="遗留键：规则栏已下掉舆情软先验；服务端恒关，忽略入参。",
     )
     morph_gate_enabled: bool = Field(
         default=False,
@@ -90,6 +96,12 @@ class PaperReplayBacktestRequest(BaseModel):
         ge=0,
         le=500,
         description="fuse 过强档后另须 max(y_oo_rank, y_τc_rank) < max（UI 强档 rank 默认 100）。缺省=100；0=关。两侧都缺不拦。",
+    )
+    oo_rank_high_max: Optional[int] = Field(
+        default=None,
+        ge=0,
+        le=500,
+        description="高阈旁路另须 max(y_oo_rank, y_τc_rank) < max（默认 100）。0=关；缺省且高阈开着=100。两侧都缺不拦。",
     )
     oo_rank_top_frac: Optional[float] = Field(
         default=None,
@@ -118,6 +130,12 @@ class PaperReplayBacktestRequest(BaseModel):
         ge=1_000.0,
         le=1_000_000.0,
         description="调仓强档金额（元）。默认 2 万；不少于入场金额；单票持仓市值上限=此值×120%。保存规则同步到交易执行",
+    )
+    lot_high_amount: float = Field(
+        default=100_000.0,
+        ge=1_000.0,
+        le=1_000_000.0,
+        description="高阈旁路金额（元）。默认 10 万；仅 fuse 过高阈且 rank 过线时用。保存规则同步到交易执行",
     )
     use_predictability_tiers: bool = Field(
         default=False,

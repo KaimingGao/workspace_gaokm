@@ -6,7 +6,10 @@ import {
   predTierBadgeHtml,
   selectedPredTiers,
 } from "../quant/pred_tier_ui.js?v=p3365";
-import { sentimentDeskBadgeHtml } from "./rebalance_desk.js?v=p3626";
+const _V = (typeof window !== "undefined" && window.__ASSET_V__) || "dev";
+const { sentimentDeskBadgeHtml } = await import(
+  `./rebalance_desk.js?v=${encodeURIComponent(_V)}`
+);
 
 /**
  * @param {object} deps
@@ -548,7 +551,7 @@ function renderRebalanceReport(
         skipHtml =
           `<div class="paper-rebalance-risk" role="status">` +
           (priorSkips.length
-            ? `<p class="paper-rebalance-risk-title">舆情软先验 · 未过入场</p><ul>${priorSkips
+            ? `<p class="paper-rebalance-risk-title">历史舆情跳过 · 未过入场</p><ul>${priorSkips
                 .slice(0, 12)
                 .map(row)
                 .join("")}</ul>`
@@ -1004,7 +1007,7 @@ function rankOrdinal(raw, nRaw) {
         (decision.includes("减仓") ||
           decision.includes("卖出") ||
           decision.includes("跳过"))
-          ? `<span class="watching-sent-badge is-bear" title="news.db 软先验 · 未过入场">S</span>`
+          ? `<span class="watching-sent-badge is-bear" title="历史舆情跳过 · 未过入场">S</span>`
           : "";
       const marketPriorBadge =
         isMarketPrior &&
@@ -1090,7 +1093,7 @@ function rankOrdinal(raw, nRaw) {
     `<div class="rebalance-table" role="table">` +
     `<div class="rebalance-table-head" role="row">` +
     `<div class="rebalance-th" role="columnheader">股票</div>` +
-    `<div class="rebalance-th rebalance-th-sent" role="columnheader" title="不进 ŷ。手动执行只读 09:30 前已入库；勾选闸时空/多调 fuse±0.1%·rank×2/×0.5，不清仓">舆情</div>` +
+    `<div class="rebalance-th rebalance-th-sent" role="columnheader" title="不进 ŷ。手动执行只读 09:30 前已入库">舆情</div>` +
     `<div class="rebalance-th rebalance-th-act" role="columnheader" title="通过 = 预估可买，含已进买入但无有效报价；跳过 = 未进买入。不落账，不是盯盘的开/加/减/清。">动作</div>` +
     `<div class="rebalance-th rebalance-th-tier" role="columnheader" title="可预测性分档（Holdout 前 60 日猜涨 lift）：A 强 / B 中 / C 弱">分档</div>` +
     `<div class="rebalance-th num" role="columnheader" title="上一交易日收盘价">昨收</div>` +

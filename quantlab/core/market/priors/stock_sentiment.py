@@ -1,11 +1,11 @@
 """徽章侧舆情先验（ŷ 外）：只作观察徽章，不进 sub_scores / predicted_score。
 
 本模块的 ``prior.mode`` 产品强制 ``off``，不拦买、不缩仓。
-调仓 fuse/rank 软先验走 ``news_archive`` + ``sentiment_gate_enabled``，与这里无关。
+调仓规则栏已下掉舆情软先验闸；本模块只做徽章，与 fuse/rank 无关。
 
 契约：
   ŷ = ReturnScoreModel(...)     ← 唯一生产排序轴
-  S = score_headlines(...)      ← 本模块：参考徽章；调仓软先验见 news.db
+  S = score_headlines(...)      ← 本模块：参考徽章；不改 fuse/rank
 """
 
 from __future__ import annotations
@@ -57,7 +57,7 @@ def get_sentiment_prior_cfg(config: Optional[dict] = None) -> Dict[str, Any]:
     raw.update(dict(sent.get("prior") or {}))
     for k in LEGACY_GATE_KEYS:
         raw.pop(k, None)
-    # 产品：徽章参考；文件里写 gate/risk 也强制 off（调仓软先验另见 news.db）
+    # 产品：徽章参考；文件里写 gate/risk 也强制 off
     raw["mode"] = "off"
     raw["role"] = str(sent.get("role") or "prior")
     raw["include_in_score"] = bool(sent.get("include_in_score", False))
@@ -107,7 +107,7 @@ def build_sentiment_prior(
 ) -> Dict[str, Any]:
     """徽章侧先验：看空/看多给 risk_hints；恒 mode=off，不产出拦买/缩仓 actions。
 
-    调仓 fuse/rank 软先验见 ``news_archive``。超时/空源降级不标看空触发。
+    调仓规则栏已下掉软先验闸。超时/空源降级不标看空触发。
     """
     prior_cfg = get_sentiment_prior_cfg(config)
     mode = prior_cfg["mode"]  # 恒为 off

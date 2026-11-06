@@ -146,9 +146,9 @@
                 <section class="follow-path-matrix-panel" data-panel="rank" aria-labelledby="pm-panel-rank">
                   <header class="follow-path-matrix-panel-head">
                     <h4 id="pm-panel-rank" class="follow-path-matrix-panel-title">FUSE 门槛</h4>
-                    <p class="follow-path-matrix-panel-note">过入场才开/加 · 过强档改金额和 rank</p>
+                    <p class="follow-path-matrix-panel-note">过入场才开/加 · 过强档改金额和 rank · 高阈旁路（阈值0=关）</p>
                   </header>
-                  <div class="follow-path-matrix-body follow-path-matrix-body--row2">
+                  <div class="follow-path-matrix-body follow-path-matrix-body--row3">
                     <div
                       class="follow-path-matrix-box follow-path-matrix-box--pair follow-path-matrix-box--entry"
                       title="过入场阈值才建仓/加仓，买右侧金额（按成交价换算整手；不够一手则跳过）。未过门槛的已持仓清仓。未过强档时 rank 另须 max(oo_rank, τc_rank)&lt;该值（默认 10；≤0=关；两侧都缺不拦；过强档改看强档 rank）。阈值默认 0.1%；金额默认 1 万。保存规则同步到交易执行自动调仓。"
@@ -169,14 +169,14 @@
                           class="follow-path-matrix-box-slot"
                           title="未过强档时入场另须 max(ŷ_oo_rank, ŷ_τc_rank) &lt; 此值（1=相对分最高）。默认 10；≤0=关。两侧都缺不拦；仅一侧有则用该侧。fuse 过强档改看强档 rank。未过则已持仓清仓。须已启用对应研究/执行套。"
                         >
-                          <span class="follow-path-matrix-box-slot-label">rank · oo &amp; τc</span>
+                          <span class="follow-path-matrix-box-slot-label">rank</span>
                           <input type="number" name="pm_oo_rank_max" min="0" max="500" step="1" value="10" aria-label="oo_rank 与 τc_rank 入场名次" />
                         </label>
                       </div>
                     </div>
                     <div
                       class="follow-path-matrix-box follow-path-matrix-box--pair"
-                      title="过强阈值买右侧强档金额，并改看强档 rank（默认 100）。否则买入场金额、看入场 rank。金额按成交价换算整手；不够一手则跳过；单票市值不超过强档×120%。阈值默认 0.1%；金额不少于入场，默认 2 万。保存规则同步到交易执行自动调仓。"
+                      title="过强阈值买右侧强档金额，并改看强档 rank（默认 100）。否则买入场金额、看入场 rank。金额按成交价换算整手；不够一手则跳过；单票市值不超过强档×120%（高阈开启且金额更高时跟 max(强,高)×120%）。阈值默认 0.1%；金额不少于入场，默认 2 万。保存规则同步到交易执行自动调仓。"
                     >
                       <span class="follow-path-matrix-box-text">
                         <span class="follow-path-matrix-box-title">强档</span>
@@ -194,8 +194,33 @@
                           class="follow-path-matrix-box-slot"
                           title="fuse 过强档后另须 max(ŷ_oo_rank, ŷ_τc_rank) &lt; 此值。默认 100；≤0=关。两侧都缺不拦；仅一侧有则用该侧。未过则已持仓清仓。"
                         >
-                          <span class="follow-path-matrix-box-slot-label">rank · oo &amp; τc</span>
+                          <span class="follow-path-matrix-box-slot-label">rank</span>
                           <input type="number" name="pm_oo_rank_strong_max" min="0" max="500" step="1" value="100" aria-label="强档 oo_rank 与 τc_rank 名次" />
+                        </label>
+                      </div>
+                    </div>
+                    <div
+                      class="follow-path-matrix-box follow-path-matrix-box--pair"
+                      title="高阈：与入场/强档并列的旁路。fuse 过本格阈值且 max(oo_rank, τc_rank)&lt;本格 rank 时，用本格金额开/加（已因入场/强档买过不叠第二笔）。不绕过形态闸。阈值 0=关。默认 1.0% / 10 万 / rank 100。保存规则同步到交易执行自动调仓。"
+                    >
+                      <span class="follow-path-matrix-box-text">
+                        <span class="follow-path-matrix-box-title">高阈</span>
+                      </span>
+                      <div class="follow-path-matrix-box-pair">
+                        <label class="follow-path-matrix-box-slot">
+                          <span class="follow-path-matrix-box-slot-label">阈值%</span>
+                          <input type="number" name="pm_fuse_high" min="0" max="10" step="0.01" value="1" aria-label="高阈阈值" />
+                        </label>
+                        <label class="follow-path-matrix-box-slot">
+                          <span class="follow-path-matrix-box-slot-label">金额</span>
+                          <input type="number" name="pm_lot_high_amount" min="1000" max="1000000" step="1000" value="100000" aria-label="高阈金额" />
+                        </label>
+                        <label
+                          class="follow-path-matrix-box-slot"
+                          title="高阈旁路另须 max(ŷ_oo_rank, ŷ_τc_rank) &lt; 此值。默认 100；≤0=关（只看 fuse）。两侧都缺不拦；仅一侧有则用该侧。"
+                        >
+                          <span class="follow-path-matrix-box-slot-label">rank</span>
+                          <input type="number" name="pm_oo_rank_high_max" min="0" max="500" step="1" value="100" aria-label="高阈 oo_rank 与 τc_rank 名次" />
                         </label>
                       </div>
                     </div>
@@ -206,7 +231,7 @@
                     <h4 id="pm-panel-other" class="follow-path-matrix-panel-title">其他</h4>
                     <p
                       class="follow-path-matrix-panel-note"
-                      title="本金 / 日分价闸只用于调仓回测。勾选则入场须 y&gt;0。形态闸：高波弱开、异常低开（−8%）或涨停开盘禁止新开/加。未过门槛清仓（形态闸不清仓）。舆情先验默认关：勾选后空 fuse−0.1%·rank×2，多 fuse+0.1%·rank×0.5，只改入场/买序、不清仓；缺测不调。历史回测按发布时间卡到当日 09:30。保存后同步到交易执行。"
+                      title="本金 / 日分价闸只用于调仓回测。勾选则入场须 y&gt;0。形态闸：高波弱开、异常低开（−8%）或涨停开盘禁止新开/加。未过门槛清仓（形态闸不清仓）。保存后同步到交易执行。"
                     >本金/日分价闸仅回测 · 勾选须 y&gt;0 / 形态闸</p>
                   </header>
                   <div class="follow-path-matrix-body follow-path-matrix-body--row5">
@@ -264,21 +289,6 @@
                         <span class="follow-path-matrix-box-desc">总开关</span>
                       </span>
                       <input type="checkbox" name="pm_morph_gate" aria-label="形态闸" />
-                    </label>
-                    <label class="follow-path-matrix-box follow-path-matrix-box--sent">
-                      <span class="follow-path-matrix-box-text">
-                        <span class="follow-path-matrix-box-title">
-                          舆情先验
-                          <button
-                            type="button"
-                            class="follow-path-matrix-morph-tip-btn"
-                            aria-label="舆情先验说明"
-                            data-tip-html="<p>开：空则入场 fuse <strong>−0.1%</strong>、有效名次 <strong>×2</strong>；多则 fuse <strong>+0.1%</strong>、名次 <strong>×0.5</strong>。只改入场与买序，<strong>不因舆情清仓</strong>。默认关。未勾选仍显示舆情。缺测、零标题不调。不进 ŷ。保存后同步到交易执行。</p><p>历史回测按<strong>发布时间</strong>卡到当日 09:30。手动执行和自动调仓只读 09:30 前已入库。09:30 之后发布的标题算下一个交易日。</p>"
-                          ><span class="quant-pro-help-icon" aria-hidden="true">?</span></button>
-                        </span>
-                        <span class="follow-path-matrix-box-desc">±0.1% · ×2/0.5</span>
-                      </span>
-                      <input type="checkbox" name="pm_sentiment_gate" aria-label="舆情先验" />
                     </label>
                   </div>
                 </section>
