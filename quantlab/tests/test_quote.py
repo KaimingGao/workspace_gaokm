@@ -47,6 +47,47 @@ class TestQuoteResolve(unittest.TestCase):
             self.assertTrue(r2.get("cached"))
             self.assertEqual(mocked.call_count, 1)
 
+    def test_invalidate_codes_drops_selected_symbols(self):
+        import time
+
+        now = time.time()
+        with StockAPI._cache_lock:
+            StockAPI._cache["sz000636"] = (now, {"success": True, "open": ""})
+            StockAPI._cache["sz000988"] = (now, {"success": True, "open": "61.72"})
+        n = StockAPI.invalidate_codes(["000636", "未知票甲乙丙"])
+        self.assertEqual(n, 1)
+        self.assertNotIn("sz000636", StockAPI._cache)
+        self.assertIn("sz000988", StockAPI._cache)
+
+    def test_quote_has_day_open(self):
+        self.assertFalse(StockAPI.quote_has_day_open({"success": True, "open": ""}))
+        self.assertFalse(StockAPI.quote_has_day_open({"success": True, "open": "0"}))
+        self.assertTrue(StockAPI.quote_has_day_open({"success": True, "open": "31.0元"}))
+        self.assertTrue(StockAPI.quote_has_day_open({"success": True, "open_raw": 31.0}))
+
+    def test_empty_open_fresh_cache_expires_early(self):
+        import time
+
+        now = time.time()
+        with StockAPI._cache_lock:
+            StockAPI._cache["sz000636"] = (
+                now - (StockAPI.EMPTY_OPEN_CACHE_TTL_SECONDS + 1),
+                {"success": True, "open": "", "price_raw": 33.12},
+            )
+            StockAPI._cache["sz000988"] = (
+                now - (StockAPI.EMPTY_OPEN_CACHE_TTL_SECONDS + 1),
+                {"success": True, "open": "61.72元", "price_raw": 61.72},
+            )
+        self.assertIsNone(StockAPI._fresh_cached("sz000636", now=now))
+        self.assertIsNotNone(StockAPI._fresh_cached("sz000988", now=now))
+        with StockAPI._cache_lock:
+            StockAPI._cache["sz000636"] = (
+                now - 1.0,
+                {"success": True, "open": "", "price_raw": 33.12},
+            )
+        self.assertIsNotNone(StockAPI._fresh_cached("sz000636", now=now))
+
+
 class TestQuoteBatch(unittest.TestCase):
     def setUp(self):
         StockAPI.clear_cache()

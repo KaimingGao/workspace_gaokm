@@ -125,18 +125,40 @@ def _build_risk_metrics() -> Dict[str, Any]:
 
 
 def _build_factor_exposure() -> Dict[str, Any]:
-    """因子暴露分析：基于持仓的板块/风格暴露（含超限清单）。"""
+    """因子暴露分析：基于持仓的板块/风格暴露（含超限清单）。
+
+    优先传入盯市 summary，避免落盘无 market_value 时按成本市值算权重。
+    """
     paper = _load_raw_paper()
     holdings = _holdings_from_paper(paper)
 
     if not holdings:
         return {"ok": False, "message": "暂无持仓数据"}
 
+    live_summary = None
+    try:
+        from core.paper import mark_to_market
+
+        live_summary = mark_to_market(paper) if paper else None
+    except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+        live_summary = None
+    live_holdings = None
+    if isinstance(live_summary, dict):
+        live_holdings = [
+            h for h in (live_summary.get("holdings") or []) if isinstance(h, dict)
+        ]
+
     # 优先复用风控暴露矩阵（含行业限额 over_limit）
     try:
         from core.risk.exposure import build_exposure_matrix
 
-        matrix = build_exposure_matrix(paper) or {}
+        matrix = (
+            build_exposure_matrix(
+                paper,
+                summary=live_summary if isinstance(live_summary, dict) else None,
+            )
+            or {}
+        )
         if isinstance(matrix, dict) and (matrix.get("sectors") or matrix.get("ok")):
             sectors_raw = matrix.get("sectors") or []
             over = [
@@ -176,7 +198,8 @@ def _build_factor_exposure() -> Dict[str, Any]:
     except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
         pass
 
-    # Sector exposure fallback
+    # Sector exposure fallback（有盯市持仓则用盯市市值）
+    rows = live_holdings if live_holdings is not None else holdings
     sector_values: Dict[str, float] = {}
     total_value = 0.0
     try:
@@ -186,7 +209,7 @@ def _build_factor_exposure() -> Dict[str, Any]:
     except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
         smap = {}
 
-    for h in holdings:
+    for h in rows:
         mv = _holding_market_value(h)
         total_value += mv
         sector = _holding_sector(h, smap)

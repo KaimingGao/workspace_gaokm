@@ -187,7 +187,7 @@ flowchart TD
 
 `volume` 仅成交量；`amount` 为独立成交额（有则保留）。二者不再混用。
 
-**实时行情**（`StockAPI.query`）：`success` + `price` / `change_*` 等；同 symbol 约 60s 内存缓存。
+**实时行情**（`StockAPI.query`）：`success` + `price` / `change_*` 等；同 symbol 约 60s 内存缓存。竞价未定开时可能 `open=""` 仍 success——此类条目只用约 5s 短 TTL；live open-pit 拉截面前再 `invalidate_codes`，并对仍缺今开的票重拉一轮（见 [live-open-pit-rebalance.md](../internal/live-open-pit-rebalance.md)）。
 
 **质量与来源**：缓存条目带 `quality.level`（`good` / `thin` / `empty`）与 `data_source`；live 若走 `quote_fallback`，与回测完整日线 **可能不一致** —— 解读时必须说明。
 

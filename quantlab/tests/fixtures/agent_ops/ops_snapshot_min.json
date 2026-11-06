@@ -1,0 +1,10 @@
+{
+  "strategy_id": "short_conservative",
+  "strategy_version": "test",
+  "cost_model": "simple_cn",
+  "data_quality": {"fallback_count": 0},
+  "risk_blocks": [],
+  "monitor_alerts": [],
+  "buys_blocked": false,
+  "fallback_count": 0
+}

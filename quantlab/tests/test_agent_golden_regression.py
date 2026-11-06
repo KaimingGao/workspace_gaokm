@@ -13,7 +13,7 @@ from tests.conftest import ROOT
 class TestP55AgentGoldenRegression(unittest.TestCase):
     def test_golden_case_count(self):
         cases = load_cases()
-        self.assertEqual(len(cases), 20)
+        self.assertEqual(len(cases), 22)
         quant_ids = [c["id"] for c in cases if str(c["id"]).startswith("quant_")]
         self.assertEqual(len(quant_ids), 9)
 
@@ -23,7 +23,7 @@ class TestP55AgentGoldenRegression(unittest.TestCase):
 
     def test_eval_summary_case_count(self):
         summary = EvalService().summary()
-        self.assertEqual(summary["case_count"], 20)
+        self.assertEqual(summary["case_count"], 22)
         self.assertEqual(len(summary["quant_case_ids"]), 9)
         self.assertIn("quant_interpret_neutral", summary["quant_case_ids"])
         self.assertIn("quant_cross_section_score", summary["quant_case_ids"])
@@ -38,7 +38,7 @@ class TestP55AgentGoldenRegression(unittest.TestCase):
     def test_agent_regression_scripts_document_21_and_10(self):
         scripts_dir = os.path.join(ROOT, "scripts")
         with open(os.path.join(scripts_dir, "agent_regression.sh"), encoding="utf-8") as f:
-            self.assertIn("20 cases", f.read())
+            self.assertIn("22 cases", f.read())
         with open(os.path.join(scripts_dir, "agent_regression_quant.sh"), encoding="utf-8") as f:
             text = f.read()
             self.assertIn("9 quant_* cases", text)

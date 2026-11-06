@@ -283,7 +283,7 @@ python3 evals/run_repro.py
 | `GET /api/evals/readme` | 子目录 README 覆盖 + 架构回链 |
 | `POST /api/evals/run` | body 可含 `with_presets`（含 readme 校验） |
 
-用例定义在 `evals/golden_cases.json`（**20 cases**，含量化 `quant_*`、`quant_factor_ols`、`quant_model_policy` 等）。校验原则：**数字以 Skills 为准；Agent 回复不得出现工具结果里没有的关键数字；买入类须含免责声明。**
+用例定义在 `evals/golden_cases.json`（**22 cases**，含量化 `quant_*`、`ops_*` AO 轨等）。校验原则：**数字以 Skills 为准；Agent 回复不得出现工具结果里没有的关键数字；买入类须含免责声明。**
 
 Web 研究枢纽可查看子目录 README；无 LLM 时「AI 解读」可走 `POST /api/quant/interpret` · `{ "offline": true }` 规则解读。
 

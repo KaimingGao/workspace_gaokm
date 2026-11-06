@@ -555,7 +555,7 @@ OMS 级盘口布局仍禁止。
 | **唯一任务** | 纸面组合报告墙：市场 · KPI · 风险 · 净值 · 仓位/信号（开盘先看这一屏） |
 | **主区必有** | **概览**（指数/广度 + 纸面 KPI）· **风险**（摘要条 + 收益/波动卡）· **净值路径**（累计净值 · 可选沪深300 · 区间 tab）· **风险分解**（回撤 · 历史 VaR · 板块热力）· **仓位与信号**（配置条带 · 板块暴露 · 最新信号 · 策略卡） |
 | **次要** | 无强制折叠次要带；动作落在侧栏业务页 |
-| **数据来源** | 前端汇聚 `/api/dashboard/*`（market-overview / kpis / risk-metrics / nav-curve / sector-heatmap / signals / allocation / factor-exposure / drawdown / var-historical） |
+| **数据来源** | 前端汇聚 `/api/dashboard/*`（market-overview / kpis / risk-metrics / nav-curve / sector-heatmap / signals / allocation / factor-exposure / drawdown / var-historical）。**持仓市值 / 涨跌家数 / 配置 / 板块暴露**与交易执行页同源盯市（`mark_to_market`）；盯市失败才回退成本市值。 |
 | **禁止** | 下单 · 改观察名单 · 嵌全屏对话 · 堆完整回测报告 |
 | **刷新** | 进页拉取；约 **90s** 轻量轮询；页头「刷新」 |
 | **视觉** | 收益类用 A 股红涨绿跌；**质量类**（Sharpe/Sortino/Calmar/胜率等）用 `--ok` / `--danger`；配置用**横向条带**（不用饼图）；浅色默认 |

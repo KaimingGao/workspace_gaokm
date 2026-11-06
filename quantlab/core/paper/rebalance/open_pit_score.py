@@ -50,17 +50,56 @@ def _hist_through_prev(
     return out
 
 
+def _quote_usable_open(quote: Optional[dict]) -> bool:
+    try:
+        from adapters.market.quote_api import StockAPI
+
+        return bool(StockAPI.quote_has_day_open(quote if isinstance(quote, dict) else None))
+    except Exception:  # noqa: BLE001
+        return False
+
+
 def _batch_quotes(codes: Sequence[str]) -> Dict[str, dict]:
+    """拉开盘截面行情。先丢掉相关内存缓存，避免持仓盯市写入的「空今开」毒死 open-pit。
+
+    交易执行页 / ``mark_to_market`` 会先只拉持仓票；竞价未定开时 ``open=""`` 仍
+    ``success=True`` 并进短缓存。随后 open-pit 整池 ``batch_query`` 对持仓命中缓存，
+    其它票现场拉到今开 → 恰似「只有昨持仓缺今开」。缺今开的票再失效并重拉一轮。
+    """
     uniq = [str(c or "").strip() for c in codes if str(c or "").strip()]
     if not uniq:
         return {}
     try:
+        from adapters.market.quote_api import StockAPI
+
+        StockAPI.invalidate_codes(uniq)
+    except Exception:  # noqa: BLE001
+        logger.debug("open_pit quote cache invalidate skipped", exc_info=True)
+    try:
         from core.paper.rebalance.match import _batch_query_quotes
 
-        return dict(_batch_query_quotes(uniq) or {})
+        out = dict(_batch_query_quotes(uniq) or {})
     except Exception:  # noqa: BLE001
         logger.warning("open_pit batch quotes failed", exc_info=True)
         return {}
+    missing = [c for c in uniq if not _quote_usable_open(out.get(c))]
+    if not missing:
+        return out
+    try:
+        from adapters.market.quote_api import StockAPI
+
+        StockAPI.invalidate_codes(missing)
+    except Exception:  # noqa: BLE001
+        logger.debug("open_pit missing-open invalidate skipped", exc_info=True)
+    try:
+        from core.paper.rebalance.match import _batch_query_quotes
+
+        retry = dict(_batch_query_quotes(missing) or {})
+        if retry:
+            out.update(retry)
+    except Exception:  # noqa: BLE001
+        logger.warning("open_pit missing-open retry failed", exc_info=True)
+    return out
 
 
 def _load_hist_bars(

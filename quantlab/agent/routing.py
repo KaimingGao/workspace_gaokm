@@ -1,7 +1,7 @@
 """用户意图路由：LLM 意图分类优先，关键词兜底（单一事实源）。"""
 
 import json
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 
 from agent.intent import (
     INTENT_BUY,
@@ -15,12 +15,14 @@ from agent.prompts import (
     BUY_QUESTION_HINT,
     DEEP_ANALYSIS_KEYWORDS,
     MODEL_POLICY_HINT,
+    OPS_HINT,
     POSITION_BASE_HINT,
     POSITION_HINT,
     QUANT_HINT,
     SCORE_STANCE_HINT,
     SHORT_HORIZON_HINT,
 )
+from agent.registry import TOOL_NAMES
 
 BUY_QUESTION_KEYS = (
     "能否买入",
@@ -92,6 +94,36 @@ QUANT_KEYS = (
     "中性化对照",
     "包结构",
     "模块树",
+)
+
+OPS_KEYS = (
+    "五问",
+    "ops_report",
+    "调仓五问",
+    "最近调仓",
+    "日更说明",
+    "为什么没买",
+    "为什么没买成",
+    "risk_block",
+    "风控拦截",
+    "拦仓",
+    "预演调仓",
+    "调仓预演",
+    "预演",
+    "日循环",
+    "dry_run",
+    "建仓预演",
+    "feedback",
+    "参数建议",
+    "配置建议",
+    "事件旗标",
+    "event_flag",
+    "因子假设",
+    "alpha_draft",
+    "观点包",
+    "view_bundle",
+    "运维告警",
+    "监控告警",
 )
 
 POSITION_KEYS = (
@@ -217,6 +249,68 @@ def is_quant_question(text: str) -> bool:
     return any(k.lower() in t for k in QUANT_KEYS)
 
 
+def is_ops_question(text: str) -> bool:
+    t = (text or "").strip().lower()
+    if any(k.lower() in t for k in OPS_KEYS):
+        return True
+    # 口语化调仓运维
+    return any(
+        k in t
+        for k in (
+            "解释调仓",
+            "调仓解释",
+            "日循环预演",
+            "矩阵调仓",
+            "观察池调仓预演",
+            "同步建仓预览",
+        )
+    )
+
+
+def infer_ops_task(text: str) -> str:
+    t = (text or "").strip().lower()
+    if any(k in t for k in ("预演", "dry_run", "preview")):
+        return "rebalance_preview"
+    if any(k in t for k in ("为什么没买", "拦仓", "risk_block", "告警", "异常")):
+        return "ops_anomaly"
+    if any(k in t for k in ("feedback", "参数建议", "配置建议", "改门槛")):
+        return "feedback_draft"
+    if any(k in t for k in ("对照", "复盘调仓", "调仓后")):
+        return "post_rebalance_review"
+    if any(k in t for k in ("事件", "公告旗标", "event_flag")):
+        return "event_flags"
+    if any(k in t for k in ("因子假设", "alpha", "挖因子")):
+        return "alpha_draft"
+    if any(k in t for k in ("观点包", "view_bundle", "litterman")):
+        return "view_bundle"
+    return "ops_snapshot"
+
+
+def resolve_tool_subset(
+    user_input: str,
+    intent: Optional[Dict[str, Any]] = None,
+) -> Optional[List[str]]:
+    """按意图裁剪本轮 tools；返回 None 表示不下发裁剪（全量）。"""
+    names = list(TOOL_NAMES)
+    required: List[str] = []
+    if intent and isinstance(intent.get("required_tools"), list):
+        required = [str(t) for t in intent["required_tools"] if str(t) in names]
+    if is_ops_question(user_input):
+        base = ["ops", "position", "quant", "advise", "news"]
+        pick = [n for n in base if n in names]
+        for t in required:
+            if t not in pick:
+                pick.append(t)
+        return pick
+    if required:
+        # 保底：始终允许 advise/quote，避免裁过头
+        for t in ("advise", "quote", "position", "quant"):
+            if t in names and t not in required:
+                required.append(t)
+        return [t for t in required if t in names]
+    return None
+
+
 def infer_quant_task(text: str) -> str:
     """量化问题默认 task 推断（Agent 未显式传 task 时补全）。"""
     t = (text or "").strip()
@@ -289,11 +383,17 @@ def _hints_from_intent(intent: Dict[str, Any], user_input: str) -> list:
     return hints
 
 
-def build_user_hints(user_input: str, *, llm: Optional[Any] = None) -> str:
+def build_user_hints(
+    user_input: str,
+    *,
+    llm: Optional[Any] = None,
+    return_meta: bool = False,
+):
     """按意图追加系统侧 hint，减少 prompts 与 agent 行为漂移。
 
     优先用 LLM 意图分类（解决「不可以买」等关键词误判）；
     LLM 不可用或返回 general 时回退到关键词路由。
+    return_meta=True 时返回 (text, meta)，meta 含 intent / tool_subset。
     """
     hints = []
     intent = classify_intent(user_input, llm) if llm is not None else None
@@ -313,8 +413,11 @@ def build_user_hints(user_input: str, *, llm: Optional[Any] = None) -> str:
             hints.append(SHORT_HORIZON_HINT)
         if mentions_score(user_input) or is_short_horizon_question(user_input):
             hints.append(SCORE_STANCE_HINT)
-        if is_quant_question(user_input):
+        if is_quant_question(user_input) and not is_ops_question(user_input):
             hints.append(QUANT_HINT)
+
+    if is_ops_question(user_input):
+        hints.append(OPS_HINT)
 
     # 以下 hint 与意图正交，仍用关键词检测（深度分析 / 模型策略 / 短线）
     if is_analysis_question(user_input):
@@ -325,9 +428,16 @@ def build_user_hints(user_input: str, *, llm: Optional[Any] = None) -> str:
         hints.append(MODEL_POLICY_HINT)
 
     if not hints:
-        return user_input.strip()
-    block = "\n\n".join(hints)
-    return f"{user_input.strip()}\n\n{block}"
+        text = user_input.strip()
+    else:
+        block = "\n\n".join(hints)
+        text = f"{user_input.strip()}\n\n{block}"
+    if return_meta:
+        return text, {
+            "intent": intent,
+            "tool_subset": resolve_tool_subset(user_input, intent),
+        }
+    return text
 
 
 def prepare_tool_params(tool_name: str, params: Dict[str, Any], user_input: str) -> Dict[str, Any]:
@@ -337,6 +447,16 @@ def prepare_tool_params(tool_name: str, params: Dict[str, Any], user_input: str)
         out.setdefault("include_stance", True)
     if tool_name == "quant" and is_quant_question(user_input):
         out.setdefault("task", infer_quant_task(user_input))
+    if tool_name == "ops" and is_ops_question(user_input):
+        out.setdefault("task", infer_ops_task(user_input))
+        if out.get("task") == "rebalance_preview" and not out.get("path"):
+            t = (user_input or "").lower()
+            if any(k in t for k in ("建仓", "sync-paper", "观察池建仓")):
+                out["path"] = "sync_paper"
+            elif any(k in t for k in ("矩阵", "watching", "横截面调仓", "策略调仓")):
+                out["path"] = "watching_matrix"
+            else:
+                out["path"] = "holding_cycle"
     return out
 
 

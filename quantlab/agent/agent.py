@@ -25,6 +25,7 @@ from agent.routing import (
     needs_disclaimer,
     prepare_tool_params,
 )
+from services.agent_ops import truncate_tool_json_for_llm
 
 logger = logging.getLogger(__name__)
 
@@ -65,13 +66,16 @@ class Agent:
             self.llm.model_source = source
             self.llm._tested = False
             self.llm._available = None
-        effective = build_user_hints(user_input, llm=self.llm)
+        effective, hint_meta = build_user_hints(
+            user_input, llm=self.llm, return_meta=True
+        )
         self.messages.append({"role": "user", "content": effective})
         turn_usage = empty_usage()
         self.last_artifacts = []
+        tools_for_turn = self._tools_for_subset(hint_meta.get("tool_subset"))
 
         for _ in range(MAX_TOOL_ROUNDS):
-            response = self.llm.chat(self.messages, tools=self.tools)
+            response = self.llm.chat(self.messages, tools=tools_for_turn)
             add_usage(turn_usage, parse_usage(response))
             tool_calls = self.llm.extract_function_calls(response)
 
@@ -124,7 +128,7 @@ class Agent:
                     {
                         "role": "tool",
                         "tool_call_id": call.get("id", "call_1"),
-                        "content": result,
+                        "content": truncate_tool_json_for_llm(result),
                     }
                 )
 
@@ -192,6 +196,17 @@ class Agent:
         if needs_disclaimer(user_input, content) and DISCLAIMER not in content:
             return content.rstrip() + "\n\n" + DISCLAIMER
         return content
+
+    def _tools_for_subset(self, subset) -> List[Dict]:
+        if not subset:
+            return self.tools
+        want = set(subset)
+        filtered = [
+            t
+            for t in self.tools
+            if (t.get("function") or {}).get("name") in want
+        ]
+        return filtered or self.tools
 
     def reset(self):
         self.messages = [{"role": "system", "content": SYSTEM_PROMPT}]

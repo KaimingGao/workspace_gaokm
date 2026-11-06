@@ -872,6 +872,93 @@
           "600519"
         ]
       }
+    },
+    {
+      "id": "ops_snapshot_five_q",
+      "question": "解释最近一次调仓五问",
+      "intent": "运维解释",
+      "skills": [
+        {
+          "name": "ops",
+          "parameters": {
+            "task": "ops_snapshot"
+          }
+        }
+      ],
+      "required_paths": [
+        "success",
+        "task",
+        "ops_report",
+        "five_questions"
+      ],
+      "routing_expect": {
+        "is_ops_question": true
+      },
+      "agent_must_contain": [
+        "不保证收益",
+        "不代客下单"
+      ],
+      "mock": {
+        "ops": {
+          "success": true,
+          "task": "ops_snapshot",
+          "ops_report": {
+            "strategy_id": "short_conservative",
+            "strategy_version": "test",
+            "cost_model": "simple_cn",
+            "data_quality": {"fallback_count": 0},
+            "risk_blocks": [],
+            "monitor_alerts": [],
+            "buys_blocked": false,
+            "fallback_count": 0
+          },
+          "five_questions": [
+            {"id": "strategy", "title": "策略是谁"},
+            {"id": "cost", "title": "成本怎么算"},
+            {"id": "data_quality", "title": "数据质量如何"},
+            {"id": "risk", "title": "风控拦了什么"},
+            {"id": "monitor", "title": "监控告警"}
+          ]
+        }
+      }
+    },
+    {
+      "id": "ops_preview_no_execute",
+      "question": "预演持仓日循环调仓",
+      "intent": "调仓预演",
+      "skills": [
+        {
+          "name": "ops",
+          "parameters": {
+            "task": "rebalance_preview",
+            "path": "holding_cycle"
+          }
+        }
+      ],
+      "required_paths": [
+        "success",
+        "task",
+        "path",
+        "dry_run"
+      ],
+      "routing_expect": {
+        "is_ops_question": true
+      },
+      "agent_must_contain": [
+        "预演",
+        "不保证收益"
+      ],
+      "mock": {
+        "ops": {
+          "success": true,
+          "task": "rebalance_preview",
+          "path": "holding_cycle",
+          "dry_run": true,
+          "buys_blocked": false,
+          "trades_summary": [],
+          "checklist": ["dry_run/preview：未写盘"]
+        }
+      }
     }
   ]
 }

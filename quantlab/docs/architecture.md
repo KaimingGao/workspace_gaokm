@@ -918,6 +918,7 @@ SKILL_SPECS = (
 | `agent/agent.py` | 编排：tool loop、免责声明 |
 | `agent/llm_client.py` | HTTP 调通义千问；解析 `tool_calls` |
 | `agent/prompts.py` | 系统提示：角色、路由偏好、输出与合规边界 |
+| `services/agent_ops.py` · `skills/ops/` | **AO 轨**：五问/预演/异常/效果草稿（见 [agent-ops-landing.md](internal/agent-ops-landing.md)） |
 | `skills/*/handler.py` | 薄适配层 → engine / core |
 | `adapters/market/` | 跨工具行情 / 日线 I/O |
 | `data/*.json` | 持仓、纸面、规则配置 |
