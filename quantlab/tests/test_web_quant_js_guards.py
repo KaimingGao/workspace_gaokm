@@ -1,6 +1,7 @@
 """量化前端关键字符串守卫（指向 quant.js / partials，不再读已拆空的 index.html/app.js）。"""
 
 import os
+import re
 import unittest
 
 from tests.conftest import ROOT
@@ -4467,6 +4468,15 @@ class TestWebQuantJsGuards(unittest.TestCase):
         self.assertNotIn("execution_ui.js?v=p3378", paper)
         self.assertNotIn("execution_forms.js?v=p3378", paper)
         self.assertNotIn("execution_ui.js?v=p2594", paper)
+        # 动态 import 解构只能用 `:`；误留静态 import 的 `as` 会 SyntaxError，交易执行整页空白
+        self.assertIsNone(
+            re.search(r"\{[^{}]*\bas\b[^{}]*\}\s*=\s*await\s+import", paper),
+            "paper.js dynamic import destructuring must use ':' not 'as'",
+        )
+        self.assertIn(
+            "renderPaperRebalanceWorkerDesk: renderPaperRebalanceWorkerDeskUi", paper
+        )
+        self.assertIn("renderPaperT0Preview: renderPaperT0PreviewUi", paper)
         t0_ui = self._read("web", "static", "js", "paper", "t0_ui.js")
         self.assertIn("__ASSET_V__", t0_ui)
         self.assertNotIn("execution_ui.js?v=p2594", t0_ui)

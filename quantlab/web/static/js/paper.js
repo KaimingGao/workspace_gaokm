@@ -46,7 +46,7 @@ const { renderPaperRulesHtml } = await import(
   `./paper/rules_ui.js?v=${encodeURIComponent(_EXEC_V)}`
 );
 const {
-  renderPaperRebalanceWorkerDesk as renderPaperRebalanceWorkerDeskUi,
+  renderPaperRebalanceWorkerDesk: renderPaperRebalanceWorkerDeskUi,
   sentimentDeskBadgeHtml,
 } = await import(
   `./paper/rebalance_desk.js?v=${encodeURIComponent(_EXEC_V)}`
@@ -79,9 +79,9 @@ const {
   `./paper/holdings_ui.js?v=${encodeURIComponent(_EXEC_V)}`
 );
 const {
-  renderPaperT0Preview as renderPaperT0PreviewUi,
-  renderPaperT0WorkerTrades as renderPaperT0WorkerTradesUi,
-  renderPaperT0WorkerDesk as renderPaperT0WorkerDeskUi,
+  renderPaperT0Preview: renderPaperT0PreviewUi,
+  renderPaperT0WorkerTrades: renderPaperT0WorkerTradesUi,
+  renderPaperT0WorkerDesk: renderPaperT0WorkerDeskUi,
 } = await import(
   `./paper/t0_ui.js?v=${encodeURIComponent(_EXEC_V)}`
 );
