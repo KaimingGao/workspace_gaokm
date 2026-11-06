@@ -8460,8 +8460,39 @@ body[data-page="quant"] .quant-overview-section > .dashboard-section-head .quant
   display: inline-flex;
   flex: 0 0 auto;
   align-items: center;
+  flex-wrap: wrap;
   gap: 10px;
   margin: 0 0 0 auto;
+}
+
+body[data-page="quant"] .quant-watching-pool-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+body[data-page="quant"] .quant-watching-pool-actions .dialog-btn {
+  height: 30px;
+  padding: 0 10px;
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+/* 重建并对齐：进行中浅色，完成后恢复主色蓝 */
+body[data-page="quant"] #quant-ru-rebuild-align.is-busy:disabled,
+body[data-page="quant"] #quant-ru-rebuild-align[aria-busy="true"]:disabled {
+  opacity: 0.45;
+  filter: saturate(0.55);
+  box-shadow: none;
+  transform: none;
+  cursor: wait;
+}
+
+body[data-page="quant"] #quant-ru-rebuild-align.is-busy::after,
+body[data-page="quant"] #quant-ru-rebuild-align[aria-busy="true"]::after {
+  content: none;
+  display: none;
 }
 
 /* 观察池只数滑条：对齐交易执行「启动时间」胶囊样式 */
@@ -8751,21 +8782,6 @@ body[data-page="quant"] .quant-tau-end-slider output {
 
 body[data-page="quant"] .quant-tau-end-slider.is-zero-prefix output {
   color: color-mix(in srgb, var(--accent, #2563eb) 80%, var(--ink));
-}
-
-body[data-page="quant"] .quant-watching-pool-status {
-  max-width: 11rem;
-  overflow: hidden;
-  color: var(--ink-3);
-  font-size: 11px;
-  font-weight: 500;
-  line-height: 1.2;
-  white-space: nowrap;
-  text-overflow: ellipsis;
-}
-
-body[data-page="quant"] .quant-watching-pool-status.is-error {
-  color: var(--danger, #c0392b);
 }
 
 body[data-page="quant"] .quant-head.dashboard-head .quant-desk-badge,
@@ -9856,8 +9872,8 @@ body[data-page="quant"] .quant-kpi-card:hover {
   box-shadow: none !important;
 }
 
-body[data-page="quant"] .quant-page .quant-pro-kpi-card[data-kpi="universe"],
-body[data-page="quant"] .quant-kpi-card[data-kpi="universe"] {
+body[data-page="quant"] .quant-page .quant-pro-kpi-card[data-kpi="watching"],
+body[data-page="quant"] .quant-kpi-card[data-kpi="watching"] {
   background: color-mix(in srgb, var(--accent) 4%, var(--surface)) !important;
   border-color: color-mix(in srgb, var(--accent) 22%, var(--line)) !important;
 }
@@ -12076,12 +12092,6 @@ body[data-page="quant"] .quant-page .quant-ru-card .quant-pro-card-tools {
   padding-right: 0.35rem;
 }
 
-.quant-ru-tier-grid .quant-ru-hit-val,
-.quant-ru-tier-grid .quant-ru-f1-val {
-  min-width: 0;
-  width: 100%;
-  font-size: inherit;
-}
 
 .quant-ru-score-cell {
   font-variant-numeric: tabular-nums;
@@ -12113,71 +12123,6 @@ body[data-page="quant"] .quant-page .quant-ru-card .quant-pro-card-tools {
 }
 
 
-/* OO_F1 / TC_F1：≥50% 红 / 低于 50% 绿；须盖过 .quant-weight-table-wrap td { color: ink } */
-.quant-ru-f1-cell {
-  min-width: 0;
-  vertical-align: middle;
-  white-space: nowrap;
-}
-
-.quant-ru-f1-val {
-  display: block;
-  font-variant-numeric: tabular-nums;
-  font-weight: 650;
-  font-size: 0.8rem;
-  color: var(--ink);
-  text-align: right;
-  line-height: 1.2;
-}
-
-/*
- * 中位→ink（浅/中性），两端按 --f1-sat 加深到红/绿。
- * 不用 color-mix(红,绿)：中间是脏橄榄，浅色层次会失效。
- * 盖过 .quant-weight-table-wrap td { color: var(--ink) }。
- */
-body[data-page="quant"] .quant-page .quant-ru-tier-table td.quant-ru-f1-cell.is-rel[data-f1-tone="up"],
-body[data-page="quant"]
-  .quant-page
-  .quant-ru-tier-table
-  td.quant-ru-f1-cell.is-rel[data-f1-tone="up"]
-  .quant-ru-f1-val.is-rel {
-  color: color-mix(
-    in srgb,
-    var(--quant-up, var(--color-up, #dc2626)) var(--f1-sat, 0%),
-    var(--ink, #0f172a)
-  );
-}
-
-body[data-page="quant"] .quant-page .quant-ru-tier-table td.quant-ru-f1-cell.is-rel[data-f1-tone="down"],
-body[data-page="quant"]
-  .quant-page
-  .quant-ru-tier-table
-  td.quant-ru-f1-cell.is-rel[data-f1-tone="down"]
-  .quant-ru-f1-val.is-rel {
-  color: color-mix(
-    in srgb,
-    var(--quant-down, var(--color-down, #16a34a)) var(--f1-sat, 0%),
-    var(--ink, #0f172a)
-  );
-}
-
-body[data-page="quant"] .quant-page .quant-ru-tier-table td.quant-ru-f1-cell.up,
-body[data-page="quant"] .quant-page .quant-ru-tier-table td.quant-ru-f1-cell.up .quant-ru-f1-val {
-  color: var(--quant-up, var(--color-up, #dc2626));
-}
-
-body[data-page="quant"] .quant-page .quant-ru-tier-table td.quant-ru-f1-cell.down,
-body[data-page="quant"] .quant-page .quant-ru-tier-table td.quant-ru-f1-cell.down .quant-ru-f1-val {
-  color: var(--quant-down, var(--color-down, #16a34a));
-}
-
-body[data-page="quant"] .quant-page .quant-ru-tier-table td.quant-ru-f1-cell .quant-ru-f1-val.is-empty,
-body[data-page="quant"] .quant-page .quant-ru-tier-table td.quant-ru-f1-cell.is-muted .quant-ru-f1-val {
-  /* 无看多等占位：比 ink-3 再浅一档 */
-  color: color-mix(in srgb, var(--ink-3, #94a3b8) 52%, transparent);
-  font-weight: 500;
-  font-size: 0.72rem;
-}
 
 /* F1 悬浮卡：质量读数，非涨跌色 */
 .score-tooltip.quant-ru-f1-tip {
@@ -12337,91 +12282,6 @@ body[data-page="quant"] .quant-page .quant-ru-tier-table td.quant-ru-f1-cell.is-
 }
 
 /* 盖过 .quant-weight-table-wrap td { color: var(--ink) } */
-
-
-
-.quant-ru-hit-cell,
-.quant-ru-rate-cell {
-  min-width: 0;
-  vertical-align: middle;
-}
-
-.quant-ru-rate-cell .quant-ru-hit-val {
-  display: inline-block;
-  width: 100%;
-}
-
-.quant-ru-hit-row {
-  display: flex;
-  align-items: baseline;
-  justify-content: flex-end;
-  gap: 0.4rem;
-  width: 100%;
-}
-
-.quant-ru-hit-val {
-  font-variant-numeric: tabular-nums;
-  font-weight: 650;
-  font-size: 0.8rem;
-  color: var(--ink);
-  min-width: 2.4rem;
-  text-align: right;
-}
-
-.quant-ru-hit-val.up {
-  color: var(--color-up, #f5222d);
-}
-
-.quant-ru-hit-val.down {
-  color: var(--color-down, #52c41a);
-}
-
-.quant-ru-hit-val.is-empty {
-  color: var(--ink-2);
-}
-
-.quant-ru-hit-n {
-  font-variant-numeric: tabular-nums;
-  font-size: 0.66rem;
-  color: var(--ink-3, var(--ink-2));
-  min-width: 1.1rem;
-  text-align: right;
-}
-
-.quant-ru-hit-meter {
-  position: relative;
-  display: block;
-  margin-top: 0.22rem;
-  height: 3px;
-}
-
-.quant-ru-hit-track {
-  display: block;
-  height: 100%;
-  border-radius: 2px;
-  background: color-mix(in srgb, var(--line) 70%, transparent);
-  overflow: hidden;
-}
-
-.quant-ru-hit-fill {
-  display: block;
-  height: 100%;
-  border-radius: 2px;
-  background: color-mix(in srgb, var(--ink-3, #64748b) 35%, var(--line));
-  transition: width 0.15s ease-out;
-}
-
-.quant-ru-hit-meter.up .quant-ru-hit-fill {
-  background: var(--color-up, #f5222d);
-}
-
-.quant-ru-hit-meter.down .quant-ru-hit-fill {
-  background: var(--color-down, #52c41a);
-}
-
-.quant-ru-hit-meter.is-empty .quant-ru-hit-fill {
-  background: color-mix(in srgb, var(--ink-3, #64748b) 35%, var(--line));
-}
 
 .quant-ru-tier-badge {
   display: inline-flex;

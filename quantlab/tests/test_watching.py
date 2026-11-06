@@ -38,24 +38,32 @@ class TestWatching(unittest.TestCase):
         )
 
         self.assertEqual(WATCHING_DEFAULT_SIZE, 300)
-        self.assertEqual(WATCHING_MAX_SIZE, 1000)
+        self.assertEqual(WATCHING_MAX_SIZE, 1600)
         self.assertEqual(clamp_watching_max_size(None), 300)
         self.assertEqual(clamp_watching_max_size(2), 200)
-        self.assertEqual(clamp_watching_max_size(1001), 1000)
+        self.assertEqual(clamp_watching_max_size(1001), 1001)
+        self.assertEqual(clamp_watching_max_size(1601), 1600)
         self.assertEqual(clamp_watching_max_size(500), 500)
         codes = [f"{i:06d}" for i in range(1, 221)]
         extra = [f"{i:06d}" for i in range(900000, 900010)]
         with tempfile.TemporaryDirectory() as tmp:
             path = os.path.join(tmp, "watching.json")
-            write_watching(
-                {
-                    "sources": [],
-                    "watchlist": list(codes),
-                    "max_size": 220,
-                },
-                path,
-            )
             with patch(
+                "core.watching.repository._research_codes_allowed",
+                return_value=None,
+            ):
+                write_watching(
+                    {
+                        "sources": [],
+                        "watchlist": list(codes),
+                        "max_size": 220,
+                    },
+                    path,
+                )
+            with patch(
+                "core.watching.repository._research_codes_allowed",
+                return_value=None,
+            ), patch(
                 "core.watching.repository._fill_codes_for_expand",
                 return_value=list(extra),
             ):
@@ -462,6 +470,9 @@ class TestWatchingMaxSizeApi(unittest.TestCase):
             with patch("core.watching.repository.WATCHING_PATH", path), patch(
                 "core.paths.WATCHING_PATH", path
             ), patch(
+                "core.watching.repository._research_codes_allowed",
+                return_value=None,
+            ), patch(
                 "core.watching.repository._fill_codes_for_expand",
                 return_value=["000001", "000002", "000003", "000004"],
             ):
@@ -480,7 +491,7 @@ class TestWatchingMaxSizeApi(unittest.TestCase):
         import web.app as web_app
 
         client = TestClient(web_app.app)
-        r = client.post("/api/watching/max-size", json={"max_size": 1001})
+        r = client.post("/api/watching/max-size", json={"max_size": 1601})
         self.assertEqual(r.status_code, 422)
 
 if __name__ == "__main__":

@@ -6,6 +6,7 @@
 import { createScoreTooltipController } from "../score_tooltip.js";
 import { syncOverviewUniverse } from "./factor_corr_ui.js";
 import {
+  MODEL_FIT_LIMIT,
   markWatchingPoolLimitReady,
   notifyWatchingPoolLimitChanged,
   readWatchingPoolLimit,
@@ -41,7 +42,7 @@ export function installResearchUniverseUi(q) {
     bCount: () => document.getElementById("quant-ru-b-count"),
     maxSize: () => document.getElementById("quant-watching-max-size"),
     poolVal: () => document.getElementById("quant-watching-pool-val"),
-    poolStatus: () => document.getElementById("quant-watching-pool-status"),
+    rebuildAlign: () => document.getElementById("quant-ru-rebuild-align"),
   };
 
   function clampACount(raw) {
@@ -903,7 +904,37 @@ export function installResearchUniverseUi(q) {
   function clampWatchingMaxSize(v) {
     const n = Number(v);
     if (!Number.isFinite(n)) return 300;
-    return Math.max(200, Math.min(1000, Math.round(n)));
+    return Math.max(200, Math.min(MODEL_FIT_LIMIT, Math.round(n)));
+  }
+
+  function setRebuildAlignBusy(on) {
+    const btn = el.rebuildAlign();
+    if (!btn) return null;
+    btn.disabled = !!on;
+    btn.classList.toggle("is-busy", !!on);
+    if (on) btn.setAttribute("aria-busy", "true");
+    else btn.removeAttribute("aria-busy");
+    return btn;
+  }
+
+  async function rebuildAndAlignUniverse() {
+    const btn = el.rebuildAlign();
+    if (btn && (btn.disabled || btn.getAttribute("aria-busy") === "true")) return;
+    setRebuildAlignBusy(true);
+    try {
+      const { ok, data } = await apiFetch(
+        "/api/quant/research-universe/rebuild-and-reconcile",
+        { method: "POST" }
+      );
+      if (!ok || (data && data.ok === false)) return;
+      const rec = data.reconcile || {};
+      const after = Number(rec.after);
+      await hydrateWatchingMaxSize();
+      if (Number.isFinite(after)) syncPoolOverview(after);
+      notifyWatchingPoolLimitChanged(readWatchingPoolLimit());
+    } finally {
+      setRebuildAlignBusy(false);
+    }
   }
 
   function paintPoolSize(cap) {
@@ -916,13 +947,6 @@ export function installResearchUniverseUi(q) {
     }
     if (out) out.value = String(n);
     return n;
-  }
-
-  function setPoolStatus(message, isError) {
-    const st = el.poolStatus();
-    if (!st) return;
-    st.textContent = message || "";
-    st.classList.toggle("is-error", !!isError);
   }
 
   function syncPoolOverview(n) {
@@ -962,21 +986,17 @@ export function installResearchUniverseUi(q) {
     const input = el.maxSize();
     if (!input) return;
     const cap = paintPoolSize(input.value);
-    const { ok, data, error } = await apiFetch("/api/watching/max-size", {
+    const { ok, data } = await apiFetch("/api/watching/max-size", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ max_size: cap }),
     });
     if (!ok || (data && data.ok === false)) {
-      const fail = (data && (data.detail || data.error)) || error || "保存失败";
-      const msg = /not found/i.test(String(fail))
-        ? "保存接口未加载，请重启 Web"
-        : String(fail);
-      setPoolStatus(msg, true);
+      // 概览旁路无状态条（分档卡 #quant-ru-strip 另论）：失败回灌服务端上限
+      await hydrateWatchingMaxSize();
       return;
     }
     const saved = paintPoolSize(data && data.max_size != null ? data.max_size : cap);
-    setPoolStatus("", false);
     syncPoolOverview(data && data.count);
     notifyWatchingPoolLimitChanged(saved);
   }
@@ -987,6 +1007,9 @@ export function installResearchUniverseUi(q) {
   });
   on("quant-watching-max-size", "change", () => {
     void saveWatchingMaxSize();
+  });
+  on("quant-ru-rebuild-align", "click", () => {
+    void rebuildAndAlignUniverse();
   });
 
   if (el.maxSize()) {

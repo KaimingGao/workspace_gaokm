@@ -110,17 +110,52 @@ def _pad_side_fields(data: Dict[str, Any], old_n: int, added: int) -> None:
         data[key] = arr
 
 
-def _fill_codes_for_expand(data: Dict[str, Any]) -> List[str]:
-    """扩容候选：暂存 → example 观察池 → 研究宇宙。"""
-    chunks: List[str] = []
-    chunks.extend(_clean_code_list(data.get("watchlist_reserve")))
+def _research_codes_allowed() -> Optional[set]:
+    """强制 ⊆ 研究池时返回允许集合；未强制时返回 None。"""
     try:
-        if os.path.isfile(WATCHING_EXAMPLE_PATH):
-            with open(WATCHING_EXAMPLE_PATH, encoding="utf-8") as f:
-                example = json.load(f) or {}
-            chunks.extend(_clean_code_list(example.get("watchlist")))
+        from core.universe.policy import watching_subset_enforced
+        from core.research_universe import research_code_set
+
+        if not watching_subset_enforced():
+            return None
+        return research_code_set()
     except Exception:
-        logger.debug("expand watchlist: example read failed", exc_info=True)
+        logger.debug("watching: research allow-set failed", exc_info=True)
+        return None
+
+
+def _filter_codes_to_research(
+    codes: List[str], *, allow: Optional[set]
+) -> List[str]:
+    if allow is None:
+        return codes
+    if not allow:
+        # 研究池空时无法扩容进新票
+        return []
+    return [c for c in codes if c in allow]
+
+
+def _fill_codes_for_expand(data: Dict[str, Any]) -> List[str]:
+    """扩容候选：暂存 →（未强制时）example → 研究宇宙。
+
+    ``QUANTLAB_WATCHING_SUBSET_OF_RESEARCH=1``（默认）时只从研究宇宙补，
+    暂存/示例也须 ∈ 研究池。
+    """
+    allow = _research_codes_allowed()
+    chunks: List[str] = []
+    chunks.extend(
+        _filter_codes_to_research(
+            _clean_code_list(data.get("watchlist_reserve")), allow=allow
+        )
+    )
+    if allow is None:
+        try:
+            if os.path.isfile(WATCHING_EXAMPLE_PATH):
+                with open(WATCHING_EXAMPLE_PATH, encoding="utf-8") as f:
+                    example = json.load(f) or {}
+                chunks.extend(_clean_code_list(example.get("watchlist")))
+        except Exception:
+            logger.debug("expand watchlist: example read failed", exc_info=True)
     try:
         from core.research_universe import load_research_universe
 
@@ -128,11 +163,11 @@ def _fill_codes_for_expand(data: Dict[str, Any]) -> List[str]:
         chunks.extend(_clean_code_list(uni.get("codes")))
     except Exception:
         logger.debug("expand watchlist: research_universe read failed", exc_info=True)
-    return _clean_code_list(chunks)
+    return _clean_code_list(_filter_codes_to_research(chunks, allow=allow))
 
 
 def _resize_watchlist(data: Dict[str, Any], cap: int, *, expand: bool) -> Dict[str, int]:
-    """把 watchlist 收到 cap：超出暂存；expand 时从暂存/示例/研究宇宙补齐。"""
+    """把 watchlist 收到 cap：超出暂存；expand 时从研究宇宙（及合法暂存）补齐。"""
     n_cap = clamp_watching_max_size(cap, WATCHING_DEFAULT_SIZE)
     wl = _clean_code_list(data.get("watchlist"))
     reserve = _clean_code_list(data.get("watchlist_reserve"))
@@ -181,19 +216,83 @@ def _resize_watchlist(data: Dict[str, Any], cap: int, *, expand: bool) -> Dict[s
     return {"dropped": dropped, "added": added, "count": len(wl)}
 
 
+def _strip_watchlist_outside_research(data: Dict[str, Any]) -> List[str]:
+    """强制模式下剥离不在研究池的观察票；返回被剥离代码。"""
+    allow = _research_codes_allowed()
+    if allow is None:
+        return []
+    wl = _clean_code_list(data.get("watchlist"))
+    if not wl:
+        return []
+    keep: List[str] = []
+    dropped: List[str] = []
+    for i, code in enumerate(wl):
+        if code in allow:
+            keep.append(code)
+        else:
+            dropped.append(code)
+    if not dropped:
+        return []
+    # 同步平行数组
+    old_n = len(wl)
+    idx_keep = [i for i, c in enumerate(wl) if c in allow]
+    data["watchlist"] = keep
+    for key in _WATCHLIST_SIDE_KEYS:
+        arr = data.get(key)
+        if isinstance(arr, list) and len(arr) == old_n:
+            data[key] = [arr[i] for i in idx_keep]
+    # 越界票进暂存（但仍不可再扩回，除非重回研究池）
+    reserve = _clean_code_list(data.get("watchlist_reserve"))
+    head = set(keep)
+    for c in dropped:
+        if c not in head and c not in reserve:
+            reserve.append(c)
+    data["watchlist_reserve"] = _filter_codes_to_research(
+        _clean_code_list(reserve), allow=allow
+    )[:WATCHING_MAX_SIZE]
+    return dropped
+
+
 def write_watching(data: dict, path: Optional[str] = None) -> str:
     p = path or WATCHING_PATH
     cleaned = validate_watching(data)
+    stripped = _strip_watchlist_outside_research(cleaned)
+    if stripped:
+        logger.info(
+            "write_watching: stripped %s codes not in research_universe",
+            len(stripped),
+        )
     _resize_watchlist(cleaned, int(cleaned["max_size"]), expand=False)
     cleaned["updated_at"] = _now_iso()
     atomic_write_json(p, cleaned)
     return p
 
 
+def reconcile_watching_to_research(
+    *, path: Optional[str] = None
+) -> Dict[str, Any]:
+    """把观察池裁成研究宇宙子集（强制开关开启时）。"""
+    data = read_watching(path)
+    before = _clean_code_list(data.get("watchlist"))
+    dropped = _strip_watchlist_outside_research(data)
+    write_watching(data, path)
+    after = _clean_code_list(read_watching(path).get("watchlist"))
+    return {
+        "ok": True,
+        "enforced": _research_codes_allowed() is not None,
+        "before": len(before),
+        "after": len(after),
+        "dropped": dropped,
+        "dropped_count": len(dropped),
+    }
+
+
 def set_watching_max_size(max_size: int, path: Optional[str] = None) -> Dict[str, Any]:
-    """改观察池目标只数：缩小截断并暂存，放大从暂存/示例/研究宇宙补齐。"""
+    """改观察池目标只数：缩小截断并暂存，放大从研究宇宙补齐。"""
     data = read_watching(path)
     before = len(_clean_code_list(data.get("watchlist")))
+    # 先剥离越界票，再扩容
+    _strip_watchlist_outside_research(data)
     cap = clamp_watching_max_size(max_size, WATCHING_DEFAULT_SIZE)
     data["max_size"] = cap
     stats = _resize_watchlist(data, cap, expand=True)
@@ -407,6 +506,13 @@ def add_watchlist_item(
 
     if len(wl) >= max_size:
         raise ValueError(f"观察名单已满（上限 {max_size}）")
+
+    allow = _research_codes_allowed()
+    if allow is not None and code not in allow:
+        raise ValueError(
+            f"「{name or code}」（{code}）不在可交易研究池内；"
+            "请先重建/写入 research_universe 后再加入观察池"
+        )
 
     wl.append(code)
     origins.append("手动")

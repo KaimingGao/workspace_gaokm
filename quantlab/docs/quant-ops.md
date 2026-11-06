@@ -4,7 +4,17 @@
 
 定时任务、preset 组合、报告归档与任务状态查询。运维改 β 否见下表；**不**在本文展开 ŷ 公式。
 
-定时任务、preset 组合、报告归档与任务状态查询。
+## 可交易研究宇宙
+
+| 步骤 | API / 动作 |
+|------|------------|
+| 重建并对齐（**Web 唯一按钮**） | `POST /api/quant/research-universe/rebuild-and-reconcile` |
+| 只重建研究宇宙（运维/脚本分步） | `POST /api/quant/research-universe/rebuild-tradable` |
+| 只对齐观察池（运维/脚本分步） | `POST /api/quant/research-universe/reconcile-watching` |
+| 门槛配置 | `data/tradable_universe_policy.json` |
+| 子集强制开关 | `QUANTLAB_WATCHING_SUBSET_OF_RESEARCH`（默认 `1`） |
+
+面板只暴露合并入口；分步 API 供运维/自动化，不是双按钮。完成后重跑分档 / ŷ 拟合（宇宙指纹会变）。
 
 ---
 

@@ -4,9 +4,9 @@ from typing import Any, Optional
 
 WATCHING_MIN_SIZE = 200
 WATCHING_DEFAULT_SIZE = 300
-WATCHING_MAX_SIZE = 1000
+WATCHING_MAX_SIZE = 1600
 # ŷ_* 拟合请求钳制（观察池上限）；不垫 research_universe。分钟暖仓 / live 只读观察池。
-MODEL_FIT_MAX_SIZE = 1000
+MODEL_FIT_MAX_SIZE = 1600
 # 与 watching.max_size 对齐，避免日报截断与满池历史回测不可比。
 DAILY_PORTFOLIO_MAX_NAMES = WATCHING_MAX_SIZE
 

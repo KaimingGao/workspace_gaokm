@@ -289,12 +289,29 @@ class QuantReplayMixin:
 
         filter_meta: Dict[str, Any] = {}
         filter_dropped: List[Dict[str, Any]] = []
-        if exclude_st or min_avg_amount_pctile is not None:
+        # 与可交易入池 policy 对齐的绝对成交额（有 exclude_st 时默认启用）
+        policy_min_amount: Optional[float] = None
+        policy_version = ""
+        if exclude_st:
+            try:
+                from core.universe.policy import load_tradable_policy
+
+                pol = load_tradable_policy()
+                policy_version = str(pol.get("version") or "")
+                raw_amt = pol.get("min_amount")
+                if raw_amt is not None and float(raw_amt) > 0:
+                    policy_min_amount = float(raw_amt)
+            except Exception:  # noqa: BLE001
+                logger.debug("tradable policy for replay filter failed", exc_info=True)
+
+        if exclude_st or min_avg_amount_pctile is not None or policy_min_amount:
             from core.backtest.universe_filters import filter_universe_bars
 
             bits = []
             if exclude_st:
                 bits.append("剔ST")
+            if policy_min_amount:
+                bits.append(f"成交额≥{policy_min_amount / 1e4:.0f}万")
             if min_avg_amount_pctile is not None:
                 bits.append(f"成交额≥{min_avg_amount_pctile:g}分位")
             _emit(
@@ -314,9 +331,13 @@ class QuantReplayMixin:
                 stock_bars,
                 exclude_st=exclude_st,
                 min_avg_amount_pctile=min_avg_amount_pctile,
+                min_avg_amount=policy_min_amount,
+                drop_missing_names=bool(exclude_st),
                 name_by_code=name_by_code or None,
                 allow_live_names=False,
             )
+            if policy_version:
+                filter_meta["policy_version"] = policy_version
             _emit(
                 f"过滤后 {len(stock_bars)} 只"
                 + (

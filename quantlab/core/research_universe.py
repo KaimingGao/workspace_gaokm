@@ -1,10 +1,10 @@
-"""研究宇宙：日线截面研究用宽名单；与观察池（分钟暖仓 / live）分离。
+"""研究宇宙：可交易严筛后的门票池；观察池须为其子集。
 
-- 观察池 ``watching``：默认 300、硬顶 ``WATCHING_MAX_SIZE``=1000；分钟暖仓、live 打分、ŷ_* 拟合（实际只数=观察池）
-- 模型拟合上限 ``MODEL_FIT_MAX_SIZE``（默认 1000）：请求钳制，不从研究宇宙垫票
-- 研究宇宙 ``research_universe``：可更大，仅日线研究脚本（alpha_oo OOS 等）
-  非空时这些脚本优先用本名单；空则回退观察池。
-  ŷ_* 枢纽拟合（含 ŷ_oo_rank）只读观察池，不垫本名单。
+- 观察池 ``watching``：默认 300、硬顶 ``WATCHING_MAX_SIZE``=1600；分钟暖仓、live、ŷ_* 拟合
+- 模型拟合上限 ``MODEL_FIT_MAX_SIZE``（默认 1600）：请求钳制，不垫本名单
+- 研究宇宙：``tradable_screen`` 严筛后写入；核心入口 ``rebuild_tradable_research_universe``
+- Web 单按钮：``POST .../rebuild-and-reconcile``（重建并裁观察池 ⊆ 研究池）
+- 观察池扩容/加票须 ⊆ 本名单（``QUANTLAB_WATCHING_SUBSET_OF_RESEARCH``，默认开）
 """
 
 from __future__ import annotations
@@ -25,13 +25,16 @@ RESEARCH_UNIVERSE_MAX_SIZE = 2000
 
 def default_research_universe() -> Dict[str, Any]:
     return {
-        "version": 1,
+        "version": 2,
         "codes": [],
         "max_size": RESEARCH_UNIVERSE_MAX_SIZE,
+        "policy_version": "",
+        "screened_at": "",
+        "screen_stats": {},
         "note": (
-            "日线研究宇宙（可宽于观察池）。非空时 alpha_oo 等研究脚本优先用此名单；"
-            "空则回退观察池。ŷ_* 枢纽拟合（含 ŷ_oo_rank）只读 watching。"
-            "分钟暖仓与 live 仍只读 watching，勿把宽名单塞进观察池。"
+            "可交易严筛研究宇宙（观察池须为其子集）。"
+            "非空时 alpha_oo 等研究脚本优先用此名单；空则回退观察池。"
+            "ŷ_* 枢纽拟合只读 watching。分钟暖仓 / live 只读 watching。"
         ),
     }
 
@@ -67,8 +70,15 @@ def load_research_universe(*, path: Optional[str] = None) -> Dict[str, Any]:
 
 
 def save_research_universe(
-    payload: dict, *, path: Optional[str] = None
+    payload: dict,
+    *,
+    path: Optional[str] = None,
+    apply_screen: bool = True,
 ) -> Dict[str, Any]:
+    """写入研究宇宙。默认 ``apply_screen=True`` 过可交易严筛。
+
+    已筛过的重建路径传 ``apply_screen=False``。测试可关筛。
+    """
     p = path or RESEARCH_UNIVERSE_PATH
     merged = default_research_universe()
     if isinstance(payload, dict):
@@ -81,6 +91,37 @@ def save_research_universe(
             continue
         seen.add(c)
         uniq.append(c)
+
+    screen_info: Optional[Dict[str, Any]] = None
+    if apply_screen and uniq:
+        try:
+            from core.universe.tradable_screen import screen_codes
+
+            screened = screen_codes(uniq)
+            screen_info = {
+                "stats": screened.get("stats"),
+                "rejected_count": len(screened.get("rejected") or []),
+                "rejected_sample": list(screened.get("rejected") or [])[:40],
+                "policy_version": screened.get("policy_version"),
+            }
+            uniq = list(screened.get("kept") or [])
+            merged["policy_version"] = str(screened.get("policy_version") or "")
+            merged["screen_stats"] = screened.get("stats") or {}
+            if not merged.get("screened_at"):
+                from datetime import datetime, timezone
+
+                merged["screened_at"] = (
+                    datetime.now(timezone.utc).astimezone().isoformat(timespec="seconds")
+                )
+            if not str(merged.get("note") or "").startswith("可交易严筛"):
+                merged["note"] = (
+                    f"可交易严筛写入 policy={merged.get('policy_version')}；"
+                    f"保留 {len(uniq)} / 候选 {screen_info['stats'].get('input') if screen_info.get('stats') else len(codes)}。"
+                )
+        except Exception:
+            logger.exception("save_research_universe: screen failed; refusing dirty write")
+            raise
+
     cap = max(8, min(int(merged.get("max_size") or RESEARCH_UNIVERSE_MAX_SIZE), RESEARCH_UNIVERSE_MAX_SIZE))
     merged["codes"] = uniq[:cap]
     merged["max_size"] = cap
@@ -89,7 +130,10 @@ def save_research_universe(
     if parent:
         os.makedirs(parent, exist_ok=True)
     atomic_write_json(p, merged)
-    return {"ok": True, "path": p, "universe": merged}
+    out: Dict[str, Any] = {"ok": True, "path": p, "universe": merged}
+    if screen_info is not None:
+        out["screen"] = screen_info
+    return out
 
 
 def resolve_research_codes(
@@ -265,6 +309,9 @@ def build_research_universe_board(
             logger.debug("research_universe coverage failed", exc_info=True)
             coverage = {"ok": False, "error": "coverage_failed"}
 
+    from core.universe.policy import watching_subset_enforced
+
+    subset_ok = len(only_watching) == 0
     return {
         "ok": True,
         "universe": uni,
@@ -286,77 +333,23 @@ def build_research_universe_board(
             "only_watching": len(only_watching),
             "overlap_sample": overlap[:40],
             "only_research_sample": only_research[:40],
+            "only_watching_sample": only_watching[:40],
         },
+        "watching_subset_ok": subset_ok,
+        "watching_subset_enforced": watching_subset_enforced(),
+        "policy_version": uni.get("policy_version") or "",
+        "screen_stats": uni.get("screen_stats") or {},
+        "screened_at": uni.get("screened_at") or "",
         "coverage": coverage,
         "note": uni.get("note") or "",
     }
 
 
-def sync_research_universe_from_watching(
-    *, path: Optional[str] = None
-) -> Dict[str, Any]:
-    """用当前观察池覆盖写入研究宇宙（仍不触发分钟暖仓）。"""
-    watch = _watching_codes()
-    return save_research_universe({"codes": watch}, path=path)
-
-
-def _cached_daily_codes(*, market: str = "CN") -> List[str]:
-    """本地日 K 仓代码（研究宽宇宙来源；可 ~1200）。"""
-    try:
-        from core.store import list_cached_symbols
-
-        rows = list_cached_symbols(market=market) or []
-    except Exception:  # noqa: BLE001
-        logger.debug("research_universe: list_cached_symbols failed", exc_info=True)
-        return []
-    seen = set()
-    out: List[str] = []
-    for row in rows:
-        if isinstance(row, dict):
-            c = str(row.get("code") or row.get("stock_code") or "").strip()
-        else:
-            c = str(row or "").strip()
-        if not c:
-            continue
-        c = c.split(".")[0]
-        # 跳过指数类（如 399300）——研究截面默认个股
-        if c.startswith("399") or c.startswith("000000"):
-            continue
-        if c in seen:
-            continue
-        seen.add(c)
-        out.append(c)
-    out.sort()
-    return out
-
-
-def sync_research_universe_from_cached_daily(
-    *,
-    path: Optional[str] = None,
-    market: str = "CN",
-    max_codes: Optional[int] = None,
-) -> Dict[str, Any]:
-    """用本地日 K 缓存仓覆盖写入研究宇宙（宽名单，默认可至 2000）。
-
-    不改观察池、不触发分钟暖仓。这是「1200 票研究宇宙」的主入口。
-    """
-    codes = _cached_daily_codes(market=market)
-    if max_codes is not None:
-        try:
-            cap = max(8, int(max_codes))
-        except (TypeError, ValueError):
-            cap = RESEARCH_UNIVERSE_MAX_SIZE
-        codes = codes[: min(cap, RESEARCH_UNIVERSE_MAX_SIZE)]
-    saved = save_research_universe(
-        {
-            "codes": codes,
-            "note": (
-                f"由本地日 K 仓灌入（market={market}，n={len(codes)}）；"
-                "仅日线研究；分钟暖仓 / live 仍只读 watching。"
-            ),
-        },
-        path=path,
-    )
-    saved["source"] = "cached_daily"
-    saved["cached_count"] = len(codes)
-    return saved
+def research_code_set(*, path: Optional[str] = None) -> set:
+    """当前研究宇宙代码集合。"""
+    uni = load_research_universe(path=path)
+    return {
+        str(c).strip()
+        for c in (uni.get("codes") or [])
+        if str(c).strip()
+    }

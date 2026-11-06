@@ -27,6 +27,20 @@ from web.schemas import (
 
 router = APIRouter(tags=["quant"])
 
+
+def _with_research_universe_board(
+    payload: Dict[str, Any], *, include_subset_ok: bool = False
+) -> Dict[str, Any]:
+    """合并看板快照；Web 主入口可附 ``watching_subset_ok``。"""
+    from core.research_universe import build_research_universe_board
+
+    board = build_research_universe_board(include_coverage=False)
+    out = {**payload, "board": board}
+    if include_subset_ok:
+        out["watching_subset_ok"] = board.get("watching_subset_ok")
+    return out
+
+
 @router.get("/api/quant/factors")
 
 def quant_factors() -> Any:
@@ -466,47 +480,54 @@ def quant_research_universe_predictability_tiers_live_sync(
 @router.put("/api/quant/research-universe")
 
 def quant_research_universe_put(body: Dict[str, Any]) -> Dict[str, Any]:
-    """写入日线研究宇宙 codes（去重，上限 2000）。不改观察池、不触发分钟暖仓。"""
+    """写入研究宇宙 codes（默认可交易严筛，上限 2000）。不改观察池、不暖仓。"""
     from core.research_universe import save_research_universe
 
     try:
         saved = save_research_universe(body if isinstance(body, dict) else {})
-        from core.research_universe import build_research_universe_board
-
-        board = build_research_universe_board(include_coverage=False)
-        return {**saved, "board": board}
+        return _with_research_universe_board(saved)
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e)) from e
 
-@router.post("/api/quant/research-universe/sync-watching")
+@router.post("/api/quant/research-universe/rebuild-tradable")
 
-def quant_research_universe_sync_watching() -> Dict[str, Any]:
-    """用当前观察池覆盖研究宇宙（不触发分钟暖仓）。"""
-    from core.research_universe import (
-        build_research_universe_board,
-        sync_research_universe_from_watching,
-    )
+def quant_research_universe_rebuild_tradable() -> Dict[str, Any]:
+    """可交易严筛重建研究宇宙（日 K ∪ 现货）；不改观察池、不暖仓。运维分步用。"""
+    from core.universe.tradable_screen import rebuild_tradable_research_universe
 
     try:
-        saved = sync_research_universe_from_watching()
-        board = build_research_universe_board(include_coverage=False)
-        return {**saved, "board": board}
+        saved = rebuild_tradable_research_universe()
+        return _with_research_universe_board(saved)
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e)) from e
 
-@router.post("/api/quant/research-universe/sync-cached-daily")
 
-def quant_research_universe_sync_cached_daily() -> Dict[str, Any]:
-    """用本地日 K 仓（约 1200）覆盖研究宇宙；不改观察池、不暖仓。"""
-    from core.research_universe import (
-        build_research_universe_board,
-        sync_research_universe_from_cached_daily,
-    )
+@router.post("/api/quant/research-universe/reconcile-watching")
+
+def quant_research_universe_reconcile_watching() -> Dict[str, Any]:
+    """观察池裁成研究宇宙子集（``QUANTLAB_WATCHING_SUBSET_OF_RESEARCH``）。运维分步用。"""
+    from core.watching.repository import reconcile_watching_to_research
 
     try:
-        saved = sync_research_universe_from_cached_daily()
-        board = build_research_universe_board(include_coverage=False)
-        return {**saved, "board": board}
+        out = reconcile_watching_to_research()
+        return _with_research_universe_board(out)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e)) from e
+
+
+@router.post("/api/quant/research-universe/rebuild-and-reconcile")
+
+def quant_research_universe_rebuild_and_reconcile() -> Dict[str, Any]:
+    """重建研究宇宙并立刻对齐观察池（Web 单按钮主入口）。"""
+    from core.universe.tradable_screen import rebuild_tradable_research_universe
+    from core.watching.repository import reconcile_watching_to_research
+
+    try:
+        saved = rebuild_tradable_research_universe()
+        rec = reconcile_watching_to_research()
+        return _with_research_universe_board(
+            {**saved, "reconcile": rec}, include_subset_ok=True
+        )
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e)) from e
 

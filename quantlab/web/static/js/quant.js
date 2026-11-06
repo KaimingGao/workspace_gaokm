@@ -2293,7 +2293,7 @@ export function initQuant(ctx) {
       await watching.loadWatchingPanel();
       await watching.loadFollowCard();
       const el = document.getElementById("quant-follow-summary");
-      if (el) el.textContent = `${el.textContent} · 已同步研究池`;
+      if (el) el.textContent = `${el.textContent} · 已同步纸面`;
       } catch (err) {
       const el = document.getElementById("quant-follow-summary");
       if (el) el.textContent = String(err.message || err);

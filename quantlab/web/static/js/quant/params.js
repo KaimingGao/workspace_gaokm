@@ -180,11 +180,11 @@ function clampRidgeLambda(v, fallback = 0) {
   return Math.min(100, n);
 }
 
-export const BARS_WATCHING_LIMIT = 1000;
+export const BARS_WATCHING_LIMIT = 1600;
 /** 观察池日 K 写入窗（交易日）；与 core.data.policy.BARS_DAILY_LOOKBACK 对齐。 */
 export const BARS_DAILY_LOOKBACK = 1000;
 /** ŷ_* 模型拟合截断硬顶（与 WATCHING_MAX_SIZE 对齐）。 */
-export const MODEL_FIT_LIMIT = 1000;
+export const MODEL_FIT_LIMIT = 1600;
 export const WATCHING_POOL_DEFAULT = 300;
 /** 滑块 hydrate / 保存后广播，日线·5m Coverage 据此重拉。 */
 export const WATCHING_POOL_LIMIT_CHANGED = "quant-watching-pool-limit-changed";

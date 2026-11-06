@@ -80,16 +80,16 @@ function setProOverviewKpi(key, valueText, subText, state, opts = {}) {
 }
 
 const overviewPack = {
-  universeN: null,
-  universeHint: null,
+  watchingN: null,
+  watchingHint: null,
   barsPct: null,
 };
 
-function paintOverviewUniverse() {
-  const n = overviewPack.universeN;
+function paintOverviewWatching() {
+  const n = overviewPack.watchingN;
   if (n == null || !Number.isFinite(Number(n))) return;
   const pct = overviewPack.barsPct;
-  const hint = overviewPack.universeHint;
+  const hint = overviewPack.watchingHint;
   let sub = "观察池";
   if (pct != null && Number.isFinite(Number(pct))) {
     sub = `日线 ${Number(pct).toFixed(0)}%`;
@@ -97,7 +97,7 @@ function paintOverviewUniverse() {
     sub = hint;
   }
   setProOverviewKpi(
-    "universe",
+    "watching",
     `${Number(n)} 只`,
     sub,
     Number(n) > 0 ? "is-mid" : "is-empty"
@@ -108,9 +108,9 @@ function paintOverviewUniverse() {
 export function syncOverviewUniverse(n, subText) {
   const count = Number(n);
   if (!Number.isFinite(count) || count < 0) return;
-  overviewPack.universeN = count;
-  if (subText != null) overviewPack.universeHint = String(subText);
-  paintOverviewUniverse();
+  overviewPack.watchingN = count;
+  if (subText != null) overviewPack.watchingHint = String(subText);
+  paintOverviewWatching();
 }
 
 /** 日线 as-of 覆盖 → 观察池副文案 */
@@ -118,11 +118,12 @@ export function syncOverviewBarsCoverage(data) {
   if (!data || data.success === false) return;
   const pct = Number(data.coverage_pct);
   if (Number.isFinite(pct)) overviewPack.barsPct = pct;
+  // API 字段仍叫 universe_count，语义是观察池只数
   const n = Number(data.universe_count);
-  if (Number.isFinite(n) && overviewPack.universeN == null) {
-    overviewPack.universeN = n;
+  if (Number.isFinite(n) && overviewPack.watchingN == null) {
+    overviewPack.watchingN = n;
   }
-  paintOverviewUniverse();
+  paintOverviewWatching();
 }
 
 /** 分钟 Ready → 概览 */

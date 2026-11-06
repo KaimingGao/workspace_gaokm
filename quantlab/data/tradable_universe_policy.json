@@ -1,0 +1,16 @@
+{
+  "version": "tradable_v1",
+  "note": "可交易宇宙 P0 门槛：研究宇宙入池与观察池子集共用。金额单位元。",
+  "exclude_st": true,
+  "exclude_index": true,
+  "require_spot_row": true,
+  "require_name": true,
+  "min_float_mv": 2000000000,
+  "min_amount": 30000000,
+  "amount_lookback_days": 20,
+  "prefer_bars_avg_amount": false,
+  "min_listing_bars": 60,
+  "min_price": 1.0,
+  "max_price": 5000.0,
+  "drop_suspended_keywords": true
+}

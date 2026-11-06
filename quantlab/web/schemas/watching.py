@@ -51,6 +51,6 @@ class WatchingMaxSize(BaseModel):
         default=WATCHING_DEFAULT_SIZE,
         ge=WATCHING_MIN_SIZE,
         le=WATCHING_MAX_SIZE,
-        description="观察池只数（200～1000，默认 300）",
+        description="观察池只数（200～1600，默认 300）",
     )
 

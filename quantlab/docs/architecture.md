@@ -389,7 +389,9 @@ Skill / Service / 研究 CLI
 
 产品流程（观察 · 模拟 · 回溯；观察≠模拟）：见 [quant-ui.md](quant-ui.md)。路由：`/watching` `/follow` `/replay`（`/paper` `/strategy` `/quant` 等仍可用）。见 `action_map.py`、`GET /api/quant/actions` 与 [quant.md · 入门概念](quant.md#量化入门概念)。
 
-**观察池**（Watching）：用户维护的**候选股票宇宙**（静态名单和/或 `screen` 筛选），落盘 `data/watching.json`，页 `/watching`。划定打分、行情预热、截面 μ/σ、调仓开加、回测宇宙的范围（上限默认 300、硬顶 `WATCHING_MAX_SIZE`=1000，研究枢纽可改）；**不是**持仓、**不是**全市场。持仓在模拟账本 `paper.json`。生产调仓主路径：观察池 → 开盘出分（立方 / open-pit）→ **y_oo_fuse 入场 + y_oo_rank 买序（rank_lots）**；建仓只从观察页进（见下「入口边界」）。做 T 不从池新开，只 overlay 已持底仓；分钟截面常为观察池 ∪ 持仓。细则见 [rebalance-logic.md](rebalance-logic.md) · [quant.md · ŷ](quant.md#predictedscoreŷ全链路)。
+**观察池**（Watching）：用户维护的**候选股票宇宙**（静态名单和/或 `screen` 筛选），落盘 `data/watching.json`，页 `/watching`。划定打分、行情预热、截面 μ/σ、调仓开加、回测宇宙的范围（上限默认 300、硬顶 `WATCHING_MAX_SIZE`=1600，研究枢纽可改）；**不是**持仓、**不是**全市场。持仓在模拟账本 `paper.json`。生产调仓主路径：观察池 → 开盘出分（立方 / open-pit）→ **y_oo_fuse 入场 + y_oo_rank 买序（rank_lots）**；建仓只从观察页进（见下「入口边界」）。做 T 不从池新开，只 overlay 已持底仓；分钟截面常为观察池 ∪ 持仓。细则见 [rebalance-logic.md](rebalance-logic.md) · [quant.md · ŷ](quant.md#predictedscoreŷ全链路)。
+
+**研究宇宙 / 可交易严筛**：`data/research_universe.json` 为日线研究与观察池扩容的**门票池**，经 `core/universe/tradable_screen.py` 按 `data/tradable_universe_policy.json` 严筛（剔 ST、流通市值/成交额/价格带等）后写入。主入口 `POST /api/quant/research-universe/rebuild-and-reconcile`；运维可分步 `rebuild-tradable` / `reconcile-watching`。默认 **`watching ⊆ research_universe`**（`QUANTLAB_WATCHING_SUBSET_OF_RESEARCH=1`）；扩容只从研究池补，手工加票须已在研究池。回测剔 ST 时同步套用 policy 绝对成交额门槛。
 
 **入口边界**：观察页是唯一开仓入口（建仓前必过 `sync-paper/preview` 预演），模拟页只管已有仓位。凡「买什么、买多少」由规则决定的动作（按策略调仓）收进进阶区，并在持仓 `origin` 上标 `strategy` 与手动区分。做 T 为 **overlay**，不改变「持有什么」的主线；见 [quant.md · 策略调仓 vs 底仓做 T](quant.md#策略调仓-vs-底仓做-t)。
 

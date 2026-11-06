@@ -1,4 +1,4 @@
-"""日线研究宇宙：与观察池 / 分钟暖仓分离。"""
+"""日线研究宇宙：与观察池 / 分钟暖仓分离；写入默认可交易严筛。"""
 
 from __future__ import annotations
 
@@ -18,7 +18,9 @@ class TestResearchUniverse(unittest.TestCase):
         with tempfile.TemporaryDirectory() as td:
             path = os.path.join(td, "research_universe.json")
             codes = [f"{i:06d}" for i in range(10)] + ["000001", "000002"]
-            out = save_research_universe({"codes": codes, "max_size": 8}, path=path)
+            out = save_research_universe(
+                {"codes": codes, "max_size": 8}, path=path, apply_screen=False
+            )
             self.assertTrue(out.get("ok"))
             uni = load_research_universe(path=path)
             self.assertEqual(uni["count"], 8)
@@ -77,17 +79,16 @@ class TestResearchUniverse(unittest.TestCase):
         self.assertEqual(out, ["000001", "000002"])
         m_vu.assert_not_called()
 
-    def test_board_overlap_and_sync(self):
+    def test_board_overlap_subset_flag(self):
         from core.research_universe import (
             build_research_universe_board,
             save_research_universe,
-            sync_research_universe_from_watching,
         )
 
         with tempfile.TemporaryDirectory() as td:
             path = os.path.join(td, "ru.json")
             save_research_universe(
-                {"codes": ["600000", "000001"]}, path=path
+                {"codes": ["600000", "000001"]}, path=path, apply_screen=False
             )
             with patch(
                 "core.research_universe.load_research_universe",
@@ -106,34 +107,45 @@ class TestResearchUniverse(unittest.TestCase):
             self.assertEqual(board["overlap"]["count"], 1)
             self.assertEqual(board["overlap"]["only_research"], 1)
             self.assertEqual(board["overlap"]["only_watching"], 1)
+            self.assertFalse(board["watching_subset_ok"])
             self.assertFalse(board["resolved"]["minute_warmup"])
 
-            with patch(
-                "core.research_universe._watching_codes",
-                return_value=["111111", "222222"],
-            ), patch(
-                "core.research_universe.RESEARCH_UNIVERSE_PATH", path
-            ):
-                saved = sync_research_universe_from_watching(path=path)
-            self.assertTrue(saved.get("ok"))
-            self.assertEqual(saved["universe"]["codes"], ["111111", "222222"])
+    def test_rebuild_and_reconcile_route_chains(self):
+        from web.routers.quant_research import (
+            quant_research_universe_rebuild_and_reconcile,
+        )
 
-    def test_sync_from_cached_daily(self):
-        from core.research_universe import sync_research_universe_from_cached_daily
+        with patch(
+            "core.universe.tradable_screen.rebuild_tradable_research_universe",
+            return_value={
+                "ok": True,
+                "source": "tradable_rebuild",
+                "universe": {"codes": ["000001"], "count": 1},
+            },
+        ) as m_rebuild, patch(
+            "core.watching.repository.reconcile_watching_to_research",
+            return_value={
+                "ok": True,
+                "before": 2,
+                "after": 1,
+                "dropped_count": 1,
+                "dropped": ["000002"],
+            },
+        ) as m_rec, patch(
+            "core.research_universe.build_research_universe_board",
+            return_value={
+                "ok": True,
+                "watching_subset_ok": True,
+                "universe": {"count": 1},
+            },
+        ):
+            out = quant_research_universe_rebuild_and_reconcile()
+        m_rebuild.assert_called_once()
+        m_rec.assert_called_once()
+        self.assertTrue(out.get("ok"))
+        self.assertEqual(out["reconcile"]["dropped_count"], 1)
+        self.assertTrue(out.get("watching_subset_ok"))
 
-        with tempfile.TemporaryDirectory() as td:
-            path = os.path.join(td, "ru.json")
-            with patch(
-                "core.research_universe._cached_daily_codes",
-                return_value=[f"{i:06d}" for i in range(50)],
-            ):
-                saved = sync_research_universe_from_cached_daily(
-                    path=path, max_codes=30
-                )
-            self.assertTrue(saved.get("ok"))
-            self.assertEqual(saved.get("source"), "cached_daily")
-            self.assertEqual(saved["universe"]["count"], 30)
-            self.assertEqual(len(saved["universe"]["codes"]), 30)
 
 if __name__ == "__main__":
     unittest.main()

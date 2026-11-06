@@ -1211,6 +1211,8 @@
     "688981"
   ],
   "max_size": 2000,
-  "note": "由本地日 K 仓灌入（market=CN，n=1208）；仅日线研究；分钟暖仓 / live 仍只读 watching。",
-  "count": 1208
+  "note": "示例快照；线上请 POST rebuild-and-reconcile 按 tradable_universe_policy 重建并对齐。",
+  "count": 1208,
+  "policy_version": "tradable_v1",
+  "screened_at": ""
 }

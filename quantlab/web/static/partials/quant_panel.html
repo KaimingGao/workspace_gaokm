@@ -50,7 +50,7 @@
       <div class="quant-overview-pool-tools" role="group" aria-label="观察池只数">
         <label
           class="quant-watching-pool-slider"
-          title="观察池目标只数。200～1000，默认 300。缩小截名单并暂存；放大先恢复暂存，再从示例/研究宇宙补齐。拟合、日 K、5m 只数跟这份名单。"
+          title="观察池目标只数。200～1600，默认 300。缩小截名单并暂存；放大先恢复暂存，再从研究宇宙补齐。拟合、日 K、5m 只数跟这份名单。"
         >
           <span class="quant-watching-pool-slider-lab">观察池</span>
           <span class="quant-watching-pool-scale">
@@ -60,27 +60,36 @@
               class="quant-watching-pool-range"
               type="range"
               min="200"
-              max="1000"
+              max="1600"
               step="10"
               value="300"
               aria-label="观察池只数"
               aria-valuemin="200"
-              aria-valuemax="1000"
+              aria-valuemax="1600"
             />
-            <span class="quant-watching-pool-bound" aria-hidden="true">1000</span>
+            <span class="quant-watching-pool-bound" aria-hidden="true">1600</span>
           </span>
           <span class="quant-watching-pool-readout">
             <output id="quant-watching-pool-val" for="quant-watching-max-size">300</output>
             <span class="quant-watching-pool-unit" aria-hidden="true">只</span>
           </span>
         </label>
-        <span id="quant-watching-pool-status" class="quant-watching-pool-status" aria-live="polite"></span>
+        <div class="quant-watching-pool-actions" role="group" aria-label="可交易宇宙">
+          <button
+            type="button"
+            id="quant-ru-rebuild-align"
+            class="dialog-btn primary"
+            title="① 按 tradable_universe_policy 重建研究池（日 K ∪ 现货严筛）② 把观察池裁成研究池子集。不暖仓；完成后请重跑分档 / ŷ。"
+          >
+            重建并对齐
+          </button>
+        </div>
       </div>
     </header>
     <div class="dashboard-overview-band quant-pro-desk-top quant-overview-band">
       <div class="dashboard-kpi-row quant-pro-overview-kpis quant-kpi-row" id="quant-pro-overview-kpis" aria-label="研究全景 KPI">
         <div class="dashboard-kpi-row-body">
-          <div class="dashboard-kpi-card quant-pro-kpi-card quant-kpi-card is-empty" data-kpi="universe" title="观察池只数；副文案为日线 as-of 覆盖">
+          <div class="dashboard-kpi-card quant-pro-kpi-card quant-kpi-card is-empty" data-kpi="watching" title="观察池只数；副文案为日线 as-of 覆盖">
             <div class="dashboard-kpi-label quant-pro-kpi-label quant-kpi-label">观察池</div>
             <div class="dashboard-kpi-value quant-pro-kpi-value quant-kpi-value">—</div>
             <div class="dashboard-kpi-sub quant-pro-kpi-sub quant-kpi-sub">只数 / 日线覆盖</div>
@@ -540,7 +549,7 @@
         <div hidden aria-hidden="true">
           <input type="hidden" id="quant-horizon" value="1" />
           <input type="hidden" id="quant-ridge-lambda" value="1.0" />
-          <input type="hidden" id="quant-watching-limit" value="1000" />
+          <input type="hidden" id="quant-watching-limit" value="1600" />
           <button type="button" id="quant-horizon-save-default" tabindex="-1">存为默认</button>
           <div id="quant-factor-list" class="quant-weight-table-wrap"></div>
           <div id="quant-weight-suggest" class="quant-sub"></div>
@@ -1103,7 +1112,7 @@
         </div>
 
         <div class="dashboard-card-tools quant-pro-card-tools quant-fit-actions" role="group" aria-label="ŷ_τ75 操作">
-          <button type="button" id="quant-t75-ridge-run" class="dialog-btn primary" title="研究池至少 2 只才可跑 ŷ_τ75；后台双训 LightGBM + Ridge（特征包 alpha_τh）+ Holdout AUC 择优（前缀 / 训练窗 / 日截面 Z 见左侧；不写盘）">拟合</button>
+          <button type="button" id="quant-t75-ridge-run" class="dialog-btn primary" title="观察池至少 2 只才可跑 ŷ_τ75；后台双训 LightGBM + Ridge（特征包 alpha_τh）+ Holdout AUC 择优（前缀 / 训练窗 / 日截面 Z 见左侧；不写盘）">拟合</button>
           <button type="button" id="quant-t75-ridge-persist-research" class="dialog-btn warn" data-persist-role="research" title="按 Holdout AUC 择优写入研究槽 t75_ridge_model_research.json">启用研究</button>
           <button type="button" id="quant-t75-ridge-persist" class="dialog-btn warn" data-persist-role="live" title="研究槽 → live/t75_ridge_model.json（晋级；backend 不变）">启用执行</button>
           <button type="button" id="quant-t75-ridge-status" class="dialog-btn secondary" title="读取研究 / 执行 / 上次拟合">状态</button>

@@ -34,7 +34,7 @@ def _resolve_warmup_codes(
     ``pool``:
       - ``watching``：只读观察池（分钟暖仓专用；与研究宇宙分离）
       - ``auto`` / 其它：显式 codes →（可选）验证宇宙 → watching
-    永不读取 ``research_universe``（日线宽名单，不进分钟暖仓）。
+    永不读取 ``research_universe``（可交易门票池，不进分钟暖仓）。
     """
     if codes:
         out = [str(c).strip() for c in codes if str(c).strip()]
@@ -329,7 +329,7 @@ def _minute_warmup_core(
         minute_warmup_workers,
     )
 
-    # 分钟暖仓只读观察池，不用 validation / research 宽名单
+    # 分钟暖仓只读观察池，不用 validation / research 门票池
     watch = _resolve_warmup_codes(
         codes, cap=max(1, int(cap)), pool="watching", prefer_validation_universe=False
     )
