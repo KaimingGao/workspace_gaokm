@@ -16,6 +16,7 @@ SKILL_SPECS: Sequence[Tuple[str, str]] = (
     ("signal", "skills.signal.handler.SignalHandler"),
     ("backtest", "skills.backtest.handler.BacktestHandler"),
     ("quant", "quant.skill.handler.QuantHandler"),
+    ("ops", "skills.ops.handler.OpsHandler"),
     ("kline", "skills.kline.handler.KlineHandler"),
     ("fundamentals", "skills.fundamentals.handler.FundamentalsHandler"),
     ("peer", "skills.peer.handler.PeerHandler"),

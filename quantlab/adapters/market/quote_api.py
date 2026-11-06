@@ -8,7 +8,11 @@ from typing import Dict, List, Optional, Tuple
 
 import requests
 
-from core.data.policy import QUOTE_MEM_TTL_SECONDS, QUOTE_STALE_MAX_SECONDS
+from core.data.policy import (
+    QUOTE_EMPTY_OPEN_TTL_SECONDS,
+    QUOTE_MEM_TTL_SECONDS,
+    QUOTE_STALE_MAX_SECONDS,
+)
 from core.http_retry import requests_get_with_retry
 
 logger = logging.getLogger(__name__)
@@ -21,6 +25,7 @@ class StockAPI:
     EM_ULIST_URL = "https://push2.eastmoney.com/api/qt/ulist.np/get"
     EM_FIELDS = "f43,f44,f45,f46,f47,f48,f57,f58,f59,f60"
     CACHE_TTL_SECONDS = QUOTE_MEM_TTL_SECONDS
+    EMPTY_OPEN_CACHE_TTL_SECONDS = QUOTE_EMPTY_OPEN_TTL_SECONDS
     # 批量路径必须低于 /api/watching/quotes 的 wait_for；超时重试会占满默认线程池
     BATCH_HTTP_TIMEOUT = 4.0
     BATCH_HTTP_RETRIES = 1
@@ -105,6 +110,40 @@ class StockAPI:
             cls._cache.clear()
 
     @classmethod
+    def invalidate_codes(cls, stock_codes: List[str]) -> int:
+        """按代码丢掉内存行情缓存。开盘截面用：持仓盯市可能先写入「空今开」短 TTL 条目。"""
+        n = 0
+        with cls._cache_lock:
+            for raw in stock_codes or []:
+                symbol = cls.resolve_symbol(str(raw or "").strip())
+                if not symbol:
+                    continue
+                if cls._cache.pop(symbol, None) is not None:
+                    n += 1
+        return n
+
+    @classmethod
+    def quote_has_day_open(cls, payload: Optional[dict]) -> bool:
+        """行情里是否已有可用今开（空串 / 0 视为未定开）。"""
+        if not isinstance(payload, dict) or not payload.get("success"):
+            return False
+        for key in ("open_raw", "open", "open_price"):
+            raw = payload.get(key)
+            if raw is None or raw == "":
+                continue
+            try:
+                if isinstance(raw, str):
+                    raw = raw.replace("元", "").replace(",", "").strip()
+                    if not raw:
+                        continue
+                px = float(raw)
+            except (TypeError, ValueError):
+                continue
+            if px == px and px > 0:
+                return True
+        return False
+
+    @classmethod
     def resolve_symbol(cls, stock_code: str) -> Optional[str]:
         """将名称/代码解析为腾讯行情符号；无法解析时返回 None。"""
         code = (stock_code or "").strip()
@@ -160,13 +199,10 @@ class StockAPI:
                 ),
             }
 
-        with cls._cache_lock:
-            cached = cls._cache.get(symbol)
         now = time.time()
-        if cached and now - cached[0] < cls.CACHE_TTL_SECONDS:
-            result = dict(cached[1])
-            result["cached"] = True
-            return result
+        fresh = cls._fresh_cached(symbol, now=now)
+        if fresh is not None:
+            return fresh
 
         # 依次尝试：腾讯 → 东方财富（任一成功即返回）
         last_error = "未知错误"
@@ -193,9 +229,21 @@ class StockAPI:
     def _fresh_cached(cls, symbol: str, *, now: float) -> Optional[dict]:
         with cls._cache_lock:
             cached = cls._cache.get(symbol)
-        if not cached or now - cached[0] >= cls.CACHE_TTL_SECONDS:
+        if not cached:
             return None
-        result = dict(cached[1])
+        ts, payload = cached
+        age = now - ts
+        if age >= cls.CACHE_TTL_SECONDS:
+            return None
+        # 空今开只做极短 TTL：盯市仍能用现价，但不把未定开钉满 60s 毒死 open-pit
+        if (
+            isinstance(payload, dict)
+            and payload.get("success")
+            and not cls.quote_has_day_open(payload)
+            and age >= cls.EMPTY_OPEN_CACHE_TTL_SECONDS
+        ):
+            return None
+        result = dict(payload)
         result["cached"] = True
         return result
 

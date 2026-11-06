@@ -66,6 +66,7 @@
 
 - 分组 = 会话日 T 的开盘截面（一组）；每列只对有限值算 μ/σ，有效只数 < 2 或 σ≈0 → 该列有效值 z=0。
 - **缺今开的股票整行不进 μ/σ，也不进下单名单**；禁止用 0 填开盘价再进截面。
+- **空今开行情不钉满 60s**：`StockAPI` 对 `success` 但无可用今开的条目只用约 5s TTL；开盘截面拉行情前再 `invalidate` 池内代码，拉完后对仍缺今开的票再失效重拉一轮。否则持仓盯市可能在 09:25 前写入空今开，open-pit 只对持仓票命中坏缓存，表现为「刚好昨持仓缺今开、名次池少 2」。
 - ŷ_oo、开盘 Z 的 ŷ_τc、相关 rank **共用同一套** 今开 raw 与 μ/σ，禁止「ŷ_oo 用今天、τ 还挂昨天」；冻结的 α、β 不变，贡献仍是 β×z。
 
 原始值 x：日线只到昨天，今开用行情开盘价接到决策占位 bar（高=低=收=今开，量用昨量）。例：伊利 `CLOSE0` = 昨收/今开 = 28.89/29.06；`YKSFT` / `YKLEN` 仍是昨天那根 K。
@@ -95,7 +96,7 @@
 
 ## 7. 腾讯批量频率
 
-**正常一天成功调仓一次，不必再单独加限流。** 已有机制：整池逗号拼接 **一次** HTTP（不是 800 次）；进程内行情缓存 TTL **60 s**，同轮打分今开与成交现价第二次命中缓存；失败时可用过期缓存保底（最长约 30 min），再东财 ulist 整批回退，禁止串行逐票拖死线程池。需要守住的：同一次 `rebalance` 内，打分用的 quotes **传给成交侧复用**，不要各拉一遍；开盘窗内反复失败时，缓存过期后约每 60 s 再打一整池——可接受，不要拆很多小批，不要在失败路径退回逐只 `get_quote`；成功后 `already_ran_today` 挡掉当日重复。
+**正常一天成功调仓一次，不必再单独加限流。** 已有机制：整池逗号拼接 **一次** HTTP（不是 800 次）；进程内行情缓存 TTL **60 s**（空今开约 **5 s**）。open-pit 拉今开前会先 `invalidate_codes` 整池，仍缺今开再对缺口重拉；拉完后同轮成交侧可命中刚写入的今开缓存；失败时可用过期缓存保底（最长约 30 min），再东财 ulist 整批回退，禁止串行逐票拖死线程池。需要守住的：同一次 `rebalance` 内，打分用的 quotes **传给成交侧复用**，不要各拉一遍；开盘窗内反复失败时，缓存过期后约每 60 s 再打一整池——可接受，不要拆很多小批，不要在失败路径退回逐只 `get_quote`；成功后 `already_ran_today` 挡掉当日重复。
 
 ---
 
@@ -153,7 +154,7 @@
 | 消费只读 / 调仓入口 | `core/research/materialize/consumer.py`；`services/paper_trades.py` · `rebalance` · `auto_worker.py` |
 | 开盘 PIT 拼接 | `alpha_oo.inject_raw_aoo` / `session_pit.resolve_open_t`；`alpha_tc.inject_raw_atc`；风格裸分 `open_pit_score._open_style_scores` |
 | 截面 z / DayCube | `feature_standardize.cross_section_zscore_matrix`；`day_cube._compute_mu_sigma` |
-| 观察池键 / 行情批量 | `coverage.read_cube_codes`；`quote_api.StockAPI.batch_query` · `QUOTE_MEM_TTL_SECONDS=60` |
+| 观察池键 / 行情批量 | `coverage.read_cube_codes`；`quote_api.StockAPI.batch_query` · `QUOTE_MEM_TTL_SECONDS=60` / `QUOTE_EMPTY_OPEN_TTL_SECONDS=5`；开盘截面前 `invalidate_codes` + 缺今开重拉 |
 | 回测开盘日（对照）/ tip | `lake_replay.score_open_day_entries` · `clip_replay_score_dates`；`score_tooltip.js` · `formatEodAsOfHint` |
 
 ---
@@ -167,4 +168,5 @@
 ## 14. 状态与下一步
 
 - 文档与方案：本文；代码已落地并做 rank 鲁棒性加固——`open_pit_score.py` 内存截面不落盘并返回 cube 引用；`_score_pool_from_lake` 按「会话日立方 → open-pit →（浏览才）昨日回退」出分，`refuse_day_fallback` 禁成交回退；simulate 显式 `day_cube=` 传给 oo/τc rank，持仓补名次不回退昨日；tip 识别 `open_pit` / fallback；单测 `tests/test_open_pit_score.py` + `ConsumerCoverageTest` 闸断言。
+- **2026-11-06**：持仓盯市空今开 60s 缓存导致昨持仓（风华/江海）被判缺今开、A 档名次池 598 vs 600；已用 open-pit 前 `invalidate_codes` 修掉（`TestOpenPitQuoteCacheBust`）。
 - 下一步：开盘窗实盘观察一次；若需同轮 quotes 注入成交可再补。

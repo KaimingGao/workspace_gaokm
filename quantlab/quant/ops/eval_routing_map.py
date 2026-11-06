@@ -4,6 +4,7 @@ from typing import Any, Dict, List
 
 from agent.routing import (
     is_buy_question,
+    is_ops_question,
     is_quant_question,
     prepare_tool_params,
     wants_position_stance,
@@ -24,10 +25,13 @@ def build_eval_routing_map() -> Dict[str, Any]:
         inferred: Dict[str, Any] = {
             "is_buy_question": is_buy_question(question),
             "is_quant_question": is_quant_question(question),
+            "is_ops_question": is_ops_question(question),
             "wants_position_stance": wants_position_stance(question),
         }
         if inferred["is_quant_question"]:
             inferred["quant_task"] = prepare_tool_params("quant", {}, question).get("task")
+        if inferred["is_ops_question"]:
+            inferred["ops_task"] = prepare_tool_params("ops", {}, question).get("task")
 
         row = {
             "id": case["id"],

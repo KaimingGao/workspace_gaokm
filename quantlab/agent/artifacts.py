@@ -6,6 +6,7 @@ from typing import Any, Dict, List, Optional
 # 工具 → 右侧 Tab
 TOOL_TAB: Dict[str, str] = {
     "quant": "quant",
+    "ops": "follow",
     "backtest": "quant",
     "signal": "quant",
     "screen": "quant",
@@ -33,6 +34,17 @@ QUANT_TASK_TAB: Dict[str, str] = {
     "interpret": "quant",
 }
 
+OPS_TASK_TAB: Dict[str, str] = {
+    "ops_snapshot": "follow",
+    "rebalance_preview": "follow",
+    "ops_anomaly": "follow",
+    "feedback_draft": "quant",
+    "post_rebalance_review": "follow",
+    "event_flags": "follow",
+    "alpha_draft": "quant",
+    "view_bundle": "quant",
+}
+
 
 def resolve_tab(tool: str, params: Optional[Dict[str, Any]] = None) -> str:
     params = params or {}
@@ -40,6 +52,10 @@ def resolve_tab(tool: str, params: Optional[Dict[str, Any]] = None) -> str:
         task = str(params.get("task") or "").strip().lower()
         if task in QUANT_TASK_TAB:
             return QUANT_TASK_TAB[task]
+    if tool == "ops":
+        task = str(params.get("task") or "").strip().lower()
+        if task in OPS_TASK_TAB:
+            return OPS_TASK_TAB[task]
     return TOOL_TAB.get(tool, "reply")
 
 
@@ -180,8 +196,10 @@ def build_artifact(
     else:
         success = bool(success)
     summary_parts = [tool]
-    if tool == "quant" and params.get("task"):
+    if tool in ("quant", "ops") and params.get("task"):
         summary_parts.append(str(params["task"]))
+    if tool == "ops" and params.get("path"):
+        summary_parts.append(str(params["path"]))
     if parsed.get("stock_code") or parsed.get("stock_name"):
         summary_parts.append(str(parsed.get("stock_name") or parsed.get("stock_code")))
     if isinstance(parsed.get("metrics"), dict):

@@ -8,7 +8,7 @@ from evals.run_checklist import filter_quant_cases, load_cases, run_skills
 class TestEvalsQuantCases(unittest.TestCase):
     def test_golden_case_counts(self):
         cases = load_cases()
-        self.assertEqual(len(cases), 20)
+        self.assertEqual(len(cases), 22)
         quant_cases = filter_quant_cases(cases)
         self.assertEqual(len(quant_cases), 9)
 

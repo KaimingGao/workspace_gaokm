@@ -136,6 +136,111 @@ class TestDashboardPaperContract(unittest.TestCase):
         self.assertGreater(by_name["消费"]["up_count"], 0)
         self.assertGreater(by_name["金融"]["down_count"], 0)
 
+    def test_market_overview_uses_mark_to_market_value(self):
+        """持仓市值用盯市 stock_value，不回退成本市值。"""
+        from web.routers import quant_dashboard as qd
+
+        paper = {
+            "cash": 102396.97,
+            "holdings": [
+                {
+                    "stock_code": "000988",
+                    "stock_name": "华工科技",
+                    "shares": 1600.0,
+                    "cost": 61.7385,
+                }
+            ],
+        }
+        live = {
+            "cash": 102396.97,
+            "stock_value": 102336.0,
+            "equity": 204732.97,
+            "position_count": 1,
+            "holdings": [
+                {
+                    "stock_code": "000988",
+                    "stock_name": "华工科技",
+                    "shares": 1600.0,
+                    "cost": 61.7385,
+                    "price": 63.96,
+                    "market_value": 102336.0,
+                    "change_pct": -3.88,
+                    "pnl_pct": 3.6,
+                }
+            ],
+        }
+        with patch(
+            "web.dashboard.market._load_raw_paper", return_value=paper
+        ), patch(
+            "web.dashboard.market._index_quotes_for_overview", return_value=[]
+        ), patch("core.paper.mark_to_market", return_value=live):
+            out = qd._build_market_overview()
+        self.assertTrue(out.get("ok"))
+        self.assertAlmostEqual(out["holdings_mv"]["total_value"], 102336.0, places=2)
+        self.assertEqual(out["holdings_mv"]["holding_count"], 1)
+        self.assertNotIn("turnover", out)
+        self.assertEqual(out["breadth"]["down_count"], 1)
+        self.assertEqual(out["breadth"]["up_count"], 0)
+        self.assertEqual(out["breadth"]["flat_count"], 0)
+
+    def test_market_overview_falls_back_to_cost_when_mtm_fails(self):
+        from web.routers import quant_dashboard as qd
+
+        paper = {
+            "cash": 10000,
+            "holdings": [
+                {
+                    "stock_code": "000988",
+                    "shares": 1600.0,
+                    "cost": 61.7385,
+                }
+            ],
+        }
+        with patch(
+            "web.dashboard.market._load_raw_paper", return_value=paper
+        ), patch(
+            "web.dashboard.market._index_quotes_for_overview", return_value=[]
+        ), patch("core.paper.mark_to_market", side_effect=RuntimeError("quote down")):
+            out = qd._build_market_overview()
+        self.assertTrue(out.get("ok"))
+        self.assertAlmostEqual(out["holdings_mv"]["total_value"], 98781.6, places=2)
+        self.assertEqual(out["holdings_mv"]["holding_count"], 1)
+
+    def test_allocation_uses_mark_to_market_value(self):
+        from web.routers import quant_dashboard as qd
+
+        paper = {
+            "cash": 102396.97,
+            "holdings": [
+                {
+                    "stock_code": "000988",
+                    "stock_name": "华工科技",
+                    "shares": 1600.0,
+                    "cost": 61.7385,
+                    "sector": "电子",
+                }
+            ],
+        }
+        live_rows = {
+            "000988": {
+                "stock_code": "000988",
+                "market_value": 102336.0,
+                "change_pct": -3.88,
+            }
+        }
+        with patch(
+            "web.dashboard.portfolio_views._load_raw_paper", return_value=paper
+        ), patch(
+            "web.dashboard.portfolio_views._live_holdings_by_code",
+            return_value=live_rows,
+        ):
+            out = qd.dashboard_allocation()
+        self.assertTrue(out.get("ok"))
+        by_name = {s["name"]: s for s in out["sectors"]}
+        self.assertAlmostEqual(by_name["电子"]["value"], 102336.0, places=2)
+        self.assertAlmostEqual(by_name["现金"]["value"], 102396.97, places=2)
+        self.assertAlmostEqual(out["total_value"], 102336.0 + 102396.97, places=2)
+
     def test_signals_from_operation_log_meta(self):
         from web.routers import quant_dashboard as qd
 

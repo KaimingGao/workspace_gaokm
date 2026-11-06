@@ -325,10 +325,11 @@ def _build_signals(limit: int = 20) -> Dict[str, Any]:
 
 
 def _build_allocation() -> Dict[str, Any]:
-    """资产配置（按板块汇总市值）。"""
+    """资产配置（按板块汇总市值；持仓市值与交易执行页同源盯市）。"""
     try:
         paper = _load_raw_paper()
         holdings = _holdings_from_paper(paper)
+        live_by_code = _live_holdings_by_code(paper)
         sectors_map: Dict[str, float] = {}
         total_value = 0.0
         try:
@@ -339,8 +340,18 @@ def _build_allocation() -> Dict[str, Any]:
             smap = {}
 
         for h in holdings:
+            code = str(h.get("stock_code") or h.get("code") or "").strip()
+            live = live_by_code.get(code) if code else None
             sector = _holding_sector(h, smap)
-            value = _holding_market_value(h)
+            if live is not None:
+                try:
+                    value = float(live.get("market_value") or 0)
+                except (TypeError, ValueError):
+                    value = 0.0
+                if value <= 0:
+                    value = _holding_market_value(h)
+            else:
+                value = _holding_market_value(h)
             sectors_map[sector] = sectors_map.get(sector, 0.0) + value
             total_value += value
 

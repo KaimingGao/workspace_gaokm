@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 from datetime import datetime
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 logger = logging.getLogger(__name__)
 
@@ -84,57 +84,93 @@ def _index_quotes_for_overview() -> List[Dict[str, Any]]:
     return out
 
 
+def _holding_day_change_pct(h: Dict[str, Any]) -> float:
+    """持仓日涨跌%：优先 change_pct，其次 pnl_pct，再退成本盈亏。"""
+    change = h.get("change_pct")
+    if change is None:
+        change = h.get("pnl_pct")
+    if change is None:
+        try:
+            mv = float(h.get("market_value") or 0)
+            shares = float(h.get("shares") or 0)
+            cost = float(h.get("cost") or 0)
+            cost_v = shares * cost
+            change = ((mv / cost_v - 1) * 100) if cost_v > 0 and mv else 0
+        except (TypeError, ValueError):
+            change = 0
+    try:
+        return float(change or 0)
+    except (TypeError, ValueError):
+        return 0.0
+
+
 def _build_market_overview() -> Dict[str, Any]:
-    """市场监控：指数 / 涨跌家数 / 成交额 / 涨停跌停。"""
+    """市场监控：指数 / 持仓涨跌家数 / 持仓市值 / 涨停跌停。
+
+    持仓市值与涨跌家数与交易执行页同源（``mark_to_market``）。
+    落盘 holdings 常无 ``market_value`` / ``change_pct``；只读成本会把「持仓市值」
+    错成成本市值、涨跌家数错成全平。盯市失败时再回退成本口径。
+    """
     indices = _index_quotes_for_overview()
 
-    # Market breadth from paper holdings (disk)
     paper = _load_raw_paper()
-    holdings = _holdings_from_paper(paper)
+    raw_holdings = _holdings_from_paper(paper)
+    live_summary: Optional[Dict[str, Any]] = None
+    try:
+        from core.paper import mark_to_market
+
+        if paper:
+            live_summary = mark_to_market(paper)
+    except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+        live_summary = None
+
+    if isinstance(live_summary, dict):
+        holdings = [
+            h for h in (live_summary.get("holdings") or []) if isinstance(h, dict)
+        ]
+    else:
+        holdings = raw_holdings
+
     up_count = 0
     down_count = 0
     flat_count = 0
-    total_turnover = 0.0
+    limit_up = 0
+    limit_down = 0
+    holdings_mv = 0.0
+    stock_value = None
+    if isinstance(live_summary, dict) and live_summary.get("stock_value") is not None:
+        try:
+            stock_value = float(live_summary["stock_value"])
+        except (TypeError, ValueError):
+            stock_value = None
 
     for h in holdings:
-        change = h.get("change_pct")
-        if change is None:
-            change = h.get("pnl_pct")
-        if change is None:
-            try:
-                mv = float(h.get("market_value") or 0)
-                shares = float(h.get("shares") or 0)
-                cost = float(h.get("cost") or 0)
-                cost_v = shares * cost
-                change = ((mv / cost_v - 1) * 100) if cost_v > 0 and mv else 0
-            except (TypeError, ValueError):
-                change = 0
-        try:
-            change = float(change or 0)
-        except (TypeError, ValueError):
-            change = 0.0
+        change = _holding_day_change_pct(h)
         if change > 0.01:
             up_count += 1
         elif change < -0.01:
             down_count += 1
         else:
             flat_count += 1
-        try:
-            total_turnover += _holding_market_value(h)
-        except (TypeError, ValueError):
-            pass
-
-    limit_up = 0
-    limit_down = 0
-    for h in holdings:
-        try:
-            ch = float(h.get("change_pct") if h.get("change_pct") is not None else (h.get("pnl_pct") or 0))
-        except (TypeError, ValueError):
-            ch = 0.0
-        if ch >= 9.5:
+        if change >= 9.5:
             limit_up += 1
-        elif ch <= -9.5:
+        elif change <= -9.5:
             limit_down += 1
+        if stock_value is None:
+            try:
+                holdings_mv += _holding_market_value(h)
+            except (TypeError, ValueError):
+                pass
+
+    if stock_value is not None:
+        holdings_mv = stock_value
+
+    holding_count = len(holdings)
+    if isinstance(live_summary, dict) and live_summary.get("position_count") is not None:
+        try:
+            holding_count = int(live_summary["position_count"])
+        except (TypeError, ValueError):
+            holding_count = len(holdings)
 
     return {
         "ok": True,
@@ -145,11 +181,12 @@ def _build_market_overview() -> Dict[str, Any]:
             "flat_count": flat_count,
             "limit_up": limit_up,
             "limit_down": limit_down,
-            "total_holdings": len(holdings),
+            "total_holdings": holding_count,
         },
-        "turnover": {
-            "total_value": round(total_turnover, 2),
-            "holding_count": len(holdings),
+        # 持仓盯市市值（旧键名 turnover 已废弃，语义曾误为成交额）
+        "holdings_mv": {
+            "total_value": round(holdings_mv, 2),
+            "holding_count": holding_count,
         },
         "computed_at": datetime.now().isoformat(timespec="seconds"),
     }

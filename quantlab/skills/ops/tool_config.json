@@ -1,0 +1,61 @@
+{
+  "name": "ops",
+  "description": "QuantLab AO 轨运维工具（只读/预演为主）。task=ops_snapshot 解释调仓五问(last_ops_report)；rebalance_preview 三路 dry_run(path=holding_cycle|watching_matrix|sync_paper)；ops_anomaly 拦仓/告警/审计；feedback_draft 配置建议草稿(不写盘)；post_rebalance_review 调仓后只读对照；event_flags 新闻启发式事件旗标；alpha_draft 因子假设草稿；view_bundle 结构化观点包(默认不融合)。禁止编造数字；预演≠成交；不自动 promote。",
+  "parameters": {
+    "type": "object",
+    "properties": {
+      "task": {
+        "type": "string",
+        "description": "ops_snapshot|rebalance_preview|ops_anomaly|feedback_draft|post_rebalance_review|event_flags|alpha_draft|view_bundle",
+        "enum": [
+          "ops_snapshot",
+          "rebalance_preview",
+          "ops_anomaly",
+          "feedback_draft",
+          "post_rebalance_review",
+          "event_flags",
+          "alpha_draft",
+          "view_bundle"
+        ]
+      },
+      "path": {
+        "type": "string",
+        "description": "仅 rebalance_preview：holding_cycle|watching_matrix|sync_paper",
+        "enum": ["holding_cycle", "watching_matrix", "sync_paper"]
+      },
+      "idea": {
+        "type": "string",
+        "description": "仅 alpha_draft：因子假设自然语言"
+      },
+      "views": {
+        "type": "array",
+        "description": "仅 view_bundle：[{symbol, direction, confidence, evidence_refs}]",
+        "items": {"type": "object"}
+      },
+      "codes": {
+        "type": "array",
+        "description": "event_flags / sync_paper 可选股票代码列表",
+        "items": {"type": "string"}
+      },
+      "simulate_buy": {
+        "type": "boolean",
+        "description": "holding_cycle 预演是否模拟买入",
+        "default": false
+      },
+      "strategy": {
+        "type": "string",
+        "description": "holding_cycle 策略 id，默认 short_conservative"
+      },
+      "open_replay": {
+        "type": "boolean",
+        "description": "watching_matrix 开盘回放预演",
+        "default": false
+      },
+      "paper_path": {
+        "type": "string",
+        "description": "可选纸面 JSON 路径"
+      }
+    },
+    "required": ["task"]
+  }
+}

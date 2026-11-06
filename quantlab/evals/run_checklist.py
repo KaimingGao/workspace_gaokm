@@ -36,7 +36,12 @@ from evals.extract import (  # noqa: E402
     flatten_checklist,
     numbers_found_in_text,
 )
-from agent.routing import prepare_tool_params, wants_position_stance, is_quant_question  # noqa: E402
+from agent.routing import (  # noqa: E402
+    prepare_tool_params,
+    wants_position_stance,
+    is_ops_question,
+    is_quant_question,
+)
 from evals.mock_context import apply_case_mocks  # noqa: E402
 
 CASES_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "golden_cases.json")
@@ -124,11 +129,24 @@ def check_routing_expect(case: dict) -> List[str]:
         if got != want:
             failures.append(f"{cid}/routing: is_quant_question={got} expected={want}")
 
+    if "is_ops_question" in expect:
+        got = is_ops_question(question)
+        want = bool(expect["is_ops_question"])
+        if got != want:
+            failures.append(f"{cid}/routing: is_ops_question={got} expected={want}")
+
     if expect.get("quant_task"):
         params = prepare_tool_params("quant", {}, question)
         if params.get("task") != expect["quant_task"]:
             failures.append(
                 f"{cid}/routing: quant.task={params.get('task')!r} expected={expect['quant_task']!r}"
+            )
+
+    if expect.get("ops_task"):
+        params = prepare_tool_params("ops", {}, question)
+        if params.get("task") != expect["ops_task"]:
+            failures.append(
+                f"{cid}/routing: ops.task={params.get('task')!r} expected={expect['ops_task']!r}"
             )
 
     return failures

@@ -156,7 +156,7 @@ function renderMarketOverview(market) {
 
   const indices = market?.indices || [];
   const breadth = market?.breadth || {};
-  const turnover = market?.turnover || {};
+  const holdingsMv = market?.holdings_mv || {};
 
   const cards = [];
 
@@ -189,13 +189,13 @@ function renderMarketOverview(market) {
     `);
   }
 
-  if (turnover.total_value != null || turnover.holding_count) {
+  if (holdingsMv.total_value != null || holdingsMv.holding_count) {
     cards.push(`
       <div class="dashboard-market-card">
         <span class="dashboard-market-label">持仓市值</span>
         <div class="dashboard-market-metrics">
-          <span class="dashboard-market-value">${fmtMoney(turnover.total_value)}</span>
-          <span class="dashboard-market-change">${turnover.holding_count || 0} 只</span>
+          <span class="dashboard-market-value">${fmtMoney(holdingsMv.total_value)}</span>
+          <span class="dashboard-market-change">${holdingsMv.holding_count || 0} 只</span>
         </div>
       </div>
     `);

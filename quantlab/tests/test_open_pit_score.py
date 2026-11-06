@@ -450,5 +450,136 @@ class TestOpenPitTipHint(unittest.TestCase):
         self.assertIn("lake_score_fallback_from", tip)
 
 
+class TestOpenPitQuoteCacheBust(unittest.TestCase):
+    """持仓盯市空今开缓存不得毒死 open-pit 截面。"""
+
+    def tearDown(self) -> None:
+        from adapters.market.quote_api import StockAPI
+
+        StockAPI.clear_cache()
+
+    def test_batch_quotes_source_invalidates_before_fetch(self) -> None:
+        from pathlib import Path
+
+        src = Path("core/paper/rebalance/open_pit_score.py").read_text(encoding="utf-8")
+        self.assertIn("def _batch_quotes(", src)
+        self.assertIn("invalidate_codes", src)
+        self.assertLess(
+            src.index("invalidate_codes"),
+            src.index("_batch_query_quotes"),
+        )
+
+    def test_empty_open_cache_hit_resolves_no_open(self) -> None:
+        import time
+
+        from adapters.market.quote_api import StockAPI
+        from core.paper.rebalance.open_pit_score import _open_and_prev
+
+        StockAPI.clear_cache()
+        now = time.time()
+        with StockAPI._cache_lock:
+            StockAPI._cache["sz000636"] = (
+                now,
+                {
+                    "success": True,
+                    "stock_code": "000636",
+                    "price_raw": 33.12,
+                    "prev_close": 33.12,
+                    "open": "",
+                    "symbol": "sz000636",
+                },
+            )
+        fresh = StockAPI._fresh_cached("sz000636", now=now)
+        self.assertIsNotNone(fresh)
+        ot, _pc, _src = _open_and_prev(
+            cycle_day="2026-11-06", quote=fresh, hist=[]
+        )
+        self.assertIsNone(ot)
+
+    def test_batch_quotes_invalidates_empty_open_cache(self) -> None:
+        import time
+        from unittest.mock import patch
+
+        from adapters.market.quote_api import StockAPI
+        from core.paper.rebalance.open_pit_score import _batch_quotes, _open_and_prev
+
+        StockAPI.clear_cache()
+        now = time.time()
+        with StockAPI._cache_lock:
+            StockAPI._cache["sz000636"] = (
+                now,
+                {
+                    "success": True,
+                    "stock_code": "000636",
+                    "price_raw": 33.12,
+                    "prev_close": 33.12,
+                    "open": "",
+                    "symbol": "sz000636",
+                },
+            )
+        good = {
+            "000636": {
+                "success": True,
+                "open": "31.0元",
+                "open_raw": 31.0,
+                "prev_close": 33.12,
+            },
+            "000988": {
+                "success": True,
+                "open": "61.72元",
+                "open_raw": 61.72,
+                "prev_close": 66.54,
+            },
+        }
+        with patch(
+            "core.paper.rebalance.match._batch_query_quotes", return_value=good
+        ) as mocked:
+            out = _batch_quotes(["000636", "000988"])
+        mocked.assert_called_once()
+        self.assertNotIn("sz000636", StockAPI._cache)
+        ot, _pc, _src = _open_and_prev(
+            cycle_day="2026-11-06", quote=out["000636"], hist=[]
+        )
+        self.assertAlmostEqual(float(ot), 31.0, places=4)
+
+    def test_batch_quotes_retries_codes_still_missing_open(self) -> None:
+        from unittest.mock import patch
+
+        from adapters.market.quote_api import StockAPI
+        from core.paper.rebalance.open_pit_score import _batch_quotes
+
+        StockAPI.clear_cache()
+        first = {
+            "000636": {"success": True, "open": "", "price_raw": 33.12},
+            "000988": {
+                "success": True,
+                "open": "61.72元",
+                "open_raw": 61.72,
+            },
+        }
+        second = {
+            "000636": {
+                "success": True,
+                "open": "31.0元",
+                "open_raw": 31.0,
+            },
+        }
+
+        def _side_effect(codes):  # noqa: ANN001
+            keys = [str(c) for c in codes]
+            if keys == ["000636"]:
+                return second
+            return first
+
+        with patch(
+            "core.paper.rebalance.match._batch_query_quotes",
+            side_effect=_side_effect,
+        ) as mocked:
+            out = _batch_quotes(["000636", "000988"])
+        self.assertEqual(mocked.call_count, 2)
+        self.assertAlmostEqual(float(out["000636"]["open_raw"]), 31.0, places=4)
+        self.assertAlmostEqual(float(out["000988"]["open_raw"]), 61.72, places=4)
+
+
 if __name__ == "__main__":
     unittest.main()

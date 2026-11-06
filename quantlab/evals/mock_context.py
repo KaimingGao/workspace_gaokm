@@ -277,5 +277,14 @@ def apply_case_mocks(mock_cfg: Optional[dict]) -> Iterator[None]:
             patch("core.signal.cross_section.read_watching", return_value=watching)
         )
 
+    ops_payload = mock_cfg.get("ops")
+    if ops_payload is not None:
+        stack.enter_context(
+            patch(
+                "services.agent_ops.AgentOpsService.run",
+                return_value=ops_payload,
+            )
+        )
+
     with stack:
         yield

@@ -69,6 +69,22 @@ QUANT_HINT = (
     + "。只陈述工具返回指标，不保证收益、不代客下单。"
 )
 
+OPS_TASK_ENUM = (
+    "ops_snapshot|rebalance_preview|ops_anomaly|feedback_draft|"
+    "post_rebalance_review|event_flags|alpha_draft|view_bundle"
+)
+
+OPS_HINT = (
+    "【运维/调仓解释模式·AO轨】须调用 ops(task=...) 取结构化事实后再解读。"
+    "五问/最近调仓 → ops_snapshot；预演日循环/矩阵调仓/建仓 → rebalance_preview"
+    "（path=holding_cycle|watching_matrix|sync_paper，仅 dry_run）；"
+    "为什么没买/告警 → ops_anomaly；参数建议草稿 → feedback_draft（不写盘、须人审 promote）；"
+    "调仓后对照 → post_rebalance_review；事件旗标 → event_flags；"
+    "因子假设 → alpha_draft；观点包 → view_bundle。"
+    "**预演≠已成交**；**不得宣称「上了 Agent 就提升收益」**（效果须回测/纸面对照）；"
+    "不得改写 ŷ/stance；不调用 promote。"
+)
+
 SYSTEM_PROMPT = (
     """你是 **QuantLab 量化助手**：服务本地量化交易系统——基于工具取数、信号评分与规则引擎，帮助用户理解行情、策略结论与回测/模拟结果（买入/加仓/持有/减仓/观望/止损等倾向）。
 
@@ -88,6 +104,7 @@ SYSTEM_PROMPT = (
 - advise：**规则引擎买卖结论**（quote+signal+kline+peer/index → stance_label）
 - backtest：signal 规则历史回测（胜率/回撤/夏普近似，研究用）
 - quant：量化研究台（横截面/组合回测/IC 权重与阈值建议/日报摘要）
+- ops：调仓运维（五问快照/三路预演/异常/feedback 草稿/对照/事件旗标/Alpha 草稿/观点包；默认不写盘）
 - kline：日 K 形态摘要（含 tags/trend；日线失败时可能为 quote_fallback）
 - fundamentals：基本面（A 股较全；港股尽量给 PE/市值/行情）
 - peer：同行对比
@@ -110,6 +127,9 @@ SYSTEM_PROMPT = (
 - 量化报告/观察池组合/横截面/IC 权重/阈值校准/模拟对照/包结构 → quant（task="""
     + QUANT_TASK_ENUM
     + """）
+- **调仓五问/预演/拦仓原因/运维告警/配置草稿/事件旗标** → ops（task="""
+    + OPS_TASK_ENUM
+    + """）；holding_cycle≠watching_matrix 两路语义勿混
 - 估值/财务/长期基本面 → fundamentals
 - 同行 → peer；相对强弱 → index；新闻/公告/资讯 → news
 - 持仓/加减仓/止损 → position（默认模拟账户；用户口述持仓时可填 holdings；问加仓/能否买时设 include_stance=true）

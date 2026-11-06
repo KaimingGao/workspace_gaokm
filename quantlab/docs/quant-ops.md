@@ -137,6 +137,23 @@ python3 research/daily_run.py --quant-report --export-quant-report
 
 Agent：`quant(task=health)` · `quant(task=package_info)` 查看包模块树。量化 preset 跑完后会追加 `watching_health` 步骤（watchlist 为空等会记为失败）。
 
+### AO 轨 · Agent × 调仓运维（`ops` Skill）
+
+完整方案见 [internal/agent-ops-landing.md](internal/agent-ops-landing.md)。门面：`services/agent_ops.py` · 工具名 **`ops`**。
+
+| task | 作用 | 写盘 |
+|------|------|------|
+| `ops_snapshot` | 读 `last_ops_report` 五问 | 否 |
+| `rebalance_preview` | `path=holding_cycle\|watching_matrix\|sync_paper` dry_run | 否 |
+| `ops_anomaly` | 告警 / risk_block / 审计尾 | 否 |
+| `feedback_draft` | 配置建议 + `suggested_checks` | 否（人审 promote） |
+| `post_rebalance_review` | 调仓后只读对照 | 否 |
+| `event_flags` | 新闻启发式旗标 | 否（规则消费另接） |
+| `alpha_draft` | 因子假设草稿 | 否 |
+| `view_bundle` | 观点包（默认不融合） | 否 |
+
+CLI 抽查：`python3 -c "from services.agent_ops import AgentOpsService; print(AgentOpsService().run({'task':'ops_snapshot'}))"`
+
 Web 量化面板 **「运维状态」** 区可 **「量化 CI」**（9 quant_* + preset）、**运行 daily**、复制报告链接；包模块树见 `GET /api/quant/package`。
 
 Agent：`quant(task=daily_presets)` 列出 preset；`quant(task=config_diff)` 预览 signal_config diff；`quant(task=portfolio_bridge)` 汇总持仓/纸面/量化联动。

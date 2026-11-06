@@ -397,7 +397,7 @@ def dashboard_allocation() -> Dict[str, Any]:
 @router.get("/api/dashboard/market-overview")
 
 def dashboard_market_overview() -> Dict[str, Any]:
-    """市场监控：指数 / 涨跌家数 / 成交额 / 涨停跌停。"""
+    """市场监控：指数 / 持仓涨跌家数 / 持仓市值 / 涨停跌停。"""
     try:
         return _build_market_overview()
     except Exception as e:
