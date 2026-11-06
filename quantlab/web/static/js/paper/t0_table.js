@@ -1,6 +1,7 @@
 /** 做 T 回测表格：统一列定义，避免表头/数据错位。 */
 
-import {
+const _V = (typeof window !== "undefined" && window.__ASSET_V__) || "dev";
+const {
   escapeText,
   paperMetricClass,
   paperProbClass,
@@ -25,14 +26,15 @@ import {
   TW_REALIZED_TITLE,
   blendYtw,
   fmtYtwVote,
-} from "./fmt.js?v=p3540";
-const _V = (typeof window !== "undefined" && window.__ASSET_V__) || "dev";
-const { adaptiveSizingDayTip } = await import(`./execution_ui.js?v=${encodeURIComponent(_V)}`);
-import {
-  fitTierBadgeForCode,
-  ensureFitTierMap,
-  stampFitTierBadges,
-} from "../quant/fit_tier_ui.js?v=p2261";
+} = await import(
+  `./fmt.js?v=${encodeURIComponent(_V)}`
+);
+const { adaptiveSizingDayTip } = await import(
+  `./execution_ui.js?v=${encodeURIComponent(_V)}`
+);
+const { fitTierBadgeForCode, ensureFitTierMap, stampFitTierBadges } = await import(
+  `../quant/fit_tier_ui.js?v=${encodeURIComponent(_V)}`
+);
 
 const Y_T30_HAT_KEYS = ["y_τ30", "y_t30", "predicted_score_t30", "y_t30_hat"];
 const Y_HL_HAT_KEYS = ["y_hl", "predicted_score_hl", "y_path", "predicted_score_path"];

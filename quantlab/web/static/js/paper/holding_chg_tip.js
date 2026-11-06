@@ -1,7 +1,12 @@
 /** 持仓表「涨跌」列：悬停懒加载「涨跌会话日」5m K 线。 */
 
-import { escapeText, fmtPct } from "./fmt.js?v=p1737";
-import { miniKlineSvgFromBars } from "./t0_table.js?v=p3541";
+const _V = (typeof window !== "undefined" && window.__ASSET_V__) || "dev";
+const { escapeText, fmtPct } = await import(
+  `./fmt.js?v=${encodeURIComponent(_V)}`
+);
+const { miniKlineSvgFromBars } = await import(
+  `./t0_table.js?v=${encodeURIComponent(_V)}`
+);
 
 const _cache = new Map();
 

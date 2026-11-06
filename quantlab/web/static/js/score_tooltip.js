@@ -2,7 +2,8 @@
  * 主叙事：收益分 ŷ + 因子系数 β（可正可负），非规则权重。
  */
 
-import {
+const _V = (typeof window !== "undefined" && window.__ASSET_V__) || "dev";
+const {
   escapeText,
   fusionWeightsFromItem,
   pickYOcFitted,
@@ -29,7 +30,9 @@ import {
   resolvePathScore,
   compoundPct,
   Y_HL_TITLE,
-} from "./paper/fmt.js?v=p3540";
+} = await import(
+  `./paper/fmt.js?v=${encodeURIComponent(_V)}`
+);
 import { hydrateTailAnomalyCharts } from "./tail_anomaly_chart.js";
 
 const FACTOR_LABELS = {

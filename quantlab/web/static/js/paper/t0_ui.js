@@ -2,9 +2,13 @@
 
 const _V = (typeof window !== "undefined" && window.__ASSET_V__) || "dev";
 const { yTauMapScoreTip } = await import(`./execution_ui.js?v=${encodeURIComponent(_V)}`);
-import { renderT0Viz, wireT0SkipTips } from "./t0_viz.js?v=p2746";
-import { buildT0ReportHtml, fmtT0DirDays } from "./t0_report.js?v=p3319";
-import {
+const { renderT0Viz, wireT0SkipTips } = await import(
+  `./t0_viz.js?v=${encodeURIComponent(_V)}`
+);
+const { buildT0ReportHtml, fmtT0DirDays } = await import(
+  `./t0_report.js?v=${encodeURIComponent(_V)}`
+);
+const {
   buildT0TradeTableHtml,
   expandSlotTradeDays,
   pickDetailDays,
@@ -14,7 +18,9 @@ import {
   wireT0DayDebugExpand,
   wireT0ProcessTips,
   stampStockFitTiers,
-} from "./t0_table.js?v=p3541";
+} = await import(
+  `./t0_table.js?v=${encodeURIComponent(_V)}`
+);
 
 function escapeHtml(s) {
   return String(s ?? "")

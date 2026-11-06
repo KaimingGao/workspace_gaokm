@@ -1,12 +1,14 @@
 /** Paper · 调仓预演报告渲染（从 paper.js 抽出）。 */
 
-import {
+const _V = (typeof window !== "undefined" && window.__ASSET_V__) || "dev";
+const {
   ensurePredTierMap,
   getPredTier,
   predTierBadgeHtml,
   selectedPredTiers,
-} from "../quant/pred_tier_ui.js?v=p3365";
-const _V = (typeof window !== "undefined" && window.__ASSET_V__) || "dev";
+} = await import(
+  `../quant/pred_tier_ui.js?v=${encodeURIComponent(_V)}`
+);
 const { sentimentDeskBadgeHtml } = await import(
   `./rebalance_desk.js?v=${encodeURIComponent(_V)}`
 );

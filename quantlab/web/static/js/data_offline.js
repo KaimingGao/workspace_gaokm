@@ -9,10 +9,10 @@
  * 不含：观察名单维护、现价/浮盈行情、做T Worker 盯盘。
  */
 
-import {
-  OFFLINE_TOGGLE_TITLE_OFF,
-  OFFLINE_TOGGLE_TITLE_ON,
-} from "./data_policy.js?v=p1736";
+const _V = (typeof window !== "undefined" && window.__ASSET_V__) || "dev";
+const { OFFLINE_TOGGLE_TITLE_OFF, OFFLINE_TOGGLE_TITLE_ON } = await import(
+  `./data_policy.js?v=${encodeURIComponent(_V)}`
+);
 
 export const DATA_OFFLINE_KEY = "quantlab.data_offline_only";
 

@@ -3,7 +3,8 @@
  * 主路径由 holdings_table_island.js（virtual_table 纯 DOM 虚拟网格）渲染。
  */
 
-import {
+const _WR_V = (typeof window !== "undefined" && window.__ASSET_V__) || "dev";
+const {
   fmtPriceUnit,
   escapeText,
   fmtPct,
@@ -17,22 +18,31 @@ import {
   Y_EOD_TITLE,
   Y_OC_REBALANCE_TITLE,
   FUSE_REBALANCE_TITLE,
-} from "./fmt.js?v=p3540";
+} = await import(
+  `./fmt.js?v=${encodeURIComponent(_WR_V)}`
+);
 import { paginateItems, renderPagerHtml } from "../api_client.js";
-const _WR_V = (typeof window !== "undefined" && window.__ASSET_V__) || "dev";
 const { watchingScoreDetail } = await import(
   `../quant/watching_render.js?v=${encodeURIComponent(_WR_V)}`
 );
-import {
-  isSingleHeadItem,
-  singleHeadBadgeHtml,
-  yCheckBadgeHtml,
-} from "../quant/watching_insights_ui.js?v=p3540";
-import { formatPrevCloseDisplay, formatOpenDisplay } from "../quant/watching_quotes_ui.js?v=p2389";
-import { buildHoldingSharesTip } from "./holding_lots_tip.js?v=p1227";
-import { holdingT0BadgeHtml } from "./holding_t0_badge.js?v=p1526";
-import { fitTierBadgeForCode } from "../quant/fit_tier_ui.js?v=p2261";
-import { predTierBadgeHtml } from "../quant/pred_tier_ui.js?v=p2749";
+const { isSingleHeadItem, singleHeadBadgeHtml, yCheckBadgeHtml } = await import(
+  `../quant/watching_insights_ui.js?v=${encodeURIComponent(_WR_V)}`
+);
+const { formatPrevCloseDisplay, formatOpenDisplay } = await import(
+  `../quant/watching_quotes_ui.js?v=${encodeURIComponent(_WR_V)}`
+);
+const { buildHoldingSharesTip } = await import(
+  `./holding_lots_tip.js?v=${encodeURIComponent(_WR_V)}`
+);
+const { holdingT0BadgeHtml } = await import(
+  `./holding_t0_badge.js?v=${encodeURIComponent(_WR_V)}`
+);
+const { fitTierBadgeForCode } = await import(
+  `../quant/fit_tier_ui.js?v=${encodeURIComponent(_WR_V)}`
+);
+const { predTierBadgeHtml } = await import(
+  `../quant/pred_tier_ui.js?v=${encodeURIComponent(_WR_V)}`
+);
 
 function rankOrdinal(raw, nRaw) {
   const y = Number(raw);

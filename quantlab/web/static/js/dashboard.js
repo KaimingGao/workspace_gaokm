@@ -2,7 +2,10 @@ import { apiFetch } from "./api_client.js";
 import { renderLineChart, renderDualLineChart } from "./lw_charts.js";
 import { escapeHtml } from "./shared.js";
 import { macroHistoryLegendHtml, paintMacroHistoryChart, runMarketContextIngest } from "./macro_context_ui.js";
-import { fetchDash, fetchDashboardBundle } from "./dashboard_api.js?v=p1234";
+const _V = (typeof window !== "undefined" && window.__ASSET_V__) || "dev";
+const { fetchDash, fetchDashboardBundle } = await import(
+  `./dashboard_api.js?v=${encodeURIComponent(_V)}`
+);
 
 const V = (typeof window !== "undefined" && window.__ASSET_V__) || "dev";
 

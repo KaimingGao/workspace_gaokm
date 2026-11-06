@@ -1,7 +1,12 @@
 /** Holdings sort helpers extracted from paper.js (W0.1). */
 
-import { resolveFuseScore, resolveEodScore, resolveTauScore } from "./fmt.js?v=p3540";
-import { getPredTier, predTierRank } from "../quant/pred_tier_ui.js?v=p2749";
+const _WR_V = (typeof window !== "undefined" && window.__ASSET_V__) || "dev";
+const { resolveFuseScore, resolveEodScore, resolveTauScore } = await import(
+  `./fmt.js?v=${encodeURIComponent(_WR_V)}`
+);
+const { getPredTier, predTierRank } = await import(
+  `../quant/pred_tier_ui.js?v=${encodeURIComponent(_WR_V)}`
+);
 
 function rankNum(row, key, nKey, altKey) {
   const y = Number(row && (row[key] != null ? row[key] : row[altKey]));

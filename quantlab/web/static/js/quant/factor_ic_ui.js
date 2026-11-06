@@ -4,7 +4,10 @@
 import { escapeHtml } from "../shared.js";
 import { researchGridHtml, metricCell } from "./research_grid.js";
 import { metricClass } from "./bt_result.js";
-import { classifyFactor, isRemovedFactor } from "./factor_meta.js?v=p3556";
+const _V = (typeof window !== "undefined" && window.__ASSET_V__) || "dev";
+const { classifyFactor, isRemovedFactor } = await import(
+  `./factor_meta.js?v=${encodeURIComponent(_V)}`
+);
 
 /**
  * @param {{

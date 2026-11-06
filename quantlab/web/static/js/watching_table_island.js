@@ -1,7 +1,10 @@
 /**
  * 数据中心主表 · 纯 DOM 虚拟滚动（共享 virtual_table 内核）。
  */
-import { Y_OC_REBALANCE_TITLE, FUSE_REBALANCE_TITLE } from "./paper/fmt.js?v=p2389";
+const _WR_V = (typeof window !== "undefined" && window.__ASSET_V__) || "dev";
+const { Y_OC_REBALANCE_TITLE, FUSE_REBALANCE_TITLE } = await import(
+  `./paper/fmt.js?v=${encodeURIComponent(_WR_V)}`
+);
 
 function numSortKey(row, key) {
   const n = Number(row?.[key]);

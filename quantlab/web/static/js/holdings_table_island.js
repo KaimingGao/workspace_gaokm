@@ -2,24 +2,44 @@
  * 交易执行 · 持仓主表（共享 virtual_table 内核，与数据中心同方案）。
  */
 
-import { fmtPriceUnit, fmtPct, metricCls, fmtTableScore, scoreCls, resolveFuseScore, resolveEodScore, resolveTauScore, isHeuristicScoreScale, Y_EOD_TITLE, Y_OC_REBALANCE_TITLE, FUSE_REBALANCE_TITLE } from "./paper/fmt.js?v=p3540";
 const _WR_V = (typeof window !== "undefined" && window.__ASSET_V__) || "dev";
+const {
+  fmtPriceUnit,
+  fmtPct,
+  metricCls,
+  fmtTableScore,
+  scoreCls,
+  resolveFuseScore,
+  resolveEodScore,
+  resolveTauScore,
+  isHeuristicScoreScale,
+  Y_EOD_TITLE,
+  Y_OC_REBALANCE_TITLE,
+  FUSE_REBALANCE_TITLE,
+} = await import(
+  `./paper/fmt.js?v=${encodeURIComponent(_WR_V)}`
+);
 const { sentimentBadgeHtml, watchingScoreDetail } = await import(
   `./quant/watching_render.js?v=${encodeURIComponent(_WR_V)}`
 );
-import {
-  isSingleHeadItem,
-  singleHeadBadgeHtml,
-  yCheckBadgeHtml,
-} from "./quant/watching_insights_ui.js?v=p3540";
-import { formatPrevCloseDisplay, formatOpenDisplay, resolveOpenPx } from "./quant/watching_quotes_ui.js?v=p2389";
-import { buildHoldingSharesTip } from "./paper/holding_lots_tip.js?v=p1227";
-import {
-  holdingFuseBelowEnter,
-  holdingFuseBelowTitle,
-} from "./paper/holdings_ui.js?v=p3358";
-import { holdingT0BadgeHtml } from "./paper/holding_t0_badge.js?v=p1526";
-import { fitTierBadgeForCode, ensureFitTierMap } from "./quant/fit_tier_ui.js?v=p2261";
+const { isSingleHeadItem, singleHeadBadgeHtml, yCheckBadgeHtml } = await import(
+  `./quant/watching_insights_ui.js?v=${encodeURIComponent(_WR_V)}`
+);
+const { formatPrevCloseDisplay, formatOpenDisplay, resolveOpenPx } = await import(
+  `./quant/watching_quotes_ui.js?v=${encodeURIComponent(_WR_V)}`
+);
+const { buildHoldingSharesTip } = await import(
+  `./paper/holding_lots_tip.js?v=${encodeURIComponent(_WR_V)}`
+);
+const { holdingFuseBelowEnter, holdingFuseBelowTitle } = await import(
+  `./paper/holdings_ui.js?v=${encodeURIComponent(_WR_V)}`
+);
+const { holdingT0BadgeHtml } = await import(
+  `./paper/holding_t0_badge.js?v=${encodeURIComponent(_WR_V)}`
+);
+const { fitTierBadgeForCode, ensureFitTierMap } = await import(
+  `./quant/fit_tier_ui.js?v=${encodeURIComponent(_WR_V)}`
+);
 
 function escapeHtml(s) {
   return String(s ?? "")

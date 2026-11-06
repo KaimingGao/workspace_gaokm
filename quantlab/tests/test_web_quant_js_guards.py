@@ -4477,6 +4477,22 @@ class TestWebQuantJsGuards(unittest.TestCase):
             "renderPaperRebalanceWorkerDesk: renderPaperRebalanceWorkerDeskUi", paper
         )
         self.assertIn("renderPaperT0Preview: renderPaperT0PreviewUi", paper)
+        # 禁止散落 ?v=pNNNN 硬钉；嵌套模块跟 window.__ASSET_V__
+        js_root = os.path.join(ROOT, "web", "static", "js")
+        hard_hits = []
+        for dirpath, _, files in os.walk(js_root):
+            for name in files:
+                if not name.endswith(".js"):
+                    continue
+                rel = os.path.relpath(os.path.join(dirpath, name), js_root)
+                text = self._read("web", "static", "js", *rel.split(os.sep))
+                if re.search(r"\?v=p\d+", text):
+                    hard_hits.append(rel)
+        self.assertEqual(
+            hard_hits,
+            [],
+            "static/js must not hard-pin ?v=pNNNN; use window.__ASSET_V__",
+        )
         t0_ui = self._read("web", "static", "js", "paper", "t0_ui.js")
         self.assertIn("__ASSET_V__", t0_ui)
         self.assertNotIn("execution_ui.js?v=p2594", t0_ui)

@@ -25,7 +25,10 @@ import {
   applyWatchingNameEl,
 } from "./quant/names.js";
 import { createResearchParams } from "./quant/params.js";
-import { createFactorMetaCache } from "./quant/factor_meta.js?v=p3556";
+const _V = (typeof window !== "undefined" && window.__ASSET_V__) || "dev";
+const { createFactorMetaCache } = await import(
+  `./quant/factor_meta.js?v=${encodeURIComponent(_V)}`
+);
 import { researchGridHtml, metricCell } from "./quant/research_grid.js";
 import { createBtTablesUi } from "./quant/bt_tables.js";
 import { installClusterProbe } from "./quant/domain_cluster.js";

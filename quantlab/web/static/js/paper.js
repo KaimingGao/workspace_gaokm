@@ -1,5 +1,6 @@
 /** Paper dialog/page wiring. */
-import {
+const _EXEC_V = (typeof window !== "undefined" && window.__ASSET_V__) || "dev";
+const {
   fmtMoney,
   escapeText,
   fmtTableScore,
@@ -11,22 +12,22 @@ import {
   Y_TAU_TITLE,
   scoreSeriesStats,
   isHeuristicScoreScale,
-} from "./paper/fmt.js?v=p3540";
-import { drawSeries, appendLiveNavPoint } from "./paper/chart.js?v=p1163";
+} = await import(
+  `./paper/fmt.js?v=${encodeURIComponent(_EXEC_V)}`
+);
+const { drawSeries, appendLiveNavPoint } = await import(
+  `./paper/chart.js?v=${encodeURIComponent(_EXEC_V)}`
+);
 import { renderOpsReport as renderOpsReportEl } from "./paper/ops_ui.js";
-import {
-  loadHoldingsSort,
-  persistHoldingsSort as persistHoldingsSortSaved,
-  sortHoldings as sortHoldingsRows,
-} from "./paper/holdings_sort.js?v=p3540";
+const { loadHoldingsSort, persistHoldingsSort: persistHoldingsSortSaved, sortHoldings: sortHoldingsRows } = await import(
+  `./paper/holdings_sort.js?v=${encodeURIComponent(_EXEC_V)}`
+);
 import {
   renderLineChart,
   loadLightweightCharts,
   disposeChart,
 } from "./lw_charts.js";
 import { apiFetch } from "./api_client.js";
-const _EXEC_V =
-  (typeof window !== "undefined" && window.__ASSET_V__) || "dev";
 const {
   collectLiveFillClockPatch,
   collectLiveT0PrefixPatch,
@@ -88,22 +89,38 @@ const {
 const { wireT0ProcessTips, wireT0DayDebugExpand } = await import(
   `./paper/t0_table.js?v=${encodeURIComponent(_EXEC_V)}`
 );
-import { buildPaperLogsView, buildPaperLogsCsv } from "./paper/logs_ui.js?v=p3226";
+const { buildPaperLogsView, buildPaperLogsCsv } = await import(
+  `./paper/logs_ui.js?v=${encodeURIComponent(_EXEC_V)}`
+);
 import { downloadBlob } from "./shared.js";
-import { wireT0SkipTips } from "./paper/t0_viz.js?v=p2746";
-import { wireHoldingsChgTips } from "./paper/holding_chg_tip.js?v=p2746";
-import { createHoldingsIslandController } from "./paper/holdings_island.js?v=p3359";
-import { createClusterRebalanceController } from "./paper/cluster_rebalance.js?v=p3371";
+const { wireT0SkipTips } = await import(
+  `./paper/t0_viz.js?v=${encodeURIComponent(_EXEC_V)}`
+);
+const { wireHoldingsChgTips } = await import(
+  `./paper/holding_chg_tip.js?v=${encodeURIComponent(_EXEC_V)}`
+);
+const { createHoldingsIslandController } = await import(
+  `./paper/holdings_island.js?v=${encodeURIComponent(_EXEC_V)}`
+);
+const { createClusterRebalanceController } = await import(
+  `./paper/cluster_rebalance.js?v=${encodeURIComponent(_EXEC_V)}`
+);
 import {
   getDataOfflineOnly,
   installDataOfflineToggle,
   offlineOnlyQuery,
 } from "./data_offline.js";
-import { rebalanceDataFoot, t0DataFoot } from "./data_policy.js?v=p1736";
+const { rebalanceDataFoot, t0DataFoot } = await import(
+  `./data_policy.js?v=${encodeURIComponent(_EXEC_V)}`
+);
 import { ensureWarehouseTopup } from "./data_warehouse_topup.js";
 import { BARS_WATCHING_LIMIT } from "./quant/params.js";
-import { waitPaperJob as waitPaperJobPoll } from "./paper/job_poll.js?v=p1416";
-import { renderFollowNorthStar as renderFollowNorthStarUi } from "./paper/north_star_ui.js?v=p2182";
+const { waitPaperJob: waitPaperJobPoll } = await import(
+  `./paper/job_poll.js?v=${encodeURIComponent(_EXEC_V)}`
+);
+const { renderFollowNorthStar: renderFollowNorthStarUi } = await import(
+  `./paper/north_star_ui.js?v=${encodeURIComponent(_EXEC_V)}`
+);
 
 import { formatDailySteps, runDaily } from "./shared.js";
 

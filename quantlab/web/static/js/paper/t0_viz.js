@@ -1,7 +1,10 @@
 /** 做T回测可视化（canvas + CSS，无外部图表库）。 */
 
 import { paperMetricClass } from "./fmt.js";
-import { SKIP_CAT_TIP, stockCellHtml, stampStockFitTiers } from "./t0_table.js?v=p3541";
+const _V = (typeof window !== "undefined" && window.__ASSET_V__) || "dev";
+const { SKIP_CAT_TIP, stockCellHtml, stampStockFitTiers } = await import(
+  `./t0_table.js?v=${encodeURIComponent(_V)}`
+);
 
 const THEME = {
   actual: "#2563eb",
