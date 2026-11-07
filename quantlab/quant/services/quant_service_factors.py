@@ -1220,17 +1220,23 @@ class QuantFactorMixin:
             report["api_note"] = str(note)[:200]
         if report.get("success"):
             save_oo_rank_last_report(report)
-            from core.research.oo_rank_lambdarank import rank_oos_shadow_deltas
+            # fit_oo_rank_report 已写 shadow_track；缺则补（旧路径/缓存）
+            if not isinstance(report.get("shadow_track"), dict):
+                from core.research.oo_rank_lambdarank import rank_oos_shadow_deltas
 
-            oos = report.get("oos") or {}
-            rank_m = oos.get("oo_rank") or {}
-            ridge_m = oos.get("ridge_oo_baseline") or {}
-            report["shadow_track"] = {
-                **rank_oos_shadow_deltas(
-                    rank_m, ridge_m, y_key="topk_mean_y_oo"
-                ),
-                "recommended_backend": report.get("recommended_backend"),
-            }
+                oos = report.get("oos") or {}
+                report["shadow_track"] = {
+                    **rank_oos_shadow_deltas(
+                        oos.get("oo_rank") or {},
+                        oos.get("ridge_oo_baseline") or {},
+                        y_key="topk_mean_y_oo",
+                    ),
+                    "recommended_backend": report.get("recommended_backend"),
+                }
+            else:
+                report["shadow_track"]["recommended_backend"] = report.get(
+                    "recommended_backend"
+                )
         if persist and report.get("success"):
             saved = persist_oo_rank_model(
                 report, note=note or "", role=persist_role or "live"

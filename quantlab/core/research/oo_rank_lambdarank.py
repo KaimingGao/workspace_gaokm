@@ -250,9 +250,9 @@ def select_oo_rank_backend(
     oos_rank: Optional[Dict[str, Any]] = None,
     oos_ridge: Optional[Dict[str, Any]] = None,
 ) -> str:
-    """固定选用 ``lambdarank``（放弃按 NDCG@K 择优）。
+    """固定选用 ``lambdarank``（不按 OOS 择优；Ridge 仅同窗对照）。
 
-    ``oos_*`` 仍传入以保持调用签名；Ridge 仅作同窗对照，不参与落盘选择。
+    ``oos_*`` 保留签名兼容；落盘不读 IC / NDCG / Gate。
     """
 
     _ = oos_rank, oos_ridge
@@ -2068,6 +2068,42 @@ def _stamp_oo_rank_model_meta(
     return out
 
 
+def rank_oos_shadow_deltas(
+    rank_m: Optional[Dict[str, Any]],
+    ridge_m: Optional[Dict[str, Any]],
+    *,
+    y_key: str = "topk_mean_y_oo",
+) -> Dict[str, Optional[float]]:
+    """LambdaRank vs Ridge 同窗 OOS Δ（含 Gate；``y_key`` 为 TopK 收益字段名）。"""
+
+    def _delta(a: Any, b: Any) -> Optional[float]:
+        if a is None or b is None:
+            return None
+        try:
+            return round(float(a) - float(b), 4)
+        except (TypeError, ValueError):
+            return None
+
+    rm = rank_m if isinstance(rank_m, dict) else {}
+    rg = ridge_m if isinstance(ridge_m, dict) else {}
+    y_delta_key = (
+        "delta_topk_mean_y_tc" if y_key == "topk_mean_y_tc" else "delta_topk_mean_y_oo"
+    )
+    return {
+        y_delta_key: _delta(rm.get(y_key), rg.get(y_key)),
+        "delta_spearman": _delta(rm.get("spearman"), rg.get("spearman")),
+        "delta_cs_ic": _delta(rm.get("cs_ic"), rg.get("cs_ic")),
+        "delta_cs_icir": _delta(rm.get("cs_icir"), rg.get("cs_icir")),
+        "delta_topk_overlap": _delta(rm.get("topk_overlap"), rg.get("topk_overlap")),
+        "delta_ndcg_at_k": _delta(rm.get("ndcg_at_k"), rg.get("ndcg_at_k")),
+        "delta_gate_lift": _delta(rm.get("gate_lift"), rg.get("gate_lift")),
+        "delta_gate_mean_y": _delta(rm.get("gate_mean_y"), rg.get("gate_mean_y")),
+        "delta_gate_strong_lift": _delta(
+            rm.get("gate_strong_lift"), rg.get("gate_strong_lift")
+        ),
+    }
+
+
 def fit_oo_rank_report(
     stock_bars: Sequence[Dict[str, Any]],
     *,
@@ -2299,6 +2335,10 @@ def fit_oo_rank_report(
         "y_spec": y_spec,
         "cross_section_zscore": use_cs,
         "zscore_universe": "pool",
+        "shadow_track": {
+            **rank_oos_shadow_deltas(oos_rank, oos_ridge, y_key="topk_mean_y_oo"),
+            "recommended_backend": recommended,
+        },
         "note": (
             f"ŷ_oo_rank backend={chosen}（固定落盘 LambdaRank；对照推荐 {recommended}）；"
             "只训 Holdout 前一套；启用研究→研究槽；启用执行=研究槽晋级；"
@@ -2316,42 +2356,6 @@ def fit_oo_rank_report(
     return report
 
 
-def rank_oos_shadow_deltas(
-    rank_m: Optional[Dict[str, Any]],
-    ridge_m: Optional[Dict[str, Any]],
-    *,
-    y_key: str = "topk_mean_y_oo",
-) -> Dict[str, Optional[float]]:
-    """LambdaRank vs Ridge 同窗 OOS Δ（含 Gate；``y_key`` 为 TopK 收益字段名）。"""
-
-    def _delta(a: Any, b: Any) -> Optional[float]:
-        if a is None or b is None:
-            return None
-        try:
-            return round(float(a) - float(b), 4)
-        except (TypeError, ValueError):
-            return None
-
-    rm = rank_m if isinstance(rank_m, dict) else {}
-    rg = ridge_m if isinstance(ridge_m, dict) else {}
-    y_delta_key = (
-        "delta_topk_mean_y_tc" if y_key == "topk_mean_y_tc" else "delta_topk_mean_y_oo"
-    )
-    return {
-        y_delta_key: _delta(rm.get(y_key), rg.get(y_key)),
-        "delta_spearman": _delta(rm.get("spearman"), rg.get("spearman")),
-        "delta_cs_ic": _delta(rm.get("cs_ic"), rg.get("cs_ic")),
-        "delta_cs_icir": _delta(rm.get("cs_icir"), rg.get("cs_icir")),
-        "delta_topk_overlap": _delta(rm.get("topk_overlap"), rg.get("topk_overlap")),
-        "delta_ndcg_at_k": _delta(rm.get("ndcg_at_k"), rg.get("ndcg_at_k")),
-        "delta_gate_lift": _delta(rm.get("gate_lift"), rg.get("gate_lift")),
-        "delta_gate_mean_y": _delta(rm.get("gate_mean_y"), rg.get("gate_mean_y")),
-        "delta_gate_strong_lift": _delta(
-            rm.get("gate_strong_lift"), rg.get("gate_strong_lift")
-        ),
-    }
-
-
 def compare_oo_rank_shadow_track(
     stock_bars: Sequence[Dict[str, Any]],
     **kwargs: Any,
@@ -2361,8 +2365,7 @@ def compare_oo_rank_shadow_track(
     if not report.get("success"):
         return report
     oos = report.get("oos") or {}
-    rank_m = oos.get("oo_rank") or {}
-    ridge_m = oos.get("ridge_oo_baseline") or {}
+    track = report.get("shadow_track") if isinstance(report.get("shadow_track"), dict) else {}
     out: Dict[str, Any] = {
         "success": True,
         "task": "oo_rank_shadow_track",
@@ -2379,7 +2382,19 @@ def compare_oo_rank_shadow_track(
         "return_model": report.get("return_model"),
         "return_model_research": report.get("return_model_research"),
     }
-    out.update(rank_oos_shadow_deltas(rank_m, ridge_m, y_key="topk_mean_y_oo"))
+    # 顶层保留 Δ 键（脚本/旧调用）；与报告 shadow_track 同源
+    for k, v in track.items():
+        if k == "recommended_backend":
+            continue
+        out[k] = v
+    if not any(str(k).startswith("delta_") for k in out):
+        out.update(
+            rank_oos_shadow_deltas(
+                oos.get("oo_rank") or {},
+                oos.get("ridge_oo_baseline") or {},
+                y_key="topk_mean_y_oo",
+            )
+        )
     return out
 
 

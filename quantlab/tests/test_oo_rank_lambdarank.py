@@ -500,6 +500,9 @@ class TestOoRankFit(unittest.TestCase):
         oos_rank = (report.get("oos") or {}).get("oo_rank") or {}
         self.assertIn("ndcg_at_k", oos_rank)
         self.assertEqual(oos_rank.get("ndcg_k"), 5)
+        self.assertIn("gate_lift", oos_rank)
+        track = report.get("shadow_track") or {}
+        self.assertIn("delta_gate_lift", track)
         oos_ridge = (report.get("oos") or {}).get("ridge_oo_baseline") or {}
         self.assertTrue(oos_ridge.get("success"), oos_ridge)
         self.assertGreater(int(oos_ridge.get("n_days") or 0), 0)

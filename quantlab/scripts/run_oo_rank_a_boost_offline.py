@@ -47,6 +47,9 @@ def _pick_metrics(m: Dict[str, Any]) -> Dict[str, Any]:
     return {
         "n_days": m.get("n_days"),
         "n_rows": m.get("n_rows"),
+        "gate_lift": m.get("gate_lift"),
+        "gate_mean_y": m.get("gate_mean_y"),
+        "gate_n": m.get("gate_n"),
         "spearman": m.get("spearman"),
         "cs_ic": m.get("cs_ic"),
         "cs_icir": m.get("cs_icir"),
@@ -120,9 +123,9 @@ def _fit_arm(
         )
     elapsed = round(time.time() - t0, 1)
     _log(
-        f"  [{name}] done {elapsed}s · pool NDCG={_f(oos_pool.get('ndcg_at_k'))} "
-        f"RankIC={_f(oos_pool.get('spearman'))} · "
-        f"A NDCG={_f(oos_a.get('ndcg_at_k'))}"
+        f"  [{name}] done {elapsed}s · pool Gate={_f(oos_pool.get('gate_lift'))} "
+        f"NDCG={_f(oos_pool.get('ndcg_at_k'))} · "
+        f"A Gate={_f(oos_a.get('gate_lift'))}"
     )
     return {
         "arm": name,
@@ -259,8 +262,8 @@ def main() -> None:
     def _print_table(scope: str) -> None:
         _log(f"\n=== Holdout · {scope}（主评={'整池' if scope == 'pool' else 'A 子集'}）===")
         hdr = (
-            f"{'arm':10s}  {'NDCG':>8s}  {'RankIC':>8s}  {'IC':>8s}  "
-            f"{'ICIR':>8s}  {'TopKov':>8s}  {'TopKy':>8s}"
+            f"{'arm':10s}  {'GateL':>8s}  {'GateY':>8s}  {'NDCG':>8s}  "
+            f"{'TopKy':>8s}  {'RankIC':>8s}  {'IC':>8s}"
         )
         _log(hdr)
         for row in rows:
@@ -269,10 +272,10 @@ def main() -> None:
                 continue
             m = ((row.get("lambdarank") or {}).get(scope) or {})
             _log(
-                f"{row['arm']:10s}  {_f(m.get('ndcg_at_k')):>8s}  "
-                f"{_f(m.get('spearman')):>8s}  {_f(m.get('cs_ic')):>8s}  "
-                f"{_f(m.get('cs_icir')):>8s}  {_f(m.get('topk_overlap')):>8s}  "
-                f"{_f(m.get('topk_mean_y_oo')):>8s}"
+                f"{row['arm']:10s}  {_f(m.get('gate_lift')):>8s}  "
+                f"{_f(m.get('gate_mean_y')):>8s}  {_f(m.get('ndcg_at_k')):>8s}  "
+                f"{_f(m.get('topk_mean_y_oo')):>8s}  {_f(m.get('spearman')):>8s}  "
+                f"{_f(m.get('cs_ic')):>8s}"
             )
 
     _print_table("pool")
@@ -287,14 +290,21 @@ def main() -> None:
         if not base or not m:
             continue
         deltas = {}
-        for k in ("ndcg_at_k", "spearman", "cs_ic", "cs_icir", "topk_overlap", "topk_mean_y_oo"):
+        for k in (
+            "gate_lift",
+            "gate_mean_y",
+            "ndcg_at_k",
+            "spearman",
+            "cs_ic",
+            "topk_mean_y_oo",
+        ):
             if base.get(k) is None or m.get(k) is None:
                 deltas[k] = None
             else:
                 deltas[k] = round(float(m[k]) - float(base[k]), 4)
         _log(
-            f"{arm:10s}  ΔNDCG={_f(deltas.get('ndcg_at_k'))}  "
-            f"ΔRankIC={_f(deltas.get('spearman'))}  "
+            f"{arm:10s}  ΔGate={_f(deltas.get('gate_lift'))}  "
+            f"ΔNDCG={_f(deltas.get('ndcg_at_k'))}  "
             f"ΔTopKy={_f(deltas.get('topk_mean_y_oo'))}"
         )
 
