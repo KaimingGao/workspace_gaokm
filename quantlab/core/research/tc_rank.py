@@ -180,10 +180,9 @@ def fit_tc_rank_report(
         select_oo_rank_backend,
         stamp_oo_rank_fitted_at,
     )
-    from core.research.oo_rank_panel import group_day_matrices
-    from core.research.panel_matrix import collect_tau_compact, raw_atc_finite
-    from core.research.tc_ridge_compact import TAU_FIT_DROP_ALIASES, TAU_Z_FEATURES
-    from core.signal.factors.z_tc import Z_TC_MINUTE_KEYS
+    from core.research.panel_matrix import collect_tau_compact
+    from core.research.rank_day_panels import tau_compact_to_day_panels
+    from core.yhat.keys import TAU_Z_FEATURES
 
     # 物化刚扫过的整窗立方还在进程缓存里。面板起来之前先卸掉。
     try:
@@ -221,39 +220,17 @@ def fit_tc_rank_report(
     )
     train_days = set(split_meta.get("train_days") or [])
     test_days = set(split_meta.get("test_days") or [])
-    drop = set(Z_TC_MINUTE_KEYS) | set(TAU_FIT_DROP_ALIASES)
-    col_set = set(col_names)
-    feat_names = [k for k in TAU_Z_FEATURES if k not in drop and k in col_set]
-    seen = set(feat_names)
-    train_row_idx = [i for i, d in enumerate(dates) if str(d)[:10] in train_days]
-    for key in raw_atc_finite(X, col_names, train_row_idx):
-        if key not in seen:
-            seen.add(key)
-            feat_names.append(key)
-
-    codes_all = [
-        str((metas[i] or {}).get("stock_code") or "") if i < len(metas) else ""
-        for i in range(len(ys))
-    ]
-    # 列只切一次。按日重排后，每日 X 是同一块矩阵的视图；未排序的原矩阵随即丢掉。
-    col_index = {str(n): i for i, n in enumerate(col_names)}
-    cols = [col_index[n] for n in feat_names if n in col_index]
-    feat_names = [n for n in feat_names if n in col_index]
-    x_fit = (
-        np.ascontiguousarray(X[:, cols])
-        if cols
-        else np.zeros((int(X.shape[0]), 0), dtype=np.float64)
-    )
-    y_arr = np.asarray(ys, dtype=np.float64)
-    days_all = group_day_matrices(
-        x_fit,
-        y_arr,
-        feat_names,
+    # 与定档 / oo_rank 同构：矩阵 → 入模列 → 日截面
+    days_all = tau_compact_to_day_panels(
+        X,
+        col_names,
+        ys,
         dates,
-        codes_all,
+        metas,
+        feature_dates=sorted(train_days),
         min_names=min_names,
     )
-    del X, x_fit, y_arr, ys, dates, metas, codes_all, cols
+    del X, ys, dates, metas, col_names
     days_tr = [d for d in days_all if str(d.get("date") or "")[:10] in train_days]
     days_te = [d for d in days_all if str(d.get("date") or "")[:10] in test_days]
     if len(days_tr) < 5 or len(days_te) < 1:
@@ -274,7 +251,7 @@ def fit_tc_rank_report(
             "task": TASK,
         }
 
-    kept_names = list(days_tr[0].get("names") or feat_names)
+    kept_names = list(days_tr[0].get("names") or [])
     use_cs = bool(cross_section_zscore)
     train_allow = {
         str(c).strip() for c in (train_codes or []) if str(c or "").strip()

@@ -739,8 +739,8 @@ class TestPredictabilityTiers(unittest.TestCase):
         self.assertNotIn("lift_tc", by["SK"])
         self.assertAlmostEqual(by["SK"]["lift_tc_rank"], 0.0)
 
-    def test_tc_panel_keeps_bars_after_rank_head_pops(self):
-        """τc_rank compact 会 pop bars；τc 须拿到独立副本，否则整列 lift 为空。"""
+    def test_tc_panel_shared_once_for_rank_and_ridge(self):
+        """开盘 τ 面板只建一次；τc_rank / τc 共用，且不掏空调用方 bars。"""
         from core.research.predictability_tiers import collect_tier_lift
 
         bars = {
@@ -749,12 +749,14 @@ class TestPredictabilityTiers(unittest.TestCase):
         }
         seen = []
 
-        def fake_tau(items, _fit_dates, *, head, cache_head):
+        def fake_rank_panels(items, *, family, **kwargs):
             n = sum(1 for it in items or [] if isinstance(it, dict) and it.get("bars"))
-            seen.append((head, cache_head, n))
+            seen.append((family, n, bool(kwargs.get("fit_dates"))))
             for it in list(items or []):
                 if isinstance(it, dict):
                     it.pop("bars", None)
+            if str(family) == "oo_rank":
+                return [{"date": "d"}]
             return [{"date": "2024-01-02"}] if n >= 2 else []
 
         both = {
@@ -776,14 +778,11 @@ class TestPredictabilityTiers(unittest.TestCase):
             }
 
         with patch(
-            "core.research.oo_rank_panel.build_oo_rank_day_panels",
-            return_value=[{"date": "d"}],
+            "core.research.rank_day_panels.build_rank_day_panels",
+            side_effect=fake_rank_panels,
         ), patch(
             "core.research.predictability_tiers._build_oo_return_day_panels",
             return_value=[{"date": "d"}],
-        ), patch(
-            "core.research.predictability_tiers._build_tau_day_panels_for_tier",
-            side_effect=fake_tau,
         ), patch(
             "core.research.predictability_tiers._lift_from_panels",
             side_effect=fake_lift,
@@ -792,8 +791,12 @@ class TestPredictabilityTiers(unittest.TestCase):
         ):
             out = collect_tier_lift(bars, ["2024-01-01"], ["2024-01-02"])
         self.assertTrue(out.get("ok"), out)
-        self.assertEqual([row[2] for row in seen], [2, 2])
+        families = [row[0] for row in seen]
+        self.assertEqual(families.count("oo_rank"), 1)
+        self.assertEqual(families.count("tc_rank"), 1)
+        self.assertNotIn("tc", families)
         self.assertTrue(out.get("used_tc"), out.get("tc_note"))
+        self.assertTrue(out.get("used_tc_rank"), out.get("tc_rank_note"))
         self.assertIn("lift_tc", out["by_code"]["AAA"])
         self.assertEqual(bars["AAA"][0]["close"], 1.0)
 

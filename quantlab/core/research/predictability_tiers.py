@@ -1246,68 +1246,12 @@ def _build_oo_return_day_panels(
     )
 
 
-def _build_tau_day_panels_for_tier(
-    items: Sequence[Dict[str, Any]],
-    fit_dates: Sequence[str],
-    *,
-    head: str,
-    cache_head: str,
-) -> List[Dict[str, Any]]:
-    """τ 开盘钟日截面：``head`` 为 ``y_tc_rank`` 或 ``y_tc``。"""
-    import numpy as np
-
-    from core.research.oo_rank_panel import group_day_matrices
-    from core.research.panel_matrix import collect_tau_compact, raw_atc_finite
-    from core.research.tc_ridge_compact import TAU_FIT_DROP_ALIASES, TAU_Z_FEATURES
-    from core.signal.factors.z_tc import Z_TC_MINUTE_KEYS
-
-    X, col_names, ys, dates, metas, _n_stocks = collect_tau_compact(
-        list(items or []),
-        list(TAU_Z_FEATURES),
-        min_history=12,
-        tau_hm="open",
-        include_alpha_tc=True,
-        head=str(head),
-        cache_head=str(cache_head),
-    )
-    drop = set(Z_TC_MINUTE_KEYS) | set(TAU_FIT_DROP_ALIASES)
-    col_set = set(col_names)
-    feat_names = [k for k in TAU_Z_FEATURES if k not in drop and k in col_set]
-    seen = set(feat_names)
-    fit_set = {str(d)[:10] for d in fit_dates}
-    train_row_idx = [i for i, d in enumerate(dates) if str(d)[:10] in fit_set]
-    for key in raw_atc_finite(X, col_names, train_row_idx):
-        if key not in seen:
-            seen.add(key)
-            feat_names.append(key)
-    col_index = {str(n): i for i, n in enumerate(col_names)}
-    cols = [col_index[n] for n in feat_names if n in col_index]
-    feat_names = [n for n in feat_names if n in col_index]
-    x_fit = (
-        np.ascontiguousarray(X[:, cols])
-        if cols
-        else np.zeros((int(X.shape[0]), 0), dtype=np.float64)
-    )
-    codes_all = [
-        str((metas[i] or {}).get("stock_code") or "") if i < len(metas) else ""
-        for i in range(len(ys))
-    ]
-    return group_day_matrices(
-        x_fit,
-        np.asarray(ys, dtype=np.float64),
-        feat_names,
-        dates,
-        codes_all,
-        min_names=8,
-    )
-
-
 def _snapshot_bar_items(
     stock_bars: Mapping[str, Sequence[dict]],
 ) -> List[Dict[str, Any]]:
-    """每头一份 item dict。
+    """每条建面板路径一份 item dict。
 
-    ``collect_tau_compact`` 算完会 pop ``bars``；四头各自 snapshot，避免先跑的头掏空后头。
+    compact 算完会 pop ``bars``；oo_rank / oo / 开盘 τ（τc+τc_rank 共用）各自 snapshot。
     """
     out: List[Dict[str, Any]] = []
     for code, bars in (stock_bars or {}).items():
@@ -1330,6 +1274,7 @@ def collect_tier_lift(
 
     排序头 = 内存 LambdaRank；收益头 = 内存 Ridge。同一模型再打 Holdout，只供标题。
     不落盘、不覆盖研究套。oo_rank 失败则整次失败；其余头失败软跳过并写 note。
+    排序头面板走 ``build_rank_day_panels``；开盘 τc / τc_rank 共建一次。
     """
     if sum(1 for c, bars in (stock_bars or {}).items() if str(c or "").strip() and bars) < 2:
         return {"ok": False, "error": "定档日线不足 2 只"}
@@ -1339,13 +1284,14 @@ def collect_tier_lift(
         release_allocator_cache()
     except Exception:  # noqa: BLE001
         logger.debug("tier lift release cache failed", exc_info=True)
-    from core.research.oo_rank_panel import build_oo_rank_day_panels
+    from core.research.rank_day_panels import build_rank_day_panels
 
     horizon_i = max(1, int(horizon_days or 1))
     set_tier_progress("准备 oo_rank", "LambdaRank · 只在内存，不写研究套")
     try:
-        oo_rank_panels = build_oo_rank_day_panels(
+        oo_rank_panels = build_rank_day_panels(
             _snapshot_bar_items(stock_bars),
+            family="oo_rank",
             horizon_days=horizon_i,
         )
         oo_rank = _lift_from_panels(
@@ -1389,26 +1335,33 @@ def collect_tier_lift(
         logger.info("tier oo lift skipped: %s", exc)
         oo_note = f"oo 未入定档：{exc}"
 
-    # τc_rank = LambdaRank + 截面说涨；τc = Ridge + abs 说涨（各自拟合，不共用预估）
+    # τc_rank = LambdaRank+cs；τc = Ridge+abs。开盘钟同指纹，共建一次面板。
     tc_rank_map: Dict[str, Dict[str, Any]] = {}
     tc_map: Dict[str, Dict[str, Any]] = {}
     tc_rank_note = ""
     tc_note = ""
     tc_holdout_rank: Dict[str, Dict[str, Any]] = {}
     tc_holdout_abs: Dict[str, Dict[str, Any]] = {}
-    set_tier_progress("准备 τc_rank", "LambdaRank · 只在内存，不写研究套")
+    set_tier_progress("准备 τc / τc_rank", "开盘钟共建面板 · 只在内存")
+    tau_days: List[Dict[str, Any]] = []
     try:
-        tau_rank_days = _build_tau_day_panels_for_tier(
+        tau_days = build_rank_day_panels(
             _snapshot_bar_items(stock_bars),
-            fit_dates,
-            head="y_tc_rank",
-            cache_head="tc_rank",
+            family="tc_rank",
+            fit_dates=fit_dates,
         )
-        if not tau_rank_days:
+        if not tau_days:
             tc_rank_note = "τc_rank 面板为空"
-        else:
+            tc_note = "τc 面板为空"
+    except Exception as exc:  # noqa: BLE001
+        logger.info("tier tau panel skipped: %s", exc)
+        tc_rank_note = f"τc_rank 未入定档：{exc}"
+        tc_note = f"τc 未入定档：{exc}"
+
+    if tau_days:
+        try:
             tc_rank_pack = _lift_from_panels(
-                tau_rank_days,
+                tau_days,
                 fit_dates,
                 tier_dates,
                 eval_dates=eval_dates,
@@ -1420,23 +1373,13 @@ def collect_tier_lift(
                 tc_holdout_rank = tc_rank_pack.get("holdout_by_code_cs") or {}
             else:
                 tc_rank_note = str(tc_rank_pack.get("error") or "τc_rank 定档失败")
-    except Exception as exc:  # noqa: BLE001
-        logger.info("tier tc_rank lift skipped: %s", exc)
-        tc_rank_note = f"τc_rank 未入定档：{exc}"
+        except Exception as exc:  # noqa: BLE001
+            logger.info("tier tc_rank lift skipped: %s", exc)
+            tc_rank_note = f"τc_rank 未入定档：{exc}"
 
-    set_tier_progress("准备 τc", "Ridge · 只在内存，不写研究套")
-    try:
-        tau_abs_days = _build_tau_day_panels_for_tier(
-            _snapshot_bar_items(stock_bars),
-            fit_dates,
-            head="y_tc",
-            cache_head="tc",
-        )
-        if not tau_abs_days:
-            tc_note = "τc 面板为空"
-        else:
+        try:
             tc_pack = _lift_from_panels(
-                tau_abs_days,
+                tau_days,
                 fit_dates,
                 tier_dates,
                 eval_dates=eval_dates,
@@ -1448,9 +1391,9 @@ def collect_tier_lift(
                 tc_holdout_abs = tc_pack.get("holdout_by_code_abs") or {}
             else:
                 tc_note = str(tc_pack.get("error") or "τc 定档失败")
-    except Exception as exc:  # noqa: BLE001
-        logger.info("tier tc lift skipped: %s", exc)
-        tc_note = f"τc 未入定档：{exc}"
+        except Exception as exc:  # noqa: BLE001
+            logger.info("tier tc lift skipped: %s", exc)
+            tc_note = f"τc 未入定档：{exc}"
 
     set_tier_progress("计算猜涨 lift ", "")
     oo_rank_map = oo_rank.get("by_code_cs") or oo_rank.get("by_code") or {}
