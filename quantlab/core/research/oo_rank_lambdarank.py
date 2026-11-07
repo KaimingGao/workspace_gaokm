@@ -2316,18 +2316,54 @@ def fit_oo_rank_report(
     return report
 
 
+def rank_oos_shadow_deltas(
+    rank_m: Optional[Dict[str, Any]],
+    ridge_m: Optional[Dict[str, Any]],
+    *,
+    y_key: str = "topk_mean_y_oo",
+) -> Dict[str, Optional[float]]:
+    """LambdaRank vs Ridge 同窗 OOS Δ（含 Gate；``y_key`` 为 TopK 收益字段名）。"""
+
+    def _delta(a: Any, b: Any) -> Optional[float]:
+        if a is None or b is None:
+            return None
+        try:
+            return round(float(a) - float(b), 4)
+        except (TypeError, ValueError):
+            return None
+
+    rm = rank_m if isinstance(rank_m, dict) else {}
+    rg = ridge_m if isinstance(ridge_m, dict) else {}
+    y_delta_key = (
+        "delta_topk_mean_y_tc" if y_key == "topk_mean_y_tc" else "delta_topk_mean_y_oo"
+    )
+    return {
+        y_delta_key: _delta(rm.get(y_key), rg.get(y_key)),
+        "delta_spearman": _delta(rm.get("spearman"), rg.get("spearman")),
+        "delta_cs_ic": _delta(rm.get("cs_ic"), rg.get("cs_ic")),
+        "delta_cs_icir": _delta(rm.get("cs_icir"), rg.get("cs_icir")),
+        "delta_topk_overlap": _delta(rm.get("topk_overlap"), rg.get("topk_overlap")),
+        "delta_ndcg_at_k": _delta(rm.get("ndcg_at_k"), rg.get("ndcg_at_k")),
+        "delta_gate_lift": _delta(rm.get("gate_lift"), rg.get("gate_lift")),
+        "delta_gate_mean_y": _delta(rm.get("gate_mean_y"), rg.get("gate_mean_y")),
+        "delta_gate_strong_lift": _delta(
+            rm.get("gate_strong_lift"), rg.get("gate_strong_lift")
+        ),
+    }
+
+
 def compare_oo_rank_shadow_track(
     stock_bars: Sequence[Dict[str, Any]],
     **kwargs: Any,
 ) -> Dict[str, Any]:
-    """历史跑路对照入口：拟合报告 + OOS TopK 均值收益（rank vs ridge）。"""
+    """历史跑路对照入口：拟合报告 + OOS（Gate lift 主，IC 对照）。"""
     report = fit_oo_rank_report(stock_bars, persist=False, **kwargs)
     if not report.get("success"):
         return report
     oos = report.get("oos") or {}
     rank_m = oos.get("oo_rank") or {}
     ridge_m = oos.get("ridge_oo_baseline") or {}
-    return {
+    out: Dict[str, Any] = {
         "success": True,
         "task": "oo_rank_shadow_track",
         "schema": SCHEMA,
@@ -2339,67 +2375,12 @@ def compare_oo_rank_shadow_track(
         "ndcg_k": report.get("ndcg_k"),
         "n_features": report.get("n_features"),
         "oos": oos,
-        "delta_topk_mean_y_oo": (
-            None
-            if rank_m.get("topk_mean_y_oo") is None or ridge_m.get("topk_mean_y_oo") is None
-            else round(
-                float(rank_m["topk_mean_y_oo"]) - float(ridge_m["topk_mean_y_oo"]),
-                4,
-            )
-        ),
-        "delta_spearman": (
-            None
-            if rank_m.get("spearman") is None or ridge_m.get("spearman") is None
-            else round(float(rank_m["spearman"]) - float(ridge_m["spearman"]), 4)
-        ),
-        "delta_cs_ic": (
-            None
-            if rank_m.get("cs_ic") is None or ridge_m.get("cs_ic") is None
-            else round(float(rank_m["cs_ic"]) - float(ridge_m["cs_ic"]), 4)
-        ),
-        "delta_cs_icir": (
-            None
-            if rank_m.get("cs_icir") is None or ridge_m.get("cs_icir") is None
-            else round(float(rank_m["cs_icir"]) - float(ridge_m["cs_icir"]), 4)
-        ),
-        "delta_topk_overlap": (
-            None
-            if rank_m.get("topk_overlap") is None or ridge_m.get("topk_overlap") is None
-            else round(
-                float(rank_m["topk_overlap"]) - float(ridge_m["topk_overlap"]),
-                4,
-            )
-        ),
-        "delta_ndcg_at_k": (
-            None
-            if rank_m.get("ndcg_at_k") is None or ridge_m.get("ndcg_at_k") is None
-            else round(float(rank_m["ndcg_at_k"]) - float(ridge_m["ndcg_at_k"]), 4)
-        ),
-        "delta_gate_lift": (
-            None
-            if rank_m.get("gate_lift") is None or ridge_m.get("gate_lift") is None
-            else round(float(rank_m["gate_lift"]) - float(ridge_m["gate_lift"]), 4)
-        ),
-        "delta_gate_mean_y": (
-            None
-            if rank_m.get("gate_mean_y") is None or ridge_m.get("gate_mean_y") is None
-            else round(
-                float(rank_m["gate_mean_y"]) - float(ridge_m["gate_mean_y"]), 4
-            )
-        ),
-        "delta_gate_strong_lift": (
-            None
-            if rank_m.get("gate_strong_lift") is None
-            or ridge_m.get("gate_strong_lift") is None
-            else round(
-                float(rank_m["gate_strong_lift"]) - float(ridge_m["gate_strong_lift"]),
-                4,
-            )
-        ),
         "note": report.get("note"),
         "return_model": report.get("return_model"),
         "return_model_research": report.get("return_model_research"),
     }
+    out.update(rank_oos_shadow_deltas(rank_m, ridge_m, y_key="topk_mean_y_oo"))
+    return out
 
 
 def stamp_rank_zscore_universe_meta(
@@ -2492,6 +2473,7 @@ __all__ = [
     "compare_oo_rank_shadow_track",
     "explain_oo_rank_prediction",
     "fit_oo_rank_report",
+    "rank_oos_shadow_deltas",
     "load_oo_rank_last_report",
     "load_oo_rank_model",
     "oo_rank_last_report_path",

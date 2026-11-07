@@ -29,18 +29,19 @@ def _log(msg: str) -> None:
 
 def _gate_row(rank_m: Dict[str, Any], ridge_m: Dict[str, Any], deltas: Dict[str, Any]) -> Dict[str, Any]:
     nd = rank_m.get("ndcg_at_k")
-    sp = rank_m.get("spearman")
-    sp_r = ridge_m.get("spearman")
+    gl = rank_m.get("gate_lift")
+    gl_r = ridge_m.get("gate_lift")
     topk = rank_m.get("topk_mean_y_oo")
     topk_r = ridge_m.get("topk_mean_y_oo")
-    d_sp = deltas.get("delta_spearman")
+    d_gl = deltas.get("delta_gate_lift")
     checks = {
         "ndcg_ge_055": nd is not None and float(nd) >= 0.55,
-        "spearman_beats_ridge": (
-            sp is not None
-            and sp_r is not None
-            and float(sp) > float(sp_r)
-            and (float(sp) > 0 or (d_sp is not None and float(d_sp) >= 0.02))
+        # 主裁判：名次闸对齐 lift，不再用全截面 Rank IC
+        "gate_lift_beats_ridge": (
+            gl is not None
+            and gl_r is not None
+            and float(gl) > float(gl_r)
+            and (float(gl) > 0 or (d_gl is not None and float(d_gl) >= 0.02))
         ),
         "topk_not_worse": (
             topk is not None
@@ -107,6 +108,7 @@ def main() -> None:
         rank_m = oos.get("oo_rank") or {}
         ridge_m = oos.get("ridge_oo_baseline") or {}
         deltas = {
+            "delta_gate_lift": track.get("delta_gate_lift"),
             "delta_spearman": track.get("delta_spearman"),
             "delta_topk_overlap": track.get("delta_topk_overlap"),
             "delta_topk_mean_y_oo": track.get("delta_topk_mean_y_oo"),
@@ -120,12 +122,16 @@ def main() -> None:
             "n_test_days": track.get("n_test_days"),
             "n_features": track.get("n_features"),
             "rank": {
+                "gate_lift": rank_m.get("gate_lift"),
+                "gate_mean_y": rank_m.get("gate_mean_y"),
                 "spearman": rank_m.get("spearman"),
                 "ndcg_at_k": rank_m.get("ndcg_at_k"),
                 "topk_overlap": rank_m.get("topk_overlap"),
                 "topk_mean_y_oo": rank_m.get("topk_mean_y_oo"),
             },
             "ridge": {
+                "gate_lift": ridge_m.get("gate_lift"),
+                "gate_mean_y": ridge_m.get("gate_mean_y"),
                 "spearman": ridge_m.get("spearman"),
                 "ndcg_at_k": ridge_m.get("ndcg_at_k"),
                 "topk_overlap": ridge_m.get("topk_overlap"),
@@ -136,8 +142,8 @@ def main() -> None:
         }
         rows.append(row)
         _log(
-            f"  ρ={rank_m.get('spearman')} ndcg={rank_m.get('ndcg_at_k')} "
-            f"Δρ={deltas.get('delta_spearman')} gate={gate.get('pass')}"
+            f"  gate_lift={rank_m.get('gate_lift')} Δgate={deltas.get('delta_gate_lift')} "
+            f"ndcg={rank_m.get('ndcg_at_k')} pass={gate.get('pass')}"
         )
 
     out = {

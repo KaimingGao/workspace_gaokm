@@ -98,15 +98,17 @@ def run_one(stock_bars, index_bars, day_panels, excess_mode: str = "index"):
     print(f"  训练天数: {track.get('n_train_days')}, 验证天数: {track.get('n_test_days')}")
     rec = track.get("recommended_backend") or track.get("backend")
     if rec:
-        print(f"  NDCG@K 推荐 backend: {rec}")
+        print(f"  落盘/对照 backend: {rec}")
+    gn = rank_m.get("gate_n") or oos.get("gate_n") or 10
     print()
     print(f"  {'':28s}  {'LambdaRank':>10s}  {'Ridge':>10s}  {'Δ':>10s}")
-    print(f"  {'IC':28s}  {_f(rank_m.get('cs_ic')):>10s}  {_f(ridge_m.get('cs_ic')):>10s}  {_f(track.get('delta_cs_ic')):>10s}")
-    print(f"  {'ICIR':28s}  {_f(rank_m.get('cs_icir')):>10s}  {_f(ridge_m.get('cs_icir')):>10s}  {_f(track.get('delta_cs_icir')):>10s}")
-    print(f"  {'Rank IC':28s}  {_f(rank_m.get('spearman')):>10s}  {_f(ridge_m.get('spearman')):>10s}  {_f(track.get('delta_spearman')):>10s}")
+    print(f"  {f'Gate lift<{gn}':28s}  {_f(rank_m.get('gate_lift')):>10s}  {_f(ridge_m.get('gate_lift')):>10s}  {_f(track.get('delta_gate_lift')):>10s}")
+    print(f"  {f'Gate y%<{gn}':28s}  {_f(rank_m.get('gate_mean_y')):>10s}  {_f(ridge_m.get('gate_mean_y')):>10s}  {_f(track.get('delta_gate_mean_y')):>10s}")
     print(f"  {'NDCG@10':28s}  {_f(rank_m.get('ndcg_at_k'), fmt='', w=4):>10s}  {_f(ridge_m.get('ndcg_at_k'), fmt='', w=4):>10s}  {_f(track.get('delta_ndcg_at_k'), fmt='', w=4):>10s}")
     print(f"  {'Top-10 Overlap':28s}  {_f(rank_m.get('topk_overlap'), fmt='', w=4):>10s}  {_f(ridge_m.get('topk_overlap'), fmt='', w=4):>10s}  {_f(track.get('delta_topk_overlap'), fmt='', w=4):>10s}")
     print(f"  {'Top-10 均值收益(%)':28s}  {_f(rank_m.get('topk_mean_y_oo')):>9s}%  {_f(ridge_m.get('topk_mean_y_oo')):>9s}%  {_f(track.get('delta_topk_mean_y_oo')):>9s}%")
+    print(f"  {'IC（对照）':28s}  {_f(rank_m.get('cs_ic')):>10s}  {_f(ridge_m.get('cs_ic')):>10s}  {_f(track.get('delta_cs_ic')):>10s}")
+    print(f"  {'Rank IC（对照）':28s}  {_f(rank_m.get('spearman')):>10s}  {_f(ridge_m.get('spearman')):>10s}  {_f(track.get('delta_spearman')):>10s}")
 
     return track
 

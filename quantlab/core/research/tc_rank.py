@@ -176,6 +176,7 @@ def fit_tc_rank_report(
         _fit_ridge_baseline,
         _oos_day_metrics,
         fit_lambdarank,
+        rank_oos_shadow_deltas,
         select_oo_rank_backend,
         stamp_oo_rank_fitted_at,
     )
@@ -366,14 +367,6 @@ def fit_tc_rank_report(
     model = chosen_pack["return_model"]
     hold_n = int(split_meta.get("holdout_trading_days") or holdout_trading_days)
 
-    def _delta(a: Any, b: Any) -> Optional[float]:
-        if a is None or b is None:
-            return None
-        try:
-            return round(float(a) - float(b), 4)
-        except (TypeError, ValueError):
-            return None
-
     report: Dict[str, Any] = {
         "success": True,
         "task": TASK,
@@ -408,24 +401,8 @@ def fit_tc_rank_report(
             "recommended_backend": recommended,
         },
         "shadow_track": {
-            "delta_ndcg_at_k": _delta(oos_rank.get("ndcg_at_k"), oos_ridge.get("ndcg_at_k")),
-            "delta_spearman": _delta(oos_rank.get("spearman"), oos_ridge.get("spearman")),
-            "delta_cs_ic": _delta(oos_rank.get("cs_ic"), oos_ridge.get("cs_ic")),
-            "delta_cs_icir": _delta(oos_rank.get("cs_icir"), oos_ridge.get("cs_icir")),
-            "delta_topk_overlap": _delta(
-                oos_rank.get("topk_overlap"), oos_ridge.get("topk_overlap")
-            ),
-            "delta_topk_mean_y_tc": _delta(
-                oos_rank.get("topk_mean_y_tc"), oos_ridge.get("topk_mean_y_tc")
-            ),
-            "delta_gate_lift": _delta(
-                oos_rank.get("gate_lift"), oos_ridge.get("gate_lift")
-            ),
-            "delta_gate_mean_y": _delta(
-                oos_rank.get("gate_mean_y"), oos_ridge.get("gate_mean_y")
-            ),
-            "delta_gate_strong_lift": _delta(
-                oos_rank.get("gate_strong_lift"), oos_ridge.get("gate_strong_lift")
+            **rank_oos_shadow_deltas(
+                oos_rank, oos_ridge, y_key="topk_mean_y_tc"
             ),
             "recommended_backend": recommended,
         },

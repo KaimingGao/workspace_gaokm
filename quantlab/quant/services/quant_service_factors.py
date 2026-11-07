@@ -1220,39 +1220,14 @@ class QuantFactorMixin:
             report["api_note"] = str(note)[:200]
         if report.get("success"):
             save_oo_rank_last_report(report)
+            from core.research.oo_rank_lambdarank import rank_oos_shadow_deltas
+
             oos = report.get("oos") or {}
             rank_m = oos.get("oo_rank") or {}
             ridge_m = oos.get("ridge_oo_baseline") or {}
-
-            def _delta(a, b):
-                if a is None or b is None:
-                    return None
-                try:
-                    return round(float(a) - float(b), 4)
-                except (TypeError, ValueError):
-                    return None
-
             report["shadow_track"] = {
-                "delta_topk_mean_y_oo": _delta(
-                    rank_m.get("topk_mean_y_oo"), ridge_m.get("topk_mean_y_oo")
-                ),
-                "delta_spearman": _delta(rank_m.get("spearman"), ridge_m.get("spearman")),
-                "delta_cs_ic": _delta(rank_m.get("cs_ic"), ridge_m.get("cs_ic")),
-                "delta_cs_icir": _delta(rank_m.get("cs_icir"), ridge_m.get("cs_icir")),
-                "delta_topk_overlap": _delta(
-                    rank_m.get("topk_overlap"), ridge_m.get("topk_overlap")
-                ),
-                "delta_ndcg_at_k": _delta(
-                    rank_m.get("ndcg_at_k"), ridge_m.get("ndcg_at_k")
-                ),
-                "delta_gate_lift": _delta(
-                    rank_m.get("gate_lift"), ridge_m.get("gate_lift")
-                ),
-                "delta_gate_mean_y": _delta(
-                    rank_m.get("gate_mean_y"), ridge_m.get("gate_mean_y")
-                ),
-                "delta_gate_strong_lift": _delta(
-                    rank_m.get("gate_strong_lift"), ridge_m.get("gate_strong_lift")
+                **rank_oos_shadow_deltas(
+                    rank_m, ridge_m, y_key="topk_mean_y_oo"
                 ),
                 "recommended_backend": report.get("recommended_backend"),
             }
