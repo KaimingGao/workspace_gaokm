@@ -1361,13 +1361,15 @@ export function initQuant(ctx) {
       ? `Gate lift<${gateStrongN}`
       : "Gate lift·强";
     // 主裁判：名次闸对齐；IC 类仅对照（全截面相关不预示调仓）
+    // primary=true 才计入看板胜场，避免 IC 噪声稀释 Gate 结论
     const rows = [
       [
         gateLab,
         rank.gate_lift,
         ridge.gate_lift,
         delta(rank.gate_lift, ridge.gate_lift, track.delta_gate_lift),
-        "Holdout 日：本头相对分编 1..n，取 rank<N 的等权标签均值 − 全日均值；对齐回测名次闸（单头近似）",
+        "Holdout 日：本头相对分编 1..n，取 rank<N 的等权标签均值 − 全日均值；对齐回测名次闸（单头近似）。日度 winsor 聚合，截面不足 N 的日跳过。",
+        true,
       ],
       [
         gateMeanLab,
@@ -1375,6 +1377,7 @@ export function initQuant(ctx) {
         ridge.gate_mean_y,
         delta(rank.gate_mean_y, ridge.gate_mean_y, track.delta_gate_mean_y),
         "Holdout 日 rank<N 集合的等权标签收益（%）",
+        true,
       ],
       [
         gateStrongLab,
@@ -1386,24 +1389,31 @@ export function initQuant(ctx) {
           track.delta_gate_strong_lift
         ),
         "强档名次闸近似：rank<oo_rank_strong_max 的 lift",
+        true,
       ],
       [
         "NDCG@K",
         rank.ndcg_at_k,
         ridge.ndcg_at_k,
         delta(rank.ndcg_at_k, ridge.ndcg_at_k, track.delta_ndcg_at_k),
+        null,
+        true,
       ],
       [
         "TopK overlap",
         rank.topk_overlap,
         ridge.topk_overlap,
         delta(rank.topk_overlap, ridge.topk_overlap, track.delta_topk_overlap),
+        null,
+        true,
       ],
       [
         desk.yLabel,
         rank[desk.yKey],
         ridge[desk.yKey],
         delta(rank[desk.yKey], ridge[desk.yKey], track[desk.deltaYKey]),
+        null,
+        true,
       ],
       [
         "IC",
@@ -1411,6 +1421,7 @@ export function initQuant(ctx) {
         ridge.cs_ic,
         delta(rank.cs_ic, ridge.cs_ic, track.delta_cs_ic),
         desk.icTip,
+        false,
       ],
       [
         "ICIR",
@@ -1418,6 +1429,7 @@ export function initQuant(ctx) {
         ridge.cs_icir,
         delta(rank.cs_icir, ridge.cs_icir, track.delta_cs_icir),
         "日频 IC 均值 / 标准差；Holdout 不足 3 日不出；对照用",
+        false,
       ],
       [
         "Rank IC",
@@ -1425,15 +1437,18 @@ export function initQuant(ctx) {
         ridge.spearman,
         delta(rank.spearman, ridge.spearman, track.delta_spearman),
         "日频截面 Spearman 均值；对照用，不预示调仓",
+        false,
       ],
     ];
     let lrWins = 0;
     let rgWins = 0;
     const body = rows
-      .map(([lab, a, b, d, tip]) => {
+      .map(([lab, a, b, d, tip, primary]) => {
         const dn = d == null || !Number.isFinite(Number(d)) ? null : Number(d);
-        if (dn != null && dn > 1e-12) lrWins += 1;
-        if (dn != null && dn < -1e-12) rgWins += 1;
+        if (primary) {
+          if (dn != null && dn > 1e-12) lrWins += 1;
+          if (dn != null && dn < -1e-12) rgWins += 1;
+        }
         const lrCls = dn != null && dn > 1e-12 ? "num is-best" : "num";
         const rgCls = dn != null && dn < -1e-12 ? "num is-best" : "num";
         const dCls =

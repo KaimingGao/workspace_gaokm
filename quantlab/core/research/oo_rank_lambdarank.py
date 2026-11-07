@@ -45,6 +45,9 @@ DEFAULT_NDCG_K = 10
 # 与 /replay 默认 oo_rank_max / oo_rank_strong_max 对齐（名次闸：rank < N）
 DEFAULT_GATE_N = 10
 DEFAULT_GATE_STRONG_N = 100
+# Gate 日度聚合：至少几天、winsor 两端各裁比例（抑制单日极端）
+DEFAULT_GATE_MIN_DAYS = 3
+DEFAULT_GATE_WINSOR = 0.1
 DEFAULT_HOLDOUT_TRADING_DAYS_OO_RANK = 20
 # LambdaRank 训练标签：日截面收益名次等分到固定档（非稠密 0..n-1）
 LAMBDARANK_N_BUCKETS = 100
@@ -1748,20 +1751,24 @@ def _gate_day_stats(
     """当日名次闸：预测分降序编 1..n，取 ``rank < gate_n`` 的等权标签均值与相对全日 lift。
 
     对齐回测 ``max(oo_rank, τc_rank) < N`` 的单头近似（本函数只看本头相对序）。
+    截面人数 ``n < gate_n`` 时跳过（避免闸几乎全员通过、lift 失真）。
     """
     n = len(preds)
-    if n < 5:
+    if n < 5 or n != len(ys):
         return None
     try:
         nn = int(gate_n)
     except (TypeError, ValueError):
         return None
-    if nn <= 1:
+    if nn <= 1 or nn > n:
         return None
-    order = sorted(range(n), key=lambda i: float(preds[i]), reverse=True)
+    # 同分按索引稳定破平，避免日间抖动
+    order = sorted(
+        range(n), key=lambda i: (-float(preds[i]), int(i))
+    )
     base = sum(float(ys[i]) for i in range(n)) / float(n)
     sel = [float(ys[i]) for r, i in enumerate(order) if (r + 1) < nn]
-    if not sel:
+    if not sel or len(sel) >= n:
         return None
     mean_y = sum(sel) / float(len(sel))
     return {
@@ -1770,6 +1777,44 @@ def _gate_day_stats(
         "pass_n": float(len(sel)),
         "base_y": round(base, 4),
     }
+
+
+def _robust_series_mean(
+    xs: Sequence[float],
+    *,
+    min_days: int = DEFAULT_GATE_MIN_DAYS,
+    winsor: float = DEFAULT_GATE_WINSOR,
+) -> Optional[float]:
+    """日序列稳健均值：不足 ``min_days`` 不出；两端 winsor 后再平均。"""
+    vals = [float(x) for x in xs if x is not None and math.isfinite(float(x))]
+    if len(vals) < max(1, int(min_days or 1)):
+        return None
+    try:
+        w = float(winsor)
+    except (TypeError, ValueError):
+        w = 0.0
+    w = max(0.0, min(0.25, w))
+    if w > 0.0 and len(vals) >= 5:
+        ordered = sorted(vals)
+        k = int(math.floor(len(ordered) * w))
+        if k > 0 and 2 * k < len(ordered):
+            ordered = ordered[k : len(ordered) - k]
+        vals = ordered
+    if not vals:
+        return None
+    return round(sum(vals) / len(vals), 4)
+
+
+def _series_ir(xs: Sequence[float], *, min_days: int = DEFAULT_GATE_MIN_DAYS) -> Optional[float]:
+    """日序列 mean/std（与 ICIR 同形）；不足天数或零方差 → None。"""
+    vals = [float(x) for x in xs if x is not None and math.isfinite(float(x))]
+    if len(vals) < max(3, int(min_days or 1)):
+        return None
+    mu = sum(vals) / len(vals)
+    var = sum((v - mu) ** 2 for v in vals) / len(vals)
+    if var < 1e-16:
+        return None
+    return round(mu / (var ** 0.5), 4)
 
 
 def _is_ridge_linear(model: Dict[str, Any]) -> bool:
@@ -1881,8 +1926,14 @@ def _oos_day_metrics(
     gate_s_lift_days: List[float] = []
     gate_s_pass_days: List[float] = []
     n_scored = 0
-    gn = max(0, int(gate_n or 0))
-    gsn = max(0, int(gate_strong_n or 0))
+    try:
+        gn = max(0, int(gate_n or 0))
+    except (TypeError, ValueError):
+        gn = int(DEFAULT_GATE_N)
+    try:
+        gsn = max(0, int(gate_strong_n or 0))
+    except (TypeError, ValueError):
+        gsn = int(DEFAULT_GATE_STRONG_N)
     for day in days:
         preds, ys = _day_scores(day, fit)
         if allow is not None:
@@ -1919,7 +1970,7 @@ def _oos_day_metrics(
         if nd is not None:
             ndcg_days.append(nd)
         kk = max(1, min(int(topk_track), len(pp)))
-        idx = sorted(range(len(pp)), key=lambda i: pp[i], reverse=True)[:kk]
+        idx = sorted(range(len(pp)), key=lambda i: (-float(pp[i]), int(i)))[:kk]
         topk_rets.append(sum(yy[i] for i in idx) / float(kk))
         if gn > 1:
             g = _gate_day_stats(pp, yy, gate_n=gn)
@@ -1955,12 +2006,16 @@ def _oos_day_metrics(
         "topk": int(topk_track),
         "gate_n": int(gn),
         "gate_strong_n": int(gsn),
-        "gate_mean_y": _mean(gate_mean_days),
-        "gate_lift": _mean(gate_lift_days),
+        "gate_mean_y": _robust_series_mean(gate_mean_days),
+        "gate_lift": _robust_series_mean(gate_lift_days),
+        "gate_lift_ir": _series_ir(gate_lift_days),
         "gate_pass_n": _mean(gate_pass_days),
-        "gate_strong_mean_y": _mean(gate_s_mean_days),
-        "gate_strong_lift": _mean(gate_s_lift_days),
+        "gate_day_count": len(gate_lift_days),
+        "gate_strong_mean_y": _robust_series_mean(gate_s_mean_days),
+        "gate_strong_lift": _robust_series_mean(gate_s_lift_days),
+        "gate_strong_lift_ir": _series_ir(gate_s_lift_days),
         "gate_strong_pass_n": _mean(gate_s_pass_days),
+        "gate_strong_day_count": len(gate_s_lift_days),
     }
     return out
 

@@ -425,6 +425,8 @@ class TestWebQuantJsGuards(unittest.TestCase):
         self.assertIn('"Rank IC"', quant_js)
         self.assertIn("gate_lift", quant_js)
         self.assertIn("Gate lift", quant_js)
+        self.assertIn("primary", quant_js)
+        self.assertIn("避免 IC 噪声稀释 Gate 结论", quant_js)
         self.assertIn("rank.cs_ic", quant_js)
         self.assertIn("rank.cs_icir", quant_js)
         self.assertIn("track.delta_cs_ic", quant_js)

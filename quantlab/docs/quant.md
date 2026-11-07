@@ -482,7 +482,7 @@ score_stock(code) 续——
 
 ### 4.3 ŷ_oo_rank（LambdaRank / Ridge · 截面名次）
 
-同窗双训：**LightGBM LambdaRank**（按日 group 优化 NDCG）与 **Ridge ŷ_oo**（回归后截面排名）。特征与 ŷ_oo 同口径：原始 `sub_scores`；卡头 **日截面 Z**（默认开；关 → 训练窗全局 μ/σ）。对照板**主指标**为 Gate lift / Gate y%（Holdout 日对本头相对分编 1..n，取 `rank < oo_rank_max` 默认 10 的等权标签均值及其相对全日 lift；另报强档 `rank < oo_rank_strong_max` 默认 100），对齐回测名次闸的单头近似。IC / ICIR / Rank IC 同口径保留为**对照**（全截面相关不预示调仓）。
+同窗双训：**LightGBM LambdaRank**（按日 group 优化 NDCG）与 **Ridge ŷ_oo**（回归后截面排名）。特征与 ŷ_oo 同口径：原始 `sub_scores`；卡头 **日截面 Z**（默认开；关 → 训练窗全局 μ/σ）。对照板**主指标**为 Gate lift / Gate y%（Holdout 日对本头相对分编 1..n，取 `rank < oo_rank_max` 默认 10 的等权标签均值及其相对全日 lift；另报强档 `rank < oo_rank_strong_max` 默认 100），对齐回测名次闸的单头近似。截面人数 `< N` 的日跳过；日度 lift **winsor** 后再平均（默认两端各 10%，至少 3 日才出）。IC / ICIR / Rank IC 同口径保留为**对照**（全截面相关不预示调仓；看板胜场不计入）。
 相对分 `s` 经**当日观察池截面**编成整数名次 `y_oo_rank ∈ 1..n`（**1=相对分最高**），写入成交明细 **oo_rank** 列；原始分保留在 `y_oo_rank_score`。
 **不**代入 `y_oo_fuse`。过 fuse 入场门槛后，买序按 `y_oo_rank` 升序（1=最好；缺 rank 回退 fuse 降序）。可选入场闸 `oo_rank_max`（`/replay` fuse 门槛「入场」卡内的 **rank · oo & τc**，默认 `10`；≤0=关）：未过强档时过 fuse 后再须 `max(y_oo_rank, y_τc_rank) < max`（两侧都缺不拦；仅一侧有则用该侧；未过则已持仓清仓）。`y_oo_fuse > fuse_strong` 时改看强档卡内的 **rank · oo & τc**（`oo_rank_strong_max`，默认 `100`；≤0=关；与强档手数同一比较）。
 

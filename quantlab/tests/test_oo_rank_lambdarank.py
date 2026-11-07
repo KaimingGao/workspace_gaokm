@@ -215,7 +215,11 @@ class TestNanLabelRank(unittest.TestCase):
         self.assertTrue(np.isfinite(mixed["topk_mean_y_oo"]))
 
     def test_oos_gate_lift_prefers_top_ranks(self):
-        from core.research.oo_rank_lambdarank import _gate_day_stats, _oos_day_metrics
+        from core.research.oo_rank_lambdarank import (
+            _gate_day_stats,
+            _oos_day_metrics,
+            _robust_series_mean,
+        )
 
         # 预测序与收益同序：gate 应显著正 lift
         ys = [0.0, 1.0, 2.0, 3.0, 4.0, 5.0]
@@ -228,6 +232,17 @@ class TestNanLabelRank(unittest.TestCase):
         g_bad = _gate_day_stats(list(reversed(preds)), ys, gate_n=3)
         self.assertIsNotNone(g_bad)
         self.assertLess(g_bad["lift"], 0.0)
+        # 截面不足 N：跳过（避免全员通过）
+        self.assertIsNone(_gate_day_stats(preds, ys, gate_n=7))
+        # 极端日 winsor：10 点 × 0.1 → 两端各裁 1，均值回到中段
+        self.assertEqual(
+            _robust_series_mean(
+                [100.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, -100.0],
+                min_days=3,
+                winsor=0.1,
+            ),
+            1.0,
+        )
 
         def _scores(day, _fit):
             return list(day["preds"]), [float(v) for v in day["ys"]]
@@ -251,8 +266,18 @@ class TestNanLabelRank(unittest.TestCase):
         self.assertEqual(out["gate_strong_n"], 5)
         self.assertIsNotNone(out["gate_lift"])
         self.assertGreater(out["gate_lift"], 0.0)
+        self.assertEqual(out["gate_day_count"], 3)
         self.assertAlmostEqual(out["gate_pass_n"], 2.0, places=4)
         self.assertIsNotNone(out["gate_strong_lift"])
+        # 不足 min_days → Gate 不出
+        with patch(
+            "core.research.oo_rank_lambdarank._day_scores", side_effect=_scores
+        ):
+            thin = _oos_day_metrics(
+                days[:2], {}, topk_track=3, ndcg_k=3, gate_n=3, gate_strong_n=5
+            )
+        self.assertIsNone(thin.get("gate_lift"))
+        self.assertEqual(thin.get("gate_day_count"), 2)
 
     @unittest.skipUnless(_has_lightgbm(), "lightgbm 未安装")
     def test_fit_drops_nan_labels(self):
