@@ -1170,8 +1170,11 @@ def _debug_scores(
     item: Optional[dict],
     fuse_pct: Optional[float],
     rs: Optional[float],
+    *,
+    include_tips: bool = True,
     **extra: Any,
 ) -> Dict[str, Any]:
+    """明细标量分；``include_tips`` 默认开。买侧跳过腿关 tip，避免全市场×日峰值内存。"""
     from core.paper.rebalance.path_matrix import scores_from_rebalance_item
     from core.signal.yhat_windows import (
         pick_y_oo_fuse,
@@ -1209,7 +1212,8 @@ def _debug_scores(
     if y_τc is not None:
         out["predicted_score_tau"] = y_τc
     out.update(aux_yhat_fields(item))
-    out.update(tip_explain_fields(item))
+    if include_tips:
+        out.update(tip_explain_fields(item))
     out.update({k: v for k, v in extra.items() if v is not None})
     return out
 
@@ -1782,8 +1786,8 @@ def plan_rank_lot_day(
         rs = _rs_enter(code, rp)
         prior = _sent_prior(code)
         eff_item = _rank_scaled_item(code, item)
-        # 明细 / 表头写原始 fuse·名次；先验只进门槛与买序。
-        dbg = _debug_scores(item, rp, rs_raw, **w_fields)
+        # 明细 / 表头写原始 fuse·名次；先验只进门槛与买序。本段 dbg 只进跳过腿 → 不挂 tip。
+        dbg = _debug_scores(item, rp, rs_raw, include_tips=False, **w_fields)
         if item.get("_tau_prefix_miss"):
             if not any(str(h.get("stock_code") or "") == code for h in held_rows):
                 skips.append(
@@ -1912,8 +1916,15 @@ def plan_rank_lot_day(
         code = str(item.get("stock_code") or "").strip()
         if not code:
             continue
+        # 先无 tip；真正买入时再挂 tip，跳过腿不带 formula 大包。
         dbg = _debug_scores(
-            item, rp, _rs_ratio(rp), rank_i=i, rank_n=rank_n, **w_fields
+            item,
+            rp,
+            _rs_ratio(rp),
+            include_tips=False,
+            rank_i=i,
+            rank_n=rank_n,
+            **w_fields,
         )
         px = _f(px_buy.get(code))
         if px is None or px <= 0:
@@ -2099,6 +2110,10 @@ def plan_rank_lot_day(
             note = _sent_note(prior)
             if note and note not in buy_reason:
                 buy_reason = f"{buy_reason} · {note}"
+        tips = tip_explain_fields(item)
+        # 决策权以 cfg（已在 dbg）为准，勿被 scored 行旧 fusion_w_* 盖掉
+        tips.pop("fusion_w_oo", None)
+        tips.pop("fusion_w_oc", None)
         buy_row = {
             "side": "buy",
             "stock_code": code,
@@ -2109,6 +2124,7 @@ def plan_rank_lot_day(
             "reason": buy_reason,
             "amount": round(float(lots) * float(px), 2),
             **dbg,
+            **tips,
         }
         if prior:
             buy_row["sentiment_prior"] = str(prior.get("label") or "")

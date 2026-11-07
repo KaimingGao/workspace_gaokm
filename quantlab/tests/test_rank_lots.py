@@ -337,6 +337,46 @@ class TestPlanRankLotDay(unittest.TestCase):
         self.assertEqual(buy["formula_terms_path"]["total"], 1.5)
         self.assertEqual(buy["score_formula_terms"]["total"], 2.0)
 
+    def test_plan_skips_omit_formula_tips(self):
+        from core.paper.rebalance.rank_lots import plan_rank_lot_day
+
+        scored = [
+            {
+                "stock_code": "600000",
+                "predicted_score": 2.0,
+                "y_tau": 1.0,
+                "formula_terms_tau": {
+                    "total": 1.0,
+                    "terms": [{"key": "gap_pct", "contrib": 0.2}],
+                },
+            },
+            {
+                "stock_code": "600001",
+                "predicted_score": 0.0,
+                "y_tau": 0.0,
+                "hard_reject": True,
+                "reject_reason": "可预测性非A档",
+                "formula_terms_tau": {
+                    "total": 0.5,
+                    "terms": [{"key": "gap_pct", "contrib": 0.1}],
+                },
+            },
+        ]
+        out = plan_rank_lot_day(
+            scored=scored,
+            holdings=[],
+            cash=1_000_000,
+            prices={"600000": 10.0, "600001": 10.0},
+            cfg=_cfg(),
+        )
+        self.assertTrue(out["buys"])
+        self.assertIn("formula_terms_tau", out["buys"][0])
+        self.assertTrue(out["skips"])
+        for sk in out["skips"]:
+            self.assertNotIn("formula_terms_tau", sk)
+            self.assertNotIn("formula_terms", sk)
+            self.assertNotIn("score_formula_terms", sk)
+
     def test_tip_explain_fields_slims_terms(self):
         from core.paper.rebalance.rank_lots import tip_explain_fields
 
