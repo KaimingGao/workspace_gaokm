@@ -2396,9 +2396,9 @@ def fit_oo_rank_report(
             "recommended_backend": recommended,
         },
         "note": (
-            f"ŷ_oo_rank backend={chosen}（固定落盘 LambdaRank；对照推荐 {recommended}）；"
+            f"ŷ_oo_rank backend={chosen}（固定落盘 LambdaRank；Ridge 仅同窗对照）；"
             "只训 Holdout 前一套；启用研究→研究槽；启用执行=研究槽晋级；"
-            "OOS 主看 Gate lift（对齐名次闸）；IC 仅对照；"
+            "OOS 主看 Gate lift（对齐名次闸，不择优）；IC 仅对照；"
             "不进 y_oo_fuse；过入场后作买序；成交明细编当日截面 1..n 名次；"
             "可选 oo_rank_max 入场闸"
         ),

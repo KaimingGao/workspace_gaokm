@@ -189,13 +189,13 @@ def main() -> int:
         return 1
 
     from core.research.oo_rank_lambdarank import _predict_oo_rank_matrix
-    from core.research.oo_rank_panel import build_oo_rank_day_panels
     from core.research.oo_ridge_compact import predict_oo_matrix
+    from core.research.rank_day_panels import build_rank_day_panels
 
     t0 = time.time()
     print("建 oo 日面板（全池）…", flush=True)
-    oo_days = build_oo_rank_day_panels(
-        stock_bars, horizon_days=1, excess_mode="none"
+    oo_days = build_rank_day_panels(
+        stock_bars, family="oo_rank", horizon_days=1, excess_mode="none"
     )
     print(f"oo_days={len(oo_days)} 耗时 {time.time()-t0:.1f}s", flush=True)
     if len(oo_days) < int(args.lookback) + 20:

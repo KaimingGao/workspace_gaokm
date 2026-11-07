@@ -13,7 +13,7 @@ import numpy as np
 from core.research_universe import resolve_research_codes
 from core.research.portfolio_bars import load_portfolio_stock_bars
 from core.research.oo_rank_lambdarank import fit_oo_rank_report
-from core.research.oo_rank_panel import build_oo_rank_day_panels
+from core.research.rank_day_panels import build_rank_day_panels
 from core.signal.factors.meta.registry import _REGISTRY
 
 
@@ -32,8 +32,9 @@ def run_scenario(stock_bars, label, backend, alpha_oo_registered):
     """跑一次 fit_oo_rank_report，返回 OOS IC 摘要。"""
     t0 = time.time()
     # 预计算面板（max_window=70 ≥ ALPHA_OO_PANEL_WINDOW=62：hist≥60 + 今开）
-    days = build_oo_rank_day_panels(
+    days = build_rank_day_panels(
         stock_bars,
+        family="oo_rank",
         horizon_days=1,
         min_history=70,
         min_names=4,

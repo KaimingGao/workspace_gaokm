@@ -278,7 +278,7 @@ def _materialize_oo_rank(
     failures: Optional[List[str]] = None,
 ) -> Dict[str, Any]:
     """oo_rank：默认同口径读 oo 的 L1；超额或无法复用 oo 指纹时才现算并写穿。"""
-    from core.research.oo_rank_panel import build_oo_rank_day_panels
+    from core.research.rank_day_panels import build_rank_day_panels
 
     t0 = time.perf_counter()
     if stock_bars is None:
@@ -310,8 +310,9 @@ def _materialize_oo_rank(
         )
 
     try:
-        panels = build_oo_rank_day_panels(
+        panels = build_rank_day_panels(
             packs,
+            family="oo_rank",
             horizon_days=int(horizon_days),
             progress_cb=_pcb,
         )

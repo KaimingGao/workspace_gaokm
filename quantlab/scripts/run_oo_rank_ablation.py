@@ -17,9 +17,9 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if ROOT not in sys.path:
     sys.path.insert(0, ROOT)
 
-from core.research.oo_rank_panel import build_oo_rank_day_panels
 from core.research.portfolio_bars import load_portfolio_stock_bars
 from core.research.oo_rank_lambdarank import compare_oo_rank_shadow_track
+from core.research.rank_day_panels import build_rank_day_panels
 from core.watching.store import read_watching
 
 
@@ -80,8 +80,9 @@ def main() -> None:
         sys.exit(1)
 
     _log("建 raw 日面板（仅一次）...")
-    base_days = build_oo_rank_day_panels(
+    base_days = build_rank_day_panels(
         stock_bars,
+        family="oo_rank",
         horizon_days=1,
         min_history=12,
         min_names=8,

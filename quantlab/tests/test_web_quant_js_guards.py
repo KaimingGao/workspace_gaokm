@@ -434,6 +434,8 @@ class TestWebQuantJsGuards(unittest.TestCase):
         self.assertIn("quant-oos-board", quant_js)
         self.assertIn("quant-oos-bar", quant_js)
         self.assertIn("拟合后对照 Gate lift · 启用固定落盘 LambdaRank", panel)
+        self.assertIn("落盘=LambdaRank（Ridge 仅对照，不择优）", quant_js)
+        self.assertIn("LambdaRank vs Ridge 对照（不择优）", quant_js)
         self.assertIn("rankHasLambdaPack", quant_js)
         self.assertIn("请重新启用研究（固定 LambdaRank，不重训）", quant_js)
         self.assertIn("请重拟合并启用 LambdaRank", quant_js)

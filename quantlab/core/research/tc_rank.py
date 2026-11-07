@@ -180,9 +180,7 @@ def fit_tc_rank_report(
         select_oo_rank_backend,
         stamp_oo_rank_fitted_at,
     )
-    from core.research.panel_matrix import collect_tau_compact
-    from core.research.rank_day_panels import tau_compact_to_day_panels
-    from core.yhat.keys import TAU_Z_FEATURES
+    from core.research.rank_day_panels import build_rank_day_panels
 
     # 物化刚扫过的整窗立方还在进程缓存里。面板起来之前先卸掉。
     try:
@@ -194,45 +192,45 @@ def fit_tc_rank_report(
 
     bars = [it for it in (stock_bars or []) if isinstance(it, dict)]
     calendar = calendar_dates_from_stock_bars(bars)
-    X, col_names, ys, dates, metas, n_stocks = collect_tau_compact(
-        bars,
-        list(TAU_Z_FEATURES),
-        min_history=int(min_history),
-        tau_hm="open",
-        include_alpha_tc=True,
-        head="y_tc_rank",
-        cache_head="tc_rank",
-    )
-    if len(ys) < 20:
-        return {
-            "success": False,
-            "error": f"rows_insufficient n={len(ys)}（需≥20）",
-            "task": TASK,
-            "n_rows": len(ys),
-            "n_stocks": n_stocks,
-        }
-
-    _train_idx, _test_idx, split_meta = resolve_ridge_split(
-        dates,
-        holdout_trading_days=int(holdout_trading_days or DEFAULT_HOLDOUT_TRADING_DAYS_TC_RANK),
+    hold_n = int(holdout_trading_days or DEFAULT_HOLDOUT_TRADING_DAYS_TC_RANK)
+    # 日历预切：raw 入模列只看训窗（与旧 collect→feature_dates 同口径）
+    _pre_tr, _pre_te, split_pre = resolve_ridge_split(
+        calendar,
+        holdout_trading_days=hold_n,
         label_horizon_days=0,
         calendar_dates=calendar,
     )
-    train_days = set(split_meta.get("train_days") or [])
-    test_days = set(split_meta.get("test_days") or [])
-    # 与定档 / oo_rank 同构：矩阵 → 入模列 → 日截面
-    days_all = tau_compact_to_day_panels(
-        X,
-        col_names,
-        ys,
-        dates,
-        metas,
-        feature_dates=sorted(train_days),
-        min_names=min_names,
+    fit_dates = sorted(split_pre.get("train_days") or [])
+    panel_stats: Dict[str, Any] = {}
+    days_all = build_rank_day_panels(
+        bars,
+        family="tc_rank",
+        fit_dates=fit_dates,
+        min_history=int(min_history),
+        min_names=int(min_names),
+        stats_out=panel_stats,
     )
-    del X, ys, dates, metas, col_names
-    days_tr = [d for d in days_all if str(d.get("date") or "")[:10] in train_days]
-    days_te = [d for d in days_all if str(d.get("date") or "")[:10] in test_days]
+    n_stocks = int(panel_stats.get("n_stocks") or 0)
+    n_rows = int(panel_stats.get("n_rows") or 0)
+    if n_rows < 20 or not days_all:
+        return {
+            "success": False,
+            "error": f"rows_insufficient n={n_rows}（需≥20）",
+            "task": TASK,
+            "n_rows": n_rows,
+            "n_stocks": n_stocks,
+        }
+
+    # 与 oo_rank 同构：按日截面下标切 Holdout
+    date_rows = [str(d.get("date") or "")[:10] for d in days_all]
+    train_idx, test_idx, split_meta = resolve_ridge_split(
+        date_rows,
+        holdout_trading_days=hold_n,
+        label_horizon_days=0,
+        calendar_dates=calendar,
+    )
+    days_tr = [days_all[i] for i in train_idx]
+    days_te = [days_all[i] for i in test_idx]
     if len(days_tr) < 5 or len(days_te) < 1:
         return {
             "success": False,
@@ -342,7 +340,7 @@ def fit_tc_rank_report(
         chosen = "lambdarank"
     chosen_pack = backends[chosen]
     model = chosen_pack["return_model"]
-    hold_n = int(split_meta.get("holdout_trading_days") or holdout_trading_days)
+    hold_n_meta = int(split_meta.get("holdout_trading_days") or hold_n)
 
     report: Dict[str, Any] = {
         "success": True,
@@ -362,7 +360,7 @@ def fit_tc_rank_report(
         "oos": {
             "tc_rank": oos_rank,
             "ridge_tc_baseline": oos_ridge,
-            "holdout_trading_days": hold_n,
+            "holdout_trading_days": hold_n_meta,
             "topk_track": int(topk_track),
             "ndcg_k": int(ndcg_k),
             "gate_n": int(
@@ -390,9 +388,9 @@ def fit_tc_rank_report(
         "cross_section_zscore": use_cs,
         "zscore_universe": "pool",
         "note": (
-            f"ŷ_τc_rank backend={chosen}（固定落盘 LambdaRank；对照推荐 {recommended}）；"
+            f"ŷ_τc_rank backend={chosen}（固定落盘 LambdaRank；Ridge 仅同窗对照）；"
             "只训 Holdout 前一套；启用研究→研究槽；启用执行=研究槽晋级；"
-            "OOS 主看 Gate lift（对齐名次闸）；IC 仅对照；"
+            "OOS 主看 Gate lift（对齐名次闸，不择优）；IC 仅对照；"
             "不进 y_oo_fuse；不改买序；与 oo_rank 共用 rank 入场"
         ),
     }

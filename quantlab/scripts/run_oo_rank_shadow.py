@@ -22,7 +22,7 @@ from core.research.portfolio_bars import load_portfolio_stock_bars
 from core.signal.factors.alpha_oo import ALPHA_OO_PANEL_WINDOW
 from core.watching.store import read_watching
 from core.research.oo_rank_lambdarank import compare_oo_rank_shadow_track
-from core.research.oo_rank_panel import build_oo_rank_day_panels
+from core.research.rank_day_panels import build_rank_day_panels
 
 
 def load_pool(lookback: int = 250):
@@ -124,8 +124,9 @@ def main():
     excess_mode = "index" if index_bars else "none"
 
     print("\n构建日截面面板（raw，一次复用）...")
-    day_panels = build_oo_rank_day_panels(
+    day_panels = build_rank_day_panels(
         stock_bars,
+        family="oo_rank",
         horizon_days=1,
         min_history=12,
         min_names=8,

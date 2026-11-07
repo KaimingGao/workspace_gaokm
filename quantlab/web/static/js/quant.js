@@ -1511,7 +1511,15 @@ export function initQuant(ctx) {
         : data.n_codes != null && Number.isFinite(Number(data.n_codes))
           ? `票 ${Number(data.n_codes).toLocaleString("en-US")}`
           : "";
-    const metaBits = [hold, nTr, nTe, nTrRows, nTeRows, nCodes].filter(Boolean);
+    const metaBits = [
+      hold,
+      nTr,
+      nTe,
+      nTrRows,
+      nTeRows,
+      nCodes,
+      "落盘=LambdaRank（Ridge 仅对照，不择优）",
+    ].filter(Boolean);
     const metaHtml = metaBits.length
       ? `<div class="quant-oos-compare-meta" aria-label="Holdout 样本">` +
         metaBits
@@ -1540,10 +1548,10 @@ export function initQuant(ctx) {
       `</div>` +
       `</div>`;
     box.innerHTML =
-      `<div class="quant-oos-compare" aria-label="LambdaRank vs Ridge">` +
+      `<div class="quant-oos-compare" aria-label="LambdaRank vs Ridge 对照（不择优）">` +
       `<div class="quant-oos-board">` +
       headCard("tree", "排序头", "LambdaRank", lrWins, lrLead) +
-      headCard("ridge", "回归头", "Ridge", rgWins, rgLead) +
+      headCard("ridge", "对照", "Ridge", rgWins, rgLead) +
       `</div>` +
       metaHtml +
       `<table class="quant-weight-table quant-oos-compare-table">` +

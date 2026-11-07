@@ -12,10 +12,8 @@ import time
 
 from core.research.factor_ols_fit import fit_factor_ols_from_panel
 from core.research.oo_rank_lambdarank import fit_oo_rank_report
-from core.research.oo_rank_panel import (
-    build_oo_rank_day_panels,
-    stack_day_panels,
-)
+from core.research.oo_rank_panel import stack_day_panels
+from core.research.rank_day_panels import build_rank_day_panels
 from core.research.portfolio_bars import load_portfolio_stock_bars
 from core.research_universe import resolve_research_codes
 
@@ -121,8 +119,9 @@ def main():
     print(f"loaded {len(stock_bars)} stocks")
 
     t0 = time.time()
-    days_full = build_oo_rank_day_panels(
+    days_full = build_rank_day_panels(
         stock_bars,
+        family="oo_rank",
         horizon_days=1,
         min_history=70,
         min_names=4,

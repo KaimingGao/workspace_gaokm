@@ -150,8 +150,8 @@ def main() -> None:
         resolve_ridge_split,
     )
     from core.research.oo_rank_lambdarank import _collect_feature_names
-    from core.research.oo_rank_panel import build_oo_rank_day_panels
     from core.research.portfolio_bars import load_portfolio_stock_bars
+    from core.research.rank_day_panels import build_rank_day_panels
     from core.research.predictability_tiers import (
         load_predictability_tiers_last,
         tier_code_set,
@@ -213,8 +213,9 @@ def main() -> None:
 
     _log("建 oo_rank 日面板（仅一次）...")
     t_panel = time.time()
-    days = build_oo_rank_day_panels(
+    days = build_rank_day_panels(
         stock_bars,
+        family="oo_rank",
         horizon_days=1,
         min_history=12,
         min_names=8,
