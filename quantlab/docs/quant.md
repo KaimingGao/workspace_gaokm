@@ -488,7 +488,7 @@ score_stock(code) 续——
 
 | | |
 |--|--|
-| 训练宇宙 | 截面 z **恒整观察池**（与主头同哲学）。卡头 **训练档** 标签在外，下拉内多选 A/B/C：损失 / Holdout 缩到观察池∩所选档（须先跑分档；不选=整池）；落盘 `train_universe`（仅 A→`tier_a`，多档→`tier`）+ `train_universe_tiers` + `tier_codes`（`zscore_universe` 恒 `pool`） |
+| 训练宇宙 | 截面 z **恒整观察池**（与主头同哲学）。卡头 **训练档** 标签在外，下拉内多选 A/B/C：损失 / Holdout 缩到观察池∩所选档（须先跑分档；不选=整池）；落盘 `train_universe`（仅 A→`tier_a`，多档→`tier`）+ `train_universe_tiers` + `tier_codes`（`zscore_universe` 恒 `pool`）。拟合 `watching_limit` 默认满池（`MODEL_FIT_MAX_SIZE`，与观察池硬顶一致；UI 走 `readWatchingLimit()`，勿写死截断） |
 | 训练窗 | 允许 **100～1000** 交易日；默认 **700** |
 | Holdout | 卡头 **1～60** 交易日，默认 **20**；拟合按该值切分 |
 | 训练 | `POST /api/quant/oo-rank` 拟合写 last report（双 backend；Ridge 仅对照）；LambdaRank 标签为日截面 **100 档**等分相关度（非稠密全序）；鲁棒默认：truncation=100、截面 z 裁 ±3、min_leaf=50、L2=5（API/UI 同默认）；人审「启用研究 / 启用执行」**固定落盘 LambdaRank**（须有 booster；旧 Ridge 顶层戳若同窗已有 LambdaRank 包，重新启用即可改写，不重训；无包则拒晋级），不重训 |
@@ -505,7 +505,7 @@ score_stock(code) 续——
 
 | | |
 |--|--|
-| 训练宇宙 | 与 ŷ_oo_rank 同：截面 z 恒整池；**训练档** 多选 A/B/C → 损失/Holdout 缩观察池∩所选档 |
+| 训练宇宙 | 与 ŷ_oo_rank 同：截面 z 恒整池；**训练档** 多选 A/B/C → 损失/Holdout 缩观察池∩所选档；`watching_limit` 同满池默认 |
 | 训练窗 | 默认 **700**（100～1000） |
 | Holdout | 与 ŷ_oo_rank 同：卡头 **1～60**，默认 **20**，按该值切分 |
 | 训练 | `POST /api/quant/tc-rank` 拟合写 last report；「启用研究 / 启用执行」只落盘，不重训 |

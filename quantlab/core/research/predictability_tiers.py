@@ -446,6 +446,24 @@ _SLIM_ROW_KEYS = (
     "name",
     "tier",
     "score",
+    "score_holdout",
+    # 四头猜涨 lift（表列 + tip）
+    "lift_oo",
+    "precision_oo",
+    "base_oo",
+    "n_up_oo",
+    "lift_oo_rank",
+    "precision_oo_rank",
+    "base_oo_rank",
+    "n_up_oo_rank",
+    "lift_tc",
+    "precision_tc",
+    "base_tc",
+    "n_up_tc",
+    "lift_tc_rank",
+    "precision_tc_rank",
+    "base_tc_rank",
+    "n_up_tc_rank",
     "hit_rate",
     "n_valid",
     "n_days",
@@ -466,7 +484,7 @@ _SLIM_ROW_KEYS = (
 
 
 def slim_tier_rows(rows: Any) -> List[Dict[str, Any]]:
-    """主表只需要档位与命中摘要，去掉 ŷ/实现序列。"""
+    """主表：档位 / Lift_Score / 四头 lift；去掉 ŷ/实现序列。"""
     out: List[Dict[str, Any]] = []
     if not isinstance(rows, list):
         return out
@@ -883,164 +901,6 @@ def up_precision_lift_by_code(
     return out
 
 
-def display_metrics_from_day_rows(
-    day_rows: Sequence[Tuple[str, Sequence[Tuple[str, Any, Any]]]],
-    *,
-    yhat_eps: float = _YHAT_EPS,
-) -> Dict[str, Dict[str, Any]]:
-    """定档窗排序头日预估 → 表内 R+ / ACC / P / R / F1（死区与 absorb 一致）。"""
-    try:
-        eps = float(yhat_eps)
-    except (TypeError, ValueError):
-        eps = float(_YHAT_EPS)
-    if not math.isfinite(eps) or eps < 0.0:
-        eps = float(_YHAT_EPS)
-    slots: Dict[str, Dict[str, Any]] = {}
-    for _date, rows in day_rows or []:
-        for code, pred, y in rows or []:
-            c = str(code or "").strip()
-            if not c:
-                continue
-            slot = slots.get(c)
-            if slot is None:
-                slot = {
-                    "hits": 0,
-                    "n_valid": 0,
-                    "n_days": 0,
-                    "sum_y_pos": 0.0,
-                    "n_y_pos": 0,
-                    "tp_pos": 0,
-                    "fp_pos": 0,
-                    "fn_pos": 0,
-                }
-                slots[c] = slot
-            slot["n_days"] = int(slot["n_days"]) + 1
-            hit = _sign_hit_pair(pred, y, yhat_eps=eps)
-            try:
-                yh = float(pred) if pred is not None else float("nan")
-                ry = float(y) if y is not None else float("nan")
-            except (TypeError, ValueError):
-                yh = float("nan")
-                ry = float("nan")
-            if isinstance(hit, bool):
-                slot["n_valid"] = int(slot["n_valid"]) + 1
-                if hit:
-                    slot["hits"] = int(slot["hits"]) + 1
-                if math.isfinite(yh) and math.isfinite(ry):
-                    pred_up = yh > 0.0
-                    act_up = ry > 0.0
-                    if pred_up and act_up:
-                        slot["tp_pos"] = int(slot["tp_pos"]) + 1
-                    elif pred_up and not act_up:
-                        slot["fp_pos"] = int(slot["fp_pos"]) + 1
-                    elif (not pred_up) and act_up:
-                        slot["fn_pos"] = int(slot["fn_pos"]) + 1
-            if math.isfinite(yh) and math.isfinite(ry) and yh > eps:
-                slot["sum_y_pos"] = float(slot["sum_y_pos"]) + ry
-                slot["n_y_pos"] = int(slot["n_y_pos"]) + 1
-    out: Dict[str, Dict[str, Any]] = {}
-    for code, slot in slots.items():
-        n_valid = int(slot.get("n_valid") or 0)
-        hits = int(slot.get("hits") or 0)
-        hit_rate = round(hits / n_valid, 4) if n_valid > 0 else None
-        n_y_pos = max(0, int(slot.get("n_y_pos") or 0))
-        sum_y_pos = float(slot.get("sum_y_pos") or 0.0)
-        mean_y_pos_raw = (sum_y_pos / n_y_pos) if n_y_pos > 0 else None
-        mean_y_pos = (
-            round(float(mean_y_pos_raw), 4) if mean_y_pos_raw is not None else None
-        )
-        f1_pos, precision_pos, recall_pos = _f1_pos_from_counts(
-            int(slot.get("tp_pos") or 0),
-            int(slot.get("fp_pos") or 0),
-            int(slot.get("fn_pos") or 0),
-        )
-        out[code] = {
-            "hit_rate": hit_rate,
-            "n_valid": n_valid,
-            "n_days": int(slot.get("n_days") or 0),
-            "mean_y_pos": mean_y_pos,
-            "mean_y_pos_raw": mean_y_pos_raw,
-            "n_y_pos": n_y_pos,
-            "f1_pos": f1_pos,
-            "precision_pos": precision_pos,
-            "recall_pos": recall_pos,
-        }
-    return out
-
-
-_OO_DISPLAY_KEYS = (
-    "hit_rate",
-    "n_valid",
-    "n_days",
-    "mean_y_pos",
-    "mean_y_pos_raw",
-    "n_y_pos",
-    "f1_pos",
-    "precision_pos",
-    "recall_pos",
-)
-_OO_DISPLAY_CLEAR = {
-    "hit_rate": None,
-    "n_valid": 0,
-    "n_days": 0,
-    "mean_y_pos": None,
-    "mean_y_pos_raw": None,
-    "n_y_pos": 0,
-    "f1_pos": None,
-    "precision_pos": None,
-    "recall_pos": None,
-}
-_TC_DISPLAY_CLEAR = {
-    "hit_rate_tau": None,
-    "n_valid_tau": 0,
-    "mean_y_pos_tau": None,
-    "mean_y_pos_tau_raw": None,
-    "n_y_pos_tau": 0,
-    "f1_pos_tau": None,
-    "precision_pos_tau": None,
-    "recall_pos_tau": None,
-}
-
-
-def attach_tier_head_display(
-    rows: Sequence[Dict[str, Any]],
-    oo_by: Optional[Mapping[str, Mapping[str, Any]]] = None,
-    tc_by: Optional[Mapping[str, Mapping[str, Any]]] = None,
-    *,
-    write_tc: bool = True,
-) -> None:
-    """用定档窗 oo_rank / τc_rank 覆盖表内展示列；不碰 Holdout 标题指标。"""
-    oo_map = oo_by if isinstance(oo_by, Mapping) else {}
-    tc_map = tc_by if isinstance(tc_by, Mapping) else {}
-    for r in rows or []:
-        if not isinstance(r, dict):
-            continue
-        code = str(r.get("code") or "").strip()
-        oo = oo_map.get(code) if code else None
-        if isinstance(oo, dict):
-            for key in _OO_DISPLAY_KEYS:
-                if key in oo:
-                    r[key] = oo[key]
-        else:
-            r.update(_OO_DISPLAY_CLEAR)
-        if write_tc:
-            tc = tc_map.get(code) if code else None
-            if isinstance(tc, dict):
-                # display_metrics 产出无 _tau 后缀；映射到行字段
-                r["hit_rate_tau"] = tc.get("hit_rate")
-                r["n_valid_tau"] = int(tc.get("n_valid") or 0)
-                r["mean_y_pos_tau"] = tc.get("mean_y_pos")
-                r["mean_y_pos_tau_raw"] = tc.get("mean_y_pos_raw")
-                r["n_y_pos_tau"] = int(tc.get("n_y_pos") or 0)
-                r["f1_pos_tau"] = tc.get("f1_pos")
-                r["precision_pos_tau"] = tc.get("precision_pos")
-                r["recall_pos_tau"] = tc.get("recall_pos")
-            else:
-                r.update(_TC_DISPLAY_CLEAR)
-        else:
-            r.update(_TC_DISPLAY_CLEAR)
-
-
 def combine_head_lifts(
     maps: Optional[Mapping[str, Mapping[str, Mapping[str, Any]]]] = None,
 ) -> Dict[str, Dict[str, Any]]:
@@ -1442,6 +1302,22 @@ def _build_tau_day_panels_for_tier(
     )
 
 
+def _snapshot_bar_items(
+    stock_bars: Mapping[str, Sequence[dict]],
+) -> List[Dict[str, Any]]:
+    """每头一份 item dict。
+
+    ``collect_tau_compact`` 算完会 pop ``bars``；四头各自 snapshot，避免先跑的头掏空后头。
+    """
+    out: List[Dict[str, Any]] = []
+    for code, bars in (stock_bars or {}).items():
+        c = str(code or "").strip()
+        if not c or not bars:
+            continue
+        out.append({"code": c, "bars": list(bars)})
+    return out
+
+
 def collect_tier_lift(
     stock_bars: Mapping[str, Sequence[dict]],
     fit_dates: Sequence[str],
@@ -1455,12 +1331,7 @@ def collect_tier_lift(
     排序头 = 内存 LambdaRank；收益头 = 内存 Ridge。同一模型再打 Holdout，只供标题。
     不落盘、不覆盖研究套。oo_rank 失败则整次失败；其余头失败软跳过并写 note。
     """
-    items = [
-        {"code": str(code), "bars": list(bars or [])}
-        for code, bars in (stock_bars or {}).items()
-        if str(code or "").strip() and bars
-    ]
-    if len(items) < 2:
+    if sum(1 for c, bars in (stock_bars or {}).items() if str(c or "").strip() and bars) < 2:
         return {"ok": False, "error": "定档日线不足 2 只"}
     try:
         from core.research.horizon_l1 import release_allocator_cache
@@ -1474,7 +1345,7 @@ def collect_tier_lift(
     set_tier_progress("准备 oo_rank", "LambdaRank · 只在内存，不写研究套")
     try:
         oo_rank_panels = build_oo_rank_day_panels(
-            items,
+            _snapshot_bar_items(stock_bars),
             horizon_days=horizon_i,
         )
         oo_rank = _lift_from_panels(
@@ -1498,7 +1369,9 @@ def collect_tier_lift(
     oo_holdout: Dict[str, Dict[str, Any]] = {}
     set_tier_progress("准备 oo", "Ridge · 只在内存，不写研究套")
     try:
-        oo_panels = _build_oo_return_day_panels(items, horizon_days=horizon_i)
+        oo_panels = _build_oo_return_day_panels(
+            _snapshot_bar_items(stock_bars), horizon_days=horizon_i
+        )
         oo_pack = _lift_from_panels(
             oo_panels,
             fit_dates,
@@ -1526,7 +1399,7 @@ def collect_tier_lift(
     set_tier_progress("准备 τc_rank", "LambdaRank · 只在内存，不写研究套")
     try:
         tau_rank_days = _build_tau_day_panels_for_tier(
-            items,
+            _snapshot_bar_items(stock_bars),
             fit_dates,
             head="y_tc_rank",
             cache_head="tc_rank",
@@ -1554,7 +1427,7 @@ def collect_tier_lift(
     set_tier_progress("准备 τc", "Ridge · 只在内存，不写研究套")
     try:
         tau_abs_days = _build_tau_day_panels_for_tier(
-            items,
+            _snapshot_bar_items(stock_bars),
             fit_dates,
             head="y_tc",
             cache_head="tc",

@@ -2850,7 +2850,7 @@ export function initQuant(ctx) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           lookback: readFitLookbackDays("oo_rank"),
-          watching_limit: 1000,
+          watching_limit: readWatchingLimit(),
           holdout_trading_days: readHoldoutTradingDays("oo_rank"),
           topk_track: 10,
           ndcg_k: 10,
@@ -2937,7 +2937,7 @@ export function initQuant(ctx) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           lookback: readFitLookbackDays("tc_rank"),
-          watching_limit: 1000,
+          watching_limit: readWatchingLimit(),
           holdout_trading_days: readHoldoutTradingDays("tc_rank"),
           topk_track: 10,
           ndcg_k: 10,

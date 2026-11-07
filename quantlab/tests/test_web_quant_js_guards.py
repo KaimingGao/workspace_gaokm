@@ -336,6 +336,18 @@ class TestWebQuantJsGuards(unittest.TestCase):
         self.assertNotIn("/api/quant/path-ridge", quant_js)
         self.assertNotIn("/api/quant/on-ridge", quant_js)
         self.assertIn("/api/quant/oo-rank", quant_js)
+        # 排序头须跟观察池上限；写死 1000 时训练档 A∩前1000 会远小于 A 档只数
+        self.assertNotIn("watching_limit: 1000", quant_js)
+        self.assertIn(
+            'lookback: readFitLookbackDays("oo_rank"),\n'
+            "          watching_limit: readWatchingLimit(),",
+            quant_js,
+        )
+        self.assertIn(
+            'lookback: readFitLookbackDays("tc_rank"),\n'
+            "          watching_limit: readWatchingLimit(),",
+            quant_js,
+        )
         self.assertIn("quant-oo-rank-run", panel)
         self.assertIn("quant-oo-rank-persist-research", panel)
         self.assertIn("quant-oo-rank-persist", panel)

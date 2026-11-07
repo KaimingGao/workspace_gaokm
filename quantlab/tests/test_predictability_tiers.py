@@ -255,6 +255,15 @@ class TestPredictabilityTiers(unittest.TestCase):
                     "code": "600519",
                     "name": "贵州茅台",
                     "tier": "A",
+                    "score": 0.12,
+                    "score_holdout": 0.05,
+                    "lift_oo": 0.1,
+                    "lift_oo_rank": 0.2,
+                    "lift_tc": 0.05,
+                    "lift_tc_rank": 0.15,
+                    "precision_tc": 0.6,
+                    "base_tc": 0.5,
+                    "n_up_tc": 12,
                     "hit_rate": 0.7,
                     "n_valid": 9,
                     "n_days": 10,
@@ -278,6 +287,18 @@ class TestPredictabilityTiers(unittest.TestCase):
         )
         self.assertEqual(len(rows), 1)
         self.assertEqual(rows[0]["tier"], "A")
+        self.assertAlmostEqual(rows[0]["score"], 0.12)
+        self.assertAlmostEqual(rows[0]["score_holdout"], 0.05)
+        self.assertAlmostEqual(rows[0]["lift_tc"], 0.05)
+        self.assertAlmostEqual(rows[0]["lift_tc_rank"], 0.15)
+        self.assertAlmostEqual(rows[0]["precision_tc"], 0.6)
+        self.assertAlmostEqual(rows[0]["base_tc"], 0.5)
+        self.assertEqual(rows[0]["n_up_tc"], 12)
+        self.assertIn("precision_oo_rank", rows[0])
+        self.assertIn("base_oo", rows[0])
+        self.assertNotIn("yhats", rows[0])
+        self.assertNotIn("realized", rows[0])
+        self.assertNotIn("dates", rows[0])
         self.assertEqual(rows[0]["realized_pct"], 3.5)
         self.assertEqual(rows[0]["mean_y_pos"], 0.4)
         self.assertEqual(rows[0]["n_y_pos"], 5)
@@ -286,8 +307,6 @@ class TestPredictabilityTiers(unittest.TestCase):
         self.assertEqual(rows[0]["recall_pos"], 0.7)
         self.assertEqual(rows[0]["mean_y_pos_tau"], 0.2)
         self.assertEqual(rows[0]["f1_pos_tau"], 0.6)
-        self.assertNotIn("yhats", rows[0])
-        self.assertNotIn("realized", rows[0])
         self.assertNotIn("ic", rows[0])
         self.assertNotIn("hits", rows[0])
 
@@ -618,30 +637,9 @@ class TestPredictabilityTiers(unittest.TestCase):
         self.assertEqual(ridge_pack.get("backend"), "ridge")
         self.assertTrue(ridge_pack.get("by_code_abs"))
 
-    def test_display_metrics_from_day_rows_matches_absorb(self):
-        from core.research.predictability_tiers import (
-            attach_tier_head_display,
-            display_metrics_from_day_rows,
-            up_precision_lift_by_code,
-        )
+    def test_up_precision_lift_abs_vs_cs_call_mode(self):
+        from core.research.predictability_tiers import up_precision_lift_by_code
 
-        # 8 次说涨全对 + 8 次看空且跌 → ACC=1、P=1、R=1、F1=1、R+>0
-        skilled = [("SK", 1.0, 1.0)] * 8 + [("SK", -1.0, -1.0)] * 8
-        # 天天说涨一半对：P=0.5
-        always = [("ALW", 1.0, 1.0)] * 8 + [("ALW", 1.0, -1.0)] * 8
-        day_rows = [("d", skilled + always)]
-        disp = display_metrics_from_day_rows(day_rows)
-        self.assertAlmostEqual(disp["SK"]["hit_rate"], 1.0)
-        self.assertAlmostEqual(disp["SK"]["precision_pos"], 1.0)
-        self.assertAlmostEqual(disp["SK"]["recall_pos"], 1.0)
-        self.assertAlmostEqual(disp["SK"]["f1_pos"], 1.0)
-        self.assertAlmostEqual(disp["SK"]["mean_y_pos"], 1.0)
-        self.assertEqual(disp["SK"]["n_y_pos"], 8)
-        self.assertAlmostEqual(disp["ALW"]["precision_pos"], 0.5)
-        skill = up_precision_lift_by_code(day_rows)
-        self.assertAlmostEqual(skill["SK"]["precision"], disp["SK"]["precision_pos"])
-        self.assertAlmostEqual(skill["ALW"]["precision"], disp["ALW"]["precision_pos"])
-        # 同分数不同说涨口径：abs vs 截面中位应能分开
         # A=0.20>ε；B=0.03∈(中位, ε]；中位≈0.01 → cs 说涨 A/B，abs 仅 A
         day_cs = [
             (
@@ -661,33 +659,22 @@ class TestPredictabilityTiers(unittest.TestCase):
         self.assertIn("A", cs_map)
         self.assertIn("B", cs_map)
         self.assertNotIn("B", abs_map)
-        rows = [
-            {
-                "code": "SK",
-                "hit_rate": 0.1,
-                "n_valid": 1,
-                "n_days": 1,
-                "mean_y_pos": 0.0,
-                "mean_y_pos_raw": 0.0,
-                "n_y_pos": 1,
-                "f1_pos": 0.1,
-                "precision_pos": 0.1,
-                "recall_pos": 0.1,
-                "hit_rate_tau": 0.9,
-                "n_valid_tau": 9,
-                "mean_y_pos_tau": 9.0,
-                "mean_y_pos_tau_raw": 9.0,
-                "n_y_pos_tau": 9,
-                "f1_pos_tau": 0.9,
-                "precision_pos_tau": 0.9,
-                "recall_pos_tau": 0.9,
-            }
-        ]
-        attach_tier_head_display(rows, {"SK": disp["SK"]}, {}, write_tc=False)
-        self.assertAlmostEqual(rows[0]["hit_rate"], 1.0)
-        self.assertAlmostEqual(rows[0]["precision_pos"], 1.0)
-        self.assertIsNone(rows[0]["hit_rate_tau"])
-        self.assertEqual(rows[0]["n_valid_tau"], 0)
+
+    def test_slim_row_keys_cover_lift_tip_fields(self):
+        from core.research.predictability_tiers import _LIFT_ROW_KEYS, _SLIM_ROW_KEYS
+
+        for key in _LIFT_ROW_KEYS:
+            self.assertIn(key, _SLIM_ROW_KEYS, key)
+
+    def test_snapshot_bar_items_copies_bars(self):
+        from core.research.predictability_tiers import _snapshot_bar_items
+
+        bars = {"AAA": [{"date": "2024-01-02", "close": 1.0}]}
+        items = _snapshot_bar_items(bars)
+        self.assertEqual(len(items), 1)
+        self.assertEqual(items[0]["code"], "AAA")
+        items[0].pop("bars", None)
+        self.assertEqual(bars["AAA"][0]["close"], 1.0)
 
     def test_up_precision_lift_ignores_return_size(self):
         from core.research.predictability_tiers import (
@@ -751,6 +738,64 @@ class TestPredictabilityTiers(unittest.TestCase):
         # combine 未入 tc 头时行上没有 lift_tc；有 tc_rank 时仍写 lift_tc_rank
         self.assertNotIn("lift_tc", by["SK"])
         self.assertAlmostEqual(by["SK"]["lift_tc_rank"], 0.0)
+
+    def test_tc_panel_keeps_bars_after_rank_head_pops(self):
+        """τc_rank compact 会 pop bars；τc 须拿到独立副本，否则整列 lift 为空。"""
+        from core.research.predictability_tiers import collect_tier_lift
+
+        bars = {
+            "AAA": [{"date": "2024-01-02", "close": 1.0}],
+            "BBB": [{"date": "2024-01-02", "close": 2.0}],
+        }
+        seen = []
+
+        def fake_tau(items, _fit_dates, *, head, cache_head):
+            n = sum(1 for it in items or [] if isinstance(it, dict) and it.get("bars"))
+            seen.append((head, cache_head, n))
+            for it in list(items or []):
+                if isinstance(it, dict):
+                    it.pop("bars", None)
+            return [{"date": "2024-01-02"}] if n >= 2 else []
+
+        both = {
+            "AAA": {"lift": 0.2, "precision": 0.7, "base_rate": 0.5, "n_up": 8},
+            "BBB": {"lift": 0.1, "precision": 0.6, "base_rate": 0.5, "n_up": 8},
+        }
+
+        def fake_lift(days, *_a, **_k):
+            if not days:
+                return {"ok": False, "error": "empty"}
+            return {
+                "ok": True,
+                "by_code": both,
+                "by_code_abs": both,
+                "by_code_cs": both,
+                "holdout_by_code": {},
+                "holdout_by_code_abs": {},
+                "holdout_by_code_cs": {},
+            }
+
+        with patch(
+            "core.research.oo_rank_panel.build_oo_rank_day_panels",
+            return_value=[{"date": "d"}],
+        ), patch(
+            "core.research.predictability_tiers._build_oo_return_day_panels",
+            return_value=[{"date": "d"}],
+        ), patch(
+            "core.research.predictability_tiers._build_tau_day_panels_for_tier",
+            side_effect=fake_tau,
+        ), patch(
+            "core.research.predictability_tiers._lift_from_panels",
+            side_effect=fake_lift,
+        ), patch(
+            "core.research.predictability_tiers.set_tier_progress",
+        ):
+            out = collect_tier_lift(bars, ["2024-01-01"], ["2024-01-02"])
+        self.assertTrue(out.get("ok"), out)
+        self.assertEqual([row[2] for row in seen], [2, 2])
+        self.assertTrue(out.get("used_tc"), out.get("tc_note"))
+        self.assertIn("lift_tc", out["by_code"]["AAA"])
+        self.assertEqual(bars["AAA"][0]["close"], 1.0)
 
     def test_lake_rows_enough_and_strip_tau(self):
         from core.research.predictability_tiers import (
