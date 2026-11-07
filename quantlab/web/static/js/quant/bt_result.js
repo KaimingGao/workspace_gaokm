@@ -385,7 +385,9 @@ const REPLAY_SKIP_ORDER = [
 /** 跳过原因归成入场闸，供调仓回测摘要。 */
 export function classifyReplaySkipReason(reason) {
   const r = String(reason || "").trim();
-  if (!r || r === "hard_reject" || r.includes("分档")) return "分档外";
+  if (!r || r === "hard_reject" || r.includes("分档") || r.includes("可预测性")) {
+    return "分档外";
+  }
   if (r.startsWith("fuse=") || r.startsWith("fuse≤") || r.includes("fuse 缺失")) {
     return "fuse未过";
   }
@@ -466,11 +468,21 @@ export function buildReplaySkipSummary(data) {
   const filled = Number(m.trade_count != null ? m.trade_count : m.sim_trade_count);
   const buckets = new Map();
   let skips = 0;
-  for (const row of legs) {
-    if (!_isReplaySkipLeg(row)) continue;
-    skips += 1;
-    const key = classifyReplaySkipReason(row.reason);
-    buckets.set(key, (buckets.get(key) || 0) + 1);
+  const ss = data.skip_summary && typeof data.skip_summary === "object" ? data.skip_summary : null;
+  if (ss && ss.by_reason && typeof ss.by_reason === "object") {
+    const total = Number(ss.total);
+    skips = Number.isFinite(total) ? total : 0;
+    for (const [k, v] of Object.entries(ss.by_reason)) {
+      const n = Number(v);
+      if (Number.isFinite(n) && n > 0) buckets.set(k, n);
+    }
+  } else {
+    for (const row of legs) {
+      if (!_isReplaySkipLeg(row)) continue;
+      skips += 1;
+      const key = classifyReplaySkipReason(row.reason);
+      buckets.set(key, (buckets.get(key) || 0) + 1);
+    }
   }
   const parts = REPLAY_SKIP_ORDER.filter((k) => buckets.get(k)).map(
     (k) => `${k} ${buckets.get(k)}`
@@ -479,7 +491,11 @@ export function buildReplaySkipSummary(data) {
     `成交 ${Number.isFinite(filled) ? filled : 0}` + (skips ? ` · 跳过 ${skips}` : "");
   const mid = parts.length ? `（${parts.join(" · ")}）` : "";
   const gate = _replayGateBits(data);
-  return [head + mid, gate ? `门槛 ${gate}` : ""].filter(Boolean).join(" · ");
+  const trunc =
+    ss && ss.truncated && Number(ss.kept) >= 0
+      ? `明细抽样 ${ss.kept}`
+      : "";
+  return [head + mid, trunc, gate ? `门槛 ${gate}` : ""].filter(Boolean).join(" · ");
 }
 
 /** Top-K 回测失败时的一行摘要。 */

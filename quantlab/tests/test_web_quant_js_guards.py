@@ -1890,6 +1890,10 @@ class TestWebQuantJsGuards(unittest.TestCase):
         self.assertIn("export function buildReplaySkipSummary", result_js)
         self.assertIn("分档外", result_js)
         self.assertIn("fuse未过", result_js)
+        self.assertIn("skip_summary", result_js)
+        self.assertIn("可预测性", result_js)
+        self.assertIn("明细抽样", result_js)
+        self.assertIn("skip_summary", bt_js)
         self.assertIn("shrinkTracks: false", bt_js)
         self.assertIn("rowHeight: 48", bt_js)
         ledger_mount = bt_js[bt_js.find("columns: BT_LEDGER_TRADE_COLS") :]

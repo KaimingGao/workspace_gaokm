@@ -1121,7 +1121,19 @@ export function installBacktest(q) {
       return;
     }
     const filled = legs.filter((r) => (r.status || "filled") === "filled").length;
-    const skipped = legs.length - filled;
+    const ss =
+      !Array.isArray(dataOrTrades) && dataOrTrades && dataOrTrades.skip_summary
+        ? dataOrTrades.skip_summary
+        : null;
+    const mSkip =
+      !Array.isArray(dataOrTrades) && dataOrTrades && dataOrTrades.metrics
+        ? Number(dataOrTrades.metrics.skip_count)
+        : NaN;
+    const skipped = Number.isFinite(Number(ss && ss.total))
+      ? Number(ss.total)
+      : Number.isFinite(mSkip)
+        ? mSkip
+        : legs.length - filled;
     const showIntent = simTradesIntentDiffers(legs);
     const rows = buildSimTradeRows(legs, rowDeps);
     els.quantBtTrades.innerHTML = simTradesCaptionHtml({

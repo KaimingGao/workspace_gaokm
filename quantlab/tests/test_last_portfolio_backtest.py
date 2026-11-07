@@ -98,6 +98,68 @@ class TestLastPortfolioBacktestStore(unittest.TestCase):
         self.assertNotIn("score_ic", result)
         self.assertNotIn("filter_dropped", result["universe"])
         self.assertEqual(result["universe"]["loaded_count"], 2)
+        self.assertEqual((result.get("skip_summary") or {}).get("total"), 0)
+
+    def test_save_samples_skips_drops_formula(self):
+        from core.backtest_result_store import (
+            load_last_portfolio_backtest,
+            save_last_portfolio_backtest,
+        )
+
+        skips = []
+        for i in range(120):
+            skips.append(
+                {
+                    "stock_code": f"{i:06d}",
+                    "status": "skipped",
+                    "action": "skip",
+                    "reason": "分档外·非A" if i < 80 else "现金不足",
+                    "formula_terms": {
+                        "total": 0.01,
+                        "terms": [{"key": f"f{j}", "contrib": float(j)} for j in range(30)],
+                    },
+                }
+            )
+        raw = {
+            "success": True,
+            "metrics": {"total_return_pct": 1.0, "trade_count": 1, "skip_count": 120},
+            "equity_curve": [{"date": "2026-01-10", "equity": 100.0}],
+            "sim_trades": [
+                {
+                    "stock_code": "600519",
+                    "status": "filled",
+                    "action": "buy",
+                    "formula_terms": {
+                        "total": 0.02,
+                        "terms": [{"key": f"g{j}", "contrib": 1.0} for j in range(10)],
+                    },
+                },
+                *skips,
+            ],
+        }
+        with tempfile.TemporaryDirectory() as tmp:
+            path = os.path.join(tmp, "last.json")
+            save_last_portfolio_backtest(raw, path=path)
+            pack = load_last_portfolio_backtest(path)
+        result = pack["result"]
+        ss = result["skip_summary"]
+        self.assertEqual(ss["total"], 120)
+        self.assertTrue(ss["truncated"])
+        self.assertEqual(ss["by_reason"].get("分档外"), 80)
+        self.assertEqual(ss["by_reason"].get("现金/手数"), 40)
+        self.assertLessEqual(ss["kept"], 400)
+        self.assertEqual(result["metrics"]["skip_count"], 120)
+        filled = [r for r in result["sim_trades"] if r.get("status") == "filled"]
+        skipped = [r for r in result["sim_trades"] if r.get("status") == "skipped"]
+        self.assertEqual(len(filled), 1)
+        self.assertTrue(filled[0].get("formula_terms"))
+        self.assertTrue(skipped)
+        self.assertTrue(all("formula_terms" not in r for r in skipped))
+        # 现金类优先于分档外
+        self.assertGreaterEqual(
+            sum(1 for r in skipped if "现金" in str(r.get("reason") or "")),
+            1,
+        )
 
     def test_missing_file_is_empty(self):
         from core.backtest_result_store import load_last_portfolio_backtest
