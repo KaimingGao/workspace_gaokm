@@ -782,13 +782,12 @@ def resolve_rank_fit_plan(
     *,
     watching_limit: int,
     train_tiers: Optional[Sequence[str]] = None,
-    legacy_tier_a: bool = False,
     task: str = "oo_rank",
     min_names: int = 8,
 ) -> Dict[str, Any]:
     """排序头拟合宇宙：截面 z / 建面板用整池；损失名单按训练档裁。
 
-    ``train_tiers`` 优先。空且 ``legacy_tier_a`` 时等价 ``["A"]``。
+    ``train_tiers`` 非空时损失缩到观察池∩档；空=整池。
     成功时 ``train_codes is None`` 表示损失也用整池。
     """
     from core.research.feature_standardize import (
@@ -801,8 +800,6 @@ def resolve_rank_fit_plan(
 
     need = max(8, int(min_names or 8))
     labels = normalize_train_tiers(train_tiers)
-    if not labels and bool(legacy_tier_a):
-        labels = ["A"]
     pool_resolved = resolve_oo_rank_universe(train_universe=TRAIN_UNIVERSE_POOL)
     if not pool_resolved.get("success"):
         return {

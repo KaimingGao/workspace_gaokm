@@ -133,6 +133,9 @@ class TestBarsStatus(unittest.TestCase):
             "quant.research.bars_status.build_bars_status",
             return_value={"success": True},
         ), patch(
+            "quant.research.bars_status._prune_watching_still_missing_daily",
+            return_value=None,
+        ), patch(
             "core.data.service.get_research_service",
             return_value=_Svc(),
         ) as svc:
@@ -180,6 +183,9 @@ class TestBarsStatus(unittest.TestCase):
             "quant.research.bars_status.build_bars_status",
             return_value={"success": True},
         ), patch(
+            "quant.research.bars_status._prune_watching_still_missing_daily",
+            return_value=None,
+        ), patch(
             "core.data.service.get_research_service",
             return_value=_Svc(),
         ):
@@ -188,6 +194,72 @@ class TestBarsStatus(unittest.TestCase):
         self.assertEqual(top["bars_refresh"]["tail_count"], 1)
         self.assertEqual(calls[0], (["600519"], False, need))
         self.assertEqual(calls[1], (["000001"], True, need))
+
+    def test_refresh_prunes_still_missing_daily(self):
+        from quant.research.bars_status import refresh_bars_only
+
+        class _Svc:
+            def get_bars_batch(self, codes, **kwargs):
+                # 远端失败 / 空仓：本地仍无日 K
+                return [{"bars": [], "data_source": "cache:stale"} for _ in codes]
+
+        pruned = {
+            "skipped": False,
+            "removed_count": 1,
+            "added": 1,
+            "removed": [{"code": "920185", "name": "贝特瑞"}],
+            "message": "已剔除无日 K：贝特瑞（920185）；补齐 1 只",
+            "count": 2,
+        }
+        with patch(
+            "core.watching.store.read_watching",
+            return_value={"watchlist": ["600519", "920185"]},
+        ), patch(
+            "quant.research.watching_universe.merge_cluster_universe",
+            return_value={"codes": ["600519", "920185"], "code_roles": {}},
+        ), patch(
+            "quant.research.bars_status.expected_latest_daily_bar_date",
+            return_value="2026-08-22",
+        ), patch(
+            "quant.research.bars_status._last_bar_date_for_code",
+            side_effect=lambda code: "2026-08-22" if code == "600519" else None,
+        ), patch(
+            "quant.research.bars_status._cached_daily_bar_count",
+            side_effect=lambda code: 1200 if code == "600519" else None,
+        ), patch(
+            "quant.research.bars_daily.mark_force_latest_bars_done"
+        ), patch(
+            "quant.research.bars_status.build_bars_status",
+            return_value={"success": True, "universe_count": 2, "missing": 0},
+        ), patch(
+            "quant.research.bars_status._prune_watching_still_missing_daily",
+            return_value=pruned,
+        ) as prune, patch(
+            "core.data.service.get_research_service",
+            return_value=_Svc(),
+        ):
+            out = refresh_bars_only(watching_limit=100, mode="topup")
+        self.assertTrue(prune.called)
+        self.assertEqual(out.get("watching_pruned", {}).get("removed_count"), 1)
+        self.assertEqual(
+            (out.get("bars_refresh") or {}).get("watching_pruned", {}).get("added"), 1
+        )
+
+    def test_prune_helper_skips_when_too_many_missing(self):
+        from quant.research.bars_status import _prune_watching_still_missing_daily
+
+        codes = [f"{i:06d}" for i in range(100)]
+        with patch(
+            "quant.research.bars_status._last_bar_date_for_code",
+            return_value=None,
+        ), patch(
+            "core.watching.store.remove_watchlist_items"
+        ) as rem:
+            meta = _prune_watching_still_missing_daily(
+                codes, aligned_before=0, remote_n=0
+            )
+        self.assertTrue(meta.get("skipped"))
+        self.assertFalse(rem.called)
 
     def test_lag_distribution_buckets(self):
         from quant.research.bars_status import build_bars_status

@@ -46,7 +46,7 @@ const _QV =
   (typeof window !== "undefined" && window.__ASSET_V__) || "dev";
 
 /**
- * 统一格式化树后端名：lightgbm；oo_rank 为 lambdarank（旧包名仅展示）
+ * 统一格式化树/排序后端名（旧 solver 名 lightgbm_lambda 仅展示为 LambdaRank）。
  */
 function formatTreeBackend(backend) {
   const s = String(backend || "").toLowerCase().trim();
@@ -601,7 +601,7 @@ export function initQuant(ctx) {
     deltaYKey: "delta_topk_mean_y_oo",
     yLabel: "TopK y_oo%",
     icTip: "日频截面 Pearson 均值；原始排序分对 y_oo，与 ŷ_oo 的 IC 同口径",
-    idleMessage: "拟合后对照 NDCG@K · 启用自动选更强 backend",
+    idleMessage: "拟合后对照 NDCG@K · 启用固定落盘 LambdaRank",
   };
   const TC_RANK_DESK = {
     resultId: "quant-tc-rank-result",
@@ -613,7 +613,7 @@ export function initQuant(ctx) {
     deltaYKey: "delta_topk_mean_y_tc",
     yLabel: "TopK y_τc%",
     icTip: "日频截面 Pearson 均值；原始排序分对 y_τc（price[τ]→close[T]）",
-    idleMessage: "拟合后对照 NDCG@K · 启用自动选更强 backend",
+    idleMessage: "拟合后对照 NDCG@K · 启用固定落盘 LambdaRank",
   };
 
   async function renderOoRankCoefTable(rm, opts = {}) {
@@ -774,6 +774,24 @@ export function initQuant(ctx) {
       return '<span class="quant-rank-backend is-lambdarank">LightGBM</span>';
     }
     return "";
+  }
+
+  /** 报告/落盘包是否已有可启用的 LambdaRank booster（旧 Ridge 顶层戳仍可能嵌套有）。 */
+  function rankHasLambdaPack(src) {
+    const doc = src && typeof src === "object" ? src : {};
+    const be = doc.backends && typeof doc.backends === "object" ? doc.backends : {};
+    const pack = be.lambdarank && typeof be.lambdarank === "object" ? be.lambdarank : null;
+    const rm =
+      (pack && pack.return_model_research) ||
+      (pack && pack.return_model) ||
+      null;
+    if (rm && typeof rm === "object" && rm.booster_b64) return true;
+    const top = doc.return_model;
+    if (top && typeof top === "object" && top.booster_b64) {
+      const sol = String(top.solver || top.backend || "").toLowerCase();
+      if (sol === "lambdarank" || sol === "lightgbm_lambda") return true;
+    }
+    return false;
   }
 
   /** 拟合失败文案：物化缺立方时附 hint（请先分钟线物化）。 */
@@ -1192,16 +1210,24 @@ export function initQuant(ctx) {
           src.backend ||
           "";
         const box = rankBackendBox(rec);
-        message = box ? `落盘 ${box}` : "落盘 backend 待定";
+        const beN = String(rec || "").trim().toLowerCase();
+        if (beN === "ridge") {
+          const hint = rankHasLambdaPack(src)
+            ? "请重新启用研究（固定 LambdaRank，不重训）"
+            : "请重拟合并启用 LambdaRank";
+          message = box
+            ? `落盘 ${box}（旧）· ${hint}`
+            : `落盘 Ridge（旧）· ${hint}`;
+        } else {
+          message = box ? `落盘 ${box}` : "落盘 backend 待定";
+        }
         messageHtml = !!box;
       } else {
         const rec = src.recommended_backend || (oos && oos.recommended_backend);
         const recTxt =
           rec === "ridge"
-            ? "启用将落盘 Ridge"
-            : rec === "lambdarank"
-              ? "启用将落盘 LambdaRank"
-              : "启用按 NDCG@K 自动选 backend";
+            ? "启用将落盘 Ridge（强制）"
+            : "启用将落盘 LambdaRank";
         message = `草稿已存 · ${recTxt}`;
       }
     }
@@ -2812,7 +2838,7 @@ export function initQuant(ctx) {
       renderRemStatus(sum, {
         state: "busy",
         chip: "写入中",
-        message: `按 NDCG@K 写入上次拟合（${roleLabel}）…`,
+        message: `固定 LambdaRank 写入上次拟合（${roleLabel}）…`,
         busy: true,
       });
     } else {
@@ -2828,13 +2854,12 @@ export function initQuant(ctx) {
           holdout_trading_days: readHoldoutTradingDays("oo_rank"),
           topk_track: 10,
           ndcg_k: 10,
-          l2: 1.0,
           persist: !!persist,
           persist_role: persistRole || "live",
-          backend: "auto",
+          backend: "lambdarank",
           ...readCrossSectionFitParams("oo_rank"),
           ...readRankZUniverseFitParams("oo_rank"),
-          note: persist ? `ui oo_rank promote ${persistRole} auto` : "",
+          note: persist ? `ui oo_rank promote ${persistRole} lambdarank` : "",
         }),
       });
       const data = await res.json().catch(() => ({}));
@@ -2900,7 +2925,7 @@ export function initQuant(ctx) {
       renderRemStatus(sum, {
         state: "busy",
         chip: "写入中",
-        message: `按 NDCG@K 写入上次拟合（${roleLabel}）…`,
+        message: `固定 LambdaRank 写入上次拟合（${roleLabel}）…`,
         busy: true,
       });
     } else {
@@ -2916,13 +2941,12 @@ export function initQuant(ctx) {
           holdout_trading_days: readHoldoutTradingDays("tc_rank"),
           topk_track: 10,
           ndcg_k: 10,
-          l2: 1.0,
           persist: !!persist,
           persist_role: persistRole || "live",
-          backend: "auto",
+          backend: "lambdarank",
           ...readCrossSectionFitParams("tc_rank"),
           ...readRankZUniverseFitParams("tc_rank"),
-          note: persist ? `ui tc_rank promote ${persistRole} auto` : "",
+          note: persist ? `ui tc_rank promote ${persistRole} lambdarank` : "",
         }),
       });
       const data = await res.json().catch(() => ({}));
@@ -4174,7 +4198,7 @@ export function initQuant(ctx) {
     if (
       !window.confirm(
         persistRole === "research"
-          ? `将 ŷ_oo_rank 写入 ${target}？Holdout 前训 + NDCG@K 选 backend；成交明细 oo_rank=1..n；过入场后作买序。`
+          ? `将 ŷ_oo_rank 写入 ${target}？Holdout 前训 + 固定落盘 LambdaRank（Ridge 仅对照）；成交明细 oo_rank=1..n；过入场后作买序。`
           : `将当前研究套 ŷ_oo_rank 晋级为执行套？过入场后作买序。`
       )
     ) {
@@ -4244,7 +4268,7 @@ export function initQuant(ctx) {
     if (
       !window.confirm(
         persistRole === "research"
-          ? `将 ŷ_τc_rank 写入 ${target}？Holdout 前训 + NDCG@K 选 backend。不进 fuse、不改买序；与 oo_rank 共用 rank 入场。`
+          ? `将 ŷ_τc_rank 写入 ${target}？Holdout 前训 + 固定落盘 LambdaRank（Ridge 仅对照）。不进 fuse、不改买序；与 oo_rank 共用 rank 入场。`
           : `将当前研究套 ŷ_τc_rank 晋级为执行套？不改买序；与 oo_rank 共用 rank 入场。`
       )
     ) {

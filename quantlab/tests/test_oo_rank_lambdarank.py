@@ -157,7 +157,8 @@ class TestNanLabelRank(unittest.TestCase):
         self.assertEqual(n_drop, 1)
         self.assertEqual(kept_y, [1.0, -2.0, 0.5, 3.0])
         self.assertEqual(kept_z.shape, (4, 2))
-        self.assertEqual(_rank_labels(kept_y), [2, 0, 1, 3])
+        # 稠密名次（n_buckets<=1）；默认 100 档与本断言无关
+        self.assertEqual(_rank_labels(kept_y, n_buckets=0), [2, 0, 1, 3])
 
         short_y, short_z, short_drop = _slice_finite_label_rows(
             [1.0, float("nan"), -2.0, 0.5],
@@ -165,8 +166,7 @@ class TestNanLabelRank(unittest.TestCase):
         )
         self.assertEqual(short_drop, 1)
         self.assertEqual(len(short_y), 3)
-        self.assertEqual(short_z.shape[0], 3)
-        self.assertEqual(max(_rank_labels(short_y)), 2)
+        self.assertEqual(max(_rank_labels(short_y, n_buckets=0)), 2)
         dirty_y, dirty_z, dirty_drop = _slice_finite_label_rows(
             [1.0, None, -2.0, 0.5, "bad"],
             np.arange(10, dtype=np.float64).reshape(5, 2),
@@ -266,6 +266,88 @@ def _synth_varying_pool_days(seed: int = 0):
         day += timedelta(days=1)
     return days
 
+class TestRankBuckets(unittest.TestCase):
+    def test_rank_labels_100_buckets(self):
+        from core.research.oo_rank_lambdarank import (
+            LAMBDARANK_N_BUCKETS,
+            _rank_labels,
+        )
+
+        self.assertEqual(LAMBDARANK_N_BUCKETS, 100)
+        # 600 只：等分到 100 档，每档约 6 只；最差=0、最好=99
+        ys = [float(i) for i in range(600)]
+        labels = _rank_labels(ys, n_buckets=100)
+        self.assertEqual(len(labels), 600)
+        self.assertEqual(min(labels), 0)
+        self.assertEqual(max(labels), 99)
+        self.assertEqual(len(set(labels)), 100)
+        self.assertEqual(labels[0], 0)  # 最小 y
+        self.assertEqual(labels[-1], 99)  # 最大 y
+        # 稠密退回
+        dense = _rank_labels(ys[:5], n_buckets=0)
+        self.assertEqual(dense, [0, 1, 2, 3, 4])
+
+    @unittest.skipUnless(_has_lightgbm(), "lightgbm 未安装")
+    def test_fit_stamps_n_relevance_buckets(self):
+        from core.research.oo_rank_lambdarank import fit_lambdarank
+
+        days = _synth_days(8, 24)
+        with _patch_rank_l2_as_batch():
+            fit = fit_lambdarank(
+                days,
+                n_estimators=5,
+                max_depth=2,
+                min_child_samples=1,
+                subsample=1.0,
+                n_buckets=100,
+            )
+        self.assertTrue(fit.get("success"), fit)
+        self.assertEqual(fit.get("n_relevance_buckets"), 100)
+        self.assertEqual(fit.get("label_gain_mode"), "linear_buckets")
+
+    def test_z_clip_and_robust_defaults(self):
+        from core.research.oo_rank_lambdarank import (
+            LAMBDARANK_L2,
+            LAMBDARANK_MIN_CHILD_SAMPLES,
+            LAMBDARANK_TRUNCATION_LEVEL,
+            LAMBDARANK_Z_CLIP,
+            _apply_z_clip,
+            _resolve_z_clip,
+        )
+        import numpy as np
+
+        self.assertEqual(LAMBDARANK_TRUNCATION_LEVEL, 100)
+        self.assertEqual(LAMBDARANK_Z_CLIP, 3.0)
+        self.assertGreaterEqual(LAMBDARANK_MIN_CHILD_SAMPLES, 40)
+        self.assertGreaterEqual(LAMBDARANK_L2, 3.0)
+        z = np.asarray([[10.0, -8.0], [1.0, 0.0]], dtype=np.float64)
+        clipped = _apply_z_clip(z, 3.0)
+        self.assertTrue(np.allclose(clipped, [[3.0, -3.0], [1.0, 0.0]]))
+        self.assertEqual(_resolve_z_clip({"z_clip": 3.0}), 3.0)
+        # 旧包无字段 → 推理不裁，避免与旧训分布错位
+        self.assertEqual(_resolve_z_clip({}, default=0.0), 0.0)
+
+    @unittest.skipUnless(_has_lightgbm(), "lightgbm 未安装")
+    def test_fit_stamps_truncation_and_z_clip(self):
+        from core.research.oo_rank_lambdarank import fit_lambdarank
+
+        days = _synth_days(8, 24)
+        with _patch_rank_l2_as_batch():
+            fit = fit_lambdarank(
+                days,
+                n_estimators=5,
+                max_depth=2,
+                min_child_samples=1,
+                subsample=1.0,
+                n_buckets=100,
+                truncation_level=100,
+                z_clip=3.0,
+            )
+        self.assertTrue(fit.get("success"), fit)
+        self.assertEqual(fit.get("lambdarank_truncation_level"), 100)
+        self.assertEqual(fit.get("z_clip"), 3.0)
+
+
 class TestOoRankVaryingPool(unittest.TestCase):
     """回归测试：日池大小不齐时 LambdaRank 不应崩在 label 映射。"""
 
@@ -287,6 +369,7 @@ class TestOoRankVaryingPool(unittest.TestCase):
             )
         self.assertTrue(fit.get("success"), fit)
         self.assertEqual(fit.get("n_groups"), len(days))
+        self.assertEqual(fit.get("n_relevance_buckets"), 100)
         self.assertNotIn("n_pair_days", fit)
 
 class TestOoRankRidgeBaseline(unittest.TestCase):
@@ -308,15 +391,16 @@ class TestOoRankRidgeBaseline(unittest.TestCase):
         self.assertIsNotNone(metrics.get("topk_overlap"))
         self.assertIsNotNone(metrics.get("topk_mean_y_oo"))
 
-    def test_select_oo_rank_backend_by_ndcg(self):
+    def test_select_oo_rank_backend_fixed_lambdarank(self):
         from core.research.oo_rank_lambdarank import select_oo_rank_backend
 
+        # Ridge 仅对照：即使 NDCG 更高也不胜出
         self.assertEqual(
             select_oo_rank_backend(
                 {"ndcg_at_k": 0.55, "success": True},
                 {"ndcg_at_k": 0.62, "success": True},
             ),
-            "ridge",
+            "lambdarank",
         )
         self.assertEqual(
             select_oo_rank_backend(
@@ -338,7 +422,7 @@ class TestOoRankRidgeBaseline(unittest.TestCase):
         )
         self.assertEqual(
             select_oo_rank_backend(None, {"ndcg_at_k": 0.7, "success": True}),
-            "ridge",
+            "lambdarank",
         )
 
 class TestOoRankFit(unittest.TestCase):
@@ -368,8 +452,8 @@ class TestOoRankFit(unittest.TestCase):
             )
         self.assertTrue(report.get("success"), report)
         self.assertEqual(report.get("schema"), "oo_rank_v1")
-        self.assertIn(report.get("backend"), {"lambdarank", "ridge"})
-        self.assertIn(report.get("recommended_backend"), {"lambdarank", "ridge"})
+        self.assertEqual(report.get("backend"), "lambdarank")
+        self.assertEqual(report.get("recommended_backend"), "lambdarank")
         self.assertIn("lambdarank", (report.get("backends") or {}))
         self.assertIn("oo_rank", (report.get("oos") or {}))
         self.assertIn("ridge_oo_baseline", (report.get("oos") or {}))
@@ -680,9 +764,6 @@ class TestOoRankFit(unittest.TestCase):
             ), patch(
                 "core.research.oo_rank_lambdarank.oo_rank_last_report_path",
                 return_value=os.path.join(td, "last.json"),
-            ), patch(
-                "core.research.oo_rank_lambdarank.oo_rank_model_path_legacy",
-                return_value=os.path.join(td, "legacy_model.json"),
             ):
                 # 无研究槽时启用执行须失败
                 bad_live = persist_oo_rank_model(report, role="live")
@@ -705,7 +786,53 @@ class TestOoRankFit(unittest.TestCase):
                 self.assertIn("lambdarank", ((doc or {}).get("backends") or {}))
                 self.assertNotIn("shadow_only", doc or {})
 
-    def test_persist_auto_picks_ridge_when_ndcg_higher(self):
+    def test_persist_rejects_ridge_only_draft(self):
+        """旧 Ridge 草稿不得被标成 LambdaRank 晋级。"""
+        from core.research.oo_rank_lambdarank import persist_oo_rank_model
+
+        ridge_m = {
+            "success": True,
+            "backend": "ridge",
+            "solver": "ridge",
+            "coefficients": {"mom3": 0.8},
+            "intercept": 0.01,
+            "feature_zscore": True,
+            "zscore_means": {"mom3": 50.0},
+            "zscore_stds": {"mom3": 10.0},
+            "target": "oo_rank",
+            "horizon_mode": "oo_rank",
+            "model_role": "research",
+        }
+        report = {
+            "success": True,
+            "task": "oo_rank",
+            "return_model": ridge_m,
+            "return_model_research": dict(ridge_m),
+            "backends": {
+                "ridge": {
+                    "return_model": ridge_m,
+                    "return_model_research": dict(ridge_m),
+                },
+            },
+            "oos": {
+                "oo_rank": {"ndcg_at_k": 0.4, "success": True},
+                "ridge_oo_baseline": {"ndcg_at_k": 0.5, "success": True},
+            },
+        }
+        with tempfile.TemporaryDirectory() as td:
+            live = os.path.join(td, "oo_rank_model.json")
+            with patch(
+                "core.research.oo_rank_lambdarank.oo_rank_model_path",
+                return_value=live,
+            ), patch(
+                "core.research.oo_rank_lambdarank.oo_rank_last_report_path",
+                return_value=os.path.join(td, "last.json"),
+            ):
+                out = persist_oo_rank_model(report, role="research")
+            self.assertFalse(out.get("success"), out)
+            self.assertIn("lambdarank pack missing", str(out.get("error") or ""))
+
+    def test_persist_auto_keeps_lambdarank_even_if_ridge_ndcg_higher(self):
         import json
 
         from core.research.oo_rank_lambdarank import persist_oo_rank_model
@@ -764,60 +891,18 @@ class TestOoRankFit(unittest.TestCase):
             ):
                 research_out = persist_oo_rank_model(report, role="research")
                 self.assertTrue(research_out.get("success"), research_out)
-                self.assertEqual(research_out.get("backend"), "ridge")
+                # 固定落盘 LambdaRank（Ridge 仅对照；NDCG 高低不再择优）
+                self.assertEqual(research_out.get("backend"), "lambdarank")
                 out = persist_oo_rank_model(report, role="live")
             self.assertTrue(out.get("success"), out)
             self.assertEqual(out.get("promoted_from"), "research")
             with open(live, encoding="utf-8") as f:
                 doc = json.load(f)
-            self.assertEqual(doc.get("backend"), "ridge")
-            self.assertEqual((doc.get("return_model") or {}).get("backend"), "ridge")
-            self.assertEqual((doc.get("return_model") or {}).get("solver"), "ridge")
+            self.assertEqual(doc.get("backend"), "lambdarank")
+            self.assertEqual((doc.get("return_model") or {}).get("backend"), "lambdarank")
+            self.assertEqual((doc.get("return_model") or {}).get("solver"), "lambdarank")
             self.assertIn("ridge", (doc.get("backends") or {}))
             self.assertIn("lambdarank", (doc.get("backends") or {}))
-
-    def test_load_falls_back_to_legacy_pairwise_paths(self):
-        import json
-
-        from core.research.oo_rank_lambdarank import (
-            load_oo_rank_last_report,
-            load_oo_rank_model,
-        )
-
-        doc = {
-            "success": True,
-            "schema": "oo_rank_pairwise_v1",
-            "task": "oo_rank_pairwise",
-            "return_model": {"coefficients": {"mom3": 1.0}, "solver": "lambdarank"},
-        }
-        with tempfile.TemporaryDirectory() as td:
-            new_live = os.path.join(td, "oo_rank_model.json")
-            legacy_live = os.path.join(td, "oo_rank_pairwise_model.json")
-            new_last = os.path.join(td, "oo_rank_last_report.json")
-            legacy_last = os.path.join(td, "oo_rank_pairwise_last_report.json")
-            with open(legacy_live, "w", encoding="utf-8") as f:
-                json.dump(doc, f)
-            with open(legacy_last, "w", encoding="utf-8") as f:
-                json.dump(doc, f)
-            with patch(
-                "core.research.oo_rank_lambdarank.oo_rank_model_path",
-                return_value=new_live,
-            ), patch(
-                "core.research.oo_rank_lambdarank.oo_rank_model_path_legacy",
-                return_value=legacy_live,
-            ), patch(
-                "core.research.oo_rank_lambdarank.oo_rank_last_report_path",
-                return_value=new_last,
-            ), patch(
-                "core.research.oo_rank_lambdarank.oo_rank_last_report_path_legacy",
-                return_value=legacy_last,
-            ):
-                loaded = load_oo_rank_model(prefer_research=False)
-                last = load_oo_rank_last_report()
-            self.assertIsNotNone(loaded)
-            self.assertEqual((loaded or {}).get("schema"), "oo_rank_pairwise_v1")
-            self.assertIsNotNone(last)
-            self.assertEqual((last or {}).get("task"), "oo_rank_pairwise")
 
     def test_load_research_does_not_fall_back_to_live(self):
         """研究套缺失时不得读执行套。"""
@@ -843,9 +928,6 @@ class TestOoRankFit(unittest.TestCase):
             with patch(
                 "core.research.oo_rank_lambdarank.oo_rank_model_path",
                 return_value=live,
-            ), patch(
-                "core.research.oo_rank_lambdarank.oo_rank_model_path_legacy",
-                return_value=os.path.join(td, "legacy_model.json"),
             ):
                 self.assertIsNone(load_oo_rank_model(prefer_research=True))
                 self.assertIsNotNone(load_oo_rank_model(prefer_research=False))
@@ -936,8 +1018,8 @@ class TestOoRankReport(unittest.TestCase):
         self.assertTrue(report.get("success"), report)
         self.assertNotIn("feature_mode", report)
         self.assertNotIn("feature_meta", report)
-        self.assertIn(report.get("backend"), {"lambdarank", "ridge"})
-        self.assertIn(report.get("recommended_backend"), {"lambdarank", "ridge"})
+        self.assertEqual(report.get("backend"), "lambdarank")
+        self.assertEqual(report.get("recommended_backend"), "lambdarank")
         self.assertEqual(report.get("ndcg_k"), 5)
         self.assertGreater(int(report.get("n_features") or 0), 0)
         self.assertNotIn("feature_mode", report.get("oos") or {})
@@ -956,46 +1038,39 @@ class TestOoRankFittedAt(unittest.TestCase):
         skipped = stamp_oo_rank_fitted_at({"success": False})
         self.assertIsNone(skipped.get("fitted_at"))
 
+        lambda_m = {
+            "coefficients": {"mom3": 1.0},
+            "model_role": "live",
+            "backend": "lambdarank",
+            "solver": "lambdarank",
+            "booster_b64": "dGVzdA==",
+            "target": "oo_rank",
+            "horizon_mode": "oo_rank",
+        }
+        ridge_m = {
+            "coefficients": {"mom3": 1.0},
+            "model_role": "live",
+            "backend": "ridge",
+            "solver": "ridge",
+            "target": "oo_rank",
+            "horizon_mode": "oo_rank",
+        }
         report = {
             "success": True,
-            "return_model": {
-                "coefficients": {"mom3": 1.0},
-                "model_role": "live",
-                "backend": "ridge",
-                "solver": "ridge",
-                "target": "oo_rank",
-                "horizon_mode": "oo_rank",
-            },
-            "return_model_research": {
-                "coefficients": {"mom3": 1.0},
-                "model_role": "research",
-                "backend": "ridge",
-                "solver": "ridge",
-                "target": "oo_rank",
-                "horizon_mode": "oo_rank",
-            },
+            "return_model": dict(lambda_m),
+            "return_model_research": dict(lambda_m, model_role="research"),
             "backends": {
+                "lambdarank": {
+                    "return_model": dict(lambda_m),
+                    "return_model_research": dict(lambda_m, model_role="research"),
+                },
                 "ridge": {
-                    "return_model": {
-                        "coefficients": {"mom3": 1.0},
-                        "model_role": "live",
-                        "backend": "ridge",
-                        "solver": "ridge",
-                        "target": "oo_rank",
-                        "horizon_mode": "oo_rank",
-                    },
-                    "return_model_research": {
-                        "coefficients": {"mom3": 1.0},
-                        "model_role": "research",
-                        "backend": "ridge",
-                        "solver": "ridge",
-                        "target": "oo_rank",
-                        "horizon_mode": "oo_rank",
-                    },
-                }
+                    "return_model": dict(ridge_m),
+                    "return_model_research": dict(ridge_m, model_role="research"),
+                },
             },
             "oos": {
-                "oo_rank": {"success": False},
+                "oo_rank": {"ndcg_at_k": 0.55, "success": True},
                 "ridge_oo_baseline": {"ndcg_at_k": 0.5, "success": True},
             },
         }
@@ -1088,8 +1163,6 @@ class TestOoRankFittedAt(unittest.TestCase):
         with tempfile.TemporaryDirectory() as td:
             live = os.path.join(td, "oo_rank_model.json")
             last_path = os.path.join(td, "oo_rank_last_report.json")
-            legacy_live = os.path.join(td, "oo_rank_pairwise_model.json")
-            legacy_last = os.path.join(td, "oo_rank_pairwise_last_report.json")
             with open(live, "w", encoding="utf-8") as f:
                 json.dump(live_doc, f)
             with open(last_path, "w", encoding="utf-8") as f:
@@ -1100,12 +1173,6 @@ class TestOoRankFittedAt(unittest.TestCase):
             ), patch(
                 "core.research.oo_rank_lambdarank.oo_rank_last_report_path",
                 return_value=last_path,
-            ), patch(
-                "core.research.oo_rank_lambdarank.oo_rank_model_path_legacy",
-                return_value=legacy_live,
-            ), patch(
-                "core.research.oo_rank_lambdarank.oo_rank_last_report_path_legacy",
-                return_value=legacy_last,
             ), patch(
                 "core.research.oo_rank_lambdarank.load_oo_rank_model",
                 return_value=live_doc,
@@ -1142,8 +1209,6 @@ class TestOoRankFittedAt(unittest.TestCase):
         with tempfile.TemporaryDirectory() as td:
             live = os.path.join(td, "oo_rank_model.json")
             last_path = os.path.join(td, "oo_rank_last_report.json")
-            legacy_live = os.path.join(td, "oo_rank_pairwise_model.json")
-            legacy_last = os.path.join(td, "oo_rank_pairwise_last_report.json")
             with open(last_path, "w", encoding="utf-8") as f:
                 json.dump(last, f)
             with patch(
@@ -1152,12 +1217,6 @@ class TestOoRankFittedAt(unittest.TestCase):
             ), patch(
                 "core.research.oo_rank_lambdarank.oo_rank_last_report_path",
                 return_value=last_path,
-            ), patch(
-                "core.research.oo_rank_lambdarank.oo_rank_model_path_legacy",
-                return_value=legacy_live,
-            ), patch(
-                "core.research.oo_rank_lambdarank.oo_rank_last_report_path_legacy",
-                return_value=legacy_last,
             ), patch(
                 "core.research.oo_rank_lambdarank.load_oo_rank_model",
                 return_value=None,
@@ -1177,20 +1236,12 @@ class TestOoRankFittedAt(unittest.TestCase):
         with empty_dir as td:
             live = os.path.join(td, "oo_rank_model.json")
             last_path = os.path.join(td, "oo_rank_last_report.json")
-            legacy_live = os.path.join(td, "oo_rank_pairwise_model.json")
-            legacy_last = os.path.join(td, "oo_rank_pairwise_last_report.json")
             with patch(
                 "core.research.oo_rank_lambdarank.oo_rank_model_path",
                 return_value=live,
             ), patch(
                 "core.research.oo_rank_lambdarank.oo_rank_last_report_path",
                 return_value=last_path,
-            ), patch(
-                "core.research.oo_rank_lambdarank.oo_rank_model_path_legacy",
-                return_value=legacy_live,
-            ), patch(
-                "core.research.oo_rank_lambdarank.oo_rank_last_report_path_legacy",
-                return_value=legacy_last,
             ), patch(
                 "core.research.oo_rank_lambdarank.load_oo_rank_model",
                 return_value=None,

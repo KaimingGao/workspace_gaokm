@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 import os
 from datetime import datetime
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Sequence
 
 from core.data.policy import BARS_DAILY_LOOKBACK
 from core.numbers import date_key
@@ -271,6 +271,66 @@ def _safe_bars_refresh_job_snapshot() -> Optional[Dict[str, Any]]:
         return None
 
 
+def _prune_watching_still_missing_daily(
+    codes: Sequence[str],
+    *,
+    aligned_before: int,
+    remote_n: int,
+) -> Optional[Dict[str, Any]]:
+    """刷新后仍无本地日 K meta 的票：剔出观察池，并按 max_size 补齐。
+
+    安全闸：池大体健康才自动剔（避免整仓读失败时误删大半观察池）。
+    """
+    code_list = [str(c).strip() for c in (codes or []) if str(c or "").strip()]
+    n = len(code_list)
+    if n < 1:
+        return None
+    still_missing = [c for c in code_list if not _last_bar_date_for_code(c)]
+    if not still_missing:
+        return None
+    # 本批大体成功：已齐或远端成功覆盖过半，且缺失只数不大
+    healthy = int(aligned_before or 0) + int(remote_n or 0)
+    max_drop = max(8, int(0.02 * n))
+    if healthy < max(1, int(0.5 * n)) or len(still_missing) > max_drop:
+        logger.info(
+            "skip auto-prune missing daily: missing=%s healthy=%s/%s max_drop=%s",
+            len(still_missing),
+            healthy,
+            n,
+            max_drop,
+        )
+        return {
+            "skipped": True,
+            "reason": "pool_unhealthy_or_too_many_missing",
+            "missing_count": len(still_missing),
+            "missing_sample": still_missing[:12],
+            "healthy": healthy,
+            "universe": n,
+            "max_drop": max_drop,
+        }
+    try:
+        from core.watching.store import remove_watchlist_items
+
+        out = remove_watchlist_items(still_missing, refill=True)
+    except Exception:  # noqa: BLE001
+        logger.exception("auto-prune watching missing daily failed")
+        return {
+            "skipped": True,
+            "reason": "prune_failed",
+            "missing_count": len(still_missing),
+            "missing_sample": still_missing[:12],
+        }
+    removed = list(out.get("removed") or [])
+    return {
+        "skipped": False,
+        "removed_count": int(out.get("removed_count") or len(removed)),
+        "added": int(out.get("added") or 0),
+        "removed": removed[:20],
+        "message": str(out.get("message") or ""),
+        "count": int(out.get("count") or 0),
+    }
+
+
 def refresh_bars_only(
     *,
     watching_limit: int = WATCHING_MAX_SIZE,
@@ -283,6 +343,7 @@ def refresh_bars_only(
     ``mode=topup``：末 bar 未齐 as-of 的只补新日期（已有日不动）；本地太短或前复权重锚则整窗替换。
     ``mode=full``：全池整窗替换（仓坏/复权问题兜底）。
     走进程池并行拉取，避免主进程 ak_lock 把 4 线程串成单通道后 360s 超时。
+    刷新后仍无本地日 K 的票会自动剔出观察池（池大体健康时），并按目标只数补齐。
     """
     from quant.research.bars_daily import (
         bars_session_date,
@@ -532,14 +593,24 @@ def refresh_bars_only(
             bars_refresh["bars_wal"] = checkpoint_bars_db(mode="TRUNCATE")
     except Exception:  # noqa: BLE001
         logger.debug("bars wal checkpoint after refresh failed", exc_info=True)
+
+    prune_meta = _prune_watching_still_missing_daily(
+        codes,
+        aligned_before=aligned_n,
+        remote_n=remote_n,
+    )
+    if prune_meta:
+        bars_refresh["watching_pruned"] = prune_meta
+
     status = build_bars_status(watching_limit=limit)
     return {
         "success": True,
         "task": "bars_refresh",
         "mode": mode_s,
         "watching_limit": limit,
-        "universe_count": n_codes,
+        "universe_count": int(status.get("universe_count") or n_codes),
         "lookback": lb,
         "bars_refresh": bars_refresh,
         "status": status,
+        "watching_pruned": prune_meta or None,
     }

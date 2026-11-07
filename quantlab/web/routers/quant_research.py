@@ -169,7 +169,7 @@ def quant_tau_ridge_model() -> Dict[str, Any]:
 @router.post("/api/quant/oo-rank")
 
 def quant_oo_rank(body: OoRankRequest) -> Dict[str, Any]:
-    """ŷ_oo_rank：同窗 LambdaRank+Ridge（成交 oo_rank=1..n；过入场后作买序；可选 oo_rank_max，与 τc_rank 共用）。persist 按 NDCG@K 自动选 backend 启用，不重训。"""
+    """ŷ_oo_rank：同窗 LambdaRank+Ridge 对照（成交 oo_rank=1..n；过入场后作买序；可选 oo_rank_max，与 τc_rank 共用）。persist 固定落盘 LambdaRank，不重训。"""
     try:
         return deps.quant.run_oo_rank_experiment(
             lookback=body.lookback,
@@ -183,7 +183,6 @@ def quant_oo_rank(body: OoRankRequest) -> Dict[str, Any]:
             persist_role=body.persist_role,
             note=body.note,
             cross_section_zscore=bool(body.cross_section_zscore),
-            train_universe_tier_a=bool(body.train_universe_tier_a),
             train_tiers=list(body.train_tiers or []) or None,
         )
     except Exception as e:
@@ -201,7 +200,7 @@ def quant_oo_rank_model() -> Dict[str, Any]:
 @router.post("/api/quant/tc-rank")
 
 def quant_tc_rank(body: TcRankRequest) -> Dict[str, Any]:
-    """ŷ_τc_rank：同窗 LambdaRank+Ridge（标签 price[τ]→close[T]）。persist 按 NDCG@K 落盘；不改买序；与 oo_rank 共用 rank 入场。"""
+    """ŷ_τc_rank：同窗 LambdaRank+Ridge 对照（标签 price[τ]→close[T]）。persist 固定落盘 LambdaRank；不改买序；与 oo_rank 共用 rank 入场。"""
     try:
         return deps.quant.run_tc_rank_experiment(
             lookback=body.lookback,
@@ -215,7 +214,6 @@ def quant_tc_rank(body: TcRankRequest) -> Dict[str, Any]:
             persist_role=body.persist_role,
             note=body.note,
             cross_section_zscore=bool(body.cross_section_zscore),
-            train_universe_tier_a=bool(body.train_universe_tier_a),
             train_tiers=list(body.train_tiers or []) or None,
         )
     except Exception as e:

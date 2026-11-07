@@ -239,7 +239,15 @@ export function installResearchUniverseUi(q) {
       .filter(Boolean)
       .join("；");
     const short = why.length > 36 ? `${why.slice(0, 36)}…` : why;
-    const core = `定档猜涨 ${heads.join(" + ")}`;
+    const rankB = String(extra.rank_backend || "").trim().toLowerCase();
+    const retB = String(extra.return_backend || "").trim().toLowerCase();
+    const fitBits = [];
+    if (rankB === "lambdarank" || rankB === "lightgbm") fitBits.push("排序 LambdaRank");
+    else if (rankB) fitBits.push(`排序 ${rankB}`);
+    if (retB === "ridge") fitBits.push("收益 Ridge");
+    else if (retB) fitBits.push(`收益 ${retB}`);
+    const fit = fitBits.length ? ` · ${fitBits.join(" / ")}` : "";
+    const core = `定档猜涨 ${heads.join(" + ")}${fit}`;
     return short ? `${core}（${short}）` : core;
   }
 
@@ -653,10 +661,10 @@ export function installResearchUniverseUi(q) {
           ? `<table class="quant-ru-tier-grid">
               <thead><tr>
                 <th class="quant-ru-col-stock">标的</th>
-                <th class="num" title="定档窗 oo：说涨 = 预估 > 0.05pp；lift = 说涨精度 − 上涨日比例；进 Lift_Score 等权">oo</th>
-                <th class="num" title="定档窗 oo_rank：说涨 = 预估高于当日截面中位数；lift = 说涨精度 − 上涨日比例；进 Lift_Score 等权">oo_rank</th>
-                <th class="num" title="定档窗 τc：说涨 = 预估 > 0.05pp（与 τc_rank 同预估、不同口径）；进 Lift_Score 等权">τc</th>
-                <th class="num" title="定档窗 τc_rank：说涨 = 预估高于当日截面中位数；进 Lift_Score 等权">τc_rank</th>
+                <th class="num" title="定档窗 oo：内存 Ridge；说涨 = 预估 > 0.05pp；lift = 说涨精度 − 上涨日比例；进 Lift_Score 等权">oo</th>
+                <th class="num" title="定档窗 oo_rank：内存 LambdaRank；说涨 = 预估高于当日截面中位数；lift = 说涨精度 − 上涨日比例；进 Lift_Score 等权">oo_rank</th>
+                <th class="num" title="定档窗 τc：内存 Ridge（与 τc_rank 各自拟合）；说涨 = 预估 > 0.05pp；进 Lift_Score 等权">τc</th>
+                <th class="num" title="定档窗 τc_rank：内存 LambdaRank；说涨 = 预估高于当日截面中位数；进 Lift_Score 等权">τc_rank</th>
                 <th class="num" title="Lift_Score = 有样本头 lift 等权。收益大小不进分数；按此分降序取 A / B">Lift_Score</th>
               </tr></thead>
               <tbody>${trs}</tbody>
@@ -745,7 +753,7 @@ export function installResearchUniverseUi(q) {
         const bits = [];
         if (stale) {
           bits.push(
-            "这份报告不是四头猜涨 lift 定档。请再点「观察池分档」：当场拟合 oo / oo_rank / τc / τc_rank（不改研究套 ŷ_oo / ŷ_τc），有样本头等权，用说涨精度减去上涨日比例重写 A/B/C"
+            "这份报告不是四头猜涨 lift 定档。请再点「观察池分档」：排序头 LambdaRank、收益头 Ridge 当场拟合（不改研究套），有样本头等权，用说涨精度减去上涨日比例重写 A/B/C"
           );
         }
         if (missingHold) {

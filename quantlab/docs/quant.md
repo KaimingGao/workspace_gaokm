@@ -447,7 +447,7 @@ open(t) ──y_τ(t)──► close(t) ──隔夜──► open(t+1)
 
 **调仓回测 ŷ 头仅 Ridge**；Horizon τ30…90 已并入主卡双训（见 §4.3d）。
 
-**观察池分档**（概览下「观察池分档」区；工具栏 **Holdout** 默认 **60**，与 ŷ_oo 拟合 Holdout 独立，不回写自上次报告）：评测窗为 Holdout 前段，与 Holdout、与拟合窗交界各空 **1 个交易日**。定档模型只拟合评测窗之前，不覆盖研究套；交易打分仍用研究套。当场拟合 **oo / oo_rank / τc / τc_rank**（内存 Ridge）。收益头说涨 = 预估 > 0.05pp；排序头说涨 = 预估高于当日截面中位数。猜涨精度 = 说涨日里标签真正上涨的比例。lift = 猜涨精度 − 该票定档窗上涨日比例；有样本头等权。收益大小不进分数。单头说涨少于 **8 次**不计入该头；oo_rank 失败则整次失败，其余头软跳过；都没有则归 C。按 lift 降序取 **top A 数量→A**、**接着 B 数量→B**、其余→C。默认 A=100、B=300。表内：四头 lift + Lift_Score；档标题只留 Holdout Lift_Score 均值；KPI 平均收益率看 Holdout 等权买持。落盘 `predictability_tiers_last.json`（协议 `tier60_quad_uplift_holdout_eval`）；`/replay` 勾选同步 live 闸。回测/live 校验协议、Holdout N、评测末日新鲜度与池指纹；旧协议报告会被拒绝，须重跑分档。
+**观察池分档**（概览下「观察池分档」区；工具栏 **Holdout** 默认 **60**，与 ŷ_oo 拟合 Holdout 独立，不回写自上次报告）：评测窗为 Holdout 前段，与 Holdout、与拟合窗交界各空 **1 个交易日**。定档模型只拟合评测窗之前，不覆盖研究套；交易打分仍用研究套。当场拟合：**排序头 oo_rank / τc_rank** = 内存 **LambdaRank**（100 档相关度）；**收益头 oo / τc** = 内存 **Ridge**（各自独立拟合，排序分无收益量纲，禁止用 LambdaRank 回退 abs 说涨）。收益头说涨 = 预估 > 0.05pp；排序头说涨 = 预估高于当日截面中位数。猜涨精度 = 说涨日里标签真正上涨的比例。lift = 猜涨精度 − 该票定档窗上涨日比例；有样本头等权。收益大小不进分数。单头说涨少于 **8 次**不计入该头；oo_rank 失败则整次失败，其余头软跳过；都没有则归 C。按 lift 降序取 **top A 数量→A**、**接着 B 数量→B**、其余→C。默认 A=100、B=300。表内：四头 lift + Lift_Score；档标题只留 Holdout Lift_Score 均值；KPI 平均收益率看 Holdout 等权买持。落盘 `predictability_tiers_last.json`（协议 `tier60_quad_uplift_holdout_eval`）；`/replay` 勾选同步 live 闸。回测/live 校验协议、Holdout N、评测末日新鲜度与池指纹；旧协议报告会被拒绝，须重跑分档。
 
 ### 4.2 τ 打分链（层 2 · 残差头挂载）
 
@@ -491,15 +491,15 @@ score_stock(code) 续——
 | 训练宇宙 | 截面 z **恒整观察池**（与主头同哲学）。卡头 **训练档** 标签在外，下拉内多选 A/B/C：损失 / Holdout 缩到观察池∩所选档（须先跑分档；不选=整池）；落盘 `train_universe`（仅 A→`tier_a`，多档→`tier`）+ `train_universe_tiers` + `tier_codes`（`zscore_universe` 恒 `pool`） |
 | 训练窗 | 允许 **100～1000** 交易日；默认 **700** |
 | Holdout | 卡头 **1～60** 交易日，默认 **20**；拟合按该值切分 |
-| 训练 | `POST /api/quant/oo-rank` 拟合写 last report（双 backend）；人审「启用研究 / 启用执行」按 Holdout **NDCG@K** 自动落盘更强一侧（打平→LambdaRank），不重训 |
+| 训练 | `POST /api/quant/oo-rank` 拟合写 last report（双 backend；Ridge 仅对照）；LambdaRank 标签为日截面 **100 档**等分相关度（非稠密全序）；鲁棒默认：truncation=100、截面 z 裁 ±3、min_leaf=50、L2=5（API/UI 同默认）；人审「启用研究 / 启用执行」**固定落盘 LambdaRank**（须有 booster；旧 Ridge 顶层戳若同窗已有 LambdaRank 包，重新启用即可改写，不重训；无包则拒晋级），不重训 |
 | 回测 / live | 加载已启用模型（无 backend 开关），打相对分再编名次写入 `y_oo_rank`；成交明细 **oo_rank** 列。过门槛后买序按 oo_rank。`oo_rank_max` 开则未过强档另须 `max(oo_rank, τc_rank) < max`；fuse 过强档改看 `oo_rank_strong_max`（默认 100）。排序头截面 z **只吃全池 L2**（不进批现算；缺 Cube 跳过写分）。分档打开时名次只写允许档。旧落盘 `zscore_universe=tier_a` 只当训练 A 审计 |
 | OOS | **IC** / **ICIR** / **Rank IC** / TopK overlap / **NDCG@K** / TopK y_oo；LambdaRank vs Ridge 同窗对照 |
 
-实现：`core/research/oo_rank_panel.py` · `core/research/oo_rank_lambdarank.py`。加载仍兼容旧文件名 `oo_rank_pairwise_*.json`。
+实现：`core/research/oo_rank_panel.py` · `core/research/oo_rank_lambdarank.py`。
 
 ### 4.3c ŷ_τc_rank（LambdaRank / Ridge · 截面名次）
 
-与 ŷ_oo_rank **同协议**：同窗 LambdaRank + Ridge，Holdout **NDCG@K** 选 backend；卡头 **日截面 Z**（默认开）。标签为 `price[τ]→close[T]`（开盘钟 τ=open 时即 close/open−1；百分点），embargo=0。特征为 **alpha_τc**（`z_τc_*` ∪ `raw_atc_*`，开盘钟；面板按股缓存在 `tc_rank/`，fingerprint 一致时可从 `tc/` 复制）。Ridge 不按原始标准差剔列；真常数仍剔除。
+与 ŷ_oo_rank **同协议**：同窗 LambdaRank + Ridge（Ridge 仅对照），**固定落盘 LambdaRank**（训练标签同为 **100 档**等分相关度；truncation / z 裁剪 / 叶子与 L2 同 oo_rank 鲁棒默认；须有 booster，旧 Ridge 草稿拒晋级）；卡头 **日截面 Z**（默认开）。标签为 `price[τ]→close[T]`（开盘钟 τ=open 时即 close/open−1；百分点），embargo=0。特征为 **alpha_τc**（`z_τc_*` ∪ `raw_atc_*`，开盘钟；面板按股缓存在 `tc_rank/`，fingerprint 一致时可从 `tc/` 复制）。Ridge 不按原始标准差剔列；真常数仍剔除。
 相对分编成当日截面名次 `y_tc_rank ∈ 1..n`（1=最高），写入成交明细 **τc_rank** 列。
 **不**进 `y_oo_fuse`，**不**改买序。与 oo_rank 共用名次闸：未过强档看 `oo_rank_max`，过强档看 `oo_rank_strong_max`（默认 100），均须 `max(y_oo_rank, y_τc_rank) < max`。
 

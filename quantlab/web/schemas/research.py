@@ -127,7 +127,7 @@ class TauRidgeRequest(BaseModel):
 
 
 class OoRankRequest(_CrossSectionZscore):
-    """ŷ_oo_rank：同窗 LambdaRank+Ridge；启用按 NDCG@K 自动选 backend（成交 oo_rank=1..n；过入场后作买序；可选 oo_rank_max，与 τc_rank 共用）。"""
+    """ŷ_oo_rank：同窗 LambdaRank+Ridge 对照；落盘固定 LambdaRank（成交 oo_rank=1..n；过入场后作买序；可选 oo_rank_max，与 τc_rank 共用）。"""
 
     lookback: int = Field(default=700, ge=FIT_LOOKBACK_MIN, le=FIT_LOOKBACK_MAX)
     watching_limit: int = Field(
@@ -169,13 +169,6 @@ class OoRankRequest(_CrossSectionZscore):
             raise ValueError("训练档仅支持 A/B/C，收到 " + ",".join(bad))
         labels = normalize_train_tiers(list(value))
         return labels or None
-    train_universe_tier_a: bool = Field(
-        default=False,
-        description=(
-            "兼容旧开关：True 且 train_tiers 空时等价 train_tiers=['A']。"
-            "新 UI 请用 train_tiers。"
-        ),
-    )
     holdout_trading_days: int = Field(
         default=20,
         ge=1,
@@ -188,15 +181,20 @@ class OoRankRequest(_CrossSectionZscore):
     ndcg_k: int = Field(
         default=10, ge=2, le=40, description="OOS NDCG@K 的 K（与训练目标对齐）"
     )
-    l2: float = Field(default=1.0, ge=0.0, le=100.0)
+    l2: float = Field(
+        default=5.0,
+        ge=0.0,
+        le=100.0,
+        description="LambdaRank L2；默认 5（与 LAMBDARANK_L2 鲁棒默认一致）",
+    )
     backend: str = Field(
         default="auto",
-        description="auto=按 Holdout NDCG@K 推荐；也可强制 lambdarank / ridge（拟合仍双训）",
+        description="auto=固定 LambdaRank；也可强制 lambdarank / ridge（拟合仍双训，Ridge 默认仅对照）",
         max_length=24,
     )
     persist: bool = Field(
         default=False,
-        description="True=按 NDCG@K 自动选 backend 写入模型文件（路径由 persist_role 决定；不重训）",
+        description="True=固定写入 LambdaRank 到模型文件（路径由 persist_role 决定；不重训）",
     )
     persist_role: str = Field(
         default="live",

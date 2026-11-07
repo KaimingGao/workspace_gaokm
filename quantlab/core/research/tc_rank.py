@@ -3,7 +3,7 @@
 标签：price[τ]→close[T]（开盘钟 τ=open 时即 close/open−1；百分点），embargo=0。
 特征：alpha_τc（z_τc_* ∪ raw_atc_*），日截面 z-score。
 面板按股落在 ``tc_rank/``；与 ŷ_τc 的 ``tc/`` 分片 fingerprint 一致时直接复制，不重算。
-同窗 LambdaRank + Ridge，按 Holdout NDCG@K 选 backend。
+同窗 LambdaRank + Ridge 对照；落盘固定 LambdaRank（``backend=auto`` 同义）。
 研究枢纽启用只落盘；不进 y_oo_fuse，不改买序。
 回测/live 写入当日截面名次；与 oo_rank 取 max 作「rank 入场」闸。
 """
@@ -20,12 +20,12 @@ import numpy as np
 logger = logging.getLogger(__name__)
 
 from core.io_atomic import atomic_write_json
+from core.research.oo_rank_lambdarank import LAMBDARANK_L2
 
 FORMULA_TC_RANK = "rank(price[τ]->close[T])"
 SCHEMA = "tc_rank_v1"
 TASK = "tc_rank"
 DEFAULT_MIN_NAMES = 8
-DEFAULT_L2 = 1.0
 DEFAULT_TOPK_TRACK = 10
 DEFAULT_NDCG_K = 10
 DEFAULT_HOLDOUT_TRADING_DAYS_TC_RANK = 20
@@ -152,7 +152,7 @@ def fit_tc_rank_report(
     min_history: int = 12,
     min_names: int = DEFAULT_MIN_NAMES,
     holdout_trading_days: int = DEFAULT_HOLDOUT_TRADING_DAYS_TC_RANK,
-    l2: float = DEFAULT_L2,
+    l2: float = LAMBDARANK_L2,
     topk_track: int = DEFAULT_TOPK_TRACK,
     ndcg_k: int = DEFAULT_NDCG_K,
     ridge_lambda: float = 1.0,
@@ -264,8 +264,6 @@ def fit_tc_rank_report(
         }
 
     force_backend = str(backend or "auto").strip().lower()
-    if force_backend in {"lightgbm", "lgb", "lambdarank"}:
-        force_backend = "lambdarank"
     if force_backend not in {"auto", "lambdarank", "ridge"}:
         return {
             "success": False,
@@ -430,7 +428,7 @@ def fit_tc_rank_report(
 def persist_tc_rank_model(
     report: Dict[str, Any], *, note: str = "", role: str = "live"
 ) -> Dict[str, Any]:
-    """启用研究=报告→研究槽；启用执行=研究槽→执行槽。按 NDCG@K 选 backend。"""
+    """启用研究=报告→研究槽；启用执行=研究槽→执行槽。固定落盘 LambdaRank。"""
     from core.numbers import now_iso_utc
     from core.research.holdout import (
         MODEL_ROLE_LIVE,
@@ -444,6 +442,7 @@ def persist_tc_rank_model(
     from core.research.oo_rank_lambdarank import (
         _backend_pack_from_report,
         _oo_rank_model_valid,
+        _oo_rank_use_booster,
         select_oo_rank_backend,
         stamp_oo_rank_fitted_at,
     )
@@ -482,14 +481,29 @@ def persist_tc_rank_model(
         oos.get("ridge_tc_baseline") if isinstance(oos, dict) else None,
     )
     pack = _backend_pack_from_report(report, backend)
+    if not isinstance(pack, dict) or not isinstance(pack.get("return_model"), dict):
+        return {
+            "success": False,
+            "error": (
+                "lambdarank pack missing（请先拟合再启用；"
+                "旧 Ridge 草稿不可晋级为 LambdaRank）"
+            ),
+        }
     view = dict(report)
-    if isinstance(pack, dict):
-        view["return_model"] = pack.get("return_model")
-        if isinstance(pack.get("return_model_research"), dict):
-            view["return_model_research"] = pack.get("return_model_research")
+    view["return_model"] = pack.get("return_model")
+    if isinstance(pack.get("return_model_research"), dict):
+        view["return_model_research"] = pack.get("return_model_research")
     model = select_fit_return_model(view)
     if not isinstance(model, dict):
         return {"success": False, "error": "return_model missing"}
+    if backend == "lambdarank" and not _oo_rank_use_booster(model):
+        return {
+            "success": False,
+            "error": (
+                "lambdarank pack missing（请先拟合再启用；"
+                "旧 Ridge 草稿不可晋级为 LambdaRank）"
+            ),
+        }
     if not _oo_rank_model_valid(model):
         return {"success": False, "error": "return_model missing usable tc_rank pack"}
     model = dict(model)

@@ -138,7 +138,7 @@
     <header class="dashboard-section-head quant-section-head">
       <h3 id="quant-section-research-universe-title" class="dashboard-section-title">观察池分档</h3>
       <p class="dashboard-section-desc quant-section-desc">
-        定档窗 60 日猜涨 lift · 标题 Holdout Lift_Score / 等权买持看 Holdout · live 跟随回测「分档」
+        定档窗 60 日猜涨 lift（排序 LambdaRank · 收益 Ridge）· 标题 Holdout Lift_Score / 等权买持看 Holdout · live 跟随回测「分档」
       </p>
     </header>
     <div class="dashboard-card quant-pro-card quant-ru-card">
@@ -154,9 +154,10 @@
               <p>
                 定档窗是 Holdout 前 <strong>60 个交易日</strong>，与 Holdout、与拟合窗交界各空 <strong>1 个交易日</strong>。
                 定档模型只拟合这 60 日之前，不覆盖研究套。交易打分仍用研究套。
-                收益头 oo / τc：说涨 = 预估 &gt; 0.05 个百分点。排序头 oo_rank / τc_rank：说涨 = 预估高于当日截面中位数。
+                排序头 oo_rank / τc_rank：内存 <strong>LambdaRank</strong>（100 档），说涨 = 预估高于当日截面中位数。
+                收益头 oo / τc：内存 <strong>Ridge</strong>，说涨 = 预估 &gt; 0.05 个百分点；各自独立拟合，不用排序分做 abs 说涨。
                 猜涨精度 = 说涨日里标签真正上涨的比例。lift = 猜涨精度 − 这只票在定档窗里的<strong>上涨日比例</strong>；四头有样本等权。收益大小不进分数。
-                单头说涨少于 <strong>8 次</strong>不计入该头。当场拟合（不写研究套）；oo_rank 失败则整次失败；都没有则归 C。
+                单头说涨少于 <strong>8 次</strong>不计入该头；oo_rank 失败则整次失败；都没有则归 C。
                 按 lift 降序取 top <strong>A 数量</strong>→A，接着 <strong>B 数量</strong>→B、其余→C（默认 100 / 300）。
                 表内：四头 lift · Lift_Score；档标题只留 Holdout Lift_Score 均值。
                 调仓 live 跟随历史回测页「分档」勾选。
@@ -667,7 +668,7 @@
       <div class="dashboard-card-head quant-pro-card-head quant-card-head--tools quant-card-head--fit">
         <div id="quant-oo-rank-summary" class="quant-rem-status quant-card-head-status" aria-live="polite">
           <span class="quant-pro-status-chip" data-state="idle">待命</span>
-          <span class="quant-rem-status-msg">拟合后对照 NDCG@K · 启用自动选更强 backend</span>
+          <span class="quant-rem-status-msg">拟合后对照 NDCG@K · 启用固定落盘 LambdaRank</span>
         </div>
         <div class="quant-fit-params" role="group" aria-label="ŷ_oo_rank 拟合参数">
           <span
@@ -714,7 +715,7 @@
 
         <div class="dashboard-card-tools quant-pro-card-tools quant-fit-actions" role="group" aria-label="ŷ_oo_rank 操作">
           <button type="button" id="quant-oo-rank-run" class="dialog-btn primary" title="观察池同窗拟合 LambdaRank + Ridge · Holdout OOS（不写盘）">拟合</button>
-          <button type="button" id="quant-oo-rank-persist-research" class="dialog-btn warn" data-persist-role="research" title="Holdout 前训 + NDCG@K 选 backend → oo_rank_model_research.json；成交 oo_rank=1..n；过入场后作买序">启用研究</button>
+          <button type="button" id="quant-oo-rank-persist-research" class="dialog-btn warn" data-persist-role="research" title="Holdout 前训 + 固定落盘 LambdaRank（Ridge 仅对照）→ oo_rank_model_research.json；成交 oo_rank=1..n；过入场后作买序">启用研究</button>
           <button type="button" id="quant-oo-rank-persist" class="dialog-btn warn" data-persist-role="live" title="研究槽 → live/oo_rank_model.json（晋级；须先启用研究）">启用执行</button>
           <button type="button" id="quant-oo-rank-status" class="dialog-btn secondary" title="读取研究 / 执行 / 上次拟合">状态</button>
         </div>
@@ -738,7 +739,7 @@
       <div class="dashboard-card-head quant-pro-card-head quant-card-head--tools quant-card-head--fit">
         <div id="quant-tc-rank-summary" class="quant-rem-status quant-card-head-status" aria-live="polite">
           <span class="quant-pro-status-chip" data-state="idle">待命</span>
-          <span class="quant-rem-status-msg">拟合后对照 NDCG@K · 启用自动选更强 backend</span>
+          <span class="quant-rem-status-msg">拟合后对照 NDCG@K · 启用固定落盘 LambdaRank</span>
         </div>
         <div class="quant-fit-params" role="group" aria-label="ŷ_τc_rank 拟合参数">
           <span
@@ -785,7 +786,7 @@
 
         <div class="dashboard-card-tools quant-pro-card-tools quant-fit-actions" role="group" aria-label="ŷ_τc_rank 操作">
           <button type="button" id="quant-tc-rank-run" class="dialog-btn primary" title="观察池同窗拟合 LambdaRank + Ridge · Holdout OOS（不写盘）">拟合</button>
-          <button type="button" id="quant-tc-rank-persist-research" class="dialog-btn warn" data-persist-role="research" title="Holdout 前训 + NDCG@K 选 backend → tc_rank_model_research.json；不进 fuse、不改买序；与 oo_rank 共用 rank 入场">启用研究</button>
+          <button type="button" id="quant-tc-rank-persist-research" class="dialog-btn warn" data-persist-role="research" title="Holdout 前训 + 固定落盘 LambdaRank（Ridge 仅对照）→ tc_rank_model_research.json；不进 fuse、不改买序；与 oo_rank 共用 rank 入场">启用研究</button>
           <button type="button" id="quant-tc-rank-persist" class="dialog-btn warn" data-persist-role="live" title="研究槽 → live/tc_rank_model.json（晋级；须先启用研究；不改买序；与 oo_rank 共用 rank 入场）">启用执行</button>
           <button type="button" id="quant-tc-rank-status" class="dialog-btn secondary" title="读取研究 / 执行 / 上次拟合">状态</button>
         </div>

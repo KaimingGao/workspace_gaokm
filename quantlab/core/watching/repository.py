@@ -3,7 +3,7 @@
 import json
 import logging
 import os
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Sequence
 
 logger = logging.getLogger(__name__)
 
@@ -546,6 +546,104 @@ def add_watchlist_item(
     return out
 
 
+def remove_watchlist_items(
+    codes: Sequence[str],
+    *,
+    path: Optional[str] = None,
+    refill: bool = True,
+    origin: str = "日K缺失剔除",
+) -> Dict[str, Any]:
+    """批量从观察池移除；``refill`` 时按 ``max_size`` 从暂存/研究宇宙补齐。"""
+    targets = []
+    seen = set()
+    for raw in codes or []:
+        code = str(raw or "").strip()
+        if not code or code in seen:
+            continue
+        seen.add(code)
+        targets.append(code)
+    if not targets:
+        return {
+            "success": True,
+            "removed": [],
+            "removed_count": 0,
+            "added": 0,
+            "count": 0,
+            "message": "没有要移除的代码",
+        }
+
+    data = read_watching(path)
+    _align_watch_meta(data)
+    wl = list(data.get("watchlist") or [])
+    origins = list(data.get("watchlist_origins") or [])
+    names = list(data.get("watchlist_names") or [])
+    added_at = list(data.get("watchlist_added_at") or [])
+    drop_set = set(targets)
+    # 兼容未规范化代码
+    for raw in list(drop_set):
+        try:
+            resolved, _ = _resolve_entry(raw)
+        except Exception:  # noqa: BLE001
+            continue
+        if resolved:
+            drop_set.add(str(resolved).strip())
+
+    removed: List[Dict[str, str]] = []
+    keep_wl: List[str] = []
+    keep_origins: List[str] = []
+    keep_names: List[str] = []
+    keep_added: List[str] = []
+    for i, code in enumerate(wl):
+        c = str(code or "").strip()
+        if c in drop_set:
+            removed.append(
+                {
+                    "code": c,
+                    "name": str(names[i] if i < len(names) else c) or c,
+                    "origin": str(origin or "日K缺失剔除"),
+                }
+            )
+            continue
+        keep_wl.append(c)
+        keep_origins.append(origins[i] if i < len(origins) else "手动")
+        keep_names.append(names[i] if i < len(names) else c)
+        keep_added.append(added_at[i] if i < len(added_at) else "")
+
+    data["sources"] = []
+    data["watchlist"] = keep_wl
+    data["watchlist_origins"] = keep_origins
+    data["watchlist_names"] = keep_names
+    data["watchlist_added_at"] = keep_added
+    added_n = 0
+    if refill:
+        cap = clamp_watching_max_size(data.get("max_size"), WATCHING_DEFAULT_SIZE)
+        stats = _resize_watchlist(data, cap, expand=True)
+        added_n = int(stats.get("added") or 0)
+        if added_n:
+            try:
+                data["watchlist_names"] = watchlist_names_for(data, allow_live=False)
+            except Exception:  # noqa: BLE001
+                logger.debug("prune refill names failed", exc_info=True)
+    write_watching(data, path)
+    saved = read_watching(path)
+    n = len(_clean_code_list(saved.get("watchlist")))
+    sample = "、".join(
+        f"{it.get('name')}（{it.get('code')}）" for it in removed[:6]
+    )
+    more = f" 等 {len(removed)} 只" if len(removed) > 6 else ""
+    return {
+        "success": True,
+        "removed": removed,
+        "removed_count": len(removed),
+        "added": added_n,
+        "count": n,
+        "message": (
+            f"已剔除无日 K：{sample}{more}"
+            + (f"；补齐 {added_n} 只" if added_n else "")
+        ),
+    }
+
+
 def remove_watchlist_item(
     code: str,
     *,
@@ -557,52 +655,19 @@ def remove_watchlist_item(
     if not target:
         raise ValueError("请指定要移除的股票代码")
 
-    data = read_watching(path)
-    wl = [str(c).strip() for c in (data.get("watchlist") or []) if str(c).strip()]
-    origins = list(data.get("watchlist_origins") or [])
-    names = list(data.get("watchlist_names") or [])
-    if len(origins) != len(wl):
-        origins = ["手动"] * len(wl)
-    if len(names) != len(wl):
-        names = watchlist_names_for({**data, "watchlist": wl})
-
-    idx = next((i for i, c in enumerate(wl) if c == target), None)
-    if idx is None:
-        resolved, _ = _resolve_entry(target)
-        idx = next((i for i, c in enumerate(wl) if c == resolved), None)
-        if idx is not None:
-            target = wl[idx]
-
-    if idx is None:
+    batch = remove_watchlist_items([target], path=path, refill=False)
+    removed = list(batch.get("removed") or [])
+    if not removed:
         raise ValueError(f"观察名单中没有「{code}」")
-
-    removed_name = names[idx] if idx < len(names) else target
-    added = list(data.get("watchlist_added_at") or [])
-    if len(added) != len(wl):
-        added = (added + [""] * len(wl))[: len(wl)]
-    wl.pop(idx)
-    if idx < len(origins):
-        origins.pop(idx)
-    if idx < len(names):
-        names.pop(idx)
-    if idx < len(added):
-        added.pop(idx)
-
-    data["sources"] = []
-    data["watchlist"] = wl
-    data["watchlist_origins"] = origins
-    data["watchlist_names"] = names
-    data["watchlist_added_at"] = added
-    write_watching(data, path)
-
+    hit = removed[0]
     out: Dict[str, Any] = {
         "success": True,
         "removed": True,
-        "stock_code": target,
-        "stock_name": removed_name,
-        "watchlist": wl,
-        "count": len(wl),
-        "message": f"已移除：{removed_name}（{target}）",
+        "stock_code": hit.get("code") or target,
+        "stock_name": hit.get("name") or target,
+        "watchlist": list((read_watching(path) or {}).get("watchlist") or []),
+        "count": int(batch.get("count") or 0),
+        "message": f"已移除：{hit.get('name') or target}（{hit.get('code') or target}）",
     }
     if sync_paper:
         from core.watching.sync_paper import sync_paper_watchlist

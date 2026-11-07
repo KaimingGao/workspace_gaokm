@@ -1,7 +1,11 @@
-"""ŷ_oo_rank：LambdaRank / Ridge 双 backend，启用时按 Holdout NDCG@K 自适应。
+"""ŷ_oo_rank：同窗 LambdaRank + Ridge 对照；落盘固定 LambdaRank。
 
-训练：同窗训 LambdaRank + Ridge ŷ_oo；推理：相对分 → 当日截面 1..n 名次（1=最高）。
-启用研究/执行：按 NDCG@K 自动落盘更强一侧（打平或缺指标 → lambdarank）。
+训练：同窗训 LambdaRank + Ridge ŷ_oo（Ridge 仅 Holdout 对照）；
+LambdaRank 标签为日截面收益名次等分到 ``LAMBDARANK_N_BUCKETS``（默认 100）档。
+鲁棒默认：``lambdarank_truncation_level`` 盯前 100、截面 z 裁 ±``LAMBDARANK_Z_CLIP``、
+更高 ``min_child`` / L2、略浅树，减轻换池/极端 z 切歪。
+推理：相对分 → 当日截面 1..n 名次（1=最高）。
+启用研究/执行：固定落盘 LambdaRank（``backend=auto`` 同义；仍可强制 ``ridge``）。
 回测 / live 只消费已启用模型，无 backend 开关。
 不进 y_oo_fuse；过入场后作买序；可选 ``oo_rank_max`` 入场闸（UI「rank 入场」）。
 """
@@ -34,19 +38,29 @@ Y_OO_RANK_LABEL_KEYS = (
 )
 FORMULA_OO_RANK = "rank(open[T]->open[T+1])"
 SCHEMA = "oo_rank_v1"
-SCHEMA_LEGACY = "oo_rank_pairwise_v1"
 TASK = "oo_rank"
-TASK_LEGACY = "oo_rank_pairwise"
 DEFAULT_MIN_NAMES = 8
-DEFAULT_L2 = 1.0
 DEFAULT_TOPK_TRACK = 10
 DEFAULT_NDCG_K = 10
 DEFAULT_HOLDOUT_TRADING_DAYS_OO_RANK = 20
+# LambdaRank 训练标签：日截面收益名次等分到固定档（非稠密 0..n-1）
+LAMBDARANK_N_BUCKETS = 100
+# 损失 truncation：对齐强档闸量级，默认 30 太短、尾部噪声仍易进梯度
+LAMBDARANK_TRUNCATION_LEVEL = 100
+# 截面 z 软裁剪：少切 GAP / 波动极端叶子；旧包无 z_clip 字段则推理不裁
+LAMBDARANK_Z_CLIP = 3.0
+# 比 Ridge 更钝的树：叶子更大、L2 更强、略浅
+LAMBDARANK_N_ESTIMATORS = 100
+LAMBDARANK_MAX_DEPTH = 4
+LAMBDARANK_NUM_LEAVES = 24
+LAMBDARANK_LEARNING_RATE = 0.05
+LAMBDARANK_SUBSAMPLE = 0.75
+LAMBDARANK_COLSAMPLE = 0.8
+LAMBDARANK_MIN_CHILD_SAMPLES = 50
+LAMBDARANK_L2 = 5.0
 
 _MODEL_BASENAME = "oo_rank_model.json"
 _LAST_REPORT_BASENAME = "oo_rank_last_report.json"
-_MODEL_BASENAME_LEGACY = "oo_rank_pairwise_model.json"
-_LAST_REPORT_BASENAME_LEGACY = "oo_rank_pairwise_last_report.json"
 
 
 def _f(v: Any) -> Optional[float]:
@@ -149,18 +163,6 @@ def oo_rank_last_report_path() -> str:
     return os.path.join(LIVE_DIR, _LAST_REPORT_BASENAME)
 
 
-def oo_rank_model_path_legacy() -> str:
-    from core.paths import LIVE_DIR
-
-    return os.path.join(LIVE_DIR, _MODEL_BASENAME_LEGACY)
-
-
-def oo_rank_last_report_path_legacy() -> str:
-    from core.paths import LIVE_DIR
-
-    return os.path.join(LIVE_DIR, _LAST_REPORT_BASENAME_LEGACY)
-
-
 def _load_model_file(path: str) -> Optional[Dict[str, Any]]:
     if not path or not os.path.isfile(path):
         return None
@@ -177,34 +179,22 @@ def _load_model_file(path: str) -> Optional[Dict[str, Any]]:
     return doc
 
 
-def _first_existing_model(*paths: str) -> Optional[Dict[str, Any]]:
-    for path in paths:
-        doc = _load_model_file(path)
-        if doc:
-            return doc
-    return None
-
-
 def load_oo_rank_model(*, prefer_research: bool = True) -> Optional[Dict[str, Any]]:
     """加载已启用模型。按槽严格取，缺文件返回 None（不跨槽回落）。
 
     - ``prefer_research=True``：只读研究套 sidecar
-    - ``prefer_research=False``：只读执行套（新路径优先，旧 ``oo_rank_pairwise_*.json`` 兼容）
+    - ``prefer_research=False``：只读执行套
     """
     live = oo_rank_model_path()
-    legacy = oo_rank_model_path_legacy()
     if prefer_research:
         try:
             from core.research.holdout import load_research_promoted_json
 
-            for path in (live, legacy):
-                doc = load_research_promoted_json(path)
-                if doc:
-                    return doc
+            return load_research_promoted_json(live)
         except Exception:  # noqa: BLE001
             logger.debug("oo_rank research load failed", exc_info=True)
         return None
-    return _first_existing_model(live, legacy)
+    return _load_model_file(live)
 
 
 def stamp_oo_rank_fitted_at(report: Dict[str, Any]) -> Dict[str, Any]:
@@ -246,11 +236,8 @@ def save_oo_rank_last_report(report: Dict[str, Any]) -> None:
 
 
 def load_oo_rank_last_report() -> Optional[Dict[str, Any]]:
-    """上次拟合草稿。启用研究/执行只写这份，不再重训。新路径优先，旧文件可读。"""
-    doc = _first_existing_model(
-        oo_rank_last_report_path(),
-        oo_rank_last_report_path_legacy(),
-    )
+    """上次拟合草稿。启用研究/执行只写这份，不再重训。"""
+    doc = _load_model_file(oo_rank_last_report_path())
     if doc and doc.get("success"):
         return doc
     return None
@@ -260,30 +247,12 @@ def select_oo_rank_backend(
     oos_rank: Optional[Dict[str, Any]] = None,
     oos_ridge: Optional[Dict[str, Any]] = None,
 ) -> str:
-    """按 Holdout NDCG@K 选更好的 backend；打平或缺指标 → ``lambdarank``。"""
+    """固定选用 ``lambdarank``（放弃按 NDCG@K 择优）。
 
-    def _ndcg(m: Any) -> Optional[float]:
-        if not isinstance(m, dict):
-            return None
-        if m.get("success") is False:
-            return None
-        v = m.get("ndcg_at_k")
-        try:
-            if v is None or v == "":
-                return None
-            x = float(v)
-        except (TypeError, ValueError):
-            return None
-        if x != x:  # NaN
-            return None
-        return x
+    ``oos_*`` 仍传入以保持调用签名；Ridge 仅作同窗对照，不参与落盘选择。
+    """
 
-    lr = _ndcg(oos_rank)
-    rg = _ndcg(oos_ridge)
-    if rg is not None and lr is not None and rg > lr + 1e-12:
-        return "ridge"
-    if rg is not None and lr is None:
-        return "ridge"
+    _ = oos_rank, oos_ridge
     return "lambdarank"
 
 
@@ -294,18 +263,30 @@ def _backend_pack_from_report(
     pack = backends.get(backend) if isinstance(backends, dict) else None
     if isinstance(pack, dict) and isinstance(pack.get("return_model"), dict):
         return pack
+    # 顶层回落仅当确实是该 backend 的可用包（勿把旧 Ridge 草稿当成 LambdaRank）
     if backend == "lambdarank" and isinstance(report.get("return_model"), dict):
-        return {
-            "return_model": report.get("return_model"),
-            "return_model_research": report.get("return_model_research"),
-        }
+        top = report.get("return_model")
+        if _oo_rank_use_booster(top):
+            return {
+                "return_model": top,
+                "return_model_research": report.get("return_model_research"),
+            }
+        return None
+    if backend == "ridge" and isinstance(report.get("return_model"), dict):
+        top = report.get("return_model")
+        if _oo_rank_use_ridge(top):
+            return {
+                "return_model": top,
+                "return_model_research": report.get("return_model_research"),
+            }
+        return None
     return None
 
 
 def persist_oo_rank_model(
     report: Dict[str, Any], *, note: str = "", role: str = "live"
 ) -> Dict[str, Any]:
-    """启用研究=报告→研究槽；启用执行=研究槽→执行槽（晋级）。按 NDCG@K 选 backend。"""
+    """启用研究=报告→研究槽；启用执行=研究槽→执行槽（晋级）。固定落盘 LambdaRank。"""
     from core.numbers import now_iso_utc
     from core.research.holdout import (
         MODEL_ROLE_LIVE,
@@ -350,14 +331,29 @@ def persist_oo_rank_model(
         oos.get("ridge_oo_baseline") if isinstance(oos, dict) else None,
     )
     pack = _backend_pack_from_report(report, backend)
+    if not isinstance(pack, dict) or not isinstance(pack.get("return_model"), dict):
+        return {
+            "success": False,
+            "error": (
+                "lambdarank pack missing（请先拟合再启用；"
+                "旧 Ridge 草稿不可晋级为 LambdaRank）"
+            ),
+        }
     view = dict(report)
-    if isinstance(pack, dict):
-        view["return_model"] = pack.get("return_model")
-        if isinstance(pack.get("return_model_research"), dict):
-            view["return_model_research"] = pack.get("return_model_research")
+    view["return_model"] = pack.get("return_model")
+    if isinstance(pack.get("return_model_research"), dict):
+        view["return_model_research"] = pack.get("return_model_research")
     model = select_fit_return_model(view)
     if not isinstance(model, dict):
         return {"success": False, "error": "return_model missing"}
+    if backend == "lambdarank" and not _oo_rank_use_booster(model):
+        return {
+            "success": False,
+            "error": (
+                "lambdarank pack missing（请先拟合再启用；"
+                "旧 Ridge 草稿不可晋级为 LambdaRank）"
+            ),
+        }
     if not _oo_rank_model_valid(model):
         return {"success": False, "error": "return_model missing usable oo_rank pack"}
     model = dict(model)
@@ -809,16 +805,52 @@ def _slice_finite_label_rows(
     return [parsed[i] for i in keep], Z[keep], dropped
 
 
-def _rank_labels(ys: Sequence[float]) -> List[int]:
-    """日截面 ys → LambdaRank 整数标签 0..n-1（高 ys = 高 label）。"""
+def _rank_labels(
+    ys: Sequence[float],
+    *,
+    n_buckets: int = LAMBDARANK_N_BUCKETS,
+) -> List[int]:
+    """日截面 ys → LambdaRank 整数标签（高 ys = 高 label）。
+
+    默认把升序名次 ``0..n-1`` **等分**到 ``n_buckets`` 档（``0..n_buckets-1``），
+    避免日池 600 时全序标签把损失铺在尾部噪声上。``n_buckets<=1`` 时退回稠密
+    ``0..n-1``（兼容旧行为 / 单测）。
+    """
     n = len(ys)
     if n == 0:
         return []
     order = np.argsort(list(ys))
     labels = [0] * n
+    nb = int(n_buckets or 0)
+    if nb <= 1:
+        for rank, idx in enumerate(order):
+            labels[int(idx)] = int(rank)
+        return labels
+    # rank * nb // n ∈ [0, nb-1]；n < nb 时部分档空，仍合法
     for rank, idx in enumerate(order):
-        labels[int(idx)] = int(rank)
+        labels[int(idx)] = min(nb - 1, int(rank) * nb // n)
     return labels
+
+
+def _resolve_z_clip(model: Optional[Mapping[str, Any]] = None, *, default: float = 0.0) -> float:
+    """包内 ``z_clip``；缺省用 ``default``（新训默认裁剪，旧包 0=不裁）。"""
+    if isinstance(model, Mapping) and "z_clip" in model:
+        try:
+            return max(0.0, float(model.get("z_clip")))
+        except (TypeError, ValueError):
+            return max(0.0, float(default))
+    return max(0.0, float(default))
+
+
+def _apply_z_clip(z: np.ndarray, clip: float) -> np.ndarray:
+    """截面 z 软裁剪；``clip<=0`` 原样返回。"""
+    try:
+        c = float(clip)
+    except (TypeError, ValueError):
+        return z
+    if c <= 0.0 or z is None:
+        return z
+    return np.clip(z, -c, c)
 
 
 def _global_z_stats(
@@ -853,22 +885,28 @@ def fit_lambdarank(
     days: Sequence[Dict[str, Any]],
     *,
     feature_names: Optional[Sequence[str]] = None,
-    n_estimators: int = 120,
-    max_depth: int = 5,
-    learning_rate: float = 0.05,
-    subsample: float = 0.85,
-    colsample_bytree: float = 0.9,
-    num_leaves: int = 31,
-    min_child_samples: int = 20,
-    l2: float = 1.0,
+    n_estimators: int = LAMBDARANK_N_ESTIMATORS,
+    max_depth: int = LAMBDARANK_MAX_DEPTH,
+    learning_rate: float = LAMBDARANK_LEARNING_RATE,
+    subsample: float = LAMBDARANK_SUBSAMPLE,
+    colsample_bytree: float = LAMBDARANK_COLSAMPLE,
+    num_leaves: int = LAMBDARANK_NUM_LEAVES,
+    min_child_samples: int = LAMBDARANK_MIN_CHILD_SAMPLES,
+    l2: float = LAMBDARANK_L2,
     cross_section_zscore: bool = True,
     train_codes: Optional[Collection[str]] = None,
+    n_buckets: int = LAMBDARANK_N_BUCKETS,
+    truncation_level: int = LAMBDARANK_TRUNCATION_LEVEL,
+    z_clip: float = LAMBDARANK_Z_CLIP,
 ) -> Dict[str, Any]:
     """LightGBM LambdaRank：按日截面 group，优化 NDCG。
 
     日截面 z **先按当天全行**计算，再按 ``train_codes``（可选）缩损失行，
     再丢掉非有限 y 及对应 Z 行后才打标签。
+    标签默认等分到 ``n_buckets``（100）档，非稠密全序。
     剩下不足 4 行，或标签只剩一种，跳过该日。NaN 不编成最高名次。
+
+    鲁棒默认：``truncation_level`` 盯前段配对、``z_clip`` 裁极端截面 z、更大叶子 / 更强 L2。
 
     输出与推理共用：
     - ``coefficients``：feature importance (gain)，仅诊断
@@ -876,6 +914,8 @@ def fit_lambdarank(
     - ``cross_section_zscore=False``：训练窗全局 μ/σ
     - ``solver`` = ``lambdarank``（旧包 ``lightgbm_lambda`` 仍可读）
     - ``booster_b64``：LightGBM 模型
+    - ``n_relevance_buckets``：训练标签档数
+    - ``z_clip`` / ``lambdarank_truncation_level``：推理对齐
     """
     import lightgbm as lgb
 
@@ -885,6 +925,15 @@ def fit_lambdarank(
     p = len(names)
     use_cs = bool(cross_section_zscore)
     allow = _normalize_code_allow(train_codes)
+    nb = max(0, int(n_buckets if n_buckets is not None else LAMBDARANK_N_BUCKETS))
+    try:
+        z_clip_f = max(0.0, float(z_clip))
+    except (TypeError, ValueError):
+        z_clip_f = float(LAMBDARANK_Z_CLIP)
+    try:
+        trunc = max(0, int(truncation_level))
+    except (TypeError, ValueError):
+        trunc = int(LAMBDARANK_TRUNCATION_LEVEL)
     means: Dict[str, float] = {}
     stds: Dict[str, float] = {}
     if use_cs:
@@ -904,6 +953,7 @@ def fit_lambdarank(
         )
         if Z is not None:
             Z = np.where(np.isfinite(Z), Z, 0.0)
+            Z = _apply_z_clip(Z, z_clip_f)
         if Z is None or int(Z.shape[0]) != len(ys):
             continue
         n_full = len(ys)
@@ -915,7 +965,7 @@ def fit_lambdarank(
         n_rank_rows_dropped += int(n_drop)
         if len(ys) < 4:
             continue
-        labels = _rank_labels(ys)
+        labels = _rank_labels(ys, n_buckets=nb)
         if len(set(labels)) < 2:
             continue  # 单 group 全同 label 学不出排序
         X_blocks.append(Z)
@@ -929,6 +979,7 @@ def fit_lambdarank(
             "n_days": n_groups,
             "n_groups": n_groups,
             "n_rank_rows_dropped": n_rank_rows_dropped,
+            "n_relevance_buckets": nb if nb > 1 else None,
         }
     X = np.vstack(X_blocks)
     del X_blocks
@@ -940,32 +991,37 @@ def fit_lambdarank(
             "success": False,
             "error": "shape_mismatch",
             "n_rank_rows_dropped": n_rank_rows_dropped,
+            "n_relevance_buckets": nb if nb > 1 else None,
         }
     lam = max(0.0, float(l2))
-    # label_gain 须覆盖全部 label；默认指数表只有 31 项，日池>31 会崩。
-    # 用线性 [0,1,2,…] 与 OOS NDCG（gain=rank）对齐。
-    n_class = int(y.max()) + 1
+    # label_gain 须覆盖全部 label。固定档用线性 0..nb-1；稠密退回时按 max(label)+1。
+    # 默认指数表只有 31 项，日池>31 会崩。
+    y_max = int(y.max()) if y.size else 0
+    n_class = max(y_max + 1, nb if nb > 1 else y_max + 1)
     label_gain = [float(i) for i in range(n_class)]
+    params: Dict[str, Any] = {
+        "objective": "lambdarank",
+        "metric": ["ndcg"],
+        "label_gain": label_gain,
+        "max_depth": max(1, int(max_depth)),
+        "num_leaves": int(num_leaves),
+        "learning_rate": float(learning_rate),
+        "subsample": min(1.0, max(0.4, float(subsample))),
+        "colsample_bytree": min(1.0, max(0.4, float(colsample_bytree))),
+        "min_data_in_leaf": int(min_child_samples),
+        "lambda_l2": lam,
+        "seed": 42,
+        "num_threads": 1,
+        "verbose": -1,
+    }
+    if trunc > 0:
+        params["lambdarank_truncation_level"] = int(trunc)
     try:
         # 原生 lgb.train（不依赖 sklearn），objective=lambdarank
         dtrain = lgb.Dataset(X, label=y, group=group)
         del X
         booster = lgb.train(
-            {
-                "objective": "lambdarank",
-                "metric": ["ndcg"],
-                "label_gain": label_gain,
-                "max_depth": max(1, int(max_depth)),
-                "num_leaves": int(num_leaves),
-                "learning_rate": float(learning_rate),
-                "subsample": min(1.0, max(0.4, float(subsample))),
-                "colsample_bytree": min(1.0, max(0.4, float(colsample_bytree))),
-                "min_data_in_leaf": int(min_child_samples),
-                "lambda_l2": lam,
-                "seed": 42,
-                "num_threads": 1,
-                "verbose": -1,
-            },
+            params,
             dtrain,
             num_boost_round=max(1, int(n_estimators)),
         )
@@ -975,6 +1031,7 @@ def fit_lambdarank(
             "success": False,
             "error": f"lightgbm_fit_failed: {exc}",
             "n_rank_rows_dropped": n_rank_rows_dropped,
+            "n_relevance_buckets": nb if nb > 1 else None,
         }
     # 序列化：lgb.Booster.save_model 只接受文件路径，用临时文件中转
     import tempfile
@@ -1019,6 +1076,12 @@ def fit_lambdarank(
         "sample_count": int(y.shape[0]),
         "n_groups": n_groups,
         "n_rank_rows_dropped": n_rank_rows_dropped,
+        "n_relevance_buckets": int(nb) if nb > 1 else int(n_class),
+        "label_gain_mode": "linear_buckets" if nb > 1 else "linear_dense",
+        "z_clip": float(z_clip_f),
+        "lambdarank_truncation_level": int(trunc) if trunc > 0 else 0,
+        "min_data_in_leaf": int(min_child_samples),
+        "num_boost_round": max(1, int(n_estimators)),
     }
     if use_cs:
         from core.research.feature_standardize import stamp_cross_section_zscore
@@ -1101,8 +1164,12 @@ def _predict_rows_lightgbm(
         if not ok:
             out.append(None)
             continue
+        arr = np.asarray([vec], dtype=np.float64)
+        clip = _resolve_z_clip(fit, default=0.0)
+        if clip > 0.0:
+            arr = _apply_z_clip(arr, clip)
         try:
-            pred = booster.predict(np.asarray([vec], dtype=np.float64))
+            pred = booster.predict(arr)
             out.append(round(float(pred[0]), 6) if pred.size else None)
         except Exception:  # noqa: BLE001
             out.append(None)
@@ -1204,11 +1271,14 @@ def _predict_oo_rank_matrix(
         z = _z_day_cross_section(day, names)
         if z is not None:
             z = np.where(np.isfinite(z), z, 0.0)
+            z = _apply_z_clip(z, _resolve_z_clip(model, default=0.0))
     else:
         means = zm if isinstance(zm, dict) else (model.get("z_means") or {})
         stds_raw = model.get("zscore_stds")
         stds = stds_raw if isinstance(stds_raw, dict) else (model.get("z_stds") or {})
         z = _z_day(day, names, means, stds)
+        if z is not None:
+            z = _apply_z_clip(z, _resolve_z_clip(model, default=0.0))
     if z is None:
         return [None] * n
     b64 = str(model.get("booster_b64") or "")
@@ -1938,7 +2008,7 @@ def fit_oo_rank_report(
     min_history: int = 12,
     min_names: int = DEFAULT_MIN_NAMES,
     holdout_trading_days: int = DEFAULT_HOLDOUT_TRADING_DAYS_OO_RANK,
-    l2: float = DEFAULT_L2,
+    l2: float = LAMBDARANK_L2,
     topk_track: int = DEFAULT_TOPK_TRACK,
     ndcg_k: int = DEFAULT_NDCG_K,
     ridge_lambda: float = 1.0,
@@ -1951,14 +2021,14 @@ def fit_oo_rank_report(
     cross_section_zscore: bool = True,
     train_codes: Optional[Collection[str]] = None,
 ) -> Dict[str, Any]:
-    """拟合 ŷ_oo_rank：同窗 LambdaRank + Ridge，按 Holdout NDCG@K 推荐 backend。
+    """拟合 ŷ_oo_rank：同窗 LambdaRank + Ridge 对照；默认固定选用 LambdaRank。
 
     ``day_panels``：若已预计算日截面（矩阵 ``X`` 或 raw sub_score dict），可跳过建面板。
     特征与 ŷ_oo 同口径：原始 sub_score；``cross_section_zscore`` 控制日截面 / 全局 μ/σ。
     日截面 z 用当天全池行；``train_codes`` 给定时损失与 Holdout 指标缩到该子集。
     默认建面板走 compact 矩阵（与 ŷ_oo 相同，逐只丢掉行 dict）。
 
-    ``backend``：``"auto"``（默认，按 NDCG@K 选）/ ``"lambdarank"`` / ``"ridge"``。
+    ``backend``：``"auto"``（默认=固定 LambdaRank）/ ``"lambdarank"`` / ``"ridge"``（可强制；拟合仍双训对照）。
     拟合始终双训；``backend`` 只影响报告里 ``return_model`` 默认指向哪一侧。
     ``lightgbm_params`` 可覆盖超参。
     OOS 指标：spearman / cs_ic / cs_icir / topk_overlap / ndcg_at_k / topk_mean_y_oo。
@@ -2020,8 +2090,6 @@ def fit_oo_rank_report(
 
     feat_names = _collect_feature_names(days_tr)
     force_backend = str(backend or "auto").strip().lower()
-    if force_backend in {"lightgbm", "lgb", "lambdarank"}:
-        force_backend = "lambdarank"
     if force_backend not in {"auto", "lambdarank", "ridge"}:
         return {
             "success": False,
@@ -2315,10 +2383,13 @@ __all__ = [
     "DEFAULT_NDCG_K",
     "DEFAULT_TOPK_TRACK",
     "FORMULA_OO_RANK",
+    "LAMBDARANK_N_BUCKETS",
+    "LAMBDARANK_TRUNCATION_LEVEL",
+    "LAMBDARANK_Z_CLIP",
+    "LAMBDARANK_L2",
+    "LAMBDARANK_MIN_CHILD_SAMPLES",
     "SCHEMA",
-    "SCHEMA_LEGACY",
     "TASK",
-    "TASK_LEGACY",
     "Y_OO_RANK_HAT_KEYS",
     "Y_OO_RANK_LABEL_KEYS",
     "apply_oo_rank_scores",
@@ -2331,9 +2402,7 @@ __all__ = [
     "load_oo_rank_last_report",
     "load_oo_rank_model",
     "oo_rank_last_report_path",
-    "oo_rank_last_report_path_legacy",
     "oo_rank_model_path",
-    "oo_rank_model_path_legacy",
     "persist_oo_rank_model",
     "pick_y_oo_rank_hat",
     "pick_y_oo_rank_label",

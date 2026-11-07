@@ -1073,18 +1073,17 @@ class QuantFactorMixin:
     def run_oo_rank_experiment(
         self,
         *,
-        lookback: int = 120,
+        lookback: int = 700,
         watching_limit: int = MODEL_FIT_MAX_SIZE,
         holdout_trading_days: int = 20,
         topk_track: int = 10,
         ndcg_k: int = 10,
-        l2: float = 1.0,
+        l2: float = 5.0,
         backend: str = "auto",
         persist: bool = False,
         persist_role: str = "live",
         note: str = "",
         cross_section_zscore: bool = True,
-        train_universe_tier_a: bool = False,
         train_tiers: Optional[Sequence[str]] = None,
     ) -> Dict[str, Any]:
         """ŷ_oo_rank：同窗 LambdaRank + Ridge。
@@ -1093,9 +1092,8 @@ class QuantFactorMixin:
         本地仓够长则不补远端，避免拟合时把当日 K 线刷进仓里）。
         截面 z 恒用整观察池。``train_tiers``（A/B/C 多选）非空时，损失 / Holdout
         缩到观察池∩这些档（须先跑枢纽分档）；打分仍全池 z。
-        旧 ``train_universe_tier_a=True`` 等价 ``train_tiers=["A"]``。
         成交明细 oo_rank=1..n；不进 ranking 融合分；过入场后作买序；可选 oo_rank_max（与 τc_rank 取 max）入场闸。
-        ``persist=True``：research=写入研究槽；live=研究槽晋级执行槽；按 Holdout NDCG@K 选 backend，不重训。
+        ``persist=True``：research=写入研究槽；live=研究槽晋级执行槽；固定落盘 LambdaRank（Ridge 仅对照），不重训。
         """
         from core.research.feature_standardize import ZSCORE_UNIVERSE_POOL
         from core.research.oo_rank_panel import resolve_rank_fit_plan
@@ -1150,7 +1148,6 @@ class QuantFactorMixin:
         plan = resolve_rank_fit_plan(
             watching_limit=watching_limit,
             train_tiers=train_tiers,
-            legacy_tier_a=train_universe_tier_a,
             task="oo_rank",
         )
         if not plan.get("success"):
@@ -1269,9 +1266,7 @@ class QuantFactorMixin:
             load_oo_rank_last_report,
             load_oo_rank_model,
             oo_rank_last_report_path,
-            oo_rank_last_report_path_legacy,
             oo_rank_model_path,
-            oo_rank_model_path_legacy,
         )
 
         path = oo_rank_model_path()
@@ -1284,12 +1279,7 @@ class QuantFactorMixin:
         live_file = os.path.isfile(path)
         fitted = model_fit_id(chosen) or model_fit_id(last) or model_fit_id(persisted)
         if not fitted:
-            fitted = (
-                _peek_model_stamp(last_path)
-                or _peek_model_stamp(oo_rank_last_report_path_legacy())
-                or _peek_model_stamp(path)
-                or _peek_model_stamp(oo_rank_model_path_legacy())
-            )
+            fitted = _peek_model_stamp(last_path) or _peek_model_stamp(path)
         if not chosen:
             return _attach_ridge_role_flags(
                 {
@@ -1376,21 +1366,19 @@ class QuantFactorMixin:
         holdout_trading_days: int = 20,
         topk_track: int = 10,
         ndcg_k: int = 10,
-        l2: float = 1.0,
+        l2: float = 5.0,
         backend: str = "auto",
         persist: bool = False,
         persist_role: str = "live",
         note: str = "",
         cross_section_zscore: bool = True,
-        train_universe_tier_a: bool = False,
         train_tiers: Optional[Sequence[str]] = None,
     ) -> Dict[str, Any]:
         """ŷ_τc_rank：同窗 LambdaRank + Ridge。
 
         日线与 ŷ_oo / ŷ_τc 同源（``load_portfolio_stock_bars``：
         本地仓够长则不补远端）。
-        截面 z 恒用整观察池。``train_tiers`` 非空时损失 / Holdout 缩到观察池∩档；
-        旧 ``train_universe_tier_a=True`` 等价 ``["A"]``。
+        截面 z 恒用整观察池。``train_tiers`` 非空时损失 / Holdout 缩到观察池∩档。
         启用只落盘；不改买序、不进 fuse；与 oo_rank 共用 rank 入场。
         """
         from core.research.feature_standardize import ZSCORE_UNIVERSE_POOL
@@ -1446,7 +1434,6 @@ class QuantFactorMixin:
         plan = resolve_rank_fit_plan(
             watching_limit=watching_limit,
             train_tiers=train_tiers,
-            legacy_tier_a=train_universe_tier_a,
             task="tc_rank",
         )
         if not plan.get("success"):

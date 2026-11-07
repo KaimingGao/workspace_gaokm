@@ -476,382 +476,6 @@ class TestPredictabilityTiers(unittest.TestCase):
             self.assertEqual(out.get("000615"), "奥园美谷")
             mod._CODE_NAME_CACHE = {}
             mod._CODE_NAME_CACHE_TS = 0.0
-
-    def test_assign_tiers_by_rank_score(self):
-        from core.research.predictability_tiers import assign_tiers_by_rank_score
-
-        # 8 票：A=1、B=3 → 1 只 A、3 只 B、其余 C
-        rows = [
-            {
-                "code": f"{i:06d}",
-                "hit_rate": 0.9 - i * 0.05,
-                "n_valid": 10,
-                "hit_rate_tau": 0.85 - i * 0.04,
-                "n_valid_tau": 10,
-                "f1_pos": round(0.9 - i * 0.05, 4),
-                "f1_pos_tau": round(0.85 - i * 0.04, 4),
-                "mean_y_pos": 0.1,
-                "mean_y_pos_tau": 0.1,
-            }
-            for i in range(8)
-        ]
-        assign_tiers_by_rank_score(rows, require_tau=True, a_count=1, b_count=3)
-        by = {r["code"]: r for r in rows}
-        self.assertEqual(by["000000"]["tier"], "A")
-        self.assertEqual(by["000001"]["tier"], "B")
-        self.assertEqual(by["000002"]["tier"], "B")
-        self.assertEqual(by["000003"]["tier"], "B")
-        self.assertEqual(by["000004"]["tier"], "C")
-        self.assertEqual(by["000007"]["tier"], "C")
-        self.assertGreater(by["000000"]["score"], by["000001"]["score"])
-        self.assertAlmostEqual(by["000000"]["score"], 0.5 * 0.9 + 0.5 * 0.85)
-        self.assertNotIn("rank_oo", by["000000"])
-        self.assertNotIn("rank_tau", by["000000"])
-
-        # 无 F1 → C，不占 A/B 名额
-        small = [
-            {
-                "code": "a",
-                "hit_rate": 0.8,
-                "n_valid": 5,
-                "f1_pos": 0.8,
-                "mean_y_pos": 0.2,
-            },
-            {
-                "code": "b",
-                "hit_rate": 0.7,
-                "n_valid": 5,
-                "f1_pos": 0.7,
-                "mean_y_pos": 0.1,
-            },
-            {"code": "c", "hit_rate": None, "n_valid": 0},
-        ]
-        assign_tiers_by_rank_score(small, require_tau=False, a_count=1, b_count=0)
-        by2 = {r["code"]: r for r in small}
-        self.assertEqual(by2["a"]["tier"], "A")
-        self.assertEqual(by2["b"]["tier"], "C")
-        self.assertEqual(by2["c"]["tier"], "C")
-        self.assertIsNone(by2["c"]["score"])
-
-        # A 档 F1 门槛：Score 最高但 OO_F1 < 20% 不占 A，名额顺延给过线的票
-        gated = [
-            {
-                "code": "hi",
-                "hit_rate": 0.90,
-                "n_valid": 10,
-                "hit_rate_tau": 0.80,
-                "n_valid_tau": 10,
-                "f1_pos": 0.19,
-                "f1_pos_tau": 0.90,
-                "mean_y_pos": 0.3,
-                "mean_y_pos_tau": 0.3,
-            },
-            {
-                "code": "ok",
-                "hit_rate": 0.48,
-                "n_valid": 10,
-                "hit_rate_tau": 0.60,
-                "n_valid_tau": 10,
-                "f1_pos": 0.10,
-                "f1_pos_tau": 0.50,
-                "mean_y_pos": 0.2,
-                "mean_y_pos_tau": 0.2,
-            },
-            {
-                "code": "mid",
-                "hit_rate": 0.55,
-                "n_valid": 10,
-                "hit_rate_tau": 0.55,
-                "n_valid_tau": 10,
-                "f1_pos": 0.30,
-                "f1_pos_tau": 0.30,
-                "mean_y_pos": 0.1,
-                "mean_y_pos_tau": 0.1,
-            },
-        ]
-        assign_tiers_by_rank_score(
-            gated,
-            require_tau=True,
-            a_count=1,
-            b_count=1,
-            a_f1=0.20,
-            tau_a_f1=0.20,
-        )
-        by3 = {r["code"]: r for r in gated}
-        self.assertEqual(by3["mid"]["tier"], "A")
-        self.assertEqual(by3["hi"]["tier"], "B")
-        self.assertEqual(by3["ok"]["tier"], "C")
-        self.assertGreater(by3["hi"]["score"], by3["mid"]["score"])
-
-        # 无 ŷ_τc 时不看 TC_F1 门槛；恰好 20% 过线
-        oo_only = [
-            {
-                "code": "edge",
-                "hit_rate": 0.50,
-                "n_valid": 10,
-                "hit_rate_tau": 0.10,
-                "n_valid_tau": 10,
-                "f1_pos": 0.20,
-                "f1_pos_tau": 0.01,
-                "mean_y_pos": 0.05,
-            },
-            {
-                "code": "low",
-                "hit_rate": 0.40,
-                "n_valid": 10,
-                "hit_rate_tau": 0.90,
-                "n_valid_tau": 10,
-                "f1_pos": 0.15,
-                "f1_pos_tau": 0.99,
-                "mean_y_pos": 0.2,
-            },
-        ]
-        assign_tiers_by_rank_score(
-            oo_only, require_tau=False, a_count=1, b_count=1, a_f1=20, tau_a_f1=20
-        )
-        by4 = {r["code"]: r for r in oo_only}
-        self.assertEqual(by4["edge"]["tier"], "A")
-        self.assertEqual(by4["low"]["tier"], "B")
-
-        # A 档另须 OO_R+>0（无 τc 时 TC 门槛不生效）：≤0 / 缺 不占 A
-        rpos_gated = [
-            {
-                "code": "neg",
-                "hit_rate": 0.90,
-                "n_valid": 10,
-                "f1_pos": 0.90,
-                "mean_y_pos": -0.01,
-            },
-            {
-                "code": "zero",
-                "hit_rate": 0.80,
-                "n_valid": 10,
-                "f1_pos": 0.80,
-                "mean_y_pos": 0.0,
-            },
-            {
-                "code": "miss",
-                "hit_rate": 0.70,
-                "n_valid": 10,
-                "f1_pos": 0.70,
-                "mean_y_pos": None,
-            },
-            {
-                "code": "pos",
-                "hit_rate": 0.60,
-                "n_valid": 10,
-                "f1_pos": 0.60,
-                "mean_y_pos": 0.02,
-            },
-        ]
-        assign_tiers_by_rank_score(
-            rpos_gated, require_tau=False, a_count=1, b_count=2, a_f1=0.20
-        )
-        by5 = {r["code"]: r for r in rpos_gated}
-        self.assertEqual(by5["pos"]["tier"], "A")
-        self.assertEqual(by5["neg"]["tier"], "B")
-        self.assertEqual(by5["zero"]["tier"], "B")
-        self.assertEqual(by5["miss"]["tier"], "C")
-
-        # 仅开 TC：OO≤0 但 TC>0 且有 τc → 过 A
-        rpos_tc_only = [
-            {
-                "code": "oo_neg_tc_pos",
-                "hit_rate": 0.90,
-                "n_valid": 10,
-                "hit_rate_tau": 0.70,
-                "n_valid_tau": 10,
-                "f1_pos": 0.80,
-                "f1_pos_tau": 0.70,
-                "mean_y_pos": -0.01,
-                "mean_y_pos_tau": 0.05,
-            },
-            {
-                "code": "both_neg",
-                "hit_rate": 0.80,
-                "n_valid": 10,
-                "hit_rate_tau": 0.70,
-                "n_valid_tau": 10,
-                "f1_pos": 0.60,
-                "f1_pos_tau": 0.60,
-                "mean_y_pos": -0.02,
-                "mean_y_pos_tau": -0.01,
-            },
-        ]
-        assign_tiers_by_rank_score(
-            rpos_tc_only,
-            require_tau=True,
-            a_count=1,
-            b_count=1,
-            a_f1=0.20,
-            tau_a_f1=0.20,
-            require_oo_r_pos=False,
-            require_tc_r_pos=True,
-        )
-        by5b = {r["code"]: r for r in rpos_tc_only}
-        self.assertEqual(by5b["oo_neg_tc_pos"]["tier"], "A")
-        self.assertEqual(by5b["both_neg"]["tier"], "B")
-
-        # 两侧都开：须 OO 与 TC 都 >0
-        rpos_both = [
-            {
-                "code": "oo_only",
-                "hit_rate": 0.90,
-                "n_valid": 10,
-                "hit_rate_tau": 0.80,
-                "n_valid_tau": 10,
-                "f1_pos": 0.90,
-                "f1_pos_tau": 0.80,
-                "mean_y_pos": 0.05,
-                "mean_y_pos_tau": -0.01,
-            },
-            {
-                "code": "both_pos",
-                "hit_rate": 0.70,
-                "n_valid": 10,
-                "hit_rate_tau": 0.70,
-                "n_valid_tau": 10,
-                "f1_pos": 0.50,
-                "f1_pos_tau": 0.50,
-                "mean_y_pos": 0.02,
-                "mean_y_pos_tau": 0.03,
-            },
-        ]
-        assign_tiers_by_rank_score(
-            rpos_both,
-            require_tau=True,
-            a_count=1,
-            b_count=1,
-            a_f1=0.20,
-            tau_a_f1=0.20,
-            require_oo_r_pos=True,
-            require_tc_r_pos=True,
-        )
-        by5c = {r["code"]: r for r in rpos_both}
-        self.assertEqual(by5c["both_pos"]["tier"], "A")
-        self.assertEqual(by5c["oo_only"]["tier"], "B")
-
-        # 关闭两侧 R+ 门槛后，Score 最高且命中过线者进 A
-        rpos_off = [
-            {
-                "code": "neg",
-                "hit_rate": 0.90,
-                "n_valid": 10,
-                "f1_pos": 0.90,
-                "mean_y_pos": -0.01,
-            },
-            {
-                "code": "pos",
-                "hit_rate": 0.60,
-                "n_valid": 10,
-                "f1_pos": 0.60,
-                "mean_y_pos": 0.02,
-            },
-        ]
-        assign_tiers_by_rank_score(
-            rpos_off,
-            require_tau=False,
-            a_count=1,
-            b_count=1,
-            a_f1=0.20,
-            require_oo_r_pos=False,
-            require_tc_r_pos=False,
-        )
-        by6 = {r["code"]: r for r in rpos_off}
-        self.assertEqual(by6["neg"]["tier"], "A")
-        self.assertEqual(by6["pos"]["tier"], "B")
-
-    def test_score_is_half_oo_f1_plus_half_tc_f1(self):
-        from core.research.predictability_tiers import assign_tiers_by_rank_score
-
-        rows = [
-            {
-                "code": "hi_oo",
-                "hit_rate": 0.80,
-                "n_valid": 10,
-                "hit_rate_tau": 0.80,
-                "n_valid_tau": 10,
-                "f1_pos": 0.90,
-                "f1_pos_tau": 0.10,
-                "mean_y_pos": 0.1,
-                "mean_y_pos_tau": 0.1,
-            },
-            {
-                "code": "bal",
-                "hit_rate": 0.60,
-                "n_valid": 10,
-                "hit_rate_tau": 0.60,
-                "n_valid_tau": 10,
-                "f1_pos": 0.60,
-                "f1_pos_tau": 0.60,
-                "mean_y_pos": 0.1,
-                "mean_y_pos_tau": 0.1,
-            },
-            {
-                "code": "oo_gap",
-                "hit_rate": 0.70,
-                "n_valid": 10,
-                "hit_rate_tau": 0.70,
-                "n_valid_tau": 10,
-                "f1_pos": 0.80,
-                "f1_pos_tau": None,
-                "mean_y_pos": 0.1,
-                "mean_y_pos_tau": 0.1,
-            },
-            {
-                "code": "none",
-                "hit_rate": 0.99,
-                "n_valid": 10,
-                "hit_rate_tau": 0.99,
-                "n_valid_tau": 10,
-                "f1_pos": None,
-                "f1_pos_tau": None,
-                "mean_y_pos": 0.2,
-                "mean_y_pos_tau": 0.2,
-            },
-        ]
-        assign_tiers_by_rank_score(
-            rows, require_tau=True, a_count=1, b_count=2, a_f1=0.20, tau_a_f1=0.20
-        )
-        by = {r["code"]: r for r in rows}
-        # 0.5*0.60+0.5*0.60=0.60 > 0.5*0.90+0.5*0.10=0.50 > 0.5*0.80+0=0.40
-        self.assertAlmostEqual(by["bal"]["score"], 0.6)
-        self.assertAlmostEqual(by["hi_oo"]["score"], 0.5)
-        self.assertAlmostEqual(by["oo_gap"]["score"], 0.4)
-        self.assertIsNone(by["none"]["score"])
-        self.assertEqual(by["bal"]["tier"], "A")
-        self.assertEqual(by["hi_oo"]["tier"], "B")
-        self.assertEqual(by["oo_gap"]["tier"], "B")
-        self.assertEqual(by["none"]["tier"], "C")
-
-        # 无 ŷ_τc：Score = OO_F1，TC_F1 不计入
-        oo_only = [
-            {
-                "code": "oo",
-                "hit_rate": 0.80,
-                "n_valid": 8,
-                "f1_pos": 0.20,
-                "f1_pos_tau": 0.99,
-                "mean_y_pos": 0.1,
-            },
-            {
-                "code": "better",
-                "hit_rate": 0.70,
-                "n_valid": 8,
-                "f1_pos": 0.80,
-                "f1_pos_tau": 0.01,
-                "mean_y_pos": 0.1,
-            },
-        ]
-        assign_tiers_by_rank_score(
-            oo_only, require_tau=False, a_count=1, b_count=1, a_f1=0.20
-        )
-        by2 = {r["code"]: r for r in oo_only}
-        self.assertAlmostEqual(by2["better"]["score"], 0.8)
-        self.assertAlmostEqual(by2["oo"]["score"], 0.2)
-        self.assertEqual(by2["better"]["tier"], "A")
-        self.assertEqual(by2["oo"]["tier"], "B")
-
     def test_build_lookback_holdout_split(self):
         from core.research.predictability_tiers import (
             PROTOCOL_HOLDOUT_OOS,
@@ -924,6 +548,76 @@ class TestPredictabilityTiers(unittest.TestCase):
         self.assertFalse(done.get("running"))
         self.assertEqual(done.get("phase"), "")
 
+    def test_lift_from_panels_rank_backend_skips_abs(self):
+        """排序头 LambdaRank 不产出 abs lift；收益头 Ridge 才有 by_code_abs。"""
+        from unittest import mock
+
+        from core.research import predictability_tiers as pt
+
+        # 8 拟合日 + 10 定档日 × 4 票：A/B 每日截面中位以上 → ≥8 次说涨
+        days = []
+        for i in range(18):
+            d = f"2024-01-{i + 1:02d}"
+            days.append(
+                {
+                    "date": d,
+                    "names": ["f1"],
+                    "codes": ["A", "B", "C", "D"],
+                    "ys": [1.0, 0.5, -0.5, -1.0],
+                    "X": [[1.0], [0.5], [-0.5], [-1.0]],
+                }
+            )
+        fit_dates = [d["date"] for d in days[:8]]
+        tier_dates = [d["date"] for d in days[8:]]
+
+        fake_lr = {
+            "success": True,
+            "solver": "lambdarank",
+            "booster_b64": "x",
+            "coefficients": {"f1": 1.0},
+            "feature_zscore_mode": "cross_section",
+        }
+        fake_ridge = {
+            "success": True,
+            "solver": "ridge",
+            "coefficients": {"f1": 0.5},
+            "intercept": 0.0,
+            "feature_zscore_mode": "cross_section",
+            "zscore_means": {},
+            "zscore_stds": {},
+        }
+
+        def fake_scores(day, model):
+            ys = list(day.get("ys") or [])
+            # 与 y 同序，便于 cs / abs 都说得通
+            return list(ys), ys
+
+        with mock.patch.object(pt, "_lambdarank_model_from_days", return_value={"success": True, "return_model": fake_lr}):
+            with mock.patch.object(pt, "_ridge_model_from_days", return_value={"success": True, "return_model": fake_ridge}):
+                with mock.patch(
+                    "core.research.oo_rank_lambdarank._day_scores",
+                    side_effect=fake_scores,
+                ):
+                    lr_pack = pt._lift_from_panels(
+                        days,
+                        fit_dates,
+                        tier_dates,
+                        backend="lambdarank",
+                    )
+                    ridge_pack = pt._lift_from_panels(
+                        days,
+                        fit_dates,
+                        tier_dates,
+                        backend="ridge",
+                    )
+        self.assertTrue(lr_pack.get("ok"))
+        self.assertEqual(lr_pack.get("backend"), "lambdarank")
+        self.assertEqual(lr_pack.get("by_code_abs") or {}, {})
+        self.assertTrue(lr_pack.get("by_code_cs"))
+        self.assertTrue(ridge_pack.get("ok"))
+        self.assertEqual(ridge_pack.get("backend"), "ridge")
+        self.assertTrue(ridge_pack.get("by_code_abs"))
+
     def test_display_metrics_from_day_rows_matches_absorb(self):
         from core.research.predictability_tiers import (
             attach_tier_head_display,
@@ -947,7 +641,7 @@ class TestPredictabilityTiers(unittest.TestCase):
         skill = up_precision_lift_by_code(day_rows)
         self.assertAlmostEqual(skill["SK"]["precision"], disp["SK"]["precision_pos"])
         self.assertAlmostEqual(skill["ALW"]["precision"], disp["ALW"]["precision_pos"])
-        # 同预估：abs 与截面中位说涨口径应能分开
+        # 同分数不同说涨口径：abs vs 截面中位应能分开
         # A=0.20>ε；B=0.03∈(中位, ε]；中位≈0.01 → cs 说涨 A/B，abs 仅 A
         day_cs = [
             (
@@ -998,7 +692,7 @@ class TestPredictabilityTiers(unittest.TestCase):
     def test_up_precision_lift_ignores_return_size(self):
         from core.research.predictability_tiers import (
             assign_tiers_by_lift,
-            combine_head_lift,
+            combine_head_lifts,
             up_precision_lift_by_code,
         )
 
@@ -1022,15 +716,18 @@ class TestPredictabilityTiers(unittest.TestCase):
         self.assertAlmostEqual(oo["LOUD"]["lift"], oo["SK"]["lift"])
         self.assertAlmostEqual(oo["ALW"]["lift"], 0.0)
         self.assertGreater(oo["SK"]["lift"], oo["ALW"]["lift"])
-        combined = combine_head_lift(
-            oo,
-            {"SK": {"lift": 0.0, "precision": 0.5, "base_rate": 0.5, "n_up": 8}},
+        combined = combine_head_lifts(
+            {
+                "oo_rank": oo,
+                "tc_rank": {
+                    "SK": {"lift": 0.0, "precision": 0.5, "base_rate": 0.5, "n_up": 8},
+                },
+            }
         )
         self.assertAlmostEqual(combined["SK"]["score"], oo["SK"]["lift"] / 2.0)
         self.assertAlmostEqual(combined["SK"]["lift_oo_rank"], oo["SK"]["lift"])
         self.assertAlmostEqual(combined["SK"]["lift_tc_rank"], 0.0)
         self.assertAlmostEqual(combined["LOUD"]["score"], oo["LOUD"]["lift"])
-        from core.research.predictability_tiers import combine_head_lifts
 
         quad = combine_head_lifts(
             {

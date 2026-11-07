@@ -10,7 +10,6 @@ let _byCode = {};
 let _loaded = false;
 let _pending = null;
 let _note = "";
-let _requireTau = false;
 let _aCount = 100;
 let _bCount = 300;
 /** @type {string[] | null} live 勾选的分档；null = 闸关，不过滤 */
@@ -155,7 +154,6 @@ function ingestPredTierReport(data) {
   if (thr && thr.b_count != null && Number.isFinite(Number(thr.b_count))) {
     _bCount = Math.max(0, Math.min(5000, Math.round(Number(thr.b_count))));
   }
-  _requireTau = !!(thr && thr.require_tau);
   if (data && data.success === false) {
     _note = String(data.note || "尚无分档报告；请先在研究枢纽跑「观察池分档」");
   } else if (!rows.length) {

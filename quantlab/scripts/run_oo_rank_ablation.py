@@ -96,7 +96,6 @@ def main() -> None:
         holdout_trading_days=20,
         topk_track=10,
         ndcg_k=10,
-        l2=1.0,
         day_panels=base_days,
     )
     rows: List[Dict[str, Any]] = []

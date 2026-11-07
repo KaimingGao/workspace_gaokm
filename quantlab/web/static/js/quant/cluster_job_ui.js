@@ -365,6 +365,11 @@ export function l0DoneBits(sum, kind) {
   if (sum?.gap_count != null) bits.push(`缺口 ${sum.gap_count}`);
   if (sum?.cache_count != null) bits.push(`已齐 ${sum.cache_count}`);
   if (Number(sum?.failed_count) > 0) bits.push(`失败 ${sum.failed_count}`);
+  const pruned = sum?.watching_pruned;
+  if (pruned && !pruned.skipped && Number(pruned.removed_count) > 0) {
+    const add = Number(pruned.added) > 0 ? `·补${pruned.added}` : "";
+    bits.push(`剔无日K ${pruned.removed_count}${add}`);
+  }
   const diff = sum?.diff;
   if (diff && diff.price_count != null) {
     bits.push(`价变 ${diff.price_count}`);
