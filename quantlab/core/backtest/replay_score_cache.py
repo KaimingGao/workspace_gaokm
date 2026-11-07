@@ -6,8 +6,10 @@
 
 ``run_key`` 只含代码集合 + 模型套内容指纹 + 窗长（**不含**日线 tip），
 避免新交易日写入后整库失效；每日文件另存 ``inputs_fp``（该日开盘信息集：
-昨收窗全量 bar 屑 + 今开），加载时校验。schema 6：bar 屑预计算 + 滑动窗，
-窗内任意一根变更都会 miss；模型文件按内容 hash（``mtime+size`` memo）；
+昨收窗全量 bar 屑 + 今开），加载时校验。schema 8：开盘行含
+ŷ_oo / ŷ_τc / oo_rank / τc_rank 四份因子组成。v7 只写了 τc_rank，
+v6 只有名次；命中后其余悬停仍空，故整库不读。
+模型文件按内容 hash（``mtime+size`` memo）；窗内任意一根变更都会 miss。
 开盘缓存含 oo_rank **与** τc_rank（09:30 命中整包复用；可交易集全缺
 τc_rank 才补挂）。``fill_clock≠09:30`` 走 ``refresh_tau_heads_after_prefix``
 （前缀 ŷ_τc + 重挂 τc_rank，z 缩可交易）。见 ``replay_scoring`` 模块契约。
@@ -37,7 +39,7 @@ from typing import Any, Dict, List, Mapping, Optional, Sequence, Tuple
 
 logger = logging.getLogger(__name__)
 
-REPLAY_SCORE_CACHE_SCHEMA = 6
+REPLAY_SCORE_CACHE_SCHEMA = 8
 _ENV_DISABLE = "QUANTLAB_REPLAY_SCORE_CACHE"
 _ENV_KEEP = "QUANTLAB_REPLAY_SCORE_CACHE_KEEP"
 _DEFAULT_KEEP_RUNS = 20

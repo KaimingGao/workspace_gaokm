@@ -122,7 +122,7 @@ live 与历史回测统一走 `rank_lots`（`watching_matrix` / `backtest_paper_
 | `fill_clock` | 09:30 | **仅历史回测**：成交钟 09:30–10:00；09:30 日开盘不读整池 5m；>09:30 加载分钟，ŷ_τc+τc_rank 走前缀刷新 |
 | `live_fill_clock` | 09:30 | **仅 live 自动调仓**：UI 称「启动时间」；可选 09:25–10:00；窗口起点～10:00；不跟回测 `fill_clock`。手动执行固定复现 09:30，不跟此钟。Follow 旁单条配重滑条（左 `fusion_w_oo` · 右 `fusion_w_oc`）；改钟建议：≤09:30 → `0.9/0.1`，>09:30 → `0.1/0.9`（可手调后落盘） |
 | `price_space_gate` | 开 | **仅历史回测**：共用框「日分价闸」。有分钟时 |日昨/分昨−1| 超阈则 skip；阈跟做 T（默认 5%，0=关）。09:30 跳过读分钟时闸空跑。关则不拦，仍记错位次数 |
-| （加载） | — | 日线：`bars.db` 单连接批量 + `max_bars`；剔 ST 用观察池名、不 live 补名。开盘分：`replay_scores` v6 按日命中复用（含 oo/τc_rank；滑动窗 inputs_fp，见 quant.md） |
+| （加载） | — | 日线：`bars.db` 单连接批量 + `max_bars`；剔 ST 用观察池名、不 live 补名。开盘分：`replay_scores` v8 按日命中复用（含 oo/τc_rank 与 ŷ_oo / ŷ_τc / 两 rank 因子组成；滑动窗 inputs_fp，见 quant.md） |
 
 配置键优先 `rebalance_timing.rank_lots`，仍认旧键 `path_matrix`。
 

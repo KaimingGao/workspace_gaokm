@@ -531,8 +531,8 @@ OMS 级盘口布局仍禁止。
 - **观察池分档**：Holdout 前 60 日四头猜涨 lift（oo / oo_rank / τc / τc_rank）；工具栏 Holdout 默认 **60**（与各头拟合 Holdout 默认 **20** 独立）；A/B 默认 100/300；定档不覆盖研究套；卡头显示上次更新时间
 - **落地条**：对照/启用 · 关闭/回滚/导出/刷新簿/建议重估；探针
 - **各头卡**：Holdout 1～60（默认 20）；日截面 Z（默认开）；ŷ_oo / ŷ_τc / ŷ_τ30…90 / ŷ_oo_rank / ŷ_τc_rank
-- **ŷ_oo_rank**：同窗 LambdaRank+Ridge；NDCG@K 选 backend；训练档多选 A/B/C（不选=整池，截面 z 仍整池）；过入场后买序；与 τc_rank 共用 `/replay` 名次闸
-- **ŷ_τc_rank**：同协议；不进 fuse、不改买序
+- **ŷ_oo_rank**：同窗 LambdaRank+Ridge；NDCG@K 选 backend；训练档多选 A/B/C（不选=整池，截面 z 仍整池）；过入场后买序；与 τc_rank 共用 `/replay` 名次闸。对照 meta：Holdout / 训日 / 测日之后挂 **训行 · 测行 · 票**
+- **ŷ_τc_rank**：同协议；不进 fuse、不改买序；对照 meta 同 ŷ_oo_rank
 - **ŷ_τ30…90**：`P(窗收益>0)` 双 backend；Holdout AUC 择优
 - **滚动验证**（`#quant-section-roll-gate`）：Walk-forward Top1 · **A 档** lookback 500 · holdout 10×3 · ŷ>0.2% ∧ rank=1 · oo/τc 两臂；不写模型；蓝主按钮 + 上次执行时间；Job `roll-gate-top1`
 

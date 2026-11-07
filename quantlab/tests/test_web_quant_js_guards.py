@@ -459,6 +459,10 @@ class TestWebQuantJsGuards(unittest.TestCase):
         self.assertIn('headCard("tree"', quant_js)
         self.assertIn('headCard("ridge"', quant_js)
         self.assertIn("quant-oos-compare-meta", quant_js)
+        # rank 对照 meta：Holdout/训日/测日之后挂训行·测行·票数
+        self.assertIn("训 ${Number(data.sample_count).toLocaleString(\"en-US\")} 行", quant_js)
+        self.assertIn("测 ${Number(nTeRowsSrc).toLocaleString(\"en-US\")} 行", quant_js)
+        self.assertIn("票 ${Number(data.n_train_codes).toLocaleString(\"en-US\")}", quant_js)
         self.assertIn('model.backend = "ridge"', quant_js)
         css = self._read("web", "static", "css", "quant.css")
         self.assertNotIn(".quant-page .quant-fold-panel", css)

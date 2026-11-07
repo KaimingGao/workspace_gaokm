@@ -3,7 +3,8 @@
 按回测日期切片 L1，不把整段历史面板留在进程里。截面 z 用整池；
 ŷ 与名次只写 ``score_codes``。排序头仍读已有 L2 的 μ/σ，不在这里重拟合。
 切片不齐、排序立方读不到、或名次模型在但打不出来时，当日返回 None，调用方走逐日旧路径。
-本路径只写决策头（ŷ_oo / ŷ_τc / 名次），不写因子组成表。
+决策头是 ŷ_oo / ŷ_τc / 名次，并写四份悬停组成：ŷ_oo、ŷ_τc 的 Ridge β·z，
+以及 oo_rank / τc_rank 的 Ridge β·z 或 LambdaRank pred_contrib。
 """
 
 from __future__ import annotations
@@ -152,15 +153,35 @@ def score_open_day_from_slice(
         )
         for code in codes
     ]
-    y_oo = _ridge_map(codes, oo_raw, holder.oo_model, allow, impute_all_missing=False, getter=_oo_get)
-    y_tc = _ridge_map(codes, tc_raw, holder.tau_doc, allow, impute_all_missing=True, getter=_tc_get)
+    y_oo, oo_terms = _ridge_pack(
+        codes,
+        oo_raw,
+        holder.oo_model,
+        allow,
+        impute_all_missing=False,
+        getter=_oo_get,
+        head="eod",
+    )
+    y_tc, tc_terms = _ridge_pack(
+        codes,
+        tc_raw,
+        holder.tau_doc,
+        allow,
+        impute_all_missing=True,
+        getter=_tc_get,
+        head="tau",
+    )
     if y_oo is None or y_tc is None:
         _note_once(holder, "ridge", "replay open batch ridge spec missing; legacy score")
         return None
 
-    oo_ranks = _rank_map(day_s, codes, oo_raw, holder.oo_rank, allow, getter=_oo_get)
-    tc_ranks = _rank_map(day_s, codes, tc_raw, holder.tc_rank, allow, getter=_tc_get)
-    if oo_ranks is None or tc_ranks is None:
+    oo_status, oo_ranks, _oo_z, _oo_hats = _rank_pass(
+        day_s, codes, oo_raw, holder.oo_rank, allow, getter=_oo_get
+    )
+    tc_status, tc_ranks, tc_z, tc_hats = _rank_pass(
+        day_s, codes, tc_raw, holder.tc_rank, allow, getter=_tc_get
+    )
+    if oo_status == "miss" or tc_status == "miss":
         _note_once(holder, "rank", "replay open batch rank unavailable; legacy score")
         return None
 
@@ -177,6 +198,12 @@ def score_open_day_from_slice(
         )
     _stamp_oo_ranks(items, oo_ranks)
     _stamp_tc_ranks(items, tc_ranks)
+    _apply_formula_map(items, oo_terms, ("formula_terms", "score_formula_terms"))
+    _apply_formula_map(
+        items, tc_terms, ("formula_terms_tau", "score_formula_terms_tau")
+    )
+    _stamp_oo_rank_formula(items, codes, _oo_z, _oo_hats, holder.oo_rank, oo_ranks)
+    _stamp_tc_rank_formula(items, codes, tc_z, tc_hats, holder.tc_rank, tc_ranks)
     return items
 
 
@@ -190,12 +217,33 @@ def cross_section_ridge(
     getter: Optional[Callable[[Mapping[str, Any], str], Any]] = None,
 ) -> List[Optional[float]]:
     """整批总体 z 后点乘。缺特征按 0（截面均值）计入；``impute_all_missing=False`` 时整行皆缺则 None。"""
+    values, _z, _finite = _cross_section_detail(
+        rows,
+        names,
+        coefs,
+        intercept,
+        impute_all_missing=impute_all_missing,
+        getter=getter,
+    )
+    return values
+
+
+def _cross_section_detail(
+    rows: Sequence[Mapping[str, Any]],
+    names: Sequence[str],
+    coefs: Mapping[str, float],
+    intercept: float,
+    *,
+    impute_all_missing: bool = True,
+    getter: Optional[Callable[[Mapping[str, Any], str], Any]] = None,
+) -> tuple:
+    """与 ``cross_section_ridge`` 同一套 z。返回 ``(values, z, finite)``。"""
     from core.research.feature_standardize import cross_section_zscore_matrix
 
     keys = [str(n) for n in names]
     n = len(rows)
     if n == 0:
-        return []
+        return [], None, None
     read = getter or _mapping_get
     mat = np.full((n, len(keys)), np.nan, dtype=np.float64)
     for i, row in enumerate(rows):
@@ -207,8 +255,8 @@ def cross_section_ridge(
     if not keys:
         base = round(float(intercept), 6)
         if impute_all_missing:
-            return [base] * n
-        return [None] * n
+            return [base] * n, None, None
+        return [None] * n, None, None
     z = cross_section_zscore_matrix(mat, ["d"] * n)
     finite = np.isfinite(z)
     filled = np.where(finite, z, 0.0)
@@ -221,7 +269,7 @@ def cross_section_ridge(
             out.append(None)
             continue
         out.append(round(float(value), 6))
-    return out
+    return out, z, finite
 
 
 def _ridge_map(
@@ -233,11 +281,34 @@ def _ridge_map(
     impute_all_missing: bool,
     getter: Callable[[Mapping[str, Any], str], Any],
 ) -> Optional[Dict[str, float]]:
+    scores, _expl = _ridge_pack(
+        codes,
+        rows,
+        model,
+        allow,
+        impute_all_missing=impute_all_missing,
+        getter=getter,
+        head="eod",
+    )
+    return scores
+
+
+def _ridge_pack(
+    codes: Sequence[str],
+    rows: Sequence[Mapping[str, Any]],
+    model: Any,
+    allow: Optional[set],
+    *,
+    impute_all_missing: bool,
+    getter: Callable[[Mapping[str, Any], str], Any],
+    head: str,
+) -> tuple:
+    """``(scores, expl_by_code)``。``scores is None`` 表示 Ridge 规格不可用。"""
     spec = _ridge_spec(model)
     if spec is None:
-        return None
+        return None, {}
     names, coefs, intercept = spec
-    values = cross_section_ridge(
+    values, z, finite = _cross_section_detail(
         rows,
         names,
         coefs,
@@ -246,14 +317,153 @@ def _ridge_map(
         getter=getter,
     )
     _refuse_collapsed(values, intercept)
-    out: Dict[str, float] = {}
-    for code, value in zip(codes, values):
+    role = _suite_role(model)
+    labels = _term_labels(names, head=head)
+    scores: Dict[str, float] = {}
+    expls: Dict[str, dict] = {}
+    for i, (code, value) in enumerate(zip(codes, values)):
         if value is None:
             continue
-        if allow is not None and code not in allow:
+        if allow is not None and str(code) not in allow:
             continue
-        out[str(code)] = float(value)
+        scores[str(code)] = float(value)
+        expl = _ridge_expl_row(
+            None if z is None else z[i],
+            None if finite is None else finite[i],
+            names,
+            coefs,
+            intercept,
+            y_hat=float(value),
+            head=head,
+            role=role,
+            labels=labels,
+        )
+        if expl is not None:
+            expls[str(code)] = _cap_formula(expl, tau=(head == "tau"))
+    return scores, expls
+
+
+def _suite_role(model: Any) -> str:
+    raw = ""
+    if hasattr(model, "model_role"):
+        raw = str(getattr(model, "model_role") or "")
+    elif isinstance(model, Mapping):
+        inner = model.get("return_model") if isinstance(model.get("return_model"), Mapping) else model
+        raw = str(
+            (inner or {}).get("model_role")
+            or (inner or {}).get("score_model_role")
+            or model.get("model_role")
+            or ""
+        )
+    role = raw.strip().lower()
+    if role in {"research", "holdout", "oos", "backtest"}:
+        return "research"
+    if role in {"live", "active", "execution", "exec"}:
+        return "live"
+    return ""
+
+
+def _term_labels(names: Sequence[str], *, head: str) -> Dict[str, str]:
+    try:
+        from core.signal.factors.meta.registry import factor_label
+    except Exception:  # noqa: BLE001
+        factor_label = lambda k: str(k)  # noqa: E731
+    tau_labels: Dict[str, str] = {}
+    if head == "tau":
+        try:
+            from core.research.tc_ridge import _TAU_FEAT_LABELS
+
+            tau_labels = {str(k): str(v) for k, v in (_TAU_FEAT_LABELS or {}).items()}
+        except Exception:  # noqa: BLE001
+            tau_labels = {}
+    out: Dict[str, str] = {}
+    for name in names:
+        key = str(name)
+        out[key] = tau_labels.get(key) or str(factor_label(key) or key)
     return out
+
+
+def _ridge_expl_row(
+    z_row: Any,
+    finite_row: Any,
+    names: Sequence[str],
+    coefs: Mapping[str, float],
+    intercept: float,
+    *,
+    y_hat: float,
+    head: str,
+    role: str,
+    labels: Mapping[str, str],
+) -> Optional[dict]:
+    """β·z 与打分同一行 z。缺特征贡献为 0，不进表。"""
+    terms: List[dict] = []
+    for j, name in enumerate(names):
+        if finite_row is not None and not bool(finite_row[j]):
+            continue
+        if z_row is None:
+            continue
+        try:
+            beta = float(coefs.get(str(name)) or 0.0)
+            zz = float(z_row[j])
+        except (TypeError, ValueError):
+            continue
+        if not math.isfinite(beta) or not math.isfinite(zz):
+            continue
+        key = str(name)
+        terms.append(
+            {
+                "key": key,
+                "label": labels.get(key) or key,
+                "beta": round(beta, 6),
+                "z": round(zz, 4),
+                "contrib": round(beta * zz, 6),
+            }
+        )
+    if not terms and abs(float(intercept)) < 1e-12:
+        return None
+    terms.sort(key=lambda t: -abs(float(t.get("contrib") or 0.0)))
+    expl: Dict[str, Any] = {
+        "intercept": round(float(intercept), 6),
+        "terms": terms,
+        "total": round(float(y_hat), 6),
+        "head": "tau" if head == "tau" else "eod",
+    }
+    if role:
+        expl["score_model_role"] = role
+    if head == "tau":
+        expl["y_τc"] = round(float(y_hat), 6)
+    return expl
+
+
+def _cap_formula(expl: dict, *, tau: bool) -> dict:
+    from core.paper.rebalance.rank_lots import (
+        _TAU_TIP_PIN,
+        _Y_HEAD_FACTOR_N,
+        _slim_tip_formula,
+    )
+
+    if tau:
+        capped = _slim_tip_formula(expl, limit=_Y_HEAD_FACTOR_N, pin_keys=_TAU_TIP_PIN)
+    else:
+        capped = _slim_tip_formula(expl, limit=_Y_HEAD_FACTOR_N)
+    return capped if isinstance(capped, dict) else expl
+
+
+def _apply_formula_map(
+    items: List[dict],
+    expls: Mapping[str, dict],
+    keys: Sequence[str],
+) -> None:
+    if not expls or not keys:
+        return
+    for it in items:
+        if not isinstance(it, dict):
+            continue
+        expl = expls.get(str(it.get("stock_code") or ""))
+        if not isinstance(expl, dict):
+            continue
+        for key in keys:
+            it[key] = expl
 
 
 def _refuse_collapsed(values: Sequence[Optional[float]], intercept: float) -> None:
@@ -273,8 +483,26 @@ def _rank_map(
     getter: Callable[[Mapping[str, Any], str], Any],
 ) -> Optional[Dict[str, float]]:
     """None：名次打不出来，当日退回旧路径。没有排序模型则空表。"""
+    status, scores, _z_rows, _hats = _rank_pass(
+        day, codes, rows, rank, allow, getter=getter
+    )
+    if status == "miss":
+        return None
+    return scores
+
+
+def _rank_pass(
+    day: str,
+    codes: Sequence[str],
+    rows: Sequence[Mapping[str, Any]],
+    rank: Optional[_RankModel],
+    allow: Optional[set],
+    *,
+    getter: Callable[[Mapping[str, Any], str], Any],
+) -> tuple:
+    """``(status, scores, z_rows, hats)``。status：``empty`` 无模型 / ``miss`` 退回旧路径 / ``ok``。"""
     if rank is None:
-        return {}
+        return "empty", {}, None, None
     from core.research.feature_standardize import is_cross_section_zscore
     from core.research.oo_rank_lambdarank import (
         _predict_oo_rank_rows,
@@ -282,7 +510,7 @@ def _rank_map(
     )
 
     if rank.broken or not is_cross_section_zscore(rank.model):
-        return None
+        return "miss", {}, None, None
     z_rows = rank_cross_section_z_dicts(
         rows,
         rank.names,
@@ -291,13 +519,13 @@ def _rank_map(
         clock="open",
     )
     if z_rows is None:
-        return None
+        return "miss", {}, None, None
     if rank.booster is None:
         hats = _predict_oo_rank_rows(rank.model, z_rows, impute_missing=True)
     else:
         hats = _booster_hats(rank.booster, z_rows, rank.names, getter)
     if hats is None:
-        return None
+        return "miss", {}, None, None
     out: Dict[str, float] = {}
     for code, hat in zip(codes, hats):
         if hat is None:
@@ -308,7 +536,88 @@ def _rank_map(
             out[str(code)] = round(float(hat), 6)
         except (TypeError, ValueError):
             continue
-    return out
+    return "ok", out, z_rows, hats
+
+
+def _stamp_oo_rank_formula(
+    items: List[dict],
+    codes: Sequence[str],
+    z_rows: Optional[Sequence[Mapping[str, Any]]],
+    hats: Optional[Sequence[Optional[float]]],
+    rank: Optional[_RankModel],
+    scores: Mapping[str, float],
+) -> None:
+    from core.research.oo_rank_lambdarank import _stamp_formula_terms_oo_rank
+
+    _stamp_rank_formula(
+        items, codes, z_rows, hats, rank, scores, stamp=_stamp_formula_terms_oo_rank
+    )
+
+
+def _stamp_tc_rank_formula(
+    items: List[dict],
+    codes: Sequence[str],
+    z_rows: Optional[Sequence[Mapping[str, Any]]],
+    hats: Optional[Sequence[Optional[float]]],
+    rank: Optional[_RankModel],
+    scores: Mapping[str, float],
+) -> None:
+    from core.research.tc_rank import _stamp_formula_terms_tc_rank
+
+    _stamp_rank_formula(
+        items, codes, z_rows, hats, rank, scores, stamp=_stamp_formula_terms_tc_rank
+    )
+
+
+def _stamp_rank_formula(
+    items: List[dict],
+    codes: Sequence[str],
+    z_rows: Optional[Sequence[Mapping[str, Any]]],
+    hats: Optional[Sequence[Optional[float]]],
+    rank: Optional[_RankModel],
+    scores: Mapping[str, float],
+    *,
+    stamp: Callable[..., None],
+) -> None:
+    """把与名次同一套 z 的因子组成写上票。缺模型或解释失败不改名次。"""
+    if rank is None or rank.broken or not scores or not z_rows or hats is None:
+        return
+    from core.research.oo_rank_lambdarank import (
+        _explain_oo_rank_lambdarank_rows,
+        _explain_oo_rank_ridge,
+        _oo_rank_use_booster,
+        _oo_rank_use_ridge,
+    )
+
+    by_code = {str(it.get("stock_code") or ""): it for it in items if isinstance(it, dict)}
+    model = rank.model
+    try:
+        if _oo_rank_use_booster(model):
+            expls = _explain_oo_rank_lambdarank_rows(
+                list(z_rows), model, hats=list(hats)
+            )
+            for code, expl in zip(codes, expls):
+                if str(code) not in scores or not isinstance(expl, dict):
+                    continue
+                it = by_code.get(str(code))
+                if it is not None:
+                    stamp(it, expl)
+            return
+        if not _oo_rank_use_ridge(model):
+            return
+        for code, feats, hat in zip(codes, z_rows, hats):
+            if str(code) not in scores:
+                continue
+            expl = _explain_oo_rank_ridge(
+                feats if isinstance(feats, dict) else {},
+                model,
+                y_hat=hat,
+            )
+            it = by_code.get(str(code))
+            if it is not None and isinstance(expl, dict):
+                stamp(it, expl)
+    except Exception:  # noqa: BLE001
+        logger.debug("replay batch rank formula terms failed", exc_info=True)
 
 
 def _booster_hats(

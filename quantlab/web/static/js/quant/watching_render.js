@@ -431,6 +431,7 @@ function slimFormulaTerms(expl, maxTerms = 10) {
     y_tau_raw: expl.y_tau_raw != null ? expl.y_tau_raw : null,
     terms: kept,
     head: expl.head,
+    backend: expl.backend || null,
     model_role: expl.model_role || null,
     head_kind: expl.head_kind || null,
     p_up: expl.p_up != null ? expl.p_up : null,

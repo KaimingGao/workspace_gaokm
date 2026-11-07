@@ -9,8 +9,12 @@ from unittest.mock import patch
 
 from core.backtest.replay_batch_open import (
     _RankModel,
+    _apply_formula_map,
     _overlay_open_tau,
     _rank_map,
+    _ridge_pack,
+    _stamp_oo_rank_formula,
+    _stamp_tc_rank_formula,
     clear_open_slice,
     cross_section_ridge,
     prepare_replay_features,
@@ -124,6 +128,144 @@ class ReplayBatchOpenTests(unittest.TestCase):
                     horizon_days=1,
                     cfg=None,
                 )
+
+    def test_ridge_pack_beta_z_matches_score(self) -> None:
+        model = {
+            "zscore_scope": "cross_section",
+            "intercept": 0.2,
+            "coefficients": {"x": 1.0},
+            "model_role": "research",
+        }
+        rows = [{"x": 1.0}, {"x": 3.0}]
+        scores, expls = _ridge_pack(
+            ["A", "B"],
+            rows,
+            model,
+            {"A"},
+            impute_all_missing=False,
+            getter=lambda row, name: row.get(name),
+            head="eod",
+        )
+        self.assertEqual(set(scores), {"A"})
+        expl = expls["A"]
+        self.assertEqual(expl.get("head"), "eod")
+        self.assertEqual(expl.get("score_model_role"), "research")
+        self.assertAlmostEqual(float(expl["total"]), float(scores["A"]))
+        term = (expl.get("terms") or [])[0]
+        self.assertEqual(term.get("key"), "x")
+        self.assertAlmostEqual(term["contrib"], term["beta"] * term["z"], places=4)
+        items = [{"stock_code": "A"}, {"stock_code": "B"}]
+        _apply_formula_map(items, expls, ("formula_terms", "score_formula_terms"))
+        self.assertIs(items[0]["formula_terms"], items[0]["score_formula_terms"])
+        self.assertNotIn("formula_terms", items[1])
+
+        _scores, tau_expls = _ridge_pack(
+            ["A", "B"],
+            rows,
+            model,
+            None,
+            impute_all_missing=True,
+            getter=lambda row, name: row.get(name),
+            head="tau",
+        )
+        self.assertEqual(tau_expls["B"].get("head"), "tau")
+        self.assertIn("y_τc", tau_expls["B"])
+
+    def test_oo_rank_formula_stamps_ridge_head(self) -> None:
+        items = [{"stock_code": "A"}]
+        model = {
+            "success": True,
+            "backend": "ridge",
+            "solver": "ridge",
+            "target": "oo_rank",
+            "horizon_mode": "oo_rank",
+            "intercept": 0.0,
+            "coefficients": {"z_oo_momentum": 1.0},
+            "feature_zscore": True,
+            "zscore_scope": "cross_section",
+            "zscore_means": {},
+            "zscore_stds": {},
+        }
+        rank = _RankModel(model, ["z_oo_momentum"], None)
+        _stamp_oo_rank_formula(
+            items,
+            ["A"],
+            [{"z_oo_momentum": 0.5}],
+            [0.5],
+            rank,
+            {"A": 0.5},
+        )
+        expl = items[0].get("formula_terms_oo_rank") or {}
+        self.assertEqual(expl.get("head"), "oo_rank")
+        self.assertEqual(expl.get("backend"), "ridge")
+        self.assertTrue(expl.get("terms"))
+
+    def test_tc_rank_formula_is_ridge_beta_z_for_scored_codes(self) -> None:
+        items = [{"stock_code": "A"}, {"stock_code": "B"}]
+        model = {
+            "success": True,
+            "backend": "ridge",
+            "solver": "ridge",
+            "target": "tc_rank",
+            "horizon_mode": "tc_rank",
+            "intercept": 0.1,
+            "coefficients": {"z_τc_gap_pct": 1.0},
+            "feature_zscore": True,
+            "zscore_scope": "cross_section",
+            "zscore_means": {},
+            "zscore_stds": {},
+        }
+        rank = _RankModel(model, ["z_τc_gap_pct"], None)
+        _stamp_tc_rank_formula(
+            items,
+            ["A", "B"],
+            [{"z_τc_gap_pct": -1.0}, {"z_τc_gap_pct": 2.0}],
+            [-0.9, 2.1],
+            rank,
+            {"A": -0.9},
+        )
+        expl = items[0].get("formula_terms_tc_rank") or {}
+        self.assertEqual(expl.get("head"), "tc_rank")
+        self.assertEqual(expl.get("backend"), "ridge")
+        terms = expl.get("terms") or []
+        self.assertTrue(any(t.get("key") == "z_τc_gap_pct" for t in terms))
+        self.assertNotIn("formula_terms_tc_rank", items[1])
+        self.assertIs(items[0].get("score_formula_terms_tc_rank"), expl)
+
+    def test_tc_rank_formula_uses_lambdarank_pred_contrib(self) -> None:
+        items = [{"stock_code": "A"}]
+        model = {
+            "backend": "lambdarank",
+            "solver": "lambdarank",
+            "booster_b64": "x",
+        }
+        rank = _RankModel(model, ["z_τc_gap_atr"], object(), broken=False)
+        fake = {
+            "intercept": -0.2,
+            "terms": [{"key": "z_τc_gap_atr", "contrib": 0.12, "z": -1.0}],
+            "total": 0.5,
+            "head": "oo_rank",
+            "backend": "lambdarank",
+            "model_role": "tree",
+        }
+        with patch(
+            "core.research.oo_rank_lambdarank._explain_oo_rank_lambdarank_rows",
+            return_value=[fake],
+        ) as explain:
+            _stamp_tc_rank_formula(
+                items,
+                ["A"],
+                [{"z_τc_gap_atr": -1.0}],
+                [0.5],
+                rank,
+                {"A": 0.5},
+            )
+        explain.assert_called_once()
+        expl = items[0].get("formula_terms_tc_rank") or {}
+        self.assertEqual(expl.get("head"), "tc_rank")
+        self.assertEqual(expl.get("model_role"), "tree")
+        self.assertEqual(expl.get("backend"), "lambdarank")
+        self.assertEqual((expl.get("terms") or [])[0].get("contrib"), 0.12)
 
     def test_replay_releases_slice_and_keeps_signature(self) -> None:
         from core.backtest import replay_batch_open as mod

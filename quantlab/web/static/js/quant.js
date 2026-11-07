@@ -1398,7 +1398,28 @@ export function initQuant(ctx) {
           : data.n_test != null
             ? `测 ${Number(data.n_test).toLocaleString("en-US")}`
             : "";
-    const metaBits = [hold, nTr, nTe].filter(Boolean);
+    // 日数之后挂样本行数：训=拟合损失行，测=Holdout 有分的行（两侧 backend 同截面）
+    const nTrRows =
+      data.sample_count != null && Number.isFinite(Number(data.sample_count))
+        ? `训 ${Number(data.sample_count).toLocaleString("en-US")} 行`
+        : "";
+    const nTeRowsSrc =
+      rank.n_rows != null
+        ? rank.n_rows
+        : ridge.n_rows != null
+          ? ridge.n_rows
+          : null;
+    const nTeRows =
+      nTeRowsSrc != null && Number.isFinite(Number(nTeRowsSrc))
+        ? `测 ${Number(nTeRowsSrc).toLocaleString("en-US")} 行`
+        : "";
+    const nCodes =
+      data.n_train_codes != null && Number.isFinite(Number(data.n_train_codes))
+        ? `票 ${Number(data.n_train_codes).toLocaleString("en-US")}`
+        : data.n_codes != null && Number.isFinite(Number(data.n_codes))
+          ? `票 ${Number(data.n_codes).toLocaleString("en-US")}`
+          : "";
+    const metaBits = [hold, nTr, nTe, nTrRows, nTeRows, nCodes].filter(Boolean);
     const metaHtml = metaBits.length
       ? `<div class="quant-oos-compare-meta" aria-label="Holdout 样本">` +
         metaBits
