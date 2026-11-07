@@ -469,21 +469,33 @@ export function buildReplaySkipSummary(data) {
   const buckets = new Map();
   let skips = 0;
   const ss = data.skip_summary && typeof data.skip_summary === "object" ? data.skip_summary : null;
-  if (ss && ss.by_reason && typeof ss.by_reason === "object") {
+  const mSkip = Number(m.skip_count);
+  let fromSummary = false;
+  if (ss) {
     const total = Number(ss.total);
-    skips = Number.isFinite(total) ? total : 0;
-    for (const [k, v] of Object.entries(ss.by_reason)) {
-      const n = Number(v);
-      if (Number.isFinite(n) && n > 0) buckets.set(k, n);
+    if (Number.isFinite(total)) {
+      skips = total;
+      fromSummary = true;
     }
-  } else {
+    const br = ss.by_reason && typeof ss.by_reason === "object" ? ss.by_reason : null;
+    if (br) {
+      for (const [k, v] of Object.entries(br)) {
+        const n = Number(v);
+        if (Number.isFinite(n) && n > 0) buckets.set(k, n);
+      }
+    }
+  }
+  if (buckets.size === 0) {
+    let fromLegs = 0;
     for (const row of legs) {
       if (!_isReplaySkipLeg(row)) continue;
-      skips += 1;
+      fromLegs += 1;
       const key = classifyReplaySkipReason(row.reason);
       buckets.set(key, (buckets.get(key) || 0) + 1);
     }
+    if (!fromSummary) skips = fromLegs;
   }
+  if (Number.isFinite(mSkip) && mSkip > skips) skips = mSkip;
   const parts = REPLAY_SKIP_ORDER.filter((k) => buckets.get(k)).map(
     (k) => `${k} ${buckets.get(k)}`
   );

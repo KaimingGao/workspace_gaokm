@@ -227,9 +227,70 @@ def _slim_sim_trades(rows: List[Any]) -> Tuple[List[Any], Dict[str, Any]]:
     return _finalize_sim_trade_accum(filled, held, skip_buckets, skip_counts)
 
 
+def _merge_skip_summary(
+    prior: Optional[Dict[str, Any]],
+    fresh: Optional[Dict[str, Any]],
+    *,
+    metrics_skip_count: Any = None,
+) -> Optional[Dict[str, Any]]:
+    """二次 slim 时保留更大的全量 total / by_reason，避免抽样腿把计数压矮。"""
+    if not isinstance(fresh, dict) and not isinstance(prior, dict):
+        return None
+    base = dict(fresh) if isinstance(fresh, dict) else {}
+    if isinstance(prior, dict):
+        try:
+            pt = int(prior.get("total") or 0)
+        except (TypeError, ValueError):
+            pt = 0
+        try:
+            ft = int(base.get("total") or 0)
+        except (TypeError, ValueError):
+            ft = 0
+        if pt > ft:
+            base["total"] = pt
+            prior_br = prior.get("by_reason")
+            if isinstance(prior_br, dict) and prior_br:
+                base["by_reason"] = {
+                    str(k): int(v)
+                    for k, v in prior_br.items()
+                    if v is not None and str(k)
+                }
+            base["truncated"] = True
+        kept = base.get("kept")
+        if kept is None and prior.get("kept") is not None:
+            base["kept"] = prior.get("kept")
+    try:
+        msc = int(metrics_skip_count) if metrics_skip_count is not None else 0
+    except (TypeError, ValueError):
+        msc = 0
+    try:
+        tot = int(base.get("total") or 0)
+    except (TypeError, ValueError):
+        tot = 0
+    if msc > tot:
+        base["total"] = msc
+        base["truncated"] = True
+    if base.get("kept") is None and tot > 0:
+        base["kept"] = 0
+    if "by_reason" not in base or not isinstance(base.get("by_reason"), dict):
+        base["by_reason"] = dict(base.get("by_reason") or {})
+    if "truncated" not in base:
+        try:
+            kept_n = int(base.get("kept") or 0)
+        except (TypeError, ValueError):
+            kept_n = 0
+        base["truncated"] = int(base.get("total") or 0) > kept_n
+    return base
+
+
 def _slim_result(result: Dict[str, Any]) -> Dict[str, Any]:
     slim: Dict[str, Any] = {}
     skip_summary: Optional[Dict[str, Any]] = None
+    prior_ss = (
+        dict(result["skip_summary"])
+        if isinstance(result.get("skip_summary"), dict)
+        else None
+    )
     for key in _KEEP_KEYS:
         if key == "skip_summary":
             continue
@@ -244,14 +305,23 @@ def _slim_result(result: Dict[str, Any]) -> Dict[str, Any]:
             slim[key], skip_summary = _slim_sim_trades(val)
         else:
             slim[key] = val
-    if skip_summary is None and isinstance(result.get("skip_summary"), dict):
-        skip_summary = dict(result["skip_summary"])
+    metrics = slim.get("metrics") if isinstance(slim.get("metrics"), dict) else {}
+    skip_summary = _merge_skip_summary(
+        prior_ss,
+        skip_summary,
+        metrics_skip_count=metrics.get("skip_count"),
+    )
     if skip_summary is not None:
         slim["skip_summary"] = skip_summary
-        metrics = slim.get("metrics")
-        if isinstance(metrics, dict) and metrics.get("skip_count") is None:
-            metrics = dict(metrics)
-            metrics["skip_count"] = int(skip_summary.get("total") or 0)
+        if isinstance(slim.get("metrics"), dict):
+            metrics = dict(slim["metrics"])
+            try:
+                msc = int(metrics.get("skip_count")) if metrics.get("skip_count") is not None else None
+            except (TypeError, ValueError):
+                msc = None
+            tot = int(skip_summary.get("total") or 0)
+            if msc is None or tot > msc:
+                metrics["skip_count"] = tot
             slim["metrics"] = metrics
     if slim.get("success") is None:
         slim["success"] = True
@@ -267,11 +337,42 @@ def save_last_portfolio_backtest(
     p = path or LAST_PORTFOLIO_BACKTEST_PATH
     from core.signal.score_display import json_safe
 
+    slim = _slim_result(result or {})
+    trades = slim.get("sim_trades") if isinstance(slim.get("sim_trades"), list) else []
+    # 兜底：抽样后仍异常膨胀则只留成交/续持 + skip_summary
+    if len(trades) > _SKIP_SAMPLE_CAP * 3:
+        kept = [
+            r
+            for r in trades
+            if not _is_skip_leg(r)
+        ]
+        ss = slim.get("skip_summary") if isinstance(slim.get("skip_summary"), dict) else {}
+        slim["sim_trades"] = kept
+        slim["skip_summary"] = {
+            "total": int(ss.get("total") or 0),
+            "kept": 0,
+            "truncated": True,
+            "by_reason": dict(ss.get("by_reason") or {}),
+        }
+        logger.warning(
+            "portfolio snapshot still oversized after sample; dropped skip legs n=%s",
+            len(trades) - len(kept),
+        )
     payload = {
         "saved_at": datetime.now().isoformat(timespec="seconds"),
-        "result": json_safe(_slim_result(result or {})),
+        "result": json_safe(slim),
     }
     atomic_write_json(p, payload)
+    try:
+        sz = os.path.getsize(p)
+    except OSError:
+        sz = 0
+    if sz > _PORTFOLIO_REWRITE_IF_LARGER:
+        logger.warning(
+            "portfolio snapshot still large after slim path=%s size_mb=%.1f",
+            p,
+            sz / 1e6,
+        )
     return p
 
 
@@ -419,12 +520,27 @@ def _stream_reslim_portfolio_snapshot(path: str) -> bool:
         )
     insert = trades_json + ',\n    "skip_summary": ' + summary_json
     out_bytes = prefix + insert.encode("utf-8") + suffix_text.encode("utf-8")
+    # 校验可解析再替换，避免写坏原文件
+    try:
+        parsed = json.loads(out_bytes.decode("utf-8"))
+        if not isinstance(parsed, dict) or not isinstance(parsed.get("result"), dict):
+            raise ValueError("stream-reslim produced invalid snapshot shape")
+    except (UnicodeDecodeError, json.JSONDecodeError, ValueError) as e:
+        logger.warning("stream-reslim validate failed path=%s err=%s", path, e)
+        return False
     tmp = path + ".slim.tmp"
-    with open(tmp, "wb") as f:
-        f.write(out_bytes)
-        f.flush()
-        os.fsync(f.fileno())
-    os.replace(tmp, path)
+    try:
+        with open(tmp, "wb") as f:
+            f.write(out_bytes)
+            f.flush()
+            os.fsync(f.fileno())
+        os.replace(tmp, path)
+    finally:
+        if os.path.isfile(tmp):
+            try:
+                os.remove(tmp)
+            except OSError:
+                pass
     logger.info(
         "stream-reslim portfolio snapshot path=%s objs=%s kept_trades=%s skips=%s→%s",
         path,
@@ -434,6 +550,68 @@ def _stream_reslim_portfolio_snapshot(path: str) -> bool:
         skip_summary.get("kept"),
     )
     return True
+
+
+def _load_portfolio_kpi_fallback(path: str) -> Dict[str, Any]:
+    """超大文件瘦写失败时：只从文件头抠 metrics / equity 前缀，避免整包 json.load OOM。"""
+    import re
+
+    try:
+        with open(path, encoding="utf-8") as f:
+            head = f.read(400_000)
+    except OSError as e:
+        return {"ok": False, "empty": True, "error": str(e), "result": None, "path": path}
+    saved_at = None
+    m_at = re.search(r'"saved_at"\s*:\s*"([^"]+)"', head)
+    if m_at:
+        saved_at = m_at.group(1)
+    metrics: Dict[str, Any] = {}
+    m_block = re.search(r'"metrics"\s*:\s*\{([^{}]*)\}', head)
+    if m_block:
+        try:
+            metrics = json.loads("{" + m_block.group(1) + "}")
+        except json.JSONDecodeError:
+            metrics = {}
+    curve: List[Any] = []
+    # 只取 equity_curve 前几个点够画起点；完整曲线放弃
+    m_eq = re.search(r'"equity_curve"\s*:\s*\[', head)
+    if m_eq:
+        dec = json.JSONDecoder()
+        try:
+            arr, _ = dec.raw_decode(head[m_eq.end() - 1 :])
+            if isinstance(arr, list):
+                curve = arr[:3]
+        except json.JSONDecodeError:
+            curve = []
+    if not metrics and not curve:
+        return {
+            "ok": False,
+            "empty": True,
+            "error": "oversized_snapshot",
+            "result": None,
+            "path": path,
+        }
+    result = {
+        "success": True,
+        "metrics": metrics,
+        "equity_curve": curve,
+        "sim_trades": [],
+        "skip_summary": {
+            "total": int(metrics.get("skip_count") or 0),
+            "kept": 0,
+            "truncated": True,
+            "by_reason": {},
+        },
+        "hint": "快照过大且瘦写失败，仅恢复 KPI 摘要；请再跑一次回测写全量结果",
+    }
+    return {
+        "ok": True,
+        "empty": False,
+        "path": path,
+        "saved_at": saved_at,
+        "result": result,
+        "partial": True,
+    }
 
 
 def load_last_portfolio_backtest(path: Optional[str] = None) -> Dict[str, Any]:
@@ -451,6 +629,13 @@ def load_last_portfolio_backtest(path: Optional[str] = None) -> Dict[str, Any]:
                 p,
                 exc_info=True,
             )
+        try:
+            raw_size = os.path.getsize(p) if os.path.isfile(p) else raw_size
+        except OSError:
+            pass
+        if raw_size > _PORTFOLIO_REWRITE_IF_LARGER:
+            # 仍超大则禁止整包加载
+            return _load_portfolio_kpi_fallback(p)
     pack = _load_snapshot(p)
     result = pack.get("result")
     if not isinstance(result, dict):

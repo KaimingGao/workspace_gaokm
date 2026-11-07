@@ -161,6 +161,64 @@ class TestLastPortfolioBacktestStore(unittest.TestCase):
             1,
         )
 
+    def test_double_slim_preserves_skip_summary_total(self):
+        from core.backtest_result_store import slim_portfolio_backtest_result
+
+        skips = [
+            {
+                "stock_code": f"{i:06d}",
+                "status": "skipped",
+                "action": "skip",
+                "reason": "分档外·非A" if i < 60 else "fuse=0.01%<0.2% 未过入场",
+            }
+            for i in range(90)
+        ]
+        raw = {
+            "success": True,
+            "metrics": {"total_return_pct": 1.0, "trade_count": 1, "skip_count": 90},
+            "sim_trades": [
+                {"stock_code": "600519", "status": "filled", "action": "buy"},
+                *skips,
+            ],
+        }
+        once = slim_portfolio_backtest_result(raw)
+        self.assertEqual(once["skip_summary"]["total"], 90)
+        twice = slim_portfolio_backtest_result(once)
+        self.assertEqual(twice["skip_summary"]["total"], 90)
+        self.assertEqual(twice["metrics"]["skip_count"], 90)
+        self.assertEqual(twice["skip_summary"]["by_reason"].get("分档外"), 60)
+
+    def test_classify_replay_skip_reason_matches_js(self):
+        from core.persistence.result_snapshot import classify_replay_skip_reason
+
+        root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        js_path = os.path.join(root, "web", "static", "js", "quant", "bt_result.js")
+        js = open(js_path, encoding="utf-8").read()
+        self.assertIn("export function classifyReplaySkipReason", js)
+        self.assertIn('r.includes("可预测性")', js)
+        cases = [
+            ("", "分档外"),
+            ("hard_reject", "分档外"),
+            ("可预测性非A档", "分档外"),
+            ("分档外·非A", "分档外"),
+            ("fuse=0.1%<0.2% 未过入场", "fuse未过"),
+            ("fuse 缺失", "fuse未过"),
+            ("y_oo≤0", "y_oo≤0"),
+            ("y_τc≤0", "y_τc≤0"),
+            ("y_tc≤0", "y_τc≤0"),
+            ("rank>100", "名次"),
+            ("现金不足", "现金/手数"),
+            ("T+1 不可卖", "T+1"),
+            ("无有效报价", "报价"),
+            ("其它原因xyz", "其他"),
+        ]
+        for reason, want in cases:
+            self.assertEqual(
+                classify_replay_skip_reason(reason),
+                want,
+                msg=f"reason={reason!r}",
+            )
+
     def test_missing_file_is_empty(self):
         from core.backtest_result_store import load_last_portfolio_backtest
 
