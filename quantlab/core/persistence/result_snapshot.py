@@ -36,7 +36,7 @@ _KEEP_KEYS = (
     "engine",
 )
 
-# 跳过腿全量 + formula_terms 曾把 last_portfolio 撑到 GB；落盘抽样并去掉 tip。
+# 跳过腿全量曾把 last_portfolio 撑到 GB；落盘抽样。生成侧已不挂 tip，此处仍剥 formula 作兜底。
 _SKIP_SAMPLE_CAP = 400
 _SKIP_SAMPLE_PER_REASON = 50
 _PORTFOLIO_REWRITE_IF_LARGER = 80_000_000
@@ -214,7 +214,7 @@ def _finalize_sim_trade_accum(
 
 
 def _slim_sim_trades(rows: List[Any]) -> Tuple[List[Any], Dict[str, Any]]:
-    """成交保留 tip；跳过腿去 formula 并抽样；续持去 formula。"""
+    """成交保留 capped tip；跳过腿抽样（去 formula 兜底）；续持去 formula。"""
     filled, held, skip_buckets, skip_counts = _new_skip_accum()
     for raw in rows or []:
         _accum_sim_trade(

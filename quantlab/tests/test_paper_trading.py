@@ -940,7 +940,11 @@ class TestPaperReplayEngine(unittest.TestCase):
         self.assertNotIn("y_τ60", sk)
         self.assertNotIn("y_τw", sk)
         self.assertNotIn("y_hl", sk)
-        self.assertEqual(sk["formula_terms_tau"]["total"], 0.8)
+        # 跳过腿不挂 tip（全市场×日会撑爆内存/落盘）；ŷ 标量仍透传
+        self.assertNotIn("formula_terms_tau", sk)
+        self.assertNotIn("formula_terms_path", sk)
+        self.assertNotIn("formula_terms", sk)
+        self.assertAlmostEqual(float(sk["y_oo"]), 1.0)
 
         hold = _hold_to_sim(
             src,

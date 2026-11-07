@@ -1148,7 +1148,7 @@ def _slim_tip_formula(
 
 
 def tip_explain_fields(item: Optional[dict]) -> Dict[str, Any]:
-    """成交/跳过/持有行上的 tip 组成；缺键不写。"""
+    """成交/续持行 tip 组成；缺键不写。回测跳过腿不挂（见 ``_merge_aux_yhat(include_tips=False)``）。"""
     if not isinstance(item, dict):
         return {}
     out: Dict[str, Any] = {}

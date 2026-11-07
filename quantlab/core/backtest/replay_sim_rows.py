@@ -77,7 +77,13 @@ def _strip_replay_tau_horizons(row: dict) -> dict:
     return row
 
 
-def _merge_aux_yhat(row: dict, src: Optional[dict]) -> dict:
+def _merge_aux_yhat(
+    row: dict,
+    src: Optional[dict],
+    *,
+    include_tips: bool = True,
+) -> dict:
+    """透传对照 ŷ；``include_tips`` 默认开（成交/续持 tip）。跳过腿关 tip，避免全市场×日撑爆内存与落盘。"""
     try:
         from core.paper.rebalance.rank_lots import aux_yhat_fields, tip_explain_fields
     except Exception:  # noqa: BLE001
@@ -86,9 +92,10 @@ def _merge_aux_yhat(row: dict, src: Optional[dict]) -> dict:
     extra = aux_yhat_fields(src, include_tau_horizons=False)
     if extra:
         row.update(extra)
-    tips = tip_explain_fields(src)
-    if tips:
-        row.update(tips)
+    if include_tips:
+        tips = tip_explain_fields(src)
+        if tips:
+            row.update(tips)
     return _strip_replay_tau_horizons(row)
 
 
@@ -151,7 +158,7 @@ def _skip_to_sim(sk: dict, day: str) -> dict:
         **_gate_sentiment(sk),
     }
     _copy_r_tau_pred(row, sk)
-    return _merge_aux_yhat(row, sk)
+    return _merge_aux_yhat(row, sk, include_tips=False)
 
 
 def _hold_to_sim(

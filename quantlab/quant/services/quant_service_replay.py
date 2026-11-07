@@ -780,10 +780,15 @@ class QuantReplayMixin:
                 )
             except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
                 logger.warning("回测结果序列化异常", exc_info=True)
-        # 线上下发：去掉嵌套 period trades（体积大）；保留腿级 sim_trades 供成交账
+        # 线上下发：去掉嵌套 period trades；先 slim（跳过腿抽样）再落盘，避免全量腿双处理
         if isinstance(result, dict):
             result.pop("trades", None)
-            # trades_sample 仍作调仓期摘要；sim_trades 为全量腿级模拟账
+            try:
+                from core.backtest_result_store import slim_portfolio_backtest_result
+
+                result = slim_portfolio_backtest_result(result)
+            except Exception:  # noqa: BLE001
+                logger.debug("slim portfolio backtest result failed", exc_info=True)
         if persist_curve and isinstance(result, dict) and result.get("success"):
             try:
                 from core.backtest_result_store import save_last_portfolio_backtest
@@ -791,13 +796,6 @@ class QuantReplayMixin:
                 save_last_portfolio_backtest(result)
             except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
                 logger.warning("上次回测结果落盘失败", exc_info=True)
-        if isinstance(result, dict):
-            try:
-                from core.backtest_result_store import slim_portfolio_backtest_result
-
-                result = slim_portfolio_backtest_result(result)
-            except Exception:  # noqa: BLE001
-                logger.debug("slim portfolio backtest result failed", exc_info=True)
         return result
 
     def load_last_portfolio_backtest(self) -> Dict[str, Any]:
