@@ -214,6 +214,46 @@ class TestNanLabelRank(unittest.TestCase):
         self.assertAlmostEqual(mixed["ndcg_at_k"], expect, places=4)
         self.assertTrue(np.isfinite(mixed["topk_mean_y_oo"]))
 
+    def test_oos_gate_lift_prefers_top_ranks(self):
+        from core.research.oo_rank_lambdarank import _gate_day_stats, _oos_day_metrics
+
+        # 预测序与收益同序：gate 应显著正 lift
+        ys = [0.0, 1.0, 2.0, 3.0, 4.0, 5.0]
+        preds = [0.0, 1.0, 2.0, 3.0, 4.0, 5.0]
+        g = _gate_day_stats(preds, ys, gate_n=3)
+        self.assertIsNotNone(g)
+        self.assertEqual(g["pass_n"], 2.0)  # rank < 3 → top 2
+        self.assertGreater(g["lift"], 0.0)
+        # 预测反序：gate lift 应为负
+        g_bad = _gate_day_stats(list(reversed(preds)), ys, gate_n=3)
+        self.assertIsNotNone(g_bad)
+        self.assertLess(g_bad["lift"], 0.0)
+
+        def _scores(day, _fit):
+            return list(day["preds"]), [float(v) for v in day["ys"]]
+
+        days = [
+            {
+                "date": f"2024-02-0{i + 1}",
+                "ys": ys,
+                "preds": preds,
+                "codes": [f"c{j}" for j in range(6)],
+            }
+            for i in range(3)
+        ]
+        with patch(
+            "core.research.oo_rank_lambdarank._day_scores", side_effect=_scores
+        ):
+            out = _oos_day_metrics(
+                days, {}, topk_track=3, ndcg_k=3, gate_n=3, gate_strong_n=5
+            )
+        self.assertEqual(out["gate_n"], 3)
+        self.assertEqual(out["gate_strong_n"], 5)
+        self.assertIsNotNone(out["gate_lift"])
+        self.assertGreater(out["gate_lift"], 0.0)
+        self.assertAlmostEqual(out["gate_pass_n"], 2.0, places=4)
+        self.assertIsNotNone(out["gate_strong_lift"])
+
     @unittest.skipUnless(_has_lightgbm(), "lightgbm 未安装")
     def test_fit_drops_nan_labels(self):
         from core.research.oo_rank_lambdarank import fit_lambdarank
@@ -494,6 +534,10 @@ class TestOoRankFit(unittest.TestCase):
         self.assertIn("delta_ndcg_at_k", track)
         self.assertIn("delta_cs_ic", track)
         self.assertIn("delta_cs_icir", track)
+        self.assertIn("delta_gate_lift", track)
+        oos_rank_gate = (track.get("oos") or {}).get("oo_rank") or {}
+        self.assertIn("gate_lift", oos_rank_gate)
+        self.assertIn("gate_mean_y", oos_rank_gate)
 
     @unittest.skipUnless(_has_lightgbm(), "lightgbm 未安装")
     def test_apply_and_aux_passthrough(self):

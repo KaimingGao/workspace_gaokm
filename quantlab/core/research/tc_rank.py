@@ -171,6 +171,8 @@ def fit_tc_rank_report(
         resolve_ridge_split,
     )
     from core.research.oo_rank_lambdarank import (
+        DEFAULT_GATE_N,
+        DEFAULT_GATE_STRONG_N,
         _fit_ridge_baseline,
         _oos_day_metrics,
         fit_lambdarank,
@@ -393,6 +395,16 @@ def fit_tc_rank_report(
             "holdout_trading_days": hold_n,
             "topk_track": int(topk_track),
             "ndcg_k": int(ndcg_k),
+            "gate_n": int(
+                oos_rank.get("gate_n")
+                if oos_rank.get("gate_n") is not None
+                else DEFAULT_GATE_N
+            ),
+            "gate_strong_n": int(
+                oos_rank.get("gate_strong_n")
+                if oos_rank.get("gate_strong_n") is not None
+                else DEFAULT_GATE_STRONG_N
+            ),
             "recommended_backend": recommended,
         },
         "shadow_track": {
@@ -406,6 +418,15 @@ def fit_tc_rank_report(
             "delta_topk_mean_y_tc": _delta(
                 oos_rank.get("topk_mean_y_tc"), oos_ridge.get("topk_mean_y_tc")
             ),
+            "delta_gate_lift": _delta(
+                oos_rank.get("gate_lift"), oos_ridge.get("gate_lift")
+            ),
+            "delta_gate_mean_y": _delta(
+                oos_rank.get("gate_mean_y"), oos_ridge.get("gate_mean_y")
+            ),
+            "delta_gate_strong_lift": _delta(
+                oos_rank.get("gate_strong_lift"), oos_ridge.get("gate_strong_lift")
+            ),
             "recommended_backend": recommended,
         },
         "backends": backends,
@@ -415,8 +436,9 @@ def fit_tc_rank_report(
         "cross_section_zscore": use_cs,
         "zscore_universe": "pool",
         "note": (
-            f"ŷ_τc_rank backend={chosen}（NDCG@K 推荐 {recommended}）；"
+            f"ŷ_τc_rank backend={chosen}（固定落盘 LambdaRank；对照推荐 {recommended}）；"
             "只训 Holdout 前一套；启用研究→研究槽；启用执行=研究槽晋级；"
+            "OOS 主看 Gate lift（对齐名次闸）；IC 仅对照；"
             "不进 y_oo_fuse；不改买序；与 oo_rank 共用 rank 入场"
         ),
     }

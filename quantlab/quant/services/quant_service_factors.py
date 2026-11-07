@@ -1245,6 +1245,15 @@ class QuantFactorMixin:
                 "delta_ndcg_at_k": _delta(
                     rank_m.get("ndcg_at_k"), ridge_m.get("ndcg_at_k")
                 ),
+                "delta_gate_lift": _delta(
+                    rank_m.get("gate_lift"), ridge_m.get("gate_lift")
+                ),
+                "delta_gate_mean_y": _delta(
+                    rank_m.get("gate_mean_y"), ridge_m.get("gate_mean_y")
+                ),
+                "delta_gate_strong_lift": _delta(
+                    rank_m.get("gate_strong_lift"), ridge_m.get("gate_strong_lift")
+                ),
                 "recommended_backend": report.get("recommended_backend"),
             }
         if persist and report.get("success"):

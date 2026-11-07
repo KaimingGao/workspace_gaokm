@@ -42,6 +42,9 @@ TASK = "oo_rank"
 DEFAULT_MIN_NAMES = 8
 DEFAULT_TOPK_TRACK = 10
 DEFAULT_NDCG_K = 10
+# 与 /replay 默认 oo_rank_max / oo_rank_strong_max 对齐（名次闸：rank < N）
+DEFAULT_GATE_N = 10
+DEFAULT_GATE_STRONG_N = 100
 DEFAULT_HOLDOUT_TRADING_DAYS_OO_RANK = 20
 # LambdaRank 训练标签：日截面收益名次等分到固定档（非稠密 0..n-1）
 LAMBDARANK_N_BUCKETS = 100
@@ -1736,6 +1739,39 @@ def _topk_overlap(pred: Sequence[float], ys: Sequence[float], k: int) -> Optiona
     return round(len(pred_top & true_top) / float(kk), 4)
 
 
+def _gate_day_stats(
+    preds: Sequence[float],
+    ys: Sequence[float],
+    *,
+    gate_n: int,
+) -> Optional[Dict[str, float]]:
+    """当日名次闸：预测分降序编 1..n，取 ``rank < gate_n`` 的等权标签均值与相对全日 lift。
+
+    对齐回测 ``max(oo_rank, τc_rank) < N`` 的单头近似（本函数只看本头相对序）。
+    """
+    n = len(preds)
+    if n < 5:
+        return None
+    try:
+        nn = int(gate_n)
+    except (TypeError, ValueError):
+        return None
+    if nn <= 1:
+        return None
+    order = sorted(range(n), key=lambda i: float(preds[i]), reverse=True)
+    base = sum(float(ys[i]) for i in range(n)) / float(n)
+    sel = [float(ys[i]) for r, i in enumerate(order) if (r + 1) < nn]
+    if not sel:
+        return None
+    mean_y = sum(sel) / float(len(sel))
+    return {
+        "mean_y": round(mean_y, 4),
+        "lift": round(mean_y - base, 4),
+        "pass_n": float(len(sel)),
+        "base_y": round(base, 4),
+    }
+
+
 def _is_ridge_linear(model: Dict[str, Any]) -> bool:
     """同窗 Ridge ŷ_oo 基线：系数包，不是 LambdaRank booster。"""
     if not isinstance(model, dict) or _oo_rank_use_booster(model):
@@ -1826,6 +1862,8 @@ def _oos_day_metrics(
     topk_track: int,
     ndcg_k: int = DEFAULT_NDCG_K,
     train_codes: Optional[Collection[str]] = None,
+    gate_n: int = DEFAULT_GATE_N,
+    gate_strong_n: int = DEFAULT_GATE_STRONG_N,
 ) -> Dict[str, Any]:
     from core.backtest.factor_cs_ic import _agg_ic_series
     from core.backtest.pool_ic import _pearson
@@ -1836,7 +1874,15 @@ def _oos_day_metrics(
     overlap_days: List[float] = []
     ndcg_days: List[float] = []
     topk_rets: List[float] = []
+    gate_mean_days: List[float] = []
+    gate_lift_days: List[float] = []
+    gate_pass_days: List[float] = []
+    gate_s_mean_days: List[float] = []
+    gate_s_lift_days: List[float] = []
+    gate_s_pass_days: List[float] = []
     n_scored = 0
+    gn = max(0, int(gate_n or 0))
+    gsn = max(0, int(gate_strong_n or 0))
     for day in days:
         preds, ys = _day_scores(day, fit)
         if allow is not None:
@@ -1875,6 +1921,18 @@ def _oos_day_metrics(
         kk = max(1, min(int(topk_track), len(pp)))
         idx = sorted(range(len(pp)), key=lambda i: pp[i], reverse=True)[:kk]
         topk_rets.append(sum(yy[i] for i in idx) / float(kk))
+        if gn > 1:
+            g = _gate_day_stats(pp, yy, gate_n=gn)
+            if g is not None:
+                gate_mean_days.append(float(g["mean_y"]))
+                gate_lift_days.append(float(g["lift"]))
+                gate_pass_days.append(float(g["pass_n"]))
+        if gsn > 1:
+            gs = _gate_day_stats(pp, yy, gate_n=gsn)
+            if gs is not None:
+                gate_s_mean_days.append(float(gs["mean_y"]))
+                gate_s_lift_days.append(float(gs["lift"]))
+                gate_s_pass_days.append(float(gs["pass_n"]))
 
     def _mean(xs: List[float]) -> Optional[float]:
         if not xs:
@@ -1882,7 +1940,7 @@ def _oos_day_metrics(
         return round(sum(xs) / len(xs), 4)
 
     pear = _agg_ic_series(pearson_days)
-    return {
+    out: Dict[str, Any] = {
         "n_days": len(spearman_days),
         "n_rows": n_scored,
         "spearman": _mean(spearman_days),
@@ -1895,7 +1953,16 @@ def _oos_day_metrics(
         "ndcg_k": int(ndcg_k),
         "topk_mean_y_oo": _mean(topk_rets),
         "topk": int(topk_track),
+        "gate_n": int(gn),
+        "gate_strong_n": int(gsn),
+        "gate_mean_y": _mean(gate_mean_days),
+        "gate_lift": _mean(gate_lift_days),
+        "gate_pass_n": _mean(gate_pass_days),
+        "gate_strong_mean_y": _mean(gate_s_mean_days),
+        "gate_strong_lift": _mean(gate_s_lift_days),
+        "gate_strong_pass_n": _mean(gate_s_pass_days),
     }
+    return out
 
 
 def _fit_ridge_baseline(
@@ -2031,7 +2098,7 @@ def fit_oo_rank_report(
     ``backend``：``"auto"``（默认=固定 LambdaRank）/ ``"lambdarank"`` / ``"ridge"``（可强制；拟合仍双训对照）。
     拟合始终双训；``backend`` 只影响报告里 ``return_model`` 默认指向哪一侧。
     ``lightgbm_params`` 可覆盖超参。
-    OOS 指标：spearman / cs_ic / cs_icir / topk_overlap / ndcg_at_k / topk_mean_y_oo。
+    OOS 指标：gate_lift（主）/ gate_mean_y / NDCG@K / TopK；IC / Rank IC 仅对照。
     ``cs_ic`` / ``cs_icir`` 与 ŷ_oo 同口径：Holdout 日截面 Pearson(排序分, y_oo) 的均值，
     ICIR = 该日序列 mean/std（不足 3 日不出）。用原始排序分，不用 1..n 名次。
     """
@@ -2222,6 +2289,8 @@ def fit_oo_rank_report(
             "holdout_trading_days": hold_n,
             "topk_track": int(topk_track),
             "ndcg_k": int(ndcg_k),
+            "gate_n": int(DEFAULT_GATE_N),
+            "gate_strong_n": int(DEFAULT_GATE_STRONG_N),
             "recommended_backend": recommended,
         },
         "backends": backends,
@@ -2231,8 +2300,9 @@ def fit_oo_rank_report(
         "cross_section_zscore": use_cs,
         "zscore_universe": "pool",
         "note": (
-            f"ŷ_oo_rank backend={chosen}（NDCG@K 推荐 {recommended}）；"
+            f"ŷ_oo_rank backend={chosen}（固定落盘 LambdaRank；对照推荐 {recommended}）；"
             "只训 Holdout 前一套；启用研究→研究槽；启用执行=研究槽晋级；"
+            "OOS 主看 Gate lift（对齐名次闸）；IC 仅对照；"
             "不进 y_oo_fuse；过入场后作买序；成交明细编当日截面 1..n 名次；"
             "可选 oo_rank_max 入场闸"
         ),
@@ -2304,6 +2374,27 @@ def compare_oo_rank_shadow_track(
             None
             if rank_m.get("ndcg_at_k") is None or ridge_m.get("ndcg_at_k") is None
             else round(float(rank_m["ndcg_at_k"]) - float(ridge_m["ndcg_at_k"]), 4)
+        ),
+        "delta_gate_lift": (
+            None
+            if rank_m.get("gate_lift") is None or ridge_m.get("gate_lift") is None
+            else round(float(rank_m["gate_lift"]) - float(ridge_m["gate_lift"]), 4)
+        ),
+        "delta_gate_mean_y": (
+            None
+            if rank_m.get("gate_mean_y") is None or ridge_m.get("gate_mean_y") is None
+            else round(
+                float(rank_m["gate_mean_y"]) - float(ridge_m["gate_mean_y"]), 4
+            )
+        ),
+        "delta_gate_strong_lift": (
+            None
+            if rank_m.get("gate_strong_lift") is None
+            or ridge_m.get("gate_strong_lift") is None
+            else round(
+                float(rank_m["gate_strong_lift"]) - float(ridge_m["gate_strong_lift"]),
+                4,
+            )
         ),
         "note": report.get("note"),
         "return_model": report.get("return_model"),
@@ -2379,6 +2470,8 @@ def stamp_rank_zscore_universe_meta(
 
 
 __all__ = [
+    "DEFAULT_GATE_N",
+    "DEFAULT_GATE_STRONG_N",
     "DEFAULT_HOLDOUT_TRADING_DAYS_OO_RANK",
     "DEFAULT_NDCG_K",
     "DEFAULT_TOPK_TRACK",

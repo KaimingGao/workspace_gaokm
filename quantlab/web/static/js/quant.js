@@ -600,8 +600,8 @@ export function initQuant(ctx) {
     yKey: "topk_mean_y_oo",
     deltaYKey: "delta_topk_mean_y_oo",
     yLabel: "TopK y_oo%",
-    icTip: "日频截面 Pearson 均值；原始排序分对 y_oo，与 ŷ_oo 的 IC 同口径",
-    idleMessage: "拟合后对照 NDCG@K · 启用固定落盘 LambdaRank",
+    icTip: "日频截面 Pearson 均值；原始排序分对 y_oo（对照用，不预示调仓）",
+    idleMessage: "拟合后对照 Gate lift · 启用固定落盘 LambdaRank",
   };
   const TC_RANK_DESK = {
     resultId: "quant-tc-rank-result",
@@ -612,8 +612,8 @@ export function initQuant(ctx) {
     yKey: "topk_mean_y_tc",
     deltaYKey: "delta_topk_mean_y_tc",
     yLabel: "TopK y_τc%",
-    icTip: "日频截面 Pearson 均值；原始排序分对 y_τc（price[τ]→close[T]）",
-    idleMessage: "拟合后对照 NDCG@K · 启用固定落盘 LambdaRank",
+    icTip: "日频截面 Pearson 均值；原始排序分对 y_τc（对照用，不预示调仓）",
+    idleMessage: "拟合后对照 Gate lift · 启用固定落盘 LambdaRank",
   };
 
   async function renderOoRankCoefTable(rm, opts = {}) {
@@ -1322,7 +1322,13 @@ export function initQuant(ctx) {
     const oos = data.oos || {};
     const rank = oos[desk.rankKey] || {};
     const ridge = oos[desk.ridgeKey] || {};
-    if (!rank.spearman && !ridge.spearman && rank[desk.yKey] == null) {
+    if (
+      !rank.spearman &&
+      !ridge.spearman &&
+      rank[desk.yKey] == null &&
+      rank.gate_lift == null &&
+      ridge.gate_lift == null
+    ) {
       box.innerHTML = "";
       return;
     }
@@ -1335,27 +1341,51 @@ export function initQuant(ctx) {
       if (!Number.isFinite(x) || !Number.isFinite(y)) return null;
       return x - y;
     }
+    const gateN =
+      rank.gate_n != null
+        ? Number(rank.gate_n)
+        : oos.gate_n != null
+          ? Number(oos.gate_n)
+          : 10;
+    const gateStrongN =
+      rank.gate_strong_n != null
+        ? Number(rank.gate_strong_n)
+        : oos.gate_strong_n != null
+          ? Number(oos.gate_strong_n)
+          : 100;
+    const gateLab = Number.isFinite(gateN) ? `Gate lift<${gateN}` : "Gate lift";
+    const gateMeanLab = Number.isFinite(gateN)
+      ? `Gate y%<${gateN}`
+      : "Gate y%";
+    const gateStrongLab = Number.isFinite(gateStrongN)
+      ? `Gate lift<${gateStrongN}`
+      : "Gate lift·强";
+    // 主裁判：名次闸对齐；IC 类仅对照（全截面相关不预示调仓）
     const rows = [
       [
-        "IC",
-        rank.cs_ic,
-        ridge.cs_ic,
-        delta(rank.cs_ic, ridge.cs_ic, track.delta_cs_ic),
-        desk.icTip,
+        gateLab,
+        rank.gate_lift,
+        ridge.gate_lift,
+        delta(rank.gate_lift, ridge.gate_lift, track.delta_gate_lift),
+        "Holdout 日：本头相对分编 1..n，取 rank<N 的等权标签均值 − 全日均值；对齐回测名次闸（单头近似）",
       ],
       [
-        "ICIR",
-        rank.cs_icir,
-        ridge.cs_icir,
-        delta(rank.cs_icir, ridge.cs_icir, track.delta_cs_icir),
-        "日频 IC 均值 / 标准差；Holdout 不足 3 日不出",
+        gateMeanLab,
+        rank.gate_mean_y,
+        ridge.gate_mean_y,
+        delta(rank.gate_mean_y, ridge.gate_mean_y, track.delta_gate_mean_y),
+        "Holdout 日 rank<N 集合的等权标签收益（%）",
       ],
       [
-        "Rank IC",
-        rank.spearman,
-        ridge.spearman,
-        delta(rank.spearman, ridge.spearman, track.delta_spearman),
-        "日频截面 Spearman 均值",
+        gateStrongLab,
+        rank.gate_strong_lift,
+        ridge.gate_strong_lift,
+        delta(
+          rank.gate_strong_lift,
+          ridge.gate_strong_lift,
+          track.delta_gate_strong_lift
+        ),
+        "强档名次闸近似：rank<oo_rank_strong_max 的 lift",
       ],
       [
         "NDCG@K",
@@ -1374,6 +1404,27 @@ export function initQuant(ctx) {
         rank[desk.yKey],
         ridge[desk.yKey],
         delta(rank[desk.yKey], ridge[desk.yKey], track[desk.deltaYKey]),
+      ],
+      [
+        "IC",
+        rank.cs_ic,
+        ridge.cs_ic,
+        delta(rank.cs_ic, ridge.cs_ic, track.delta_cs_ic),
+        desk.icTip,
+      ],
+      [
+        "ICIR",
+        rank.cs_icir,
+        ridge.cs_icir,
+        delta(rank.cs_icir, ridge.cs_icir, track.delta_cs_icir),
+        "日频 IC 均值 / 标准差；Holdout 不足 3 日不出；对照用",
+      ],
+      [
+        "Rank IC",
+        rank.spearman,
+        ridge.spearman,
+        delta(rank.spearman, ridge.spearman, track.delta_spearman),
+        "日频截面 Spearman 均值；对照用，不预示调仓",
       ],
     ];
     let lrWins = 0;
