@@ -565,8 +565,8 @@ def _print_score_slices(
 
 
 def _main_y_oo(args: argparse.Namespace, *, cost_cfg: dict) -> int:
-    from core.research.oo_rank_panel import build_oo_rank_day_panels
     from core.research.oo_ridge import load_return_model
+    from core.research.rank_day_panels import build_rank_day_panels
 
     model, info = load_return_model(prefer_research=True)
     if model is None:
@@ -587,8 +587,9 @@ def _main_y_oo(args: argparse.Namespace, *, cost_cfg: dict) -> int:
         return 1
 
     print("构建 y_oo 面板（原始 open→次日 open，非超额）...", flush=True)
-    oo_days = build_oo_rank_day_panels(
+    oo_days = build_rank_day_panels(
         stock_bars,
+        family="oo_rank",
         horizon_days=1,
         excess_mode="none",
     )
@@ -689,11 +690,8 @@ def main() -> int:
         return _main_y_oo(args, cost_cfg=dict(BACKTEST_RESEARCH_DEFAULTS))
 
     from core.research.oo_rank_lambdarank import load_oo_rank_model
-    from core.research.oo_rank_panel import build_oo_rank_day_panels
-    from core.research.panel_matrix import collect_tau_compact
+    from core.research.rank_day_panels import build_rank_day_panels
     from core.research.tc_rank import load_tc_rank_model
-    from core.research.tc_ridge_compact import TAU_Z_FEATURES
-    from core.research.oo_rank_panel import group_day_matrices
 
     oo_doc = load_oo_rank_model(prefer_research=True)
     tc_doc = load_tc_rank_model(prefer_research=True)
@@ -718,38 +716,25 @@ def main() -> int:
         return 1
 
     print("构建 y_oo 面板（原始 open→次日 open，非超额）...", flush=True)
-    oo_days = build_oo_rank_day_panels(
+    oo_days = build_rank_day_panels(
         stock_bars,
+        family="oo_rank",
         horizon_days=1,
         excess_mode="none",
     )
     print(f"  oo 截面日 {len(oo_days)}", flush=True)
 
     print("构建 y_τc 面板（开盘钟）...", flush=True)
-    import numpy as np
-
-    x, col_names, ys, dates, metas, n_stocks = collect_tau_compact(
+    tau_stats: dict = {}
+    tc_days = build_rank_day_panels(
         stock_bars,
-        list(TAU_Z_FEATURES),
-        min_history=12,
-        tau_hm="open",
-        include_alpha_tc=True,
-        head="y_tc_rank",
-        cache_head="tc_rank",
+        family="tc_rank",
+        stats_out=tau_stats,
     )
-    codes = [
-        str((metas[i] or {}).get("stock_code") or "") if i < len(metas) else ""
-        for i in range(len(ys))
-    ]
-    tc_days = group_day_matrices(
-        x,
-        np.asarray(ys, dtype=np.float64),
-        col_names,
-        dates,
-        codes,
-        min_names=8,
+    print(
+        f"  tc 截面日 {len(tc_days)} 股票 {tau_stats.get('n_stocks', '?')}",
+        flush=True,
     )
-    print(f"  tc 截面日 {len(tc_days)} 股票 {n_stocks}", flush=True)
 
     print("研究套打分...", flush=True)
     oo_scores = _score_panels(oo_days, oo_fit)

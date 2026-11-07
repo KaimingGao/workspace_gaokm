@@ -254,42 +254,27 @@ def main() -> int:
         _log("有效股票不足")
         return 1
 
-    from core.research.oo_rank_panel import build_oo_rank_day_panels, group_day_matrices
-    from core.research.panel_matrix import collect_tau_compact
-    from core.research.tc_ridge_compact import TAU_Z_FEATURES
-    import numpy as np
+    from core.research.rank_day_panels import build_rank_day_panels
 
     _log("构建 y_oo 面板…")
-    oo_days = build_oo_rank_day_panels(
+    oo_days = build_rank_day_panels(
         stock_bars,
+        family="oo_rank",
         horizon_days=1,
         excess_mode="none",
     )
     _log(f"  oo 日 {len(oo_days)}")
 
     _log("构建 y_τc 面板（open）…")
-    x, col_names, ys, dates, metas, n_stocks = collect_tau_compact(
+    tau_stats: dict = {}
+    tc_days = build_rank_day_panels(
         stock_bars,
-        list(TAU_Z_FEATURES),
-        min_history=12,
-        tau_hm="open",
-        include_alpha_tc=True,
+        family="tc",
         head="y_tc",
         cache_head="tc_fuse_offline",
+        stats_out=tau_stats,
     )
-    codes = [
-        str((metas[i] or {}).get("stock_code") or "") if i < len(metas) else ""
-        for i in range(len(ys))
-    ]
-    tc_days = group_day_matrices(
-        x,
-        np.asarray(ys, dtype=np.float64),
-        col_names,
-        dates,
-        codes,
-        min_names=8,
-    )
-    _log(f"  tc 日 {len(tc_days)} 股票 {n_stocks}")
+    _log(f"  tc 日 {len(tc_days)} 股票 {tau_stats.get('n_stocks', '?')}")
 
     _log("研究套打分…")
     oo_books = _score_oo_days(oo_days, oo_model)

@@ -133,11 +133,8 @@ def main() -> int:
         load_oo_rank_model,
     )
     from core.research.tc_rank import load_tc_rank_model
-    from core.research.oo_rank_panel import build_oo_rank_day_panels, group_day_matrices
-    from core.research.panel_matrix import collect_tau_compact
-    from core.research.tc_ridge_compact import TAU_Z_FEATURES
+    from core.research.rank_day_panels import build_rank_day_panels
     from core.signal.yhat_windows import fuse_pct
-    import numpy as np
 
     oo_model, info = load_return_model(prefer_research=True)
     if oo_model is None:
@@ -152,24 +149,14 @@ def main() -> int:
         return 1
 
     stock_bars = mean_m._load_pool(int(args.lookback), a_codes)
-    oo_days = build_oo_rank_day_panels(
-        stock_bars, horizon_days=1, excess_mode="none"
+    oo_days = build_rank_day_panels(
+        stock_bars, family="oo_rank", horizon_days=1, excess_mode="none"
     )
-    x, col_names, ys, dates, metas, n_stocks = collect_tau_compact(
+    tc_days = build_rank_day_panels(
         stock_bars,
-        list(TAU_Z_FEATURES),
-        min_history=12,
-        tau_hm="open",
-        include_alpha_tc=True,
+        family="tc",
         head="y_tc",
         cache_head="tc_fuse_offline",
-    )
-    codes = [
-        str((metas[i] or {}).get("stock_code") or "") if i < len(metas) else ""
-        for i in range(len(ys))
-    ]
-    tc_days = group_day_matrices(
-        x, np.asarray(ys, dtype=np.float64), col_names, dates, codes, min_names=8
     )
 
     oo_books = mean_m._score_oo_days(oo_days, oo_model)

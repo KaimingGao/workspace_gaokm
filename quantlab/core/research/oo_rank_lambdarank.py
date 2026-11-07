@@ -2199,7 +2199,7 @@ def fit_oo_rank_report(
         make_research_model,
         resolve_ridge_split,
     )
-    from core.research.oo_rank_panel import build_oo_rank_day_panels
+    from core.research.rank_day_panels import build_rank_day_panels
 
     # 与 ŷ_τc_rank 同：物化留下的整窗立方先卸掉，再进面板。
     try:
@@ -2212,8 +2212,9 @@ def fit_oo_rank_report(
     if day_panels is not None:
         days = list(day_panels)
     else:
-        days = build_oo_rank_day_panels(
+        days = build_rank_day_panels(
             stock_bars,
+            family="oo_rank",
             horizon_days=horizon_days,
             min_history=min_history,
             min_names=min_names,

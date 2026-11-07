@@ -300,12 +300,10 @@ def main() -> int:
         _predict_ridge_matrix,
         load_oo_rank_model,
     )
-    from core.research.oo_rank_panel import build_oo_rank_day_panels, group_day_matrices
     from core.research.oo_ridge import load_return_model
     from core.research.oo_ridge_compact import predict_oo_matrix
-    from core.research.panel_matrix import collect_tau_compact
+    from core.research.rank_day_panels import build_rank_day_panels
     from core.research.tc_ridge import load_tau_model
-    from core.research.tc_ridge_compact import TAU_Z_FEATURES
     from core.signal.yhat_windows import fuse_pct
 
     stock_bars = mean_m._load_pool(int(args.lookback), a_codes)
@@ -314,24 +312,14 @@ def main() -> int:
         return 1
 
     t0 = time.time()
-    oo_days = build_oo_rank_day_panels(
-        stock_bars, horizon_days=1, excess_mode="none"
+    oo_days = build_rank_day_panels(
+        stock_bars, family="oo_rank", horizon_days=1, excess_mode="none"
     )
-    x, col_names, ys, dates, metas, _n_stocks = collect_tau_compact(
+    tc_days = build_rank_day_panels(
         stock_bars,
-        list(TAU_Z_FEATURES),
-        min_history=12,
-        tau_hm="open",
-        include_alpha_tc=True,
+        family="tc",
         head="y_tc",
         cache_head="tc_wf_offline",
-    )
-    codes = [
-        str((metas[i] or {}).get("stock_code") or "") if i < len(metas) else ""
-        for i in range(len(ys))
-    ]
-    tc_days = group_day_matrices(
-        x, np.asarray(ys, dtype=np.float64), col_names, dates, codes, min_names=8
     )
     _log(
         f"面板 oo_days={len(oo_days)} tc_days={len(tc_days)} "

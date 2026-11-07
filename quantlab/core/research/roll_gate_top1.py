@@ -416,10 +416,8 @@ def run_roll_gate_top1(
     ``job_id`` 写入进度与 last，供 UI 区分「本轮」与上一轮落盘，避免运行中误读旧结果。
     """
     from core.research.oo_rank_lambdarank import _predict_oo_rank_matrix, _predict_ridge_matrix
-    from core.research.oo_rank_panel import build_oo_rank_day_panels, group_day_matrices
     from core.research.oo_ridge_compact import predict_oo_matrix
-    from core.research.panel_matrix import collect_tau_compact
-    from core.research.tc_ridge_compact import TAU_Z_FEATURES
+    from core.research.rank_day_panels import build_rank_day_panels
 
     lb = max(100, min(1000, int(lookback or DEFAULT_LOOKBACK)))
     hold_n = max(1, min(30, int(holdout or DEFAULT_HOLDOUT)))
@@ -468,25 +466,15 @@ def run_roll_gate_top1(
         return out
 
     _emit(0, n_folds, "建 oo 日面板…")
-    oo_days = build_oo_rank_day_panels(
-        stock_bars, horizon_days=1, excess_mode="none"
+    oo_days = build_rank_day_panels(
+        stock_bars, family="oo_rank", horizon_days=1, excess_mode="none"
     )
     _emit(0, n_folds, "建 τc 日面板…")
-    x, col_names, ys, dates, metas, _n_stocks = collect_tau_compact(
+    tc_days = build_rank_day_panels(
         stock_bars,
-        list(TAU_Z_FEATURES),
-        min_history=12,
-        tau_hm="open",
-        include_alpha_tc=True,
+        family="tc",
         head="y_tc",
         cache_head="tc_roll_gate",
-    )
-    codes = [
-        str((metas[i] or {}).get("stock_code") or "") if i < len(metas) else ""
-        for i in range(len(ys))
-    ]
-    tc_days = group_day_matrices(
-        x, np.asarray(ys, dtype=np.float64), col_names, dates, codes, min_names=8
     )
     oo_by = {str(d.get("date") or "")[:10]: d for d in oo_days}
     tc_by = {str(d.get("date") or "")[:10]: d for d in tc_days}
