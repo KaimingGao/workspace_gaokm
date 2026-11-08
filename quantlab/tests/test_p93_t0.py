@@ -2157,7 +2157,8 @@ class TestDualYDirection(unittest.TestCase):
         self.assertEqual(enriched["price_raw"], 105)
         self.assertAlmostEqual(enriched["change_raw"], -2.0, places=4)
 
-    def test_scores_from_item_keeps_yon_path_separate(self):
+    def test_scores_from_item_drops_offline_yon_fields(self):
+        """ŷ_co 隔夜头已下线：y_on 系列字段不再生产/透传/打包。"""
         from core.t0.score_policy import scores_from_item
 
         sc = scores_from_item(
@@ -2168,11 +2169,13 @@ class TestDualYDirection(unittest.TestCase):
                 "predicted_score_tau": 0.8,
             }
         )
-        self.assertAlmostEqual(sc["y_on_path"], 3.5)
+        self.assertNotIn("y_on_path", sc)
+        self.assertNotIn("predicted_score_on_path", sc)
         packed = __import__(
             "core.t0.score_policy", fromlist=["pack_day_scores"]
         ).pack_day_scores(sc)
-        self.assertAlmostEqual(packed["y_on_path"], 3.5)
+        if packed is not None:
+            self.assertNotIn("y_on_path", packed)
 
     def test_eod_factor_bar_limit_matches_score_stock(self):
         """EOD 窗与实盘取数同长，覆盖 alpha_oo / alpha_tc 面板窗。"""

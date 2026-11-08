@@ -3,7 +3,7 @@
 角色（PIT）：
   y_τc     — 盘中主方向；定向锚用 y_τc，时钟对齐值在 y_tau
   y_hl     — **已下线**：不再算分/挂载；旧行仍可读 y_hl / y_path
-  y_on     — 快照对照；隔夜闸 y_on_allow / y_on_risk 已下线
+  y_on     — **已下线**：ŷ_co 隔夜头已移除，字段不再生产/透传
   y_trade / y_eod — **v6 已下线**：不参与选向；`load_t0_rules` 丢弃旧闸键；快照字段仅作对照
 
 选向分数：开盘可预计算开盘 Z；**确认根（前 N 根齐窗）用前缀分钟因果重算**
@@ -592,8 +592,6 @@ def pack_day_scores(score_snap: Optional[dict]) -> Optional[Dict[str, Any]]:
         "y_τc_ridge",
         "y_τc_source",
         "y_oo_fuse",
-        "y_on",
-        "y_on_path",
         "predicted_score_r",
         "y_r_hat",
         "y_r",
@@ -663,8 +661,6 @@ def attach_day_scores(
             "y_eod",
             "y_tau",
             "y_trade",
-            "y_on",
-            "y_on_path",
             "predicted_score_r",
             "y_r_hat",
             "y_r",
@@ -817,10 +813,6 @@ def scores_from_item(item: Optional[dict]) -> Dict[str, Optional[float]]:
     if y_trade is not None and abs(y_trade) > 20.0:
         y_trade = None
 
-    y_on_path = _f(item.get("y_on_path"))
-    if y_on_path is None:
-        y_on_path = _f(item.get("predicted_score_on_path"))
-
     y_check = item.get("y_check")
     if y_check is not None:
         y_check = str(y_check)
@@ -966,9 +958,6 @@ def scores_from_item(item: Optional[dict]) -> Dict[str, Optional[float]]:
             out["y_τ90"] = y_t90
     if y_tau_mapped is not None:
         out["y_tau_mapped"] = y_tau_mapped
-    if y_on_path is not None:
-        out["y_on_path"] = y_on_path
-        out["predicted_score_on_path"] = y_on_path
 
     gap = _f(item.get("gap_pct"))
     if gap is None and isinstance(item.get("features_tau"), dict):
@@ -3035,7 +3024,7 @@ def scores_have_any(scores: Optional[dict]) -> bool:
         return False
     return any(
         _f(scores.get(k)) is not None
-        for k in ("y_eod", "y_tau", "y_trade", "y_on")
+        for k in ("y_eod", "y_tau", "y_trade")
     )
 
 
@@ -4593,7 +4582,7 @@ def compute_scores_from_bars(
         except Exception:  # noqa: BLE001
             GAP_ATR_WINDOW = 14
         # 开盘 PIT：τ / EOD / 决策用开盘 quote（price=open），不用当日 close
-        # （否则表列 y_on≈当日 OC，与 τ实假相关）。
+        # （否则表列与 τ实假相关）。
         dual_bars = list(hist[-max(int(GAP_ATR_WINDOW) + 6, 20) :])
         # 当日 bar 仅供 asof 对齐；hist_bars_pit 会剥掉 asof 日 K，不吃 T 振幅
         if day is not None:

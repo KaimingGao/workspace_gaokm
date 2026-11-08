@@ -482,7 +482,6 @@ def _slot_public_scores(row: dict) -> dict:
             "t90_realized",
             "y_eod",
             "y_trade",
-            "y_on",
             "gap_pct",
             "y_τc",
             "predicted_score_τc",

@@ -20,7 +20,6 @@ UNSCORED_HEAD_KEYS = (
     "predicted_score_blend_vs",
     "predicted_score_eod",
     "predicted_score_eod_rem",
-    "predicted_score_on",
     "predicted_score_oo",
     "predicted_score_oo_rank",
     "predicted_score_rem",
