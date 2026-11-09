@@ -386,9 +386,9 @@ open(t) ──y_τ(t)──► close(t) ──隔夜──► open(t+1)
 | 量 | 公式 | 含义 |
 |----|------|------|
 | **`gap_pct`**（已实现） | \(\mathrm{open}[t]/\mathrm{close}[t-1]-1\) | 今开相对**昨收**；`resolve_open_t` |
-| **\(y_{\mathrm{ON}}(t)\)**（规划标签） | \(\mathrm{open}[t]/\mathrm{open}[t-1]-1\) | 今开相对**昨开** |
+| \(y_{\mathrm{ON}}(t)\)（规划头，未实现） | \(\mathrm{open}[t]/\mathrm{open}[t-1]-1\) | 今开相对**昨开**；**不生产** |
 
-旧口径文档曾写 \(\mathrm{open}/\mathrm{close}[T-1]\) 为「隔夜头」——**收→开缺口** 口径；与本节 **\(y_{\mathrm{ON}}=\mathrm{open}/\mathrm{open}\)** 不同，以本节为准。
+注：ŷ_co 隔夜头历史上曾实现（收→开缺口口径），已于 2026-11 下线。
 
 **与旧 close→close \(y_{\mathrm{EOD}}\) 的关系（仅几何对照）**
 
@@ -805,7 +805,7 @@ A 改进「估得准」；B 改进「做得对」。北极星乘积两者都要�
 
 | 主题 | 行为 | 详见 |
 |------|------|------|
-| **open-pit** | 会话日官方 open 立方未齐：昨收日线 + 行情今开现场建截面；补训练同款风格因子，缺列/覆盖不足则拒单；落账禁回退昨日立方 | [internal/live-open-pit-rebalance.md](internal/live-open-pit-rebalance.md) |
+| **open L2 消费** | 只读会话日官方 open 立方；缺则 `materialize_required`，禁止行情临时拼截面；落账禁回退昨日立方 | [internal/live-open-pit-rebalance.md](internal/live-open-pit-rebalance.md) |
 | **物化写穿** | 物化写入时日线新于湖必须重算（`allow_l1_end_lag()=False`），禁止只切交集仍报成功 | [internal/feature-lake-daycube.md](internal/feature-lake-daycube.md) |
 | **舆情标签** | 读 `news.db` 决策窗标签写表列；规则栏已下掉软先验闸；不进 ŷ | [component/risk.md](component/risk.md#舆情与另类数据sentiment-altdata) |
 | **今日收益** | `当前净值 − session_nav[昨收]`；快照裁剪后仍可对账 | [rebalance-logic.md](rebalance-logic.md) · [quant-ui.md](quant-ui.md) `/follow` |
