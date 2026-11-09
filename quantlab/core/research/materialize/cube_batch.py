@@ -110,6 +110,26 @@ def _keep_cube(
             return False
     if not isinstance(cube, DayCube):
         return True
+    # lake 建成的 open 立方打终态 provenance（行情临时立方走 session_open）
+    try:
+        clk = str(clock or "").strip().lower().replace(":", "")
+        if clk in ("open", "0930"):
+            from core.research.pit_session import (
+                BUILDER_LAKE_OPEN,
+                OPEN_SOURCE_DAILY,
+                PHASE_FINAL,
+                stamp_cube_provenance,
+            )
+
+            stamp_cube_provenance(
+                cube,
+                phase=PHASE_FINAL,
+                open_source=OPEN_SOURCE_DAILY,
+                builder=BUILDER_LAKE_OPEN,
+                eod_as_of=str(day or "")[:10],
+            )
+    except Exception:  # noqa: BLE001
+        logger.debug("stamp lake open provenance failed day=%s", day, exc_info=True)
     try:
         return bool(save_day_cube(cube))
     except Exception:  # noqa: BLE001

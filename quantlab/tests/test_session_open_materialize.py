@@ -25,6 +25,7 @@ class TestSessionOpenMaterialize(unittest.TestCase):
         fake_cube.codes = ["a", "b"]
         fake_cube.names = ["x", "y"]
         fake_cube.universe_hash = "uh"
+        fake_cube.slim = {}
         items = [
             {"stock_code": "a", "sub_scores": {"raw_aoo_GAP": 0.1}},
             {"stock_code": "b", "sub_scores": {"raw_aoo_GAP": 0.2}},
@@ -39,7 +40,13 @@ class TestSessionOpenMaterialize(unittest.TestCase):
             return_value=(
                 items,
                 [],
-                {"ok": True, "pool_items": items, "n_open": 2, "n_items": 2},
+                {
+                    "ok": True,
+                    "pool_items": items,
+                    "n_open": 2,
+                    "n_items": 2,
+                    "n_universe": 2,
+                },
             ),
         ), patch(
             "core.research.batch_score.features_by_code_from_items",
@@ -50,10 +57,16 @@ class TestSessionOpenMaterialize(unittest.TestCase):
             "core.research.day_cube.save_day_cube", return_value=True
         ) as save, patch(
             "core.research.day_cube.remember"
-        ) as rem:
+        ) as rem, patch(
+            "core.research.pit_session.prev_eod_as_of", return_value="2026-11-06"
+        ):
             out = materialize_session_open_l2(cycle_day="2026-11-09")
         self.assertTrue(out.get("ok"))
         self.assertTrue(out.get("persisted"))
+        self.assertEqual(out.get("phase"), "provisional")
+        self.assertEqual(out.get("open_source"), "quote")
+        self.assertEqual(getattr(fake_cube, "slim", {}).get("phase"), "provisional")
+        self.assertEqual(getattr(fake_cube, "slim", {}).get("builder"), "session_open_quote")
         build.assert_called_once()
         save.assert_called_once_with(fake_cube)
         rem.assert_called_once_with(fake_cube)
@@ -62,13 +75,15 @@ class TestSessionOpenMaterialize(unittest.TestCase):
         from core.research.materialize.orchestrate import run_materialize
 
         with patch(
-            "core.research.materialize.session_open.materialize_session_open_l2",
+            "core.research.pit_session.ensure_session_open_l2",
             return_value={
                 "ok": True,
                 "success": True,
                 "cycle_day": "2026-11-09",
                 "n_universe": 2,
                 "elapsed_s": 0.1,
+                "phase": "provisional",
+                "open_source": "quote",
             },
         ) as fn:
             out = run_materialize(do_session_open_l2=True, cycle_day="2026-11-09")

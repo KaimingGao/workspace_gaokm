@@ -2568,8 +2568,98 @@ export function installBacktest(q) {
       restoreFillClock();
       el.addEventListener("change", () => {
         readFillClock();
+        refreshFollowReplayAlign();
       });
     }
+  }
+
+  /** 回测钟/权 vs 交易执行 live：不一致时提示，可一键同步自执行侧。 */
+  function refreshFollowReplayAlign() {
+    const el = document.getElementById("replay-follow-align");
+    if (!el) return;
+    const live =
+      (typeof window !== "undefined" && window.__quantlabLiveAlign) || null;
+    if (!live || !live.live_fill_clock) {
+      el.hidden = true;
+      el.textContent = "";
+      return;
+    }
+    const fill = readFillClock() || "09:30";
+    const w = readFusionWeights() || {};
+    const liveClock = String(live.live_fill_clock || "09:30").slice(0, 5);
+    const liveOo = Number(live.fusion_w_oo);
+    const liveOc = Number(live.fusion_w_oc);
+    const formOo = Number(w.fusion_w_oo);
+    const formOc = Number(w.fusion_w_oc);
+    const diffs = [];
+    if (liveClock && fill && liveClock !== fill) {
+      diffs.push(`钟 回测 ${fill} ≠ 执行 ${liveClock}`);
+    }
+    if (
+      Number.isFinite(liveOo) &&
+      Number.isFinite(formOo) &&
+      Math.abs(liveOo - formOo) > 0.011
+    ) {
+      diffs.push(
+        `w_oo 回测 ${formOo.toFixed(2)} ≠ 执行 ${liveOo.toFixed(2)}`
+      );
+    }
+    if (
+      Number.isFinite(liveOc) &&
+      Number.isFinite(formOc) &&
+      Math.abs(liveOc - formOc) > 0.011
+    ) {
+      diffs.push(
+        `w_τc 回测 ${formOc.toFixed(2)} ≠ 执行 ${liveOc.toFixed(2)}`
+      );
+    }
+    if (!diffs.length) {
+      el.hidden = true;
+      el.textContent = "";
+      return;
+    }
+    el.hidden = false;
+    el.innerHTML =
+      `对账注意：${diffs.join(" · ")} · ` +
+      `<button type="button" class="dialog-btn" id="replay-sync-from-follow" ` +
+      `title="把交易执行的启动时间建议与 fuse 权写入回测表单（不改落盘规则）">` +
+      `同步自交易执行</button>`;
+    const btn = document.getElementById("replay-sync-from-follow");
+    if (btn && btn.dataset.wired !== "1") {
+      btn.dataset.wired = "1";
+      btn.addEventListener("click", () => {
+        syncReplayFromFollowAlign();
+      });
+    }
+  }
+
+  function syncReplayFromFollowAlign() {
+    const live =
+      (typeof window !== "undefined" && window.__quantlabLiveAlign) || null;
+    if (!live) return;
+    const clock = String(live.live_fill_clock || "09:30").slice(0, 5);
+    const fillEl = document.getElementById("quant-fill-clock");
+    if (fillEl) {
+      const use = FILL_CLOCKS.includes(clock) ? clock : "09:30";
+      fillEl.value = use;
+      try {
+        localStorage.setItem(FILL_CLOCK_KEY, use);
+      } catch (_) {
+        /* ignore */
+      }
+    }
+    const form = document.getElementById("paper-path-matrix-form");
+    if (form) {
+      const ooEl = form.querySelector('[name="pm_fusion_w_oo"]');
+      const ocEl = form.querySelector('[name="pm_fusion_w_nc"]');
+      if (ooEl && Number.isFinite(Number(live.fusion_w_oo))) {
+        ooEl.value = String(Number(live.fusion_w_oo));
+      }
+      if (ocEl && Number.isFinite(Number(live.fusion_w_oc))) {
+        ocEl.value = String(Number(live.fusion_w_oc));
+      }
+    }
+    refreshFollowReplayAlign();
   }
 
   function wireReplayPriceSpaceGate() {
@@ -2611,12 +2701,28 @@ export function installBacktest(q) {
   wirePredTierChecks();
   if (typeof window !== "undefined") {
     window.addEventListener("quantlab-replay-desk-persist", () => persistReplayDeskPrefs());
+    window.__quantlabRefreshFollowReplayAlign = refreshFollowReplayAlign;
   }
   initExecutionRuleForms()
     .then(() => {
       const restored = restoreReplayDeskPrefs();
       // 无本地偏好时也按当前勾选同步 live（默认 A）
       if (!restored) syncLivePredTiersFromDesk();
+      refreshFollowReplayAlign();
+      const form = document.getElementById("paper-path-matrix-form");
+      if (form && form.dataset.alignWired !== "1") {
+        form.dataset.alignWired = "1";
+        form.addEventListener("change", (ev) => {
+          const name = ev && ev.target && ev.target.name;
+          if (
+            name === "pm_fusion_w_oo" ||
+            name === "pm_fusion_w_nc" ||
+            name === "pm_fusion_w_oc"
+          ) {
+            refreshFollowReplayAlign();
+          }
+        });
+      }
     })
     .catch(() => {});
 

@@ -223,7 +223,7 @@ L1 存的是特征行和拟合标签 y，不存可成交价格。消费方仍读
 
 | 入口 | 说明 |
 |------|------|
-| `POST /api/quant/materialize` | 后台 Job；`do_l1_tau_grid` 写 τ 网格 L1；`do_session_open_l2`（可选 `cycle_day`）盘中补齐会话日官方 open L2（今开行情 + ≤T−1 日线，配 `do_l1=false` / `do_l2=true` / `clocks=["open"]`）。轮询 `GET /api/jobs/materialize-l1l2`。**`lookback`**（默认 1000）：日线 L1 与 open L2 共用；分钟钟 L2 用内部近端短窗（`L2_MINUTE_LOOKBACK=60`） |
+| `POST /api/quant/materialize` | 后台 Job；`do_l1_tau_grid` 写 τ 网格 L1；`do_session_open_l2`（可选 `cycle_day`）经 `ensure_session_open_l2` 补齐会话日 open L2（日线齐→lake 终态，否则行情临时立方；配 `do_l1=false` / `do_l2=true` / `clocks=["open"]`）。轮询 `GET /api/jobs/materialize-l1l2`。**`lookback`**（默认 1000）：日线 L1 与 open L2 共用；分钟钟 L2 用内部近端短窗（`L2_MINUTE_LOOKBACK=60`） |
 | `GET /api/quant/materialize/catalog` | family / clock / `suggested_tau_clocks` / `tau_grid` |
 | `core/research/materialize/run_materialize` | 同步编排（L1 → τ 网格 L1 → L2） |
 
@@ -263,7 +263,7 @@ L1 存的是特征行和拟合标签 y，不存可成交价格。消费方仍读
 产品调仓（``PaperService.rebalance``）、数据中心观察摘要、持仓表 ŷ 打开消费开关：
 
 1. **会话日同钟官方立方**命中 → 读 L2 ``X_raw`` / μ/σ 出 ŷ 与 rank。  
-2. 会话日立方缺失 → ``materialize_required``（手动预演 / 落账 / 持仓与观察摘要同口径）；**禁止**昨收回退与临时拼截面。开盘钟可经 ``do_session_open_l2`` 正式补齐后重试。   
+2. 会话日立方缺失 → ``materialize_required``（手动预演 / 落账 / 持仓与观察摘要同口径）；**禁止**昨收回退与临时拼截面。开盘钟经 ``do_session_open_l2`` → ``ensure_session_open_l2`` 补齐后重试。   
 
 报价和落账价格另读行情或日线。观察摘要按整池宇宙哈希读立方。细节见 [live-open-pit-rebalance.md](./live-open-pit-rebalance.md)。
 

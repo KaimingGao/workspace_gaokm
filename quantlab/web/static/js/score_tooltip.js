@@ -269,6 +269,35 @@ function formatEodAsOfHint(raw) {
   ).trim();
   const lakeDay = String((raw && raw.lake_score_day) || "").slice(0, 10);
   const fbFrom = String((raw && raw.lake_score_fallback_from) || "").slice(0, 10);
+  const pitPhase = String((raw && raw.pit_phase) || "").trim().toLowerCase();
+  const openSrc = String((raw && raw.open_source) || "").trim().toLowerCase();
+  const tBit = tradeDay ? `T ${tradeDay}` : "T";
+  // 开盘 PIT provenance：≤T−1 日线 + 今开(行情|日线) · 临时|终态
+  if (
+    openSrc === "quote" ||
+    openSrc === "daily" ||
+    pitPhase === "provisional" ||
+    pitPhase === "final"
+  ) {
+    const openBit =
+      openSrc === "daily"
+        ? "今开(日线)"
+        : openSrc === "quote"
+          ? "今开(行情)"
+          : "今开";
+    const phaseBit =
+      pitPhase === "final" ? "终态" : pitPhase === "provisional" ? "临时立方" : "";
+    let base = `${tBit} · ≤T−1日线 + ${openBit}`;
+    if (phaseBit) base += ` · ${phaseBit}`;
+    if (day && tradeDay && day !== tradeDay) {
+      base += ` · 因子截止 ${day}`;
+    }
+    // 账本腿：成交时临时立方 ≠ 晚间终态，提醒勿拿终态对成交 ŷ
+    if (pitPhase === "provisional") {
+      base += " · 成交/出分时临时；收盘后终态可能重标定";
+    }
+    return anom ? `${base} · ${anom}` : base;
+  }
   let which = "昨收完整K";
   if (scoreSrc === "open_pit") {
     which = "今开截面";
@@ -278,12 +307,14 @@ function formatEodAsOfHint(raw) {
     which = "盘中漏入今日K";
   } else if (day && today && day === today) {
     which = "盘中漏入今日K";
+  } else if (!day && scoreSrc === "feature_lake_batch") {
+    which = "≤T−1日线 + 今开(日线)";
   } else if (!day && scoreSrc !== "day_cube") {
-    which = "T−1 因子";
+    which = "≤T−1日线 + 今开";
   } else if (!day && scoreSrc === "day_cube") {
-    which = lakeDay && tradeDay && lakeDay === tradeDay ? "开盘立方" : "T−1 因子";
+    // 无 pit provenance 的旧立方：勿再标「开盘立方」（易与会话日误等同）
+    which = "≤T−1日线 + 今开";
   }
-  const tBit = tradeDay ? `T ${tradeDay}` : "T";
   let base = `${tBit} · ${which}`;
   if (scoreSrc === "open_pit") {
     if (day && day !== tradeDay) {

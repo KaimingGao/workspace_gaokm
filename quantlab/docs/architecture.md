@@ -1386,7 +1386,7 @@ quantlab/
 | 行情更新缓存 | [internal/bars-update-cache.md](internal/bars-update-cache.md) | 日线/5m 写仓读仓 · 指纹 · 已知缝 |
 | Feature Lake / DayCube | [internal/feature-lake-daycube.md](internal/feature-lake-daycube.md) | L1/L2 物化 · 写穿 · `allow_l1_end_lag` |
 | DayCube 宇宙键 | [internal/daycube-universe-key.md](internal/daycube-universe-key.md) | `universe_hash` |
-| Live 开盘 L2 | [internal/live-open-pit-rebalance.md](internal/live-open-pit-rebalance.md) | 只读会话日 open 立方；缺则 `do_session_open_l2` |
+| Live 开盘 L2 | [internal/live-open-pit-rebalance.md](internal/live-open-pit-rebalance.md) | 只读会话日 open 立方；缺则 `ensure_session_open_l2`（临时→终态） |
 | 日线契约修补 | [internal/bars-update-plan.md](internal/bars-update-plan.md) | 四处缝改造顺序 |
 | AkShare vs Tushare | [internal/akshare-tushare-daily-compare.md](internal/akshare-tushare-daily-compare.md) | 日线对齐审计 |
 

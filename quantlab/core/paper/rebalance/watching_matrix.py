@@ -1118,6 +1118,39 @@ def _cube_family_feats(feats: Dict[str, float]) -> Tuple[dict, dict]:
     return oo, tau
 
 
+def _pit_summary_from_cube(
+    cube: Any,
+    scored: Optional[Sequence[dict]] = None,
+) -> Dict[str, Any]:
+    """给手动/落账结果带上开盘 PIT 摘要（phase / 开源 / 成员数）。"""
+    out: Dict[str, Any] = {}
+    try:
+        from core.research.pit_session import item_provenance_fields
+
+        if cube is not None:
+            out.update(item_provenance_fields(cube))
+            out["n_cube_codes"] = len(getattr(cube, "codes", []) or [])
+            out["day"] = str(getattr(cube, "date", "") or "")[:10] or None
+            slim = getattr(cube, "slim", None)
+            if isinstance(slim, dict) and slim.get("missing_open_n") is not None:
+                out["missing_open_n"] = slim.get("missing_open_n")
+        elif scored:
+            for it in scored:
+                if not isinstance(it, dict):
+                    continue
+                if it.get("pit_phase") or it.get("open_source"):
+                    if it.get("pit_phase"):
+                        out["pit_phase"] = it.get("pit_phase")
+                    if it.get("open_source"):
+                        out["open_source"] = it.get("open_source")
+                    if it.get("cube_builder"):
+                        out["cube_builder"] = it.get("cube_builder")
+                    break
+    except Exception:  # noqa: BLE001
+        logger.debug("pit summary from cube failed", exc_info=True)
+    return out
+
+
 def _items_from_day_cube(cube: Any, day: str) -> List[dict]:
     """用当日立方的 ``X_raw`` 组装出分行，不再按票打开 L1 全历史。"""
     import numpy as np
@@ -1161,6 +1194,15 @@ def _items_from_day_cube(cube: Any, day: str) -> List[dict]:
         if gap is not None:
             item["gap_pct"] = gap
         items.append(item)
+    try:
+        from core.research.pit_session import item_provenance_fields
+
+        pit_fields = item_provenance_fields(cube)
+        if pit_fields:
+            for it in items:
+                it.update(pit_fields)
+    except Exception:  # noqa: BLE001
+        logger.debug("stamp day_cube provenance on items failed", exc_info=True)
     return items
 
 
@@ -1697,6 +1739,25 @@ def _try_score_pool_from_cube_on_day(
     return scored, rejected, cube
 
 
+def _clock_key_for_snap(clock: str) -> str:
+    """与 ``day_cube._safe_clock`` 对齐：``09:30`` / ``0930`` → ``open``。"""
+    raw = str(clock or "").strip().replace("：", ":")
+    if not raw or raw.lower() in ("open", "eod"):
+        return "open" if raw.lower() != "eod" else "eod"
+    digits = "".join(ch for ch in raw if ch.isdigit())
+    if len(digits) >= 4:
+        hm = digits[:4]
+        return "open" if hm == "0930" else hm
+    if ":" in raw:
+        parts = raw.split(":")
+        try:
+            hm = f"{int(parts[0]):02d}{int(parts[1]):02d}"
+        except (TypeError, ValueError, IndexError):
+            return raw
+        return "open" if hm == "0930" else hm
+    return raw
+
+
 def _try_score_pool_from_cube(
     codes: Sequence[str],
     *,
@@ -1705,7 +1766,11 @@ def _try_score_pool_from_cube(
     score_codes: Optional[Collection[str]],
     paper: Optional[dict] = None,
 ) -> Optional[Tuple[List[dict], List[dict], Any]]:
-    """会话日官方立方出分。没有立方返回 None。"""
+    """会话日官方立方出分。没有立方返回 None。
+
+    允许网格外时刻落到更早的分钟钟（如 12:25→11:00）；
+    **禁止**把显式分钟钟静默降到 ``open``（UI 仍显示晚钟、实际用开盘分）。
+    """
     from core.research.day_cube import snap_clock_to_disk
     from core.signal.session_pit import oo_cycle_date
 
@@ -1715,7 +1780,15 @@ def _try_score_pool_from_cube(
     if len(lookup) < 2:
         return None
     clock_use = snap_clock_to_disk(lookup, clock)
-    if clock_use != clock:
+    req_key = _clock_key_for_snap(clock)
+    use_key = _clock_key_for_snap(clock_use)
+    if use_key != req_key:
+        if use_key == "open" and req_key != "open":
+            logger.warning(
+                "refuse silent snap live clock %s -> open (need minute L2)",
+                clock,
+            )
+            return None
         logger.info("lake score clock %s -> %s (latest cube)", clock, clock_use)
     cycle_day = str(oo_cycle_date() or "")[:10]
     if not cycle_day:
@@ -2104,6 +2177,10 @@ _SCORE_PASSTHROUGH_KEYS = (
     "hard_reject",
     "reject_reason",
     "sector",
+    "pit_phase",
+    "open_source",
+    "cube_builder",
+    "eod_feature_as_of",
 )
 
 
@@ -2211,6 +2288,10 @@ def _apply_one_leg(
             "rank_n",
             "lot_kind",
             "action",
+            "pit_phase",
+            "open_source",
+            "cube_builder",
+            "eod_feature_as_of",
         )
         if leg.get(k) is not None
     }
@@ -2923,6 +3004,7 @@ def simulate_watching_matrix_preview(
         "open_replay": bool(open_replay),
         "strategy_id": strategy_id,
         "strategy_label": strategy_label,
+        "pit": _pit_summary_from_cube(score_day_cube, scored),
         "ops_report": {
             "strategy_id": strategy_id,
             "strategy_label": strategy_label,

@@ -417,10 +417,38 @@ export function fillPathMatrixForm(root, execution) {
     if (clockEl.querySelector(`option[value="${v}"]`)) clockEl.value = v;
   }
   applyLiveFillClockUi(pm.live_fill_clock || "09:30");
-  applyLiveFusionWeightsUi(
+  const liveW = applyLiveFusionWeightsUi(
     pm.fusion_w_oo != null ? pm.fusion_w_oo : 0.9,
     pm.fusion_w_oc != null ? pm.fusion_w_oc : 0.1
   );
+  // 回测页对齐提示：缓存交易执行侧钟/权（replay 页可能无 live 滑条 DOM）
+  try {
+    if (typeof window !== "undefined") {
+      window.__quantlabLiveAlign = {
+        live_fill_clock: String(pm.live_fill_clock || "09:30")
+          .replace("：", ":")
+          .trim()
+          .slice(0, 5),
+        fusion_w_oo:
+          liveW && liveW.fusion_w_oo != null
+            ? liveW.fusion_w_oo
+            : pm.fusion_w_oo != null
+              ? Number(pm.fusion_w_oo)
+              : 0.6,
+        fusion_w_oc:
+          liveW && liveW.fusion_w_oc != null
+            ? liveW.fusion_w_oc
+            : pm.fusion_w_oc != null
+              ? Number(pm.fusion_w_oc)
+              : 0.4,
+      };
+      if (typeof window.__quantlabRefreshFollowReplayAlign === "function") {
+        window.__quantlabRefreshFollowReplayAlign();
+      }
+    }
+  } catch (_) {
+    /* ignore */
+  }
   let lotBase = clampLotAmount(pm.lot_base_amount, 10000);
   let lotStrong = clampLotAmount(
     pm.lot_strong_amount,

@@ -4044,8 +4044,34 @@ def warmup_watching_day_cubes(
                         )
                     continue
                 if status == "ok":
-                    out["cubes_hit"] += 1
-                    continue
+                    force_rebuild = False
+                    if is_open:
+                        try:
+                            from core.research.day_cube import read_day_cube_meta
+                            from core.research.pit_session import (
+                                should_force_open_lake_rebuild,
+                            )
+
+                            meta = read_day_cube_meta(
+                                day, code_list, clock=str(clock)
+                            )
+                            force_rebuild = should_force_open_lake_rebuild(
+                                day, code_list, meta
+                            )
+                        except Exception:  # noqa: BLE001
+                            logger.debug(
+                                "warmup open provenance check failed day=%s",
+                                day,
+                                exc_info=True,
+                            )
+                            force_rebuild = False
+                    if not force_rebuild:
+                        out["cubes_hit"] += 1
+                        continue
+                    logger.info(
+                        "warmup force rebuild provisional/legacy open cube day=%s",
+                        day,
+                    )
                 try:
                     blocked = require_day_cube() or consumer_read_only()
                 except Exception:  # noqa: BLE001
@@ -4070,6 +4096,7 @@ def warmup_watching_day_cubes(
                         min_items=need,
                         require_oo_item=bool(is_open),
                         require_tc_day=not is_open,
+                        replace_existing=bool(is_open),
                         on_items=_seed if is_open else None,
                         progress_cb=lambda cur, tot, msg="": _emit(msg, cur, tot),
                         cancel_cb=cancel_cb,

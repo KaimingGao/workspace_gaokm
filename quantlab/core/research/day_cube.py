@@ -358,6 +358,7 @@ def save_day_cube(cube: DayCube) -> bool:
     except Exception:
         logger.debug("day cube save npz failed %s", paths["npz"], exc_info=True)
         return False
+    slim = dict(cube.slim or {})
     meta = {
         "schema": FEATURE_SCHEMA,
         "date": cube.date,
@@ -366,8 +367,20 @@ def save_day_cube(cube: DayCube) -> bool:
         "n_codes": len(cube.codes),
         "n_cols": len(cube.names),
         "names": list(cube.names),
-        "slim": cube.slim or {},
+        "slim": slim,
     }
+    # 开盘 PIT provenance：抬到 meta 顶栏，warmup 只读 meta 即可判终态
+    for key in (
+        "phase",
+        "open_source",
+        "builder",
+        "eod_as_of",
+        "built_at",
+        "missing_open_n",
+    ):
+        val = slim.get(key)
+        if val is not None and val != "":
+            meta[key] = val
     try:
         _atomic_write_json(paths["meta"], meta)
     except Exception:
@@ -396,6 +409,25 @@ def discard_day_cube(
             os.remove(paths[key])
         except OSError:
             pass
+
+
+def read_day_cube_meta(
+    date: str,
+    codes: Sequence[str],
+    *,
+    clock: str = "open",
+) -> Optional[Dict[str, Any]]:
+    """只读 meta（含 provenance）。宇宙 hash 不一致仍返回 meta，由调用方自辨。"""
+    day = str(date or "")[:10]
+    if len(day) < 10:
+        return None
+    uh = universe_hash(codes)
+    clk = _safe_clock(clock)
+    paths = _disk_paths(uh, clk, day)
+    meta = _read_json(paths["meta"])
+    if not meta or int(meta.get("schema") or 0) != FEATURE_SCHEMA:
+        return None
+    return meta
 
 
 def day_cube_status(

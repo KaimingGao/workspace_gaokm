@@ -126,6 +126,26 @@ def materialize_session_open_l2(
         out["elapsed_s"] = round(time.perf_counter() - t0, 2)
         return out
 
+    from core.research.pit_session import (
+        BUILDER_SESSION_OPEN_QUOTE,
+        OPEN_SOURCE_QUOTE,
+        PHASE_PROVISIONAL,
+        prev_eod_as_of,
+        stamp_cube_provenance,
+    )
+
+    n_open = int(meta.get("n_open") or 0)
+    n_univ = int(meta.get("n_universe") or len(code_list) or 0)
+    missing_open_n = max(0, n_univ - n_open) if n_univ else None
+    stamp_cube_provenance(
+        cube,
+        phase=PHASE_PROVISIONAL,
+        open_source=OPEN_SOURCE_QUOTE,
+        builder=BUILDER_SESSION_OPEN_QUOTE,
+        eod_as_of=prev_eod_as_of(day, code_list),
+        missing_open_n=missing_open_n,
+    )
+
     _emit(progress_cb, 2, 3, f"补齐 {day} 开盘 L2：落盘…")
     if not save_day_cube(cube):
         out["error"] = f"会话日 {day} open 立方落盘失败"
@@ -135,6 +155,9 @@ def materialize_session_open_l2(
     out["ok"] = True
     out["success"] = True
     out["persisted"] = True
+    out["phase"] = PHASE_PROVISIONAL
+    out["open_source"] = OPEN_SOURCE_QUOTE
+    out["builder"] = BUILDER_SESSION_OPEN_QUOTE
     out["n_cube_codes"] = len(getattr(cube, "codes", []) or [])
     out["n_names"] = len(getattr(cube, "names", []) or [])
     out["universe_hash"] = str(getattr(cube, "universe_hash", "") or "")

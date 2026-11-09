@@ -676,6 +676,39 @@ class ConsumerCoverageTest(unittest.TestCase):
                 self.assertEqual(snap_clock_to_disk(codes, "1225"), "1100")
                 self.assertEqual(snap_clock_to_disk(codes, "open"), "open")
 
+    def test_refuse_silent_snap_minute_to_open(self) -> None:
+        """显式分钟钟不得静默降到 open；应 materialize_required。"""
+        from unittest.mock import patch
+
+        from core.paper.rebalance.watching_matrix import _score_pool_from_lake
+        from core.research.materialize.consumer import MaterializeRequired
+
+        with patch(
+            "core.signal.session_pit.oo_cycle_date", return_value="2026-10-26"
+        ), patch(
+            "core.research.materialize.coverage.read_cube_codes",
+            return_value=["300750", "002594"],
+        ), patch(
+            "core.research.day_cube.snap_clock_to_disk", return_value="open"
+        ), patch(
+            "core.research.day_cube.load_day_cube",
+            side_effect=AssertionError("should not load after refuse"),
+        ):
+            with self.assertRaises(MaterializeRequired) as ctx:
+                _score_pool_from_lake(
+                    ["300750", "002594"],
+                    use_minute_tau=True,
+                    tau_clock="09:45",
+                )
+        payload = ctx.exception.to_dict()
+        self.assertEqual(payload.get("error_code"), "materialize_required")
+        err = str(payload.get("error") or "")
+        self.assertTrue("0945" in err or "09:45" in err, err)
+        clocks = payload.get("clocks") or []
+        self.assertTrue(
+            any(str(c) in ("0945", "09:45", "open") for c in clocks) or "0945" in err
+        )
+
     def test_recent_trading_days_are_weekdays(self) -> None:
         from core.research.materialize.coverage import recent_trading_days
 

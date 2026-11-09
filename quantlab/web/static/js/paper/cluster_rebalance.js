@@ -101,11 +101,26 @@ export function createClusterRebalanceController(deps) {
         .join(" ");
 
       followMatrixPreviewPending = false;
+      const pit = data.pit || {};
+      const pitBits = [];
+      if (pit.open_source === "quote" || pit.pit_phase === "provisional") {
+        pitBits.push("临时立方·行情今开");
+      } else if (pit.open_source === "daily" || pit.pit_phase === "final") {
+        pitBits.push("终态·日线今开");
+      }
+      if (pit.n_cube_codes != null) pitBits.push(`截面${pit.n_cube_codes}`);
+      if (pit.missing_open_n != null && Number(pit.missing_open_n) > 0) {
+        pitBits.push(`缺开${pit.missing_open_n}`);
+      }
+      if (pit.membership_drift && pit.membership_drift.note) {
+        pitBits.push(String(pit.membership_drift.note));
+      }
       setPaperMetaText(
         `09:30 复现 · 观察池 ${poolN} · 已打分 ${scoredN} · 参考卖 ${sellN}` +
           (turnPct != null ? ` · 换手 ${turnPct}%` : "") +
           (oosEx > 0 ? ` · OOS过滤 ${oosEx}` : "") +
           (actBits ? ` · ${actBits}` : "") +
+          (pitBits.length ? ` · ${pitBits.join(" · ")}` : "") +
           (sellN === 0 && data.empty_reason
             ? ` · ${emptyReasonLabel(data.empty_reason)}`
             : "") +

@@ -684,6 +684,10 @@ def _decision_item(
         "success": True,
         "_score_source": "feature_lake_batch",
         "ret_open_to_tau": 0.0,
+        # 与 tip provenance 对齐：回测开盘分 = 日线今开终态
+        "pit_phase": "final",
+        "open_source": "daily",
+        "cube_builder": "lake_open",
     }
     if quote:
         item["quote"] = dict(quote)

@@ -2,9 +2,9 @@
 
 [← 文档索引](../README.md) · 调仓产品见 [rebalance-logic.md](../rebalance-logic.md) · L1/L2 见 [feature-lake-daycube.md](./feature-lake-daycube.md) · 宇宙键见 [daycube-universe-key.md](./daycube-universe-key.md)
 
-> 状态：**现行**（2026-11-09）拟合 / 回测 / live **只读会话日 L1/L2**；缺 open 立方 → `materialize_required` → `do_session_open_l2` 落盘后再消费。§1 保留早盘事故根因备忘。  
-> 范围：live 开盘窗矩阵调仓打分与下单闸  
-> 不覆盖：模型重训、回测 `_score_open_day` 改写、实盘 OMS、>09:30 分钟钟
+> 状态：**现行**（2026-11-09 · PIT 收敛已收口）拟合 / 回测 / live **只读会话日 L1/L2**；缺 open 立方 → `materialize_required` → `ensure_session_open_l2`（行情临时 → 日线终态）。§1 保留早盘事故根因备忘。  
+> 范围：live 开盘窗矩阵调仓打分与下单闸 · 开盘 PIT provenance · Follow↔Replay 对账提示  
+> 不覆盖：模型重训、实盘 OMS
 
 ---
 
@@ -34,9 +34,9 @@
 
 ## 2. 现行目标
 
-- 决策日 = 会话日 T；ŷ_oo = **今开 → 下一交易日开开**；特征 = **≤T−1 日线** + **T 日行情今开**，μ/σ 来自官方 open DayCube。
-- 官方 open L2 已在盘上 → 消费侧直接读；缺失 → `materialize_required`（可 `do_session_open_l2` 正式落盘后重试）。
-- **禁止**调仓线程临时拼截面、禁止昨收回退成交；回测逻辑不变。
+- 决策日 = 会话日 T；ŷ_oo = **今开 → 下一交易日开开**；特征 = **≤T−1 日线** + **T 日今开**，μ/σ 来自会话日 open DayCube。
+- 立方已在盘上 → 消费直接读（`pit_phase` / `open_source` 透传 tip）；缺失 → `materialize_required` → `do_session_open_l2` → `ensure_session_open_l2`（日线齐则 lake **终态**，否则行情 **临时立方**）后重试。
+- **禁止**调仓线程临时拼截面、禁止昨收回退成交；回测逻辑不变。tip 不得再把无 provenance 的旧立方标成可静默等同的「开盘立方 / T−1 因子」。
 
 ---
 
@@ -46,13 +46,16 @@
 
 ```text
 窗开且当天未跑
-  ├─ 有未完成隔夜挂单 → 本轮不算新分；读会话日 T 官方开盘立方 → fuse / 下单
-  ├─ 有官方 open L2 → 读立方出分 → fuse / 下单
-  ├─ 无 → materialize_required → do_session_open_l2（行情今开 + ≤T−1 日线 → 官方 open DayCube）
+  ├─ 有未完成隔夜挂单 → 本轮不算新分；读会话日 T open 立方 → fuse / 下单
+  ├─ 有会话日 open L2 → 读立方出分（透传 phase/open_source）→ fuse / 下单
+  ├─ 无 → materialize_required → do_session_open_l2
+  │         → ensure_session_open_l2
+  │              ├─ 日线已齐 → lake 今开 → final（builder=lake_open）
+  │              └─ 否则 → 行情今开 → provisional（builder=session_open_quote）
   └─ 物化成功后重试消费；覆盖不足 / 行情缺今开 → 失败，不写账，不退昨日
 ```
 
-≤09:30：`use_minute_tau=False`，ŷ_τc 为开盘 Z。名次、fuse、买卖闸沿用 `rank_lots`。
+晚间日线入库后，warmup / spill **不得**对 provisional/legacy `status=ok` 跳过；强制重建为 final。≤09:30：`use_minute_tau=False`，ŷ_τc 为开盘 Z。名次、fuse、买卖闸沿用 `rank_lots`。
 
 ---
 
@@ -93,15 +96,15 @@
 ## 8. 影响
 
 - 不再用「已实现的昨开→今开」ŷ_oo 开仓；缺立方拒单，去掉静默错日成交。
-- **历史 tip**：旧行 `lake_score_fallback_from` / `_score_source=open_pit` 仍可展示；新路径写官方立方后消费为 `day_cube`。
-- 晚间日线物化后与盘中 `do_session_open_l2` 同口径读官方 open；成交记录保留下单时 ŷ。
+- **历史 tip**：旧行 `lake_score_fallback_from` / `_score_source=open_pit` 仍可展示；新路径消费为 `day_cube` 并透传 `pit_phase` / `open_source`。
+- 盘中 provisional 与晚间 final **同会话日**但 μ/σ 可能因成员漂移重标定；成交记录保留下单时 ŷ，tip 对临时立方注明勿拿终态对账。
 
 ---
 
 ## 9. 打分顺序（实现契约）
 
-1. **官方开盘立方（会话日 T）存在** → `load_day_cube` + lake 路径；`lake_score_day=T`，无 `lake_score_fallback_from`。simulate 把同一 `day_cube` 显式传给 oo_rank / τc_rank。
-2. **否则** → `materialize_required`（开盘钟带 `do_session_open_l2`）。**禁止**消费侧临时拼截面、禁止昨收回退。正式补齐由 `session_open` 物化写官方 open L2 后再重试；`open_pit_score.py` 只服务该物化写盘，不进调仓出分。
+1. **会话日 T open 立方存在** → `load_day_cube`；`lake_score_day=T`，无 `lake_score_fallback_from`；出分行带 provenance。simulate 把同一 `day_cube` 显式传给 oo_rank / τc_rank。
+2. **否则** → `materialize_required`（开盘钟带 `do_session_open_l2`）→ `ensure_session_open_l2`。**禁止**消费侧临时拼截面、禁止昨收回退。`open_pit_score.py` 只服务物化写盘，不进调仓出分。
 
 ---
 
@@ -109,18 +112,18 @@
 
 | # | 场景 | 期望 |
 |---|------|------|
-| 1 | 无官方立方 | `materialize_required`；可经 `do_session_open_l2` 落盘后重试；不读昨日立方成交 |
+| 1 | 无会话日立方 | `materialize_required`；`ensure` 落盘后重试；不读昨日立方成交 |
 | 2 | 今开覆盖不足（物化时） | 物化失败 / 不下单；日志明确 |
-| 3 | 官方立方已存在 | 用官方；不临时拼截面 |
-| 4 | 会话日 open 物化 | 写入官方 `open` L2；消费侧只读 |
+| 3 | 立方已存在 | 直接读；透传 phase；不临时拼截面 |
+| 4 | 盘中 / 晚间物化 | 盘中 provisional（quote）；日线齐后 final（daily）；warmup 禁假健康跳过 |
 | 5 | 回测日 T | 仍读当日湖；未完成会话日仍被 clip，不靠昨日顶替 |
-| 6 | tip | 历史 fallback / open_pit 标记仍可展示；新出分无 fallback |
+| 6 | tip | 新出分：`≤T−1日线 + 今开(行情\|日线) · 临时立方\|终态`；历史 fallback / open_pit 仍可识别 |
 
 ---
 
 ## 11. 落地顺序（已完成）
 
-已全部落地：消费只读会话日官方 L2 · tip 仍识别历史 fallback 标记 · 单测（覆盖 / 闸 / 官方立方优先 / 显式传 rank）· rank 鲁棒（simulate 传 `day_cube`）。正式补齐走 `do_session_open_l2` 落盘。
+已全部落地：消费只读会话日 L2 · `ensure_session_open_l2` 临时→终态 · tip / Follow↔Replay 对账 · 单测（覆盖 / 闸 / provenance / refuse snap-to-open）。
 
 ---
 
@@ -129,7 +132,7 @@
 | 主题 | 位置 |
 |------|------|
 | 今开截面构建 | `core/paper/rebalance/open_pit_score.py` |
-| 会话日 open L2 物化写盘 | `core/research/materialize/session_open.py`（`materialize_session_open_l2`）· `POST /api/quant/materialize`（`do_session_open_l2` + `cycle_day`） |
+| 会话日 open L2 唯一写手 | `core/research/pit_session.py`（`ensure_session_open_l2`）· `session_open.py`（行情临时）· `cube_batch`（lake 终态）· `POST /api/quant/materialize`（`do_session_open_l2`） |
 | Web 自动补齐 | `web/static/js/paper/session_open_materialize.js`；`paper.js` 补 ŷ · `cluster_rebalance.js` 09:30 复现 · `auto_worker._maybe_materialize_session_open` |
 | 评分顺序 / 成交闸 / rank 传立方 | `watching_matrix._score_pool_from_lake` · `simulate_watching_matrix_preview` |
 | 持仓补名次（无昨日回退） | `watching_matrix.stamp_live_ranks` · `_stamp_ranks_from_lake` |
@@ -138,7 +141,9 @@
 | 开盘 PIT 拼接 | `alpha_oo.inject_raw_aoo` / `session_pit.resolve_open_t`；`alpha_tc.inject_raw_atc`；风格裸分 `open_pit_score._open_style_scores` |
 | 截面 z / DayCube | `feature_standardize.cross_section_zscore_matrix`；`day_cube._compute_mu_sigma` |
 | 观察池键 / 行情批量 | `coverage.read_cube_codes`；`quote_api.StockAPI.batch_query` · `QUOTE_MEM_TTL_SECONDS=60` / `QUOTE_EMPTY_OPEN_TTL_SECONDS=5`；开盘截面前 `invalidate_codes` + 缺今开重拉 |
-| 回测开盘日（对照）/ tip | `lake_replay.score_open_day_entries` · `clip_replay_score_dates`；`score_tooltip.js` · `formatEodAsOfHint` |
+| 回测开盘日（对照）/ tip | `lake_replay.score_open_day_entries` · `clip_replay_score_dates`；`score_tooltip.js` · `formatEodAsOfHint`（provenance） |
+| Follow↔Replay 对齐 | `execution_ui.js`（`__quantlabLiveAlign`）· `domain_backtest.js` · `replay_panel.html` `#replay-follow-align` |
+| 拒 snap-to-open | `watching_matrix` 显式分钟钟缺 L2 → `materialize_required`（不降级 open） |
 
 ---
 
@@ -148,16 +153,10 @@
 
 ---
 
-## 14. 状态与下一步
+## 14. 状态
 
-- 文档与方案：本文；消费侧只读会话日官方 L2；simulate 显式 `day_cube=` 传给 oo/τc rank；单测 `tests/test_open_pit_score.py` + `ConsumerCoverageTest` 闸断言。`open_pit_score.py` 仍供正式 `do_session_open_l2` 物化写盘使用，不在调仓线程临时拼截面。
-- **2026-11-06**：持仓盯市空今开 60s 缓存导致昨持仓（风华/江海）被判缺今开、A 档名次池 598 vs 600；已用 open-pit 前 `invalidate_codes` 修掉（`TestOpenPitQuoteCacheBust`）。
-- **2026-11-09**：持仓表 `oo_rank`/`τc_rank` 曾卡在旧截面（如 n=484）；根因是 `live_rank_snapshot` 未随观察池/A 档更新。已绑 `universe_fp`：成员变更作废；缺/失效快照由 `ensure` 自愈；快照只落核心名次（不含公式拆解）。
-- **2026-11-09（续）**：`refresh_live_open_ranks` 曾回退昨收立方却仍按今日 `as_of` 落盘，持仓名次与手动开盘复现错位。已改为只认会话日官方立方。
-- **2026-11-09（再续）**：消费路径取消 open-pit 临时补数。`_score_pool_from_lake` / `refresh_live_open_ranks` 缺会话日 L2 一律 `materialize_required`；与拟合、回测同口径只读物化层。
-- **2026-11-09（严口径）**：手动执行 / 预演 / `score_session_from_lake` 缺覆盖只提示物化，禁止昨收回退掩盖 L1/L2 缺口。
-- **2026-11-09（盘中补齐）**：live / 手动缺会话日 open L2 时，经 `do_session_open_l2` **正式物化落盘**（今开行情 + ≤T−1 日线 → 官方 open DayCube）；消费侧仍只读立方。自动调仓 worker、手动 09:30 复现、持仓补 ŷ 会触发补齐后重试。
-- **2026-11-09（清理）**：删除消费侧 `_lake_score_day_candidates` / `_resolve_lake_score_day` / hole-fill / `refuse_day_fallback` 参数与 `_try_score_pool_from_open_pit` stub；出分只读会话日立方。
-- **2026-11-09（深清）**：删除死 API `score_open_pit_pool`；物化中间行 `_score_source=session_open_build`；文档「现行」改为只读 L2 + `do_session_open_l2`。
-- **2026-11-09（Web 收口）**：`POST /api/quant/materialize` 增 `do_session_open_l2` / `cycle_day`；`/follow` 补 ŷ 与「策略调仓 · 09:30 复现」经 `session_open_materialize.js` 自动补齐后重试；自动 worker 走 `_maybe_materialize_session_open` 同步补齐。东财报价改分块，降低封禁风险。
-- 下一步：盘中需开盘截面时，走会话日 open L2 物化补齐后再消费。
+- **现行**：消费只读会话日 L2；`ensure_session_open_l2` 唯一写手调度（行情临时 → 日线终态）；warmup 禁 provisional/legacy 假健康；tip / 账本透传 provenance；Follow↔Replay 钟权对齐警告；显式分钟钟拒 snap-to-open。单测：`tests/test_pit_session.py` · `test_open_pit_score.py` · `ConsumerCoverageTest` · JS guards。
+- **2026-11-06**：持仓盯市空今开 60s 缓存 → open-pit 前 `invalidate_codes`（`TestOpenPitQuoteCacheBust`）。
+- **2026-11-09**：`live_rank_snapshot` 绑 `universe_fp`；`refresh_live_open_ranks` 只认会话日立方；删消费侧 fallback / `score_open_pit_pool`；Web `do_session_open_l2` 自动补齐。
+- **2026-11-09（PIT 收敛）**：`pit_session.py` · provenance meta · tip 改标 · 成员漂移闸 · Follow↔Replay align · refuse snap-to-open。
+- **未开（可选）**：成交表「成交时 provisional vs 当前 final」对照列——账本已透传 phase，UI 列另开。

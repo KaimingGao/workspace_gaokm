@@ -171,19 +171,21 @@ def _run_materialize(
 ) -> Dict[str, Any]:
     """独立物化入口。L1 票级 raw →（可选）τ 网格 L1 → L2 日/钟截面 μ/σ。
 
-    ``do_session_open_l2``：盘中补齐会话日官方 open 立方（今开行情 + ≤T−1 日线）。
+    ``do_session_open_l2``：经 ``ensure_session_open_l2`` 写会话日 open 立方
+    （日线齐→lake 终态；否则行情临时立方）。
     """
     t0 = time.perf_counter()
     if do_session_open_l2:
-        from core.research.materialize.session_open import materialize_session_open_l2
+        from core.research.pit_session import ensure_session_open_l2
         from core.research.materialize.track import build_materialize_track
 
         _emit(progress_cb, 0, 1, "补齐会话日开盘 L2…")
-        session = materialize_session_open_l2(
+        session = ensure_session_open_l2(
             cycle_day=cycle_day,
             codes=codes,
             watching_limit=watching_limit,
             progress_cb=progress_cb,
+            prefer="auto",
         )
         out: Dict[str, Any] = {
             "success": bool(session.get("ok")),

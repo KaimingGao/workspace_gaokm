@@ -335,8 +335,32 @@ def warmup_clock_from_spill(
                 )
             continue
         if status == "ok":
-            stats["cubes_hit"] += 1
-            continue
+            force_rebuild = False
+            if str(clock) == "open":
+                try:
+                    from core.research.day_cube import read_day_cube_meta
+                    from core.research.pit_session import (
+                        should_force_open_lake_rebuild,
+                    )
+
+                    meta = read_day_cube_meta(day, code_list, clock=str(clock))
+                    force_rebuild = should_force_open_lake_rebuild(
+                        day, code_list, meta
+                    )
+                except Exception:  # noqa: BLE001
+                    logger.debug(
+                        "warmup spill open provenance check failed day=%s",
+                        day,
+                        exc_info=True,
+                    )
+                    force_rebuild = False
+            if not force_rebuild:
+                stats["cubes_hit"] += 1
+                continue
+            logger.info(
+                "warmup spill force rebuild provisional/legacy open cube day=%s",
+                day,
+            )
         try:
             blocked = require_day_cube() or consumer_read_only()
         except Exception:  # noqa: BLE001
