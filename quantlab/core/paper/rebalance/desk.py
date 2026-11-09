@@ -458,17 +458,26 @@ def _overlay_fields(
 _DESK_RANK_KEYS = ("y_oo_rank", "y_oo_rank_n", "y_tc_rank", "y_tc_rank_n")
 
 
-def attach_live_snapshot_ranks(rows: List[dict], session: str) -> None:
-    """用当日 live 名次快照补 oo_rank / τc_rank。已有名次不改。快照缺日则留空。"""
+def attach_live_snapshot_ranks(
+    rows: List[dict],
+    session: str,
+    *,
+    paper: Optional[dict] = None,
+    heal: bool = True,
+) -> None:
+    """用当日 live 名次快照补 oo_rank / τc_rank。已有名次不改。
+
+    快照缺/失效时可 DayCube 自愈重写后再补；仍无则留空。
+    """
     day = str(session or "").strip()[:10]
     if len(day) < 10 or not rows:
         return
     try:
-        from core.paper.rebalance.watching_matrix import load_live_rank_snapshot
+        from core.paper.rebalance.watching_matrix import ensure_live_rank_snapshot
     except Exception:  # noqa: BLE001
         logger.debug("desk rank snapshot import failed", exc_info=True)
         return
-    snap = load_live_rank_snapshot(as_of=day)
+    snap = ensure_live_rank_snapshot(as_of=day, paper=paper, heal=heal)
     if not snap:
         return
     for row in rows:
@@ -928,7 +937,7 @@ def build_rebalance_desk_status(
         state_aligned = False
 
     attach_day_open_to_desk_rows(rows, session=sess or persisted_sess)
-    attach_live_snapshot_ranks(rows, sess or persisted_sess)
+    attach_live_snapshot_ranks(rows, sess or persisted_sess, paper=paper)
     if state_aligned and (filled_today or phase == PHASE_DONE):
         # 今开只补已落账行。补齐的 A 档不逐票打行情，避免每次刷新扫完整档。
         rows, tier_covered = cover_allowed_tier_rows(rows)

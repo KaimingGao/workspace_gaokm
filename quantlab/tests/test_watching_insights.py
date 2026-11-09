@@ -626,6 +626,7 @@ class TestHoldingScoresCausalRebalance(unittest.TestCase):
         from services.paper_account import PaperAccountMixin
 
         stamped = []
+        stamp_kw = {}
 
         class _Svc:
             def pack_holding_row(self, item, **kw):
@@ -635,8 +636,9 @@ class TestHoldingScoresCausalRebalance(unittest.TestCase):
         paper = {"holdings": [{"stock_code": "000890", "stock_name": "法尔胜"}]}
         summary = {"holdings": [{"stock_code": "000890", "stock_name": "法尔胜"}]}
 
-        def _stamp(rows):
+        def _stamp(rows, **kw):
             stamped.extend(rows)
+            stamp_kw.update(kw)
             for it in rows:
                 if str(it.get("stock_code")) == "000890":
                     it["y_oo_rank"] = 3
@@ -668,11 +670,370 @@ class TestHoldingScoresCausalRebalance(unittest.TestCase):
         ):
             mixin._compute_holding_scores(paper, summary)
         self.assertEqual(len(stamped), 1)
+        self.assertTrue(stamp_kw.get("heal"))
         held = (summary.get("holdings") or [None])[0] or {}
         self.assertEqual(held.get("y_oo_rank"), 3)
         self.assertEqual(held.get("y_tc_rank"), 6)
         self.assertTrue(held.get("hard_reject"))
         self.assertIn("L2 缺", str(held.get("reject_reason") or ""))
+
+    def test_holding_scores_stamps_ranks_with_heal(self):
+        """持仓出分经 stamp(heal=True) 盖名次；缺快照时由 ensure 自愈。"""
+        from services.paper_account import PaperAccountMixin
+
+        stamp_kw = {}
+
+        class _Svc:
+            def pack_holding_row(self, item, **kw):
+                return dict(item)
+
+        def _stamp(rows, **kw):
+            stamp_kw.update(kw)
+            for it in rows:
+                if str(it.get("stock_code")) == "600096":
+                    it["y_oo_rank"] = 609
+                    it["y_oo_rank_n"] = 800
+                    it["y_tc_rank"] = 580
+                    it["y_tc_rank_n"] = 800
+
+        mixin = PaperAccountMixin()
+        paper = {"holdings": [{"stock_code": "600096"}]}
+        summary = {"holdings": [{"stock_code": "600096"}]}
+        with patch(
+            "core.signal.service.get_default_signal_service",
+            return_value=_Svc(),
+        ), patch(
+            "core.signal.score_display.annotate_score_gate",
+            return_value={"min_score": 0, "below_min_score": False},
+        ), patch(
+            "core.signal.score_display.selection_min_score",
+            return_value=0,
+        ), patch(
+            "core.research.materialize.consumer.consumer_read_only",
+            return_value=True,
+        ), patch(
+            "core.paper.rebalance.watching_matrix.score_session_from_lake",
+            return_value=(
+                [{"stock_code": "600096", "y_oo": 0.01}],
+                [],
+            ),
+        ), patch(
+            "core.paper.rebalance.watching_matrix.stamp_live_ranks",
+            side_effect=_stamp,
+        ):
+            mixin._compute_holding_scores(paper, summary)
+        self.assertTrue(stamp_kw.get("heal"))
+        held = (summary.get("holdings") or [None])[0] or {}
+        self.assertEqual(held.get("y_oo_rank"), 609)
+        self.assertEqual(held.get("y_oo_rank_n"), 800)
+
+class TestLiveRankUniverseFingerprint(unittest.TestCase):
+    def test_load_rejects_stale_universe_fp(self):
+        import os
+        import tempfile
+
+        from core.paper.rebalance.watching_matrix import (
+            live_rank_universe_fp,
+            load_live_rank_snapshot,
+            save_live_rank_snapshot,
+        )
+
+        scored = [
+            {
+                "stock_code": f"{i:06d}",
+                "lake_score_day": "2026-11-09",
+                "y_oo_rank": i,
+                "y_oo_rank_n": 20,
+                "y_tc_rank": i,
+                "y_tc_rank_n": 20,
+            }
+            for i in range(1, 21)
+        ]
+        with tempfile.TemporaryDirectory() as tmp:
+            path = os.path.join(tmp, "live_rank_snapshot.json")
+            with patch(
+                "core.paper.rebalance.watching_matrix._live_rank_snapshot_path",
+                return_value=path,
+            ), patch(
+                "core.paper.rebalance.watching_matrix.current_live_rank_universe",
+                return_value=(
+                    [f"{i:06d}" for i in range(1, 21)],
+                    live_rank_universe_fp([f"{i:06d}" for i in range(1, 21)]),
+                ),
+            ):
+                save_live_rank_snapshot(
+                    scored,
+                    as_of="2026-11-09",
+                    universe_codes=[f"{i:06d}" for i in range(1, 21)],
+                )
+                ok = load_live_rank_snapshot(as_of="2026-11-09")
+                self.assertEqual(len(ok), 20)
+            with patch(
+                "core.paper.rebalance.watching_matrix._live_rank_snapshot_path",
+                return_value=path,
+            ), patch(
+                "core.paper.rebalance.watching_matrix.current_live_rank_universe",
+                return_value=(
+                    [f"{i:06d}" for i in range(100, 120)],
+                    live_rank_universe_fp([f"{i:06d}" for i in range(100, 120)]),
+                ),
+            ):
+                stale = load_live_rank_snapshot(as_of="2026-11-09")
+                self.assertEqual(stale, {})
+
+    def test_write_watching_invalidates_snapshot(self):
+        import os
+        import tempfile
+
+        from core.watching.repository import write_watching
+
+        with tempfile.TemporaryDirectory() as tmp:
+            snap = os.path.join(tmp, "live_rank_snapshot.json")
+            with open(snap, "w", encoding="utf-8") as fh:
+                fh.write('{"as_of":"2026-11-09","by_code":{"600519":{"y_oo_rank":1}}}')
+            watch_path = os.path.join(tmp, "watching.json")
+            with patch(
+                "core.paper.rebalance.watching_matrix._live_rank_snapshot_path",
+                return_value=snap,
+            ), patch(
+                "core.watching.repository._strip_watchlist_outside_research",
+                return_value=[],
+            ), patch(
+                "core.watching.repository._resize_watchlist",
+            ), patch(
+                "core.watching.repository.validate_watching",
+                side_effect=lambda d: {
+                    "version": 1,
+                    "name": "t",
+                    "max_size": 10,
+                    "watchlist": ["600519"],
+                    "sources": {},
+                },
+            ):
+                write_watching({"watchlist": ["600519"]}, path=watch_path)
+            self.assertFalse(os.path.isfile(snap))
+
+    def test_write_watching_keeps_snapshot_when_membership_unchanged(self):
+        import json
+        import os
+        import tempfile
+
+        from core.watching.repository import write_watching
+
+        with tempfile.TemporaryDirectory() as tmp:
+            snap = os.path.join(tmp, "live_rank_snapshot.json")
+            with open(snap, "w", encoding="utf-8") as fh:
+                fh.write('{"as_of":"2026-11-09","by_code":{"600519":{"y_oo_rank":1}}}')
+            watch_path = os.path.join(tmp, "watching.json")
+            with open(watch_path, "w", encoding="utf-8") as fh:
+                json.dump(
+                    {
+                        "version": 1,
+                        "name": "t",
+                        "max_size": 10,
+                        "watchlist": ["600519"],
+                        "sources": [],
+                    },
+                    fh,
+                )
+
+            def _validate(d):
+                return {
+                    "version": 1,
+                    "name": str(d.get("name") or "t"),
+                    "max_size": 10,
+                    "watchlist": ["600519"],
+                    "sources": [],
+                }
+
+            with patch(
+                "core.paper.rebalance.watching_matrix._live_rank_snapshot_path",
+                return_value=snap,
+            ), patch(
+                "core.watching.repository._strip_watchlist_outside_research",
+                return_value=[],
+            ), patch(
+                "core.watching.repository._resize_watchlist",
+            ), patch(
+                "core.watching.repository.validate_watching",
+                side_effect=_validate,
+            ):
+                write_watching({"watchlist": ["600519"], "name": "renamed"}, path=watch_path)
+            self.assertTrue(os.path.isfile(snap))
+
+    def test_load_rejects_thin_coverage(self):
+        import json
+        import os
+        import tempfile
+
+        from core.paper.rebalance.watching_matrix import (
+            live_rank_universe_fp,
+            load_live_rank_snapshot,
+        )
+
+        uni = [f"{i:06d}" for i in range(1, 101)]
+        fp = live_rank_universe_fp(uni)
+        with tempfile.TemporaryDirectory() as tmp:
+            path = os.path.join(tmp, "live_rank_snapshot.json")
+            thin = {
+                "as_of": "2026-11-09",
+                "universe_fp": fp,
+                "n_universe": 100,
+                "n_ranked": 3,
+                "by_code": {
+                    "000001": {"y_oo_rank": 1, "y_oo_rank_n": 3},
+                    "000002": {"y_oo_rank": 2, "y_oo_rank_n": 3},
+                    "000003": {"y_oo_rank": 3, "y_oo_rank_n": 3},
+                },
+            }
+            with open(path, "w", encoding="utf-8") as fh:
+                json.dump(thin, fh)
+            with patch(
+                "core.paper.rebalance.watching_matrix._live_rank_snapshot_path",
+                return_value=path,
+            ), patch(
+                "core.paper.rebalance.watching_matrix.current_live_rank_universe",
+                return_value=(uni, fp),
+            ):
+                self.assertEqual(load_live_rank_snapshot(as_of="2026-11-09"), {})
+
+    def test_ensure_heals_missing_snapshot(self):
+        import os
+        import tempfile
+
+        from core.paper.rebalance.watching_matrix import (
+            ensure_live_rank_snapshot,
+            live_rank_universe_fp,
+            save_live_rank_snapshot,
+        )
+
+        uni = [f"{i:06d}" for i in range(1, 21)]
+        fp = live_rank_universe_fp(uni)
+        scored = [
+            {
+                "stock_code": f"{i:06d}",
+                "y_oo_rank": i,
+                "y_oo_rank_n": 20,
+                "y_tc_rank": i,
+                "y_tc_rank_n": 20,
+            }
+            for i in range(1, 21)
+        ]
+        with tempfile.TemporaryDirectory() as tmp:
+            path = os.path.join(tmp, "live_rank_snapshot.json")
+
+            def _refresh(*, paper=None):
+                save_live_rank_snapshot(
+                    scored, as_of="2026-11-09", universe_codes=uni
+                )
+                return {"ok": True, "n_ranked": 20}
+
+            with patch(
+                "core.paper.rebalance.watching_matrix._live_rank_snapshot_path",
+                return_value=path,
+            ), patch(
+                "core.paper.rebalance.watching_matrix.current_live_rank_universe",
+                return_value=(uni, fp),
+            ), patch(
+                "core.paper.rebalance.watching_matrix.refresh_live_open_ranks",
+                side_effect=_refresh,
+            ):
+                snap = ensure_live_rank_snapshot(as_of="2026-11-09", heal=True)
+        self.assertEqual(len(snap), 20)
+
+
+class TestAttachAndPersistLiveRanks(unittest.TestCase):
+    def test_attach_persists_snapshot(self):
+        import os
+        import tempfile
+
+        from core.paper.rebalance.watching_matrix import (
+            attach_and_persist_live_ranks,
+            live_rank_universe_fp,
+            load_live_rank_snapshot,
+        )
+
+        scored = [
+            {
+                "stock_code": f"{i:06d}",
+                "lake_score_day": "2026-11-09",
+            }
+            for i in range(1, 21)
+        ]
+        uni = [f"{i:06d}" for i in range(1, 21)]
+
+        def _oo(items, score_codes=None, day_cube=None, clock="open"):
+            for i, it in enumerate(items):
+                it["y_oo_rank"] = i + 1
+                it["y_oo_rank_n"] = len(items)
+
+        def _tc(items, score_codes=None, day_cube=None, clock="open"):
+            for i, it in enumerate(items):
+                it["y_tc_rank"] = i + 1
+                it["y_tc_rank_n"] = len(items)
+
+        with tempfile.TemporaryDirectory() as tmp:
+            path = os.path.join(tmp, "live_rank_snapshot.json")
+            with patch(
+                "core.paper.rebalance.watching_matrix._live_rank_snapshot_path",
+                return_value=path,
+            ), patch(
+                "core.paper.rebalance.watching_matrix.current_live_rank_universe",
+                return_value=(uni, live_rank_universe_fp(uni)),
+            ), patch(
+                "core.paper.rebalance.watching_matrix._attach_oo_rank_scores",
+                side_effect=_oo,
+            ), patch(
+                "core.paper.rebalance.watching_matrix._attach_tc_rank_scores",
+                side_effect=_tc,
+            ):
+                attach_and_persist_live_ranks(
+                    scored, score_codes=None, clock="open", persist=True
+                )
+                snap = load_live_rank_snapshot(as_of="2026-11-09")
+        self.assertEqual(len(snap), 20)
+        self.assertEqual(snap["000001"]["y_oo_rank_n"], 20)
+        self.assertEqual(scored[0]["y_oo_rank"], 1)
+
+    def test_attach_skips_persist_when_pool_too_narrow(self):
+        import os
+        import tempfile
+
+        from core.paper.rebalance.watching_matrix import attach_and_persist_live_ranks
+
+        scored = [
+            {"stock_code": "600096", "lake_score_day": "2026-11-09"},
+            {"stock_code": "000402", "lake_score_day": "2026-11-09"},
+        ]
+
+        def _oo(items, score_codes=None, day_cube=None, clock="open"):
+            for i, it in enumerate(items):
+                it["y_oo_rank"] = i + 1
+                it["y_oo_rank_n"] = len(items)
+
+        with tempfile.TemporaryDirectory() as tmp:
+            path = os.path.join(tmp, "live_rank_snapshot.json")
+            with patch(
+                "core.paper.rebalance.watching_matrix._live_rank_snapshot_path",
+                return_value=path,
+            ), patch(
+                "core.paper.rebalance.watching_matrix._attach_oo_rank_scores",
+                side_effect=_oo,
+            ), patch(
+                "core.paper.rebalance.watching_matrix._attach_tc_rank_scores",
+                side_effect=_oo,
+            ), patch(
+                "core.paper.rebalance.watching_matrix.save_live_rank_snapshot"
+            ) as save:
+                attach_and_persist_live_ranks(
+                    scored,
+                    score_codes=[f"{i:06d}" for i in range(800)],
+                    clock="open",
+                    persist=True,
+                )
+            save.assert_not_called()
+        self.assertEqual(scored[0]["y_oo_rank"], 1)
+
 
 class TestLiveRankSnapshot(unittest.TestCase):
     def test_today_snapshot_fills_holding_ranks(self):
@@ -685,11 +1046,17 @@ class TestLiveRankSnapshot(unittest.TestCase):
             stamp_live_ranks,
         )
 
+        from core.paper.rebalance.watching_matrix import live_rank_universe_fp
+
+        uni = ["600519"]
         with tempfile.TemporaryDirectory() as tmp:
             path = os.path.join(tmp, "live_rank_snapshot.json")
             with patch(
                 "core.paper.rebalance.watching_matrix._live_rank_snapshot_path",
                 return_value=path,
+            ), patch(
+                "core.paper.rebalance.watching_matrix.current_live_rank_universe",
+                return_value=(uni, live_rank_universe_fp(uni)),
             ):
                 # 与 stamp_live_ranks 同源会话日，避免日历日≠周期日时误回退湖。
                 asof = _live_rank_asof([{"stock_code": "600519", "y_oo": 1.2}])
@@ -704,6 +1071,7 @@ class TestLiveRankSnapshot(unittest.TestCase):
                         }
                     ],
                     as_of=asof,
+                    universe_codes=uni,
                 )
                 rows = [{"stock_code": "600519", "y_oo": 1.2}]
                 with patch(
@@ -732,14 +1100,27 @@ class TestLiveRankSnapshot(unittest.TestCase):
                 return_value=path,
             ):
                 save_live_rank_snapshot(
-                    [{"stock_code": "600519", "y_oo_rank": 2, "y_oo_rank_n": 40}],
+                    [
+                        {
+                            "stock_code": f"{i:06d}",
+                            "y_oo_rank": i,
+                            "y_oo_rank_n": 20,
+                            "y_tc_rank": i,
+                            "y_tc_rank_n": 20,
+                        }
+                        for i in range(1, 21)
+                    ],
                     as_of="2000-01-01",
+                    universe_codes=[f"{i:06d}" for i in range(1, 21)],
                 )
                 rows = [{"stock_code": "600519"}]
                 with patch(
+                    "core.paper.rebalance.watching_matrix.refresh_live_open_ranks",
+                    return_value={"ok": False},
+                ), patch(
                     "core.paper.rebalance.watching_matrix._stamp_ranks_from_lake"
                 ) as lake:
-                    stamp_live_ranks(rows)
+                    stamp_live_ranks(rows, heal=True)
                 lake.assert_called_once()
         self.assertIsNone(rows[0].get("y_oo_rank"))
 
@@ -750,15 +1131,20 @@ class TestLiveRankSnapshot(unittest.TestCase):
 
         from core.paper.rebalance.watching_matrix import (
             _live_rank_asof,
+            live_rank_universe_fp,
             save_live_rank_snapshot,
             stamp_live_ranks,
         )
 
+        uni = ["000890"]
         with tempfile.TemporaryDirectory() as tmp:
             path = os.path.join(tmp, "live_rank_snapshot.json")
             with patch(
                 "core.paper.rebalance.watching_matrix._live_rank_snapshot_path",
                 return_value=path,
+            ), patch(
+                "core.paper.rebalance.watching_matrix.current_live_rank_universe",
+                return_value=(uni, live_rank_universe_fp(uni)),
             ):
                 session = _live_rank_asof([{"stock_code": "000890"}])
                 save_live_rank_snapshot(
@@ -772,6 +1158,7 @@ class TestLiveRankSnapshot(unittest.TestCase):
                         }
                     ],
                     as_of=session,
+                    universe_codes=uni,
                 )
                 rows = [
                     {

@@ -366,23 +366,34 @@ class TestOpenPitScore(unittest.TestCase):
 
         fake_cube = object()
         scored = [
-            {"stock_code": "a", "lake_score_day": "2026-10-28", "y_oo": 0.1},
-            {"stock_code": "b", "lake_score_day": "2026-10-28", "y_oo": 0.2},
+            {
+                "stock_code": f"c{i}",
+                "lake_score_day": "2026-10-28",
+                "y_oo": 0.1 * (i + 1),
+            }
+            for i in range(10)
         ]
+        codes = [f"c{i}" for i in range(10)]
         seen: dict = {}
 
         def _attach_oo(items, score_codes=None, day_cube=None, clock="open"):  # noqa: ANN001
             seen["oo_cube"] = day_cube
             seen["oo_clock"] = clock
+            for i, it in enumerate(items):
+                it["y_oo_rank"] = i + 1
+                it["y_oo_rank_n"] = len(items)
 
         def _attach_tc(items, score_codes=None, day_cube=None, clock="open"):  # noqa: ANN001
             seen["tc_cube"] = day_cube
+            for i, it in enumerate(items):
+                it["y_tc_rank"] = i + 1
+                it["y_tc_rank_n"] = len(items)
 
         paper = {"cash": 200000, "holdings": [], "execution": {}}
         with patch.object(
-            wm, "_watching_codes", return_value=(["a", "b"], {"name_by_code": {}})
+            wm, "_watching_codes", return_value=(codes, {"name_by_code": {}})
         ), patch.object(
-            wm, "_apply_universe_fit_tier_filter", return_value=(["a", "b"], {})
+            wm, "_apply_universe_fit_tier_filter", return_value=(codes, {})
         ), patch.object(
             wm, "_score_pool", return_value=(scored, [], fake_cube)
         ), patch.object(
@@ -391,7 +402,7 @@ class TestOpenPitScore(unittest.TestCase):
             wm, "_attach_tc_rank_scores", side_effect=_attach_tc
         ), patch.object(
             wm, "save_live_rank_snapshot"
-        ), patch.object(
+        ) as save_snap, patch.object(
             wm, "live_rebalance_wants_minute_tau", return_value=False
         ), patch(
             "core.paper.ledger.mark_to_market",
@@ -422,6 +433,84 @@ class TestOpenPitScore(unittest.TestCase):
         self.assertIs(seen.get("oo_cube"), fake_cube)
         self.assertIs(seen.get("tc_cube"), fake_cube)
         self.assertEqual(seen.get("oo_clock"), "open")
+        save_snap.assert_called()
+
+    def test_open_replay_also_persists_rank_snapshot(self) -> None:
+        """手动执行（open_replay）也落 live 名次快照，持仓表才能跟上。"""
+        import core.paper.rebalance.watching_matrix as wm
+
+        scored = [
+            {
+                "stock_code": f"a{i}",
+                "lake_score_day": "2026-11-09",
+                "y_oo": 0.1,
+                "y_oo_rank": i + 1,
+                "y_oo_rank_n": 10,
+                "y_tc_rank": i + 1,
+                "y_tc_rank_n": 10,
+            }
+            for i in range(10)
+        ]
+        codes = [f"a{i}" for i in range(10)]
+        paper = {"cash": 200000, "holdings": [], "execution": {}}
+        with patch.object(
+            wm, "_watching_codes", return_value=(codes, {"name_by_code": {}})
+        ), patch.object(
+            wm, "_apply_universe_fit_tier_filter", return_value=(codes, {})
+        ), patch.object(
+            wm, "_score_pool", return_value=(scored, [], None)
+        ), patch.object(
+            wm, "_attach_oo_rank_scores"
+        ) as attach_oo, patch.object(
+            wm, "_attach_tc_rank_scores"
+        ) as attach_tc, patch.object(
+            wm, "save_live_rank_snapshot"
+        ) as save_snap, patch.object(
+            wm, "live_rebalance_wants_minute_tau", return_value=False
+        ), patch(
+            "core.paper.ledger.mark_to_market",
+            return_value={"equity": 200000, "cash": 200000},
+        ), patch(
+            "core.paper.rebalance.rank_lots.get_rank_lot_cfg",
+            return_value={
+                "top_k": 10,
+                "live_fill_clock": "09:35",
+                "score_backend": "ridge",
+                "fuse_enter": 0.001,
+                "fuse_strong": 0.001,
+                "lot_base_amount": 10000,
+                "lot_strong_amount": 20000,
+            },
+        ), patch(
+            "core.paper.rebalance.rank_lots.plan_rank_lot_day",
+            return_value={
+                "sell_legs": [],
+                "buy_legs": [],
+                "hold_rows": [],
+                "skips": [],
+                "cash_after": 200000,
+            },
+        ):
+            def _stamp_oo(items, score_codes=None, day_cube=None, clock="open"):
+                for i, it in enumerate(items):
+                    it["y_oo_rank"] = i + 1
+                    it["y_oo_rank_n"] = len(items)
+
+            def _stamp_tc(items, score_codes=None, day_cube=None, clock="open"):
+                for i, it in enumerate(items):
+                    it["y_tc_rank"] = i + 1
+                    it["y_tc_rank_n"] = len(items)
+
+            attach_oo.side_effect = _stamp_oo
+            attach_tc.side_effect = _stamp_tc
+            out = wm.simulate_watching_matrix_preview(
+                paper, dry_run=True, open_replay=True
+            )
+            self.assertTrue(out.get("success") or out.get("ok"))
+            save_snap.assert_called()
+            # open_replay 固定开盘钟，不跟 live_fill_clock=09:35
+            self.assertTrue(attach_oo.call_args_list)
+            self.assertEqual(attach_oo.call_args_list[0].kwargs.get("clock"), "open")
 
     def test_stamp_live_ranks_no_yesterday_snapshot(self) -> None:
         from core.paper.rebalance.watching_matrix import stamp_live_ranks
@@ -429,13 +518,16 @@ class TestOpenPitScore(unittest.TestCase):
         rows = [{"stock_code": "600887", "lake_score_day": "2026-10-28"}]
         with patch(
             "core.paper.rebalance.watching_matrix.load_live_rank_snapshot",
-            side_effect=lambda as_of=None: (
-                {"600887": {"y_oo_rank": 1}} if as_of == "2026-10-27" else None
+            side_effect=lambda as_of="", **_kw: (
+                {"600887": {"y_oo_rank": 1}} if as_of == "2026-10-27" else {}
             ),
+        ), patch(
+            "core.paper.rebalance.watching_matrix.refresh_live_open_ranks",
+            return_value={"ok": False},
         ), patch(
             "core.paper.rebalance.watching_matrix._stamp_ranks_from_lake"
         ) as lake:
-            stamp_live_ranks(rows)
+            stamp_live_ranks(rows, heal=True)
         self.assertIsNone(rows[0].get("y_oo_rank"))
         lake.assert_called()
 

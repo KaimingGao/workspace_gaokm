@@ -745,11 +745,17 @@ class TestRebalanceDesk(unittest.TestCase):
             {"stock_code": "000636", "action": "open"},
             {"stock_code": "000890", "action": "exit", "y_oo_rank": 1},
         ]
+        from core.paper.rebalance.watching_matrix import live_rank_universe_fp
+
+        uni = ["000636"]
         with tempfile.TemporaryDirectory() as tmp:
             path = os.path.join(tmp, "live_rank_snapshot.json")
             with patch(
                 "core.paper.rebalance.watching_matrix._live_rank_snapshot_path",
                 return_value=path,
+            ), patch(
+                "core.paper.rebalance.watching_matrix.current_live_rank_universe",
+                return_value=(uni, live_rank_universe_fp(uni)),
             ):
                 save_live_rank_snapshot(
                     [
@@ -762,6 +768,7 @@ class TestRebalanceDesk(unittest.TestCase):
                         }
                     ],
                     as_of="2026-11-05",
+                    universe_codes=uni,
                 )
                 attach_live_snapshot_ranks(blank, "2026-11-05")
                 attach_live_snapshot_ranks(blank, "2026-11-04")

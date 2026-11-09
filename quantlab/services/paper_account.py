@@ -282,7 +282,12 @@ class PaperAccountMixin:
                 try:
                     from core.paper.rebalance.watching_matrix import stamp_live_ranks
 
-                    stamp_live_ranks([it for _c, it in pending_scores])
+                    # 快照缺/失效/缺码时 stamp 内 ensure 自愈；有效快照不再整档重刷。
+                    stamp_live_ranks(
+                        [it for _c, it in pending_scores],
+                        paper=paper,
+                        heal=True,
+                    )
                 except Exception:  # noqa: BLE001
                     log.debug("stamp holding ranks failed", exc_info=True)
             for code, item in pending_scores:

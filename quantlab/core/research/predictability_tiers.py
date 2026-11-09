@@ -603,6 +603,12 @@ def promote_predictability_tiers_to_live(
         write_live_config_manifest(note="predictability_tiers promote")
     except Exception:  # noqa: BLE001
         logger.debug("manifest after tier promote failed", exc_info=True)
+    try:
+        from core.paper.rebalance.watching_matrix import invalidate_live_rank_snapshot
+
+        invalidate_live_rank_snapshot()
+    except Exception:  # noqa: BLE001
+        logger.debug("invalidate live ranks after tier promote failed", exc_info=True)
     return {"ok": True, "path": path, "active": payload}
 
 
@@ -621,6 +627,12 @@ def clear_predictability_tiers_live() -> Dict[str, Any]:
         write_live_config_manifest(note="predictability_tiers demote")
     except Exception:  # noqa: BLE001
         logger.debug("manifest after tier demote failed", exc_info=True)
+    try:
+        from core.paper.rebalance.watching_matrix import invalidate_live_rank_snapshot
+
+        invalidate_live_rank_snapshot()
+    except Exception:  # noqa: BLE001
+        logger.debug("invalidate live ranks after tier demote failed", exc_info=True)
     return {"ok": True, "path": path, "cleared": existed}
 
 

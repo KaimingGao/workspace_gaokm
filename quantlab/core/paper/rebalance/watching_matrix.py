@@ -220,8 +220,8 @@ def _attach_tc_rank_scores(
         logger.debug("attach live y_tc_rank failed", exc_info=True)
 
 
-# 持仓表 / 盯盘 / 交易记录展示用。不含公式拆解（拆解走 tip_explain）。
-LIVE_RANK_KEYS = (
+# 持仓表 / 盯盘 / 交易记录展示用名次字段。
+LIVE_RANK_CORE_KEYS = (
     "y_oo_rank",
     "y_oo_rank_hat",
     "y_oo_rank_n",
@@ -232,11 +232,15 @@ LIVE_RANK_KEYS = (
     "y_tc_rank_n",
     "y_tc_rank_score",
     "predicted_score_tc_rank",
+)
+# 内存行间可拷 tip 拆解；落盘快照不含（tip 走出分行 / tip_explain）。
+LIVE_RANK_TIP_KEYS = (
     "formula_terms_oo_rank",
     "score_formula_terms_oo_rank",
     "formula_terms_tc_rank",
     "score_formula_terms_tc_rank",
 )
+LIVE_RANK_KEYS = LIVE_RANK_CORE_KEYS + LIVE_RANK_TIP_KEYS
 
 
 def _live_rank_snapshot_path() -> str:
@@ -246,21 +250,123 @@ def _live_rank_snapshot_path() -> str:
 
 
 def _rank_slice(item: dict) -> Dict[str, Any]:
+    """快照只留核心名次，避免公式拆解把文件胀到数 MB。"""
     out: Dict[str, Any] = {}
-    for key in LIVE_RANK_KEYS:
+    for key in LIVE_RANK_CORE_KEYS:
         if item.get(key) is not None:
             out[key] = item.get(key)
     return out
 
 
-def save_live_rank_snapshot(items: Sequence[dict], *, as_of: str) -> None:
-    """把当日观察池名次落到 live 快照，供持仓表在未重算全池时读取。"""
+_RANK_SNAP_CACHE: Dict[str, Any] = {"key": None, "by_code": {}, "meta": {}}
+
+
+def _clear_live_rank_snap_cache() -> None:
+    _RANK_SNAP_CACHE["key"] = None
+    _RANK_SNAP_CACHE["by_code"] = {}
+    _RANK_SNAP_CACHE["meta"] = {}
+
+
+def live_rank_universe_fp(codes: Optional[Collection[str]]) -> str:
+    """名次截面指纹：可交易档（或观察池）代码排序后 sha1。"""
+    import hashlib
+
+    uniq = sorted(
+        {str(c).strip() for c in (codes or []) if str(c or "").strip()}
+    )
+    raw = "\n".join(uniq).encode("utf-8")
+    return hashlib.sha1(raw).hexdigest()
+
+
+def _resolve_live_rank_pool(
+    *, paper: Optional[dict] = None, held: Optional[Sequence[str]] = None
+) -> Tuple[List[str], Optional[Collection[str]], List[str], Dict[str, Any]]:
+    """解析名次池。返回 (pool_codes, tradable_allow, held, watching_meta)。
+
+    ``tradable_allow`` 为 A 档可交易集；无闸时为 None（整池）。
+    """
+    paper = paper if isinstance(paper, dict) else {}
+    if held is None:
+        held_list = [
+            str(h.get("stock_code") or "").strip()
+            for h in (paper.get("holdings") or [])
+            if isinstance(h, dict) and str(h.get("stock_code") or "").strip()
+        ]
+    else:
+        held_list = [str(c).strip() for c in held if str(c or "").strip()]
+    try:
+        codes, meta = _watching_codes(include_held=held_list)
+    except Exception:  # noqa: BLE001
+        logger.debug("resolve live rank pool: watching read failed", exc_info=True)
+        return [], None, held_list, {}
+    meta = meta if isinstance(meta, dict) else {}
+    if not codes:
+        return [], None, held_list, meta
+    n_watch = int(meta.get("n_watch") or 0)
+    fp_codes = codes[:n_watch] if n_watch > 0 else codes
+    allow: Optional[Collection[str]] = None
+    try:
+        _, fit_meta = _apply_universe_fit_tier_filter(
+            codes, keep=held_list, pool_codes_for_fp=fp_codes
+        )
+        raw_allow = fit_meta.get("tradable_codes")
+        if isinstance(raw_allow, (list, tuple, set)):
+            allow = [
+                str(c).strip() for c in raw_allow if str(c or "").strip()
+            ]
+    except Exception:  # noqa: BLE001
+        logger.debug("resolve live rank pool: tier filter failed", exc_info=True)
+        allow = None
+    return list(codes), allow, held_list, meta
+
+
+def current_live_rank_universe(
+    *, paper: Optional[dict] = None
+) -> Tuple[List[str], str]:
+    """当前应用名次截面：优先 A 档可交易，否则整观察池。返回 (codes, fp)。"""
+    codes, allow, _held, meta = _resolve_live_rank_pool(paper=paper)
+    if allow:
+        uni = list(allow)
+    elif codes:
+        n_watch = int((meta or {}).get("n_watch") or 0)
+        uni = codes[:n_watch] if n_watch > 0 else list(codes)
+    else:
+        uni = []
+    return uni, live_rank_universe_fp(uni)
+
+
+def _live_rank_coverage_ok(n_ranked: int, n_universe: int) -> bool:
+    """名次覆盖相对可交易集是否够用（与落盘闸同一阈值）。
+
+    大池：至少 max(8, 50% universe)；小池（<8）：要求全覆盖。
+    """
+    if n_ranked <= 0:
+        return False
+    if n_universe <= 0:
+        return n_ranked >= 8
+    if n_universe < 8:
+        return n_ranked >= n_universe
+    return n_ranked >= max(8, int(0.5 * n_universe))
+
+
+def save_live_rank_snapshot(
+    items: Sequence[dict],
+    *,
+    as_of: str,
+    universe_codes: Optional[Collection[str]] = None,
+    clock: str = "open",
+) -> bool:
+    """把当日观察池名次落到 live 快照，供持仓表在未重算全池时读取。
+
+    写入 ``universe_fp``：观察池/可交易档变更后旧快照自动失效。
+    覆盖过窄时不写盘，返回 False。
+    """
     import json
     import os
 
     day = str(as_of or "")[:10]
     if len(day) < 10:
-        return
+        return False
     by_code: Dict[str, Any] = {}
     for it in items or []:
         if not isinstance(it, dict):
@@ -272,27 +378,78 @@ def save_live_rank_snapshot(items: Sequence[dict], *, as_of: str) -> None:
         if packed:
             by_code[code] = packed
     if not by_code:
-        return
+        return False
+    if universe_codes is None:
+        uni_codes = list(by_code.keys())
+    else:
+        uni_codes = [
+            str(c).strip() for c in universe_codes if str(c or "").strip()
+        ] or list(by_code.keys())
+    n_uni = len(uni_codes)
+    n_ranked = len(by_code)
+    if not _live_rank_coverage_ok(n_ranked, n_uni):
+        logger.info(
+            "skip save live ranks: ranked=%s universe=%s",
+            n_ranked,
+            n_uni,
+        )
+        return False
+    uni_fp = live_rank_universe_fp(uni_codes)
+    payload: Dict[str, Any] = {
+        "as_of": day,
+        "by_code": by_code,
+        "universe_fp": uni_fp,
+        "n_universe": n_uni,
+        "n_ranked": n_ranked,
+        "clock": str(clock or "open"),
+    }
     try:
         from core.signal.score_display import json_safe
 
-        payload = json_safe({"as_of": day, "by_code": by_code})
+        payload = json_safe(payload)
     except Exception:  # noqa: BLE001
-        payload = {"as_of": day, "by_code": by_code}
+        pass
     path = _live_rank_snapshot_path()
     os.makedirs(os.path.dirname(path), exist_ok=True)
     tmp = path + ".tmp"
-    with open(tmp, "w", encoding="utf-8") as fh:
-        json.dump(payload, fh, ensure_ascii=False)
-    os.replace(tmp, path)
+    try:
+        with open(tmp, "w", encoding="utf-8") as fh:
+            json.dump(payload, fh, ensure_ascii=False)
+        os.replace(tmp, path)
+    except OSError:
+        logger.debug("save live rank snapshot failed", exc_info=True)
+        try:
+            if os.path.isfile(tmp):
+                os.remove(tmp)
+        except OSError:
+            pass
+        return False
+    _clear_live_rank_snap_cache()
+    return True
 
 
-_RANK_SNAP_CACHE: Dict[str, Any] = {"key": None, "by_code": {}}
+def invalidate_live_rank_snapshot() -> None:
+    """观察池/分档变更后丢掉名次快照，避免持仓表继续读旧截面。"""
+    path = _live_rank_snapshot_path()
+    try:
+        if os.path.isfile(path):
+            os.remove(path)
+    except OSError:
+        logger.debug("invalidate live rank snapshot remove failed", exc_info=True)
+    _clear_live_rank_snap_cache()
 
 
-def load_live_rank_snapshot(*, as_of: str) -> Dict[str, Dict[str, Any]]:
+def load_live_rank_snapshot(
+    *,
+    as_of: str,
+    require_universe_match: bool = True,
+    paper: Optional[dict] = None,
+) -> Dict[str, Dict[str, Any]]:
+    """读当日名次快照。默认校验 ``universe_fp`` 与当前观察池/可交易档一致。
+
+    另校验覆盖：``n_ranked`` 相对 ``n_universe`` 过窄时当作无效。
+    """
     import json
-    import os
 
     day = str(as_of or "")[:10]
     if len(day) < 10:
@@ -302,32 +459,103 @@ def load_live_rank_snapshot(*, as_of: str) -> Dict[str, Dict[str, Any]]:
         st = os.stat(path)
     except OSError:
         return {}
-    key = (path, getattr(st, "st_mtime_ns", st.st_mtime), st.st_size, day)
+    expect_fp = ""
+    if require_universe_match:
+        try:
+            _uni, expect_fp = current_live_rank_universe(paper=paper)
+        except Exception:  # noqa: BLE001
+            logger.debug("live rank expected universe fp failed", exc_info=True)
+            expect_fp = ""
+    key = (
+        path,
+        getattr(st, "st_mtime_ns", st.st_mtime),
+        st.st_size,
+        day,
+        expect_fp if require_universe_match else "",
+    )
     if _RANK_SNAP_CACHE.get("key") == key:
         cached = _RANK_SNAP_CACHE.get("by_code")
         return cached if isinstance(cached, dict) else {}
+
+    def _empty() -> Dict[str, Dict[str, Any]]:
+        _RANK_SNAP_CACHE["key"] = key
+        _RANK_SNAP_CACHE["by_code"] = {}
+        _RANK_SNAP_CACHE["meta"] = {}
+        return {}
+
     try:
         with open(path, encoding="utf-8") as fh:
             doc = json.load(fh)
-    except (OSError, ValueError):
-        return {}
+    except (OSError, ValueError, TypeError):
+        return _empty()
     if not isinstance(doc, dict) or str(doc.get("as_of") or "")[:10] != day:
-        _RANK_SNAP_CACHE["key"] = key
-        _RANK_SNAP_CACHE["by_code"] = {}
-        return {}
+        return _empty()
+    if require_universe_match:
+        got_fp = str(doc.get("universe_fp") or "").strip()
+        # 无指纹的旧快照、或与当前观察池不一致 → 当作无效，迫使重算。
+        if not got_fp or not expect_fp or got_fp != expect_fp:
+            return _empty()
     raw = doc.get("by_code")
     if not isinstance(raw, dict):
-        _RANK_SNAP_CACHE["key"] = key
-        _RANK_SNAP_CACHE["by_code"] = {}
-        return {}
+        return _empty()
     out: Dict[str, Dict[str, Any]] = {}
     for code, row in raw.items():
         c = str(code or "").strip()
-        if c and isinstance(row, dict):
-            out[c] = row
+        if not c or not isinstance(row, dict):
+            continue
+        # 兼容旧快照：读入时剥掉公式拆解，避免缓存/回写继续膨胀。
+        slim = {k: row[k] for k in LIVE_RANK_CORE_KEYS if row.get(k) is not None}
+        if slim:
+            out[c] = slim
+    try:
+        n_uni = int(doc.get("n_universe") or 0)
+    except (TypeError, ValueError):
+        n_uni = 0
+    if n_uni <= 0:
+        n_uni = len(out)
+    if require_universe_match and not _live_rank_coverage_ok(len(out), n_uni):
+        logger.info(
+            "reject live rank snapshot: ranked=%s universe=%s",
+            len(out),
+            n_uni,
+        )
+        return _empty()
     _RANK_SNAP_CACHE["key"] = key
     _RANK_SNAP_CACHE["by_code"] = out
+    _RANK_SNAP_CACHE["meta"] = {
+        "universe_fp": doc.get("universe_fp"),
+        "n_universe": doc.get("n_universe"),
+        "clock": doc.get("clock"),
+    }
     return out
+
+
+def ensure_live_rank_snapshot(
+    *,
+    as_of: str,
+    paper: Optional[dict] = None,
+    heal: bool = True,
+    need_codes: Optional[Collection[str]] = None,
+) -> Dict[str, Dict[str, Any]]:
+    """读当日快照；缺/失效、或缺指定代码时可选 DayCube 自愈重写后再读。"""
+    day = str(as_of or "")[:10]
+    if len(day) < 10:
+        return {}
+    snap = load_live_rank_snapshot(as_of=day, paper=paper)
+    want = [
+        str(c).strip() for c in (need_codes or []) if str(c or "").strip()
+    ]
+    missing = [c for c in want if c not in snap] if snap else want
+    if (snap and not missing) or not heal:
+        return snap
+    try:
+        out = refresh_live_open_ranks(paper=paper)
+    except Exception:  # noqa: BLE001
+        logger.debug("ensure live rank snapshot refresh failed", exc_info=True)
+        return snap
+    if not isinstance(out, dict) or not out.get("ok"):
+        return snap
+    return load_live_rank_snapshot(as_of=day, paper=paper)
 
 
 def _copy_rank_fields(dst: dict, src: dict, *, overwrite: bool) -> bool:
@@ -491,22 +719,36 @@ def _stamp_ranks_from_lake(focus: Sequence[dict]) -> None:
             _copy_rank_fields(it, src, overwrite=False)
 
 
-def stamp_live_ranks(focus: Sequence[dict]) -> None:
+def stamp_live_ranks(
+    focus: Sequence[dict],
+    *,
+    paper: Optional[dict] = None,
+    heal: bool = True,
+) -> None:
     """给已打分的持仓行补 oo_rank / τc_rank。
 
-    先用**同一会话日**调仓快照；再试同一日 Feature Lake。
+    先用**同一会话日**调仓快照；缺/失效/缺码时可 DayCube 自愈重写；再试同一日 Feature Lake。
     禁止回退到昨日快照/湖行（避免展示错日名次）。两侧都没有则留空（—）。
     """
     rows = [it for it in focus or [] if isinstance(it, dict)]
     if not rows:
         return
     asof = _live_rank_asof(rows)
-    snap = load_live_rank_snapshot(as_of=asof) if len(asof) >= 10 else None
-    if snap:
-        for it in rows:
-            src = snap.get(str(it.get("stock_code") or "").strip())
-            if isinstance(src, dict):
-                _copy_rank_fields(it, src, overwrite=False)
+    if len(asof) >= 10:
+        need = [
+            str(it.get("stock_code") or "").strip()
+            for it in rows
+            if str(it.get("stock_code") or "").strip()
+            and (it.get("y_oo_rank") is None or it.get("y_tc_rank") is None)
+        ]
+        snap = ensure_live_rank_snapshot(
+            as_of=asof, paper=paper, heal=heal, need_codes=need or None
+        )
+        if snap:
+            for it in rows:
+                src = snap.get(str(it.get("stock_code") or "").strip())
+                if isinstance(src, dict):
+                    _copy_rank_fields(it, src, overwrite=False)
     pending = [
         it
         for it in rows
@@ -518,6 +760,143 @@ def stamp_live_ranks(focus: Sequence[dict]) -> None:
         _stamp_ranks_from_lake(pending)
     except Exception:  # noqa: BLE001
         logger.debug("stamp live ranks from lake failed", exc_info=True)
+
+
+def _ranked_name_count(rows: Sequence[dict]) -> int:
+    n = 0
+    for it in rows or []:
+        if not isinstance(it, dict):
+            continue
+        if it.get("y_oo_rank") is not None or it.get("y_tc_rank") is not None:
+            n += 1
+    return n
+
+
+def _live_rank_persist_ok(
+    rows: Sequence[dict],
+    *,
+    score_codes: Optional[Collection[str]] = None,
+) -> bool:
+    """截面过窄时不落盘，避免持仓表分母被写成 2 之类的残缺快照。"""
+    n_ranked = _ranked_name_count(rows)
+    if score_codes is None:
+        return n_ranked >= 8
+    expect = len({str(c).strip() for c in score_codes if str(c or "").strip()})
+    return _live_rank_coverage_ok(n_ranked, expect)
+
+
+def attach_and_persist_live_ranks(
+    scored: Sequence[dict],
+    *,
+    paper: Optional[dict] = None,
+    score_codes: Optional[Collection[str]] = None,
+    day_cube: Any = None,
+    clock: str = "open",
+    persist: bool = True,
+) -> None:
+    """对已出分池编 oo_rank / τc_rank，并落当日 live 快照。
+
+    与手动执行同口径时用 ``clock="open"``。持仓表读这份快照，故手动 /
+    持仓出分都须刷新，避免分母卡在旧截面（如 484）。
+    出分池相对可交易集过窄时只写行内名次、不覆盖快照。
+    """
+    rows = [it for it in scored or [] if isinstance(it, dict)]
+    if not rows:
+        return
+    allow = score_codes
+    if allow is None and paper is not None:
+        held = [
+            str(it.get("stock_code") or "").strip()
+            for it in rows
+            if str(it.get("stock_code") or "").strip()
+        ]
+        _codes, allow, _held, _meta = _resolve_live_rank_pool(
+            paper=paper, held=held
+        )
+    clk = str(clock or "open")
+    _attach_oo_rank_scores(
+        rows, score_codes=allow, day_cube=day_cube, clock=clk
+    )
+    _attach_tc_rank_scores(
+        rows, score_codes=allow, day_cube=day_cube, clock=clk
+    )
+    if not persist:
+        return
+    if not _live_rank_persist_ok(rows, score_codes=allow):
+        logger.info(
+            "skip persist live ranks: ranked=%s expect=%s",
+            _ranked_name_count(rows),
+            None if allow is None else len(list(allow)),
+        )
+        return
+    try:
+        uni_codes = (
+            list(allow)
+            if allow is not None
+            else [str(it.get("stock_code") or "").strip() for it in rows]
+        )
+        save_live_rank_snapshot(
+            rows,
+            as_of=_live_rank_asof(rows),
+            universe_codes=uni_codes,
+            clock=clk,
+        )
+    except Exception:  # noqa: BLE001
+        logger.debug("save live rank snapshot failed", exc_info=True)
+
+
+def refresh_live_open_ranks(*, paper: Optional[dict] = None) -> Dict[str, Any]:
+    """用开盘钟 DayCube 给可交易档编名次并落快照（不走东财整池 ulist）。
+
+    会话日立方优先；缺则回退已有开盘立方。供持仓表与手动执行对照对齐。
+    """
+    from core.research.materialize.coverage import read_cube_codes
+
+    codes, allow, held, _meta = _resolve_live_rank_pool(paper=paper)
+    if not codes:
+        return {"ok": False, "error": "empty_pool"}
+    if allow is not None:
+        want = list(
+            dict.fromkeys(
+                [str(c).strip() for c in allow if str(c or "").strip()] + held
+            )
+        )
+    else:
+        want = list(codes)
+    cube_codes = read_cube_codes() or want
+    scored_pack = _try_score_pool_from_cube(
+        want,
+        clock="open",
+        cube_codes=cube_codes,
+        score_codes=allow,
+        paper=paper,
+        cycle_day_only=True,
+    )
+    if scored_pack is None:
+        scored_pack = _try_score_pool_from_cube(
+            want,
+            clock="open",
+            cube_codes=cube_codes,
+            score_codes=allow,
+            paper=paper,
+            cycle_day_only=False,
+        )
+    if scored_pack is None:
+        return {"ok": False, "error": "open_cube_unavailable"}
+    scored, _rejected, cube = scored_pack
+    attach_and_persist_live_ranks(
+        scored,
+        score_codes=allow,
+        day_cube=cube,
+        clock="open",
+        persist=True,
+    )
+    return {
+        "ok": True,
+        "n_scored": len(scored),
+        "n_ranked": _ranked_name_count(scored),
+        "n_tradable": None if allow is None else len(list(allow)),
+    }
 
 
 def _apply_universe_fit_tier_filter(
@@ -2413,24 +2792,17 @@ def simulate_watching_matrix_preview(
                 "hint": "检查行情今开覆盖或当日 open 立方",
             }
         )
-    rank_clock = _consumer_score_clock(use_minute_tau, score_clock)
-    _attach_oo_rank_scores(
+    # 手动执行固定 open；自动跟启动时间。两侧都落快照，持仓表才不会卡旧分母。
+    rank_clock = "open" if open_replay else _consumer_score_clock(
+        use_minute_tau, score_clock
+    )
+    attach_and_persist_live_ranks(
         scored,
         score_codes=score_codes,
         day_cube=score_day_cube,
         clock=rank_clock,
+        persist=True,
     )
-    _attach_tc_rank_scores(
-        scored,
-        score_codes=score_codes,
-        day_cube=score_day_cube,
-        clock=rank_clock,
-    )
-    if not open_replay:
-        try:
-            save_live_rank_snapshot(scored, as_of=_live_rank_asof(scored))
-        except Exception:  # noqa: BLE001
-            logger.debug("save live rank snapshot failed", exc_info=True)
     try:
         from core.signal.cross_section_rescore import drop_unscored_heads
 
@@ -2471,8 +2843,9 @@ def simulate_watching_matrix_preview(
             item_by_code[code]["stock_name"] = name
 
     # 缺 L2 / 未进 scored 的持仓仍盖当日名次快照，避免结果表 oo/τc_rank 全是 —。
+    # 本路径刚跑过整池 attach/persist，heal=False 避免重复刷立方。
     try:
-        stamp_live_ranks(list(item_by_code.values()))
+        stamp_live_ranks(list(item_by_code.values()), paper=paper, heal=False)
     except Exception:  # noqa: BLE001
         logger.debug("stamp held ranks after score pool failed", exc_info=True)
 

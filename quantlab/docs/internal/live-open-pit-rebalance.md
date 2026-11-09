@@ -151,6 +151,7 @@
 | 今开截面构建 | `core/paper/rebalance/open_pit_score.py` |
 | 评分顺序 / 成交闸 / rank 传立方 | `watching_matrix._score_pool_from_lake` · `simulate_watching_matrix_preview` |
 | 持仓补名次（无昨日回退） | `watching_matrix.stamp_live_ranks` · `_stamp_ranks_from_lake` |
+| 当日名次快照 + 池指纹 | `save/load/ensure_live_rank_snapshot`（`universe_fp` + 覆盖闸）· `attach_and_persist_live_ranks` · `refresh_live_open_ranks`；成员变更 / 档位升降级 → `invalidate`；desk/stamp 缺快照可自愈 |
 | 消费只读 / 调仓入口 | `core/research/materialize/consumer.py`；`services/paper_trades.py` · `rebalance` · `auto_worker.py` |
 | 开盘 PIT 拼接 | `alpha_oo.inject_raw_aoo` / `session_pit.resolve_open_t`；`alpha_tc.inject_raw_atc`；风格裸分 `open_pit_score._open_style_scores` |
 | 截面 z / DayCube | `feature_standardize.cross_section_zscore_matrix`；`day_cube._compute_mu_sigma` |
@@ -169,4 +170,5 @@
 
 - 文档与方案：本文；代码已落地并做 rank 鲁棒性加固——`open_pit_score.py` 内存截面不落盘并返回 cube 引用；`_score_pool_from_lake` 按「会话日立方 → open-pit →（浏览才）昨日回退」出分，`refuse_day_fallback` 禁成交回退；simulate 显式 `day_cube=` 传给 oo/τc rank，持仓补名次不回退昨日；tip 识别 `open_pit` / fallback；单测 `tests/test_open_pit_score.py` + `ConsumerCoverageTest` 闸断言。
 - **2026-11-06**：持仓盯市空今开 60s 缓存导致昨持仓（风华/江海）被判缺今开、A 档名次池 598 vs 600；已用 open-pit 前 `invalidate_codes` 修掉（`TestOpenPitQuoteCacheBust`）。
+- **2026-11-09**：持仓表 `oo_rank`/`τc_rank` 曾卡在旧截面（如 n=484）；根因是 `live_rank_snapshot` 未随观察池/A 档更新。已绑 `universe_fp`：成员变更作废；缺/失效快照由 `ensure` 自愈；快照只落核心名次（不含公式拆解）。
 - 下一步：开盘窗实盘观察一次；若需同轮 quotes 注入成交可再补。

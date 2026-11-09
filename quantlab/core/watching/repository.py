@@ -253,8 +253,22 @@ def _strip_watchlist_outside_research(data: Dict[str, Any]) -> List[str]:
     return dropped
 
 
+def _watching_membership(data: dict) -> frozenset:
+    """观察池成员（含 reserve）集合，用于判断名次截面是否需作废。"""
+    head = _clean_code_list((data or {}).get("watchlist"))
+    reserve = _clean_code_list((data or {}).get("watchlist_reserve"))
+    return frozenset(head + reserve)
+
+
 def write_watching(data: dict, path: Optional[str] = None) -> str:
     p = path or WATCHING_PATH
+    prev_members: Optional[frozenset] = None
+    if os.path.isfile(p):
+        try:
+            prev_members = _watching_membership(read_watching(p))
+        except Exception:  # noqa: BLE001
+            logger.debug("write_watching: previous membership read failed", exc_info=True)
+            prev_members = None
     cleaned = validate_watching(data)
     stripped = _strip_watchlist_outside_research(cleaned)
     if stripped:
@@ -265,6 +279,18 @@ def write_watching(data: dict, path: Optional[str] = None) -> str:
     _resize_watchlist(cleaned, int(cleaned["max_size"]), expand=False)
     cleaned["updated_at"] = _now_iso()
     atomic_write_json(p, cleaned)
+    # 仅成员变更才作废名次快照；纯元数据写入不误伤当日截面。
+    new_members = _watching_membership(cleaned)
+    if prev_members is None or prev_members != new_members:
+        try:
+            from core.paper.rebalance.watching_matrix import invalidate_live_rank_snapshot
+
+            invalidate_live_rank_snapshot()
+        except Exception:  # noqa: BLE001
+            logger.debug(
+                "invalidate live rank snapshot after write_watching failed",
+                exc_info=True,
+            )
     return p
 
 
