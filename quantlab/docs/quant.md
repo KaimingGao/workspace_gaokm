@@ -805,7 +805,7 @@ A 改进「估得准」；B 改进「做得对」。北极星乘积两者都要�
 
 | 主题 | 行为 | 详见 |
 |------|------|------|
-| **open L2 消费** | 只读会话日官方 open 立方；缺则 `materialize_required`，禁止行情临时拼截面；落账禁回退昨日立方 | [internal/live-open-pit-rebalance.md](internal/live-open-pit-rebalance.md) |
+| **open L2 消费** | 只读会话日官方 open 立方；缺则 `materialize_required`（Web / worker 自动 `do_session_open_l2` 物化后重试），禁止行情临时拼截面；落账禁回退昨日立方 | [internal/live-open-pit-rebalance.md](internal/live-open-pit-rebalance.md) |
 | **物化写穿** | 物化写入时日线新于湖必须重算（`allow_l1_end_lag()=False`），禁止只切交集仍报成功 | [internal/feature-lake-daycube.md](internal/feature-lake-daycube.md) |
 | **舆情标签** | 读 `news.db` 决策窗标签写表列；规则栏已下掉软先验闸；不进 ŷ | [component/risk.md](component/risk.md#舆情与另类数据sentiment-altdata) |
 | **今日收益** | `当前净值 − session_nav[昨收]`；快照裁剪后仍可对账 | [rebalance-logic.md](rebalance-logic.md) · [quant-ui.md](quant-ui.md) `/follow` |

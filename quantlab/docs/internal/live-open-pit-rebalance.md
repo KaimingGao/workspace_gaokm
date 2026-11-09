@@ -129,6 +129,8 @@
 | 主题 | 位置 |
 |------|------|
 | 今开截面构建 | `core/paper/rebalance/open_pit_score.py` |
+| 会话日 open L2 物化写盘 | `core/research/materialize/session_open.py`（`materialize_session_open_l2`）· `POST /api/quant/materialize`（`do_session_open_l2` + `cycle_day`） |
+| Web 自动补齐 | `web/static/js/paper/session_open_materialize.js`；`paper.js` 补 ŷ · `cluster_rebalance.js` 09:30 复现 · `auto_worker._maybe_materialize_session_open` |
 | 评分顺序 / 成交闸 / rank 传立方 | `watching_matrix._score_pool_from_lake` · `simulate_watching_matrix_preview` |
 | 持仓补名次（无昨日回退） | `watching_matrix.stamp_live_ranks` · `_stamp_ranks_from_lake` |
 | 当日名次快照 + 池指纹 | `save/load/ensure_live_rank_snapshot`（`universe_fp` + 覆盖闸）· `attach_and_persist_live_ranks` · `refresh_live_open_ranks`；成员变更 / 档位升降级 → `invalidate`；desk/stamp 缺快照可自愈 |
@@ -157,4 +159,5 @@
 - **2026-11-09（盘中补齐）**：live / 手动缺会话日 open L2 时，经 `do_session_open_l2` **正式物化落盘**（今开行情 + ≤T−1 日线 → 官方 open DayCube）；消费侧仍只读立方。自动调仓 worker、手动 09:30 复现、持仓补 ŷ 会触发补齐后重试。
 - **2026-11-09（清理）**：删除消费侧 `_lake_score_day_candidates` / `_resolve_lake_score_day` / hole-fill / `refuse_day_fallback` 参数与 `_try_score_pool_from_open_pit` stub；出分只读会话日立方。
 - **2026-11-09（深清）**：删除死 API `score_open_pit_pool`；物化中间行 `_score_source=session_open_build`；文档「现行」改为只读 L2 + `do_session_open_l2`。
+- **2026-11-09（Web 收口）**：`POST /api/quant/materialize` 增 `do_session_open_l2` / `cycle_day`；`/follow` 补 ŷ 与「策略调仓 · 09:30 复现」经 `session_open_materialize.js` 自动补齐后重试；自动 worker 走 `_maybe_materialize_session_open` 同步补齐。东财报价改分块，降低封禁风险。
 - 下一步：盘中需开盘截面时，走会话日 open L2 物化补齐后再消费。

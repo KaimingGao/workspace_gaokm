@@ -155,7 +155,7 @@ live 与历史回测统一走 `rank_lots`（`watching_matrix` / `backtest_paper_
 Follow「策略调仓」运行卡与「做 T」同结构：进程面板 → 面板外盯盘框。
 
 - 每个交易日 **启动时间 `live_fill_clock`～10:00** 现价成交一次（默认 09:30）；**自动 Worker** 过点不补跑、不挂开盘单（与 §5.2 挂单开盘窗 09:15–10:00 分开）。回测 `fill_clock` 不驱动此窗。交易执行「手动执行」是 09:30 开盘预估分复现（开盘 Z、不含开仓/加仓、不写账），不受该窗口限制。
-- **开盘钟 live 出分**：只读会话日官方 open L2；缺则 `materialize_required` 提示补齐，**不**在消费侧用行情临时拼截面。落账禁止回退昨日立方。细节见 [internal/live-open-pit-rebalance.md](./internal/live-open-pit-rebalance.md)。
+- **开盘钟 live 出分**：只读会话日官方 open L2；缺则 `materialize_required` 提示补齐，**不**在消费侧用行情临时拼截面。落账禁止回退昨日立方。Web 补 ŷ / 09:30 复现 / 自动 worker 会先 `do_session_open_l2` 正式物化、成功后重试本轮。细节见 [internal/live-open-pit-rebalance.md](./internal/live-open-pit-rebalance.md)。
 - 开关与上次落账写 `data/rebalance_auto_worker.json`。
 - API：`GET/POST /api/paper/rebalance/worker`，返回 `worker` + `desk`。
 - 盯盘：摘要芯片仍计 A 档 / 监视 / 开加 / 完成 / 清仓 / 减仓（为零不显示），有形态闸跳过时另计「形态闸」。明细表留 **清 / 开 / 加**，并列出被形态闸拦住、未下单的跳过（说明写原因；成交列为当时现价）。形态闸跳过不参与 2000 行截断。其余未入场不进表。成交价两位小数。表列标的 / 时间 / 动作 / 手数 / 成交 / 今开 / 金额 / fuse / oo_rank / τc_rank / 说明。

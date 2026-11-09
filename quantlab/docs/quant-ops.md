@@ -18,6 +18,20 @@
 
 ---
 
+## 会话日开盘 L2 补齐（盘中）
+
+live / 手动出分只读会话日官方 open L2。缺覆盖返回 `materialize_required`，`request` 带 `do_session_open_l2`；消费侧**不**临时拼截面、不回退昨日立方。
+
+| 动作 | API / 命令 |
+|------|------------|
+| 补齐会话日 open L2 | `POST /api/quant/materialize`，body：`{"do_session_open_l2": true, "do_l1": false, "do_l2": true, "clocks": ["open"], "families": ["oo", "tc"], "cycle_day": "YYYY-MM-DD"}`；`cycle_day` 缺省 `oo_cycle_date()` |
+| 查进度 | `GET /api/jobs/materialize-l1l2?progress=1`（Job 槽 `materialize-l1l2`） |
+| 命令行同步补齐 | `python3 -c "from core.research.materialize import run_materialize; print(run_materialize(do_session_open_l2=True, do_l1=False, do_l2=True, clocks=['open']))"` |
+
+Web `/follow` 补 ŷ、策略调仓「09:30 复现」与自动调仓 worker 遇到该缺口会自动调用物化，写盘成功后重试本轮出分。写入实现见 `core/research/materialize/session_open.py`。
+
+---
+
 ## 每日 preset
 
 | preset | 说明 | 包含步骤 |
