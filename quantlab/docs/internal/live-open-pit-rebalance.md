@@ -2,9 +2,9 @@
 
 [← 文档索引](../README.md) · 调仓产品见 [rebalance-logic.md](../rebalance-logic.md) · L1/L2 见 [feature-lake-daycube.md](./feature-lake-daycube.md) · 宇宙键见 [daycube-universe-key.md](./daycube-universe-key.md)
 
-> 状态：**已落地**（成交闸 + open-pit 出分 + tip + rank 显式传立方；回测未改）  
-> 范围：live 开盘窗（默认 `live_fill_clock`～10:00，可配 09:25）的矩阵调仓打分与下单闸  
-> 不覆盖：模型重训、回测 `_score_open_day` 改写、实盘 OMS、启动时间 >09:30 的分钟钟现算
+> 状态：**现行**（2026-11-09）拟合 / 回测 / live **只读会话日 L1/L2**；缺 open 立方 → `materialize_required` → `do_session_open_l2` 落盘后再消费。§1 保留早盘事故根因备忘。  
+> 范围：live 开盘窗矩阵调仓打分与下单闸  
+> 不覆盖：模型重训、回测 `_score_open_day` 改写、实盘 OMS、>09:30 分钟钟
 
 ---
 
@@ -26,102 +26,82 @@
 |------|-----------------|--------------|
 | 历史回测 `_score_open_day` / `score_open_day_entries` | 读 **当天** L1/L2（窗口截至昨收，报价用今开） | `clip_replay_score_dates` 丢掉未完成会话日，**不**用昨日 ŷ 顶替 |
 | 修复前 live（消费只读） | 优先会话日立方；没有则 **静默退到昨日** | 仍下单 |
-| **现行** live 开盘钟 | 会话日立方，否则 **open-pit 今开截面** | 落账拒单；浏览才可带标签回退 |
+| **现行** live / 手动 | **仅**会话日官方 L2 | 缺则 `materialize_required`；产品不回退昨收、不临时补数 |
 
 结论：回测本无此错位；live 开盘钟已按上表修好。复权不是本次 ŷ_oo 翻转的原因（伊利 10-27 立方在晚间重写后 z 仍与早盘 tip 一致）。
 
 ---
 
-## 2. 修复目标
+## 2. 现行目标
 
-- 开盘窗内决策日 = 会话日 T；ŷ_oo 预测 **今开 → 下一交易日开开**；特征 = **截至 T−1 的完整前复权日线** + **T 日行情今开**，截面 z 在观察池当场算。
-- 当日官方开盘立方已在盘上 → 直接用它（与晚间刷新同口径）；占位截面建不齐 → **拒绝本轮下单**，禁止再用昨日立方成交。
-- 占位结果 **不得** 写成官方 `open` L2 文件，以免晚上物化跳过当日；回测逻辑保持不变。
+- 决策日 = 会话日 T；ŷ_oo = **今开 → 下一交易日开开**；特征 = **≤T−1 日线** + **T 日行情今开**，μ/σ 来自官方 open DayCube。
+- 官方 open L2 已在盘上 → 消费侧直接读；缺失 → `materialize_required`（可 `do_session_open_l2` 正式落盘后重试）。
+- **禁止**调仓线程临时拼截面、禁止昨收回退成交；回测逻辑不变。
 
 ---
 
-## 3. 早开盘时序（修复后）
+## 3. 早开盘时序（现行）
 
 自动 worker：交易日 `live_fill_clock`（可 09:25）～10:00，窗内 30s 一轮；当天成功调仓后不再跑。
 
 ```text
 窗开且当天未跑
-  ├─ 有未完成隔夜挂单 → 本轮不算新分；读会话日 T 官方开盘立方：有 → 用官方 μ/σ 与 X，跳到 fuse / 下单
-  ├─ 无 → 批量行情拿观察池今开（约 800 只，一条腾讯请求）→ 读每只最近 ~80 根日线（只用到 T−1）
-  ├─ inject_raw_aoo / 开盘钟 raw_atc / 训练同款风格裸分（不含 aoo 重叠列、无真源资金流）
-  ├─ 内存 DayCube → ŷ_oo / ŷ_τc / rank → fuse
-  ├─ 今开或风格齐的行 < 门槛（默认 LAKE_COVER_FRAC=0.5）→ 失败，不写账，不退昨日
-  └─ 覆盖够 → 现价成交（现有 fill；滑点等不变），成交记录保留下单时 ŷ；占位立方只在内存
+  ├─ 有未完成隔夜挂单 → 本轮不算新分；读会话日 T 官方开盘立方 → fuse / 下单
+  ├─ 有官方 open L2 → 读立方出分 → fuse / 下单
+  ├─ 无 → materialize_required → do_session_open_l2（行情今开 + ≤T−1 日线 → 官方 open DayCube）
+  └─ 物化成功后重试消费；覆盖不足 / 行情缺今开 → 失败，不写账，不退昨日
 ```
 
-≤09:30：`use_minute_tau=False`，ŷ_τc 为开盘 Z，不拉当天 5 分钟线。名次、fuse、买卖闸沿用现有 `rank_lots`。
+≤09:30：`use_minute_tau=False`，ŷ_τc 为开盘 Z。名次、fuse、买卖闸沿用 `rank_lots`。
 
 ---
 
-## 4. 9:25 之后如何算 z
+## 4. 截面 z（官方立方 / 物化写盘共用）
 
-与现网 DayCube / `cross_section_zscore_matrix` 同一公式（总体标准差，除以有效只数 n，不是 n−1）：`z = (x−μ)/σ`，`μ = x̄`，`σ = sqrt(mean((x−μ)^2))`。
+与 DayCube / `cross_section_zscore_matrix` 同一公式：`z = (x−μ)/σ`（总体标准差）。
 
-规则：
-
-- 分组 = 会话日 T 的开盘截面（一组）；每列只对有限值算 μ/σ，有效只数 < 2 或 σ≈0 → 该列有效值 z=0。
-- **缺今开的股票整行不进 μ/σ，也不进下单名单**；禁止用 0 填开盘价再进截面。
-- **空今开行情不钉满 60s**：`StockAPI` 对 `success` 但无可用今开的条目只用约 5s TTL；开盘截面拉行情前再 `invalidate` 池内代码，拉完后对仍缺今开的票再失效重拉一轮。否则持仓盯市可能在 09:25 前写入空今开，open-pit 只对持仓票命中坏缓存，表现为「刚好昨持仓缺今开、名次池少 2」。
-- ŷ_oo、开盘 Z 的 ŷ_τc、相关 rank **共用同一套** 今开 raw 与 μ/σ，禁止「ŷ_oo 用今天、τ 还挂昨天」；冻结的 α、β 不变，贡献仍是 β×z。
-
-原始值 x：日线只到昨天，今开用行情开盘价接到决策占位 bar（高=低=收=今开，量用昨量）。例：伊利 `CLOSE0` = 昨收/今开 = 28.89/29.06；`YKSFT` / `YKLEN` 仍是昨天那根 K。
+- 分组 = 会话日 T 开盘截面；缺今开整行不进 μ/σ。
+- 空今开行情短 TTL（约 5s）；`session_open` 拉截面前 `invalidate_codes`，仍缺今开再重拉。
+- ŷ_oo / 开盘 ŷ_τc / rank 共用同一套 raw 与 μ/σ。
 
 ---
 
-## 5. 依赖什么、不依赖什么
+## 5. 依赖
 
-| 依赖 | 早开盘是否需要 | 说明 |
-|------|----------------|------|
-| 截至 T−1 的前复权日线（bars.db） | **要** | `OMA60` 等约需 61+ 完整日；今开接在末根之后 |
-| 当日日线 | 不要 | 早上尚未入库 |
-| 当日官方开盘立方 / 当日 L1 物化 | **不要**（用于下单） | 没有则当场算；有则优先读官方 |
-| 昨日官方立方 | **禁止用于成交** | 研究浏览可保留带标签的 fallback |
-| 冻结 α、β 与观察池名单 | 要 | 模型配置与宇宙键，不是当场物化产物 |
-| 腾讯（或东财回退）批量行情今开 | 要 | 截面宇宙 ≈ `read_cube_codes()` 全池 |
-
----
-
-## 6. 耗时预期（本机实测量级）
-
-观察池约 800 只时，一次成功路径：行情今开与日线缓存之后，全池风格因子大约十几秒，截面 z 与名次大约 2 秒。官方开盘立方已在盘上时跳过这场现算。
-
-行情单次超时 4 s，可再试一次后东财批量回退。慢点在全池风格因子，不在截面 z。worker 窗内 30 s 一轮，等待不计入；官方开盘立方已在盘上时跳过行情与当场算因子。历史对照：旧路径整池逐票 `score_stock` 曾到数十分钟，只读昨日立方很快但错日。
+| 依赖 | 说明 |
+|------|------|
+| ≤T−1 前复权日线 | 物化写盘与风格因子需要 |
+| 腾讯/东财批量今开 | 仅物化补齐路径；消费只读立方 |
+| 会话日官方 open L2 | **消费必需**；缺则先物化 |
+| 昨日官方立方 | **禁止成交** |
+| 冻结 α、β 与观察池 | 模型与宇宙键 |
 
 ---
 
-## 7. 腾讯批量频率
+## 6. 耗时
 
-**正常一天成功调仓一次，不必再单独加限流。** 已有机制：整池逗号拼接 **一次** HTTP（不是 800 次）；进程内行情缓存 TTL **60 s**（空今开约 **5 s**）。open-pit 拉今开前会先 `invalidate_codes` 整池，仍缺今开再对缺口重拉；拉完后同轮成交侧可命中刚写入的今开缓存；失败时可用过期缓存保底（最长约 30 min），再东财 ulist 整批回退，禁止串行逐票拖死线程池。需要守住的：同一次 `rebalance` 内，打分用的 quotes **传给成交侧复用**，不要各拉一遍；开盘窗内反复失败时，缓存过期后约每 60 s 再打一整池——可接受，不要拆很多小批，不要在失败路径退回逐只 `get_quote`；成功后 `already_ran_today` 挡掉当日重复。
+官方立方已在盘上：跳过行情与因子现算，只读 L2 出分。物化补齐：全池风格因子约十几秒量级（池约 800）。worker 窗内 30s 一轮；成功后 `already_ran_today` 挡当日重复。
 
 ---
 
-## 8. 影响与残余差异
+## 7. 行情批量
 
-### 8.1 解决什么
+整池一次 HTTP；缓存 TTL 约 60s（空今开约 5s）。物化拉今开前 `invalidate_codes`；禁止失败路径退回逐只 `get_quote`。东财 ulist 整批回退时注意 chunk。
 
-- 不再用「已实现的昨开→今开」ŷ_oo 开仓；tip / `lake_score_day` 与真实因子日一致，占位截面标「T 当天 · 今开截面」。
-- 建不齐则拒单，去掉静默错日成交。
+---
 
-### 8.2 副作用 / 预期不一致
+## 8. 影响
 
-- **买卖名单**：与昨日 fallback 不同，「昨天立方 +0.22%」不会再出现；**回测不变**。
-- **晚间官方立方**：日线物化后持仓刷新改读官方；量能列、用到当日高低的列（OVMA / OIMAX 等）相对早盘占位变动；成交记录保留当时 ŷ，不改写历史成交分。
-- **开盘价一致时**：OMA / CLOSE0 / GAP / YKSFT / OO_MA，以及量价、波动等风格裸分，与官方立方对齐。动量 / 跳空风险 / 过热与 `raw_aoo_*` 重叠，资金流无真源，这两类不进早盘截面。
-- **研究浏览 / 测试**：可保留带明确标签的昨日 fallback，**执行路径不可**；`test_materialize_consumer` 等断言须拆成浏览 vs 成交。
-
-占位 bar 与收盘后真实日线 bar 的固有差（量、高低）应写在 tip/文档里，不要藏。
+- 不再用「已实现的昨开→今开」ŷ_oo 开仓；缺立方拒单，去掉静默错日成交。
+- **历史 tip**：旧行 `lake_score_fallback_from` / `_score_source=open_pit` 仍可展示；新路径写官方立方后消费为 `day_cube`。
+- 晚间日线物化后与盘中 `do_session_open_l2` 同口径读官方 open；成交记录保留下单时 ŷ。
 
 ---
 
 ## 9. 打分顺序（实现契约）
 
-1. **官方开盘立方（会话日 T）存在** → `load_day_cube` + 既有 lake 路径；`lake_score_day=T`，无 `lake_score_fallback_from`。
-2. **否则** → 内存 open-pit：宇宙 = `read_cube_codes()`（约 800）；bars ≤ T−1；今开 = `batch_get_quotes` + `resolve_open_t`（只要交易日今开）；`inject_raw_aoo` / 开盘钟 τc 特征 / 训练面板同款风格裸分（窗长与 `collect_oo_panel` 抬窗后一致，今收不进 X）。风格裸名缺一列、窗没抬够、或昨收缺失的票不进截面；风格齐的行达不到覆盖门槛则整池拒单（`style_cover_short`），禁止只剩 `raw_aoo_*` 的薄向量成交。`build_day_cube` + `remember`（不落盘）返回 **cube 引用**；`_stamp_cube_head_scores` 写 ŷ_oo / ŷ_τc / fuse；标记 `lake_score_day=T`、`_score_source=open_pit`，**不得**设 fallback；simulate 把同一 `day_cube` **显式**传给 oo_rank / τc_rank。**覆盖失败** → `rebalance(dry_run=False)` 失败；研究/dry_run 可另议。产品 `rebalance` 经 `materialized_consumer()` 时走 lake / open-pit，不重新打开整池 `score_stock` 写盘。
+1. **官方开盘立方（会话日 T）存在** → `load_day_cube` + lake 路径；`lake_score_day=T`，无 `lake_score_fallback_from`。simulate 把同一 `day_cube` 显式传给 oo_rank / τc_rank。
+2. **否则** → `materialize_required`（开盘钟带 `do_session_open_l2`）。**禁止**消费侧临时拼截面、禁止昨收回退。正式补齐由 `session_open` 物化写官方 open L2 后再重试；`open_pit_score.py` 只服务该物化写盘，不进调仓出分。
 
 ---
 
@@ -129,18 +109,18 @@
 
 | # | 场景 | 期望 |
 |---|------|------|
-| 1 | 无官方立方、行情今开齐全 | `lake_score_day=T`；CLOSE0=昨收/今开；允许下单；不再复现「用 T−1 立方却标 T」 |
-| 2 | 今开覆盖不足 | 不下单；日志明确；不读昨日立方成交 |
-| 3 | 官方立方已存在 | 用官方；不重建 pit；不覆盖官方文件 |
-| 4 | pit 结果 | 不写入官方 `open` L2 路径 |
+| 1 | 无官方立方 | `materialize_required`；可经 `do_session_open_l2` 落盘后重试；不读昨日立方成交 |
+| 2 | 今开覆盖不足（物化时） | 物化失败 / 不下单；日志明确 |
+| 3 | 官方立方已存在 | 用官方；不临时拼截面 |
+| 4 | 会话日 open 物化 | 写入官方 `open` L2；消费侧只读 |
 | 5 | 回测日 T | 仍读当日湖；未完成会话日仍被 clip，不靠昨日顶替 |
-| 6 | tip | 占位：「T 当天 · 今开截面」；研究 fallback 必须写出真实因子日 |
+| 6 | tip | 历史 fallback / open_pit 标记仍可展示；新出分无 fallback |
 
 ---
 
 ## 11. 落地顺序（已完成）
 
-已全部落地：成交闸（`refuse_day_fallback` + fallback 二次拒单）· open-pit（消费只读、返回 cube、不 persist）· tip 文案 · 单测（覆盖 / 闸 / 官方立方优先 / 不落盘 / 显式传 rank）· rank 鲁棒（simulate 传 `day_cube`，持仓补名次禁昨日回退）。可选未做：同轮 quotes 注入成交侧。
+已全部落地：消费只读会话日官方 L2 · tip 仍识别历史 fallback 标记 · 单测（覆盖 / 闸 / 官方立方优先 / 显式传 rank）· rank 鲁棒（simulate 传 `day_cube`）。正式补齐走 `do_session_open_l2` 落盘。
 
 ---
 
@@ -168,7 +148,13 @@
 
 ## 14. 状态与下一步
 
-- 文档与方案：本文；代码已落地并做 rank 鲁棒性加固——`open_pit_score.py` 内存截面不落盘并返回 cube 引用；`_score_pool_from_lake` 按「会话日立方 → open-pit →（浏览才）昨日回退」出分，`refuse_day_fallback` 禁成交回退；simulate 显式 `day_cube=` 传给 oo/τc rank，持仓补名次不回退昨日；tip 识别 `open_pit` / fallback；单测 `tests/test_open_pit_score.py` + `ConsumerCoverageTest` 闸断言。
+- 文档与方案：本文；消费侧只读会话日官方 L2；simulate 显式 `day_cube=` 传给 oo/τc rank；单测 `tests/test_open_pit_score.py` + `ConsumerCoverageTest` 闸断言。`open_pit_score.py` 仍供正式 `do_session_open_l2` 物化写盘使用，不在调仓线程临时拼截面。
 - **2026-11-06**：持仓盯市空今开 60s 缓存导致昨持仓（风华/江海）被判缺今开、A 档名次池 598 vs 600；已用 open-pit 前 `invalidate_codes` 修掉（`TestOpenPitQuoteCacheBust`）。
 - **2026-11-09**：持仓表 `oo_rank`/`τc_rank` 曾卡在旧截面（如 n=484）；根因是 `live_rank_snapshot` 未随观察池/A 档更新。已绑 `universe_fp`：成员变更作废；缺/失效快照由 `ensure` 自愈；快照只落核心名次（不含公式拆解）。
-- 下一步：开盘窗实盘观察一次；若需同轮 quotes 注入成交可再补。
+- **2026-11-09（续）**：`refresh_live_open_ranks` 曾回退昨收立方却仍按今日 `as_of` 落盘，持仓名次与手动开盘复现错位。已改为只认会话日官方立方。
+- **2026-11-09（再续）**：消费路径取消 open-pit 临时补数。`_score_pool_from_lake` / `refresh_live_open_ranks` 缺会话日 L2 一律 `materialize_required`；与拟合、回测同口径只读物化层。
+- **2026-11-09（严口径）**：手动执行 / 预演 / `score_session_from_lake` 缺覆盖只提示物化，禁止昨收回退掩盖 L1/L2 缺口。
+- **2026-11-09（盘中补齐）**：live / 手动缺会话日 open L2 时，经 `do_session_open_l2` **正式物化落盘**（今开行情 + ≤T−1 日线 → 官方 open DayCube）；消费侧仍只读立方。自动调仓 worker、手动 09:30 复现、持仓补 ŷ 会触发补齐后重试。
+- **2026-11-09（清理）**：删除消费侧 `_lake_score_day_candidates` / `_resolve_lake_score_day` / hole-fill / `refuse_day_fallback` 参数与 `_try_score_pool_from_open_pit` stub；出分只读会话日立方。
+- **2026-11-09（深清）**：删除死 API `score_open_pit_pool`；物化中间行 `_score_source=session_open_build`；文档「现行」改为只读 L2 + `do_session_open_l2`。
+- 下一步：盘中需开盘截面时，走会话日 open L2 物化补齐后再消费。

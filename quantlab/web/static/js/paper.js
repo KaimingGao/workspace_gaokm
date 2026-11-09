@@ -1770,7 +1770,7 @@ export function initPaper(ctx) {
         const topupPromise = getDataOfflineOnly()
           ? Promise.resolve(null)
           : prepareFollowWarehouse({ force: false }).catch(() => null);
-        const { ok, data, error } = await fetchHoldingScoresWithRetry();
+        let { ok, data, error } = await fetchHoldingScoresWithRetry();
         await topupPromise;
         if (!ok) {
           setHoldingsLoadStatus(error || "补 ŷ 失败", { error: true });
@@ -1779,6 +1779,52 @@ export function initPaper(ctx) {
         if (data && data.busy) {
           setHoldingsLoadStatus("补 ŷ 仍忙 · 请点刷新重试", { error: true });
           return;
+        }
+        if (
+          data &&
+          data.score_error &&
+          (data.error_code === "materialize_required" ||
+            (data.request && data.request.do_session_open_l2))
+        ) {
+          try {
+            const { ensureSessionOpenL2, isSessionOpenMaterializeRequired } =
+              await import(
+                `./paper/session_open_materialize.js?v=${encodeURIComponent(
+                  (typeof window !== "undefined" && window.__ASSET_V__) || "dev"
+                )}`
+              );
+            if (isSessionOpenMaterializeRequired(data)) {
+              setHoldingsLoadStatus("补齐当日开盘 L2…", { busy: true });
+              const filled = await ensureSessionOpenL2({
+                fromError: data,
+                onProgress: (_pct, msg) =>
+                  setHoldingsLoadStatus(msg || "补齐当日开盘 L2…", {
+                    busy: true,
+                  }),
+              });
+              if (filled.ok) {
+                ({ ok, data, error } = await fetchHoldingScoresWithRetry());
+                if (!ok) {
+                  setHoldingsLoadStatus(error || "补 ŷ 失败", { error: true });
+                  return;
+                }
+              } else {
+                setHoldingsLoadStatus(
+                  filled.error || String(data.score_error),
+                  { error: true }
+                );
+                return;
+              }
+            }
+          } catch (matErr) {
+            setHoldingsLoadStatus(
+              String(
+                (matErr && matErr.message) || matErr || data.score_error
+              ),
+              { error: true }
+            );
+            return;
+          }
         }
         const byCode = (data && data.by_code) || {};
         const codes = Object.keys(byCode);

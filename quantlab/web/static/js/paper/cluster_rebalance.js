@@ -3,6 +3,10 @@
 import { getDataOfflineOnly } from "../data_offline.js";
 import { ensureWarehouseTopup } from "../data_warehouse_topup.js";
 import { BARS_WATCHING_LIMIT } from "../quant/params.js";
+import {
+  ensureSessionOpenL2,
+  isSessionOpenMaterializeRequired,
+} from "./session_open_materialize.js";
 
 /**
  * @param {object} deps
@@ -20,6 +24,21 @@ export function createClusterRebalanceController(deps) {
   } = deps;
 
   let followMatrixPreviewPending = false;
+
+  async function postOpenReplay() {
+    const res = await fetch("/api/paper/rebalance", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        dry_run: true,
+        open_replay: true,
+        // ŷ / 日K·5m 永远只读本地；写仓已由 ensureWarehouseTopup 显式完成
+        offline_only: true,
+      }),
+    });
+    const data = await res.json().catch(() => ({}));
+    return { res, data };
+  }
 
   async function runWatchingMatrixPreview() {
     setPaperBusy(true);
@@ -47,16 +66,21 @@ export function createClusterRebalanceController(deps) {
         }
         showProgress(1, "09:30 开盘复现（读已物化特征）…");
       }
-      const res = await fetch("/api/paper/rebalance", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          dry_run: true,
-          open_replay: true,
-          // ŷ / 日K·5m 永远只读本地；写仓已由 ensureWarehouseTopup 显式完成
-          offline_only: true,
-        }),
-      });      const data = await res.json().catch(() => ({}));
+      let { res, data } = await postOpenReplay();
+      if (
+        (!res.ok || data.success === false || data.ok === false) &&
+        isSessionOpenMaterializeRequired(data)
+      ) {
+        const filled = await ensureSessionOpenL2({
+          fromError: data,
+          onProgress: (pct, msg) => showProgress(pct, msg),
+        });
+        if (!filled.ok) {
+          throw new Error(filled.error || "补齐当日开盘 L2 失败");
+        }
+        showProgress(90, "开盘 L2 已补齐 · 重新 09:30 复现…");
+        ({ res, data } = await postOpenReplay());
+      }
       if (!res.ok || data.success === false || data.ok === false) {
         const detail = data.detail || data.error || res.statusText;
         throw new Error(
@@ -126,7 +150,7 @@ export function createClusterRebalanceController(deps) {
     }
   }
 
-    return {
+  return {
     get followMatrixPreviewPending() {
       return followMatrixPreviewPending;
     },

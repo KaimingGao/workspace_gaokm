@@ -258,6 +258,43 @@ def already_ran_today(now: Any = None) -> bool:
     return bool(sess) and last_run_session() == sess
 
 
+def _maybe_materialize_session_open(out: Optional[dict]) -> bool:
+    """调仓返回缺会话日 open L2 时，正式物化补齐并返回是否已写入。"""
+    if not isinstance(out, dict):
+        return False
+    if out.get("success") or out.get("ok"):
+        return False
+    req = out.get("request") if isinstance(out.get("request"), dict) else {}
+    need = bool(req.get("do_session_open_l2")) or (
+        str(out.get("error_code") or "") == "materialize_required"
+        and "开盘 L2" in str(out.get("error") or out.get("hint") or "")
+    )
+    if not need:
+        return False
+    try:
+        from core.research.materialize import run_materialize
+
+        day = str(req.get("cycle_day") or out.get("cycle_day") or "")[:10]
+        report = run_materialize(
+            do_session_open_l2=True,
+            do_l1=False,
+            do_l1_tau_grid=False,
+            do_l2=True,
+            clocks=["open"],
+            cycle_day=day or None,
+        )
+        ok = bool(report.get("ok") or report.get("success"))
+        if not ok:
+            logger.warning(
+                "session open L2 materialize failed: %s",
+                report.get("error") or report,
+            )
+        return ok
+    except Exception:  # noqa: BLE001
+        logger.exception("session open L2 materialize raised")
+        return False
+
+
 def t0_wait_for_rebalance(now: Any = None) -> Tuple[bool, str]:
     """自动调仓开启且今日尚未在窗口内跑完时，做 T 不新开腿。"""
     if not load_enabled_flag():
@@ -535,6 +572,13 @@ class RebalanceAutoWorker:
         )
         try:
             out = svc.rebalance(dry_run=False, offline_only=False)
+            if _maybe_materialize_session_open(out):
+                self._set_tick(
+                    (pending_msg + " · " if pending_msg else "")
+                    + "已补齐当日开盘 L2 · 重试调仓…",
+                    session=sess,
+                )
+                out = svc.rebalance(dry_run=False, offline_only=False)
         except Exception as e:  # noqa: BLE001
             logger.exception("rebalance auto worker commit failed")
             self._set_tick(f"失败：{e}", error=str(e), session=sess)

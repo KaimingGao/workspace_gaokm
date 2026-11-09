@@ -161,14 +161,57 @@ def _run_materialize(
     do_l1: bool = True,
     do_l2: bool = True,
     do_l1_tau_grid: bool = False,
+    do_session_open_l2: bool = False,
+    cycle_day: Optional[str] = None,
     lookback: int = BARS_DAILY_LOOKBACK,
     watching_limit: int = WATCHING_MAX_SIZE,
     horizon_days: int = 1,
     progress_cb: ProgressCb = None,
     cancel_cb: CancelCb = None,
 ) -> Dict[str, Any]:
-    """独立物化入口。L1 票级 raw →（可选）τ 网格 L1 → L2 日/钟截面 μ/σ。"""
+    """独立物化入口。L1 票级 raw →（可选）τ 网格 L1 → L2 日/钟截面 μ/σ。
+
+    ``do_session_open_l2``：盘中补齐会话日官方 open 立方（今开行情 + ≤T−1 日线）。
+    """
     t0 = time.perf_counter()
+    if do_session_open_l2:
+        from core.research.materialize.session_open import materialize_session_open_l2
+        from core.research.materialize.track import build_materialize_track
+
+        _emit(progress_cb, 0, 1, "补齐会话日开盘 L2…")
+        session = materialize_session_open_l2(
+            cycle_day=cycle_day,
+            codes=codes,
+            watching_limit=watching_limit,
+            progress_cb=progress_cb,
+        )
+        out: Dict[str, Any] = {
+            "success": bool(session.get("ok")),
+            "ok": bool(session.get("ok")),
+            "catalog": catalog_payload(),
+            "codes_n": int(session.get("n_universe") or 0),
+            "do_l1": False,
+            "do_l1_tau_grid": False,
+            "do_l2": True,
+            "do_session_open_l2": True,
+            "cycle_day": session.get("cycle_day") or cycle_day,
+            "l1": None,
+            "l1_tau_grid": None,
+            "l2": session,
+            "session_open_l2": session,
+            "elapsed_s": float(session.get("elapsed_s") or round(time.perf_counter() - t0, 2)),
+        }
+        if not out["ok"]:
+            out["error"] = str(session.get("error") or "会话日开盘 L2 补齐失败")
+        out["track"] = build_materialize_track(out)
+        _emit(
+            progress_cb,
+            1,
+            1,
+            ("已补齐开盘 L2" if out["ok"] else out.get("error") or "补齐失败"),
+        )
+        return out
+
     fams = normalize_families(families) if do_l1 else []
     clks = normalize_clocks(clocks) if do_l2 else []
     # τ 网格 L2 时钟契约：见 cover_policy.resolve_tau_l2_clocks（仅分钟钟，不含 open）
@@ -179,7 +222,7 @@ def _run_materialize(
     code_list = resolve_materialize_codes(
         codes=codes, watching_limit=watching_limit
     )
-    out: Dict[str, Any] = {
+    out = {
         "success": False,
         "ok": False,
         "catalog": catalog_payload(),
@@ -187,6 +230,7 @@ def _run_materialize(
         "do_l1": bool(do_l1),
         "do_l1_tau_grid": bool(do_l1_tau_grid),
         "do_l2": bool(do_l2),
+        "do_session_open_l2": False,
         "l1": None,
         "l1_tau_grid": None,
         "l2": None,
@@ -364,6 +408,8 @@ def run_materialize(
     do_l1: bool = True,
     do_l2: bool = True,
     do_l1_tau_grid: bool = False,
+    do_session_open_l2: bool = False,
+    cycle_day: Optional[str] = None,
     lookback: int = BARS_DAILY_LOOKBACK,
     watching_limit: int = WATCHING_MAX_SIZE,
     horizon_days: int = 1,
@@ -382,6 +428,8 @@ def run_materialize(
             do_l1=do_l1,
             do_l2=do_l2,
             do_l1_tau_grid=do_l1_tau_grid,
+            do_session_open_l2=do_session_open_l2,
+            cycle_day=cycle_day,
             lookback=lookback,
             watching_limit=watching_limit,
             horizon_days=horizon_days,

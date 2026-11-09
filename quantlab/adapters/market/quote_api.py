@@ -29,6 +29,8 @@ class StockAPI:
     # 批量路径必须低于 /api/watching/quotes 的 wait_for；超时重试会占满默认线程池
     BATCH_HTTP_TIMEOUT = 4.0
     BATCH_HTTP_RETRIES = 1
+    # ulist / 腾讯 qt 一次 URL 过长会 414；整池（~1600）必须分片。
+    BATCH_CHUNK_SIZE = 80
     STALE_CACHE_MAX_SECONDS = QUOTE_STALE_MAX_SECONDS
 
     # 热门名称 → 腾讯行情符号
@@ -296,9 +298,7 @@ class StockAPI:
         if not uncached_codes:
             return results
 
-        # 腾讯API支持用逗号分隔多只股票
-        symbols = [symbols_map[c] for c in uncached_codes]
-        url = f"{cls.TENCENT_URL}{','.join(symbols)}"
+        # 腾讯 API 支持逗号分隔多票；整池必须分片，否则 URL 过长。
         headers = {
             "User-Agent": (
                 "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
@@ -306,65 +306,68 @@ class StockAPI:
             ),
             "Referer": "https://finance.qq.com/",
         }
+        chunk_n = max(1, int(cls.BATCH_CHUNK_SIZE or 80))
+        for i in range(0, len(uncached_codes), chunk_n):
+            chunk = uncached_codes[i : i + chunk_n]
+            symbols = [symbols_map[c] for c in chunk]
+            url = f"{cls.TENCENT_URL}{','.join(symbols)}"
+            try:
+                response = requests_get_with_retry(
+                    url,
+                    headers=headers,
+                    timeout=cls.BATCH_HTTP_TIMEOUT,
+                    retries=cls.BATCH_HTTP_RETRIES,
+                )
+                response.raise_for_status()
+                content = response.content.decode("gbk", errors="ignore")
 
-        try:
-            response = requests_get_with_retry(
-                url,
-                headers=headers,
-                timeout=cls.BATCH_HTTP_TIMEOUT,
-                retries=cls.BATCH_HTTP_RETRIES,
-            )
-            response.raise_for_status()
-            content = response.content.decode("gbk", errors="ignore")
+                # 解析多只股票数据：v_sh600519="1~...";v_sz000858="1~...";
+                for line in content.split(";"):
+                    line = line.strip()
+                    if not line:
+                        continue
+                    if '="' in line:
+                        symbol_part, data_part = line.split('="', 1)
+                        symbol = symbol_part.lstrip("v_")
+                        data = data_part.rstrip('";\n ')
+                        if symbol and "~" in data:
+                            found_code = None
+                            for code, sym in symbols_map.items():
+                                if sym == symbol:
+                                    found_code = code
+                                    break
+                            if found_code:
+                                result = cls._parse_tencent_data(
+                                    found_code, symbol, data
+                                )
+                                if result.get("success"):
+                                    with cls._cache_lock:
+                                        cls._cache[symbol] = (now, dict(result))
+                                results[found_code] = result
 
-            # 解析多只股票数据：v_sh600519="1~...";v_sz000858="1~...";
-            for line in content.split(";"):
-                line = line.strip()
-                if not line:
-                    continue
-                # 找到 symbol=... 的格式
-                if '="' in line:
-                    symbol_part, data_part = line.split('="', 1)
-                    symbol = symbol_part.lstrip("v_")
-                    data = data_part.rstrip('";\n ')
-                    if symbol and "~" in data:
-                        # 找到对应的原始代码
-                        found_code = None
-                        for code, sym in symbols_map.items():
-                            if sym == symbol:
-                                found_code = code
-                                break
-                        if found_code:
-                            result = cls._parse_tencent_data(found_code, symbol, data)
-                            if result.get("success"):
-                                with cls._cache_lock:
-                                    cls._cache[symbol] = (now, dict(result))
-                            results[found_code] = result
+                for code in chunk:
+                    if code not in results:
+                        results[code] = {
+                            "success": False,
+                            "stock_code": code,
+                            "error": f"无法查询到股票「{code}」的行情信息",
+                        }
 
-            # 确保所有请求的代码都有结果
-            for code in uncached_codes:
-                if code not in results:
+            except requests.exceptions.RequestException as e:
+                for code in chunk:
                     results[code] = {
                         "success": False,
                         "stock_code": code,
-                        "error": f"无法查询到股票「{code}」的行情信息",
+                        "error": f"股票查询失败: {e}",
                     }
-
-        except requests.exceptions.RequestException as e:
-            for code in uncached_codes:
-                results[code] = {
-                    "success": False,
-                    "stock_code": code,
-                    "error": f"股票查询失败: {e}",
-                }
-        except Exception as e:
-            logger.exception('unexpected error in batch_query')
-            for code in uncached_codes:
-                results[code] = {
-                    "success": False,
-                    "stock_code": code,
-                    "error": f"处理股票数据失败: {e}",
-                }
+            except Exception as e:
+                logger.exception("unexpected error in batch_query")
+                for code in chunk:
+                    results[code] = {
+                        "success": False,
+                        "stock_code": code,
+                        "error": f"处理股票数据失败: {e}",
+                    }
 
         failed = [c for c in uncached_codes if not results.get(c, {}).get("success")]
         if not failed:
@@ -527,7 +530,7 @@ class StockAPI:
     def _query_eastmoney_batch(
         cls, codes: List[str], symbols_map: Dict[str, str]
     ) -> Dict[str, dict]:
-        """东方财富 ulist 一次拉多票；失败返回 {}。"""
+        """东方财富 ulist 拉多票；整池分片，避免 secids 过长 414。"""
         if not codes:
             return {}
         secids: List[str] = []
@@ -543,11 +546,6 @@ class StockAPI:
             secids.append(secid)
         if not secids:
             return {}
-        params = {
-            "secids": ",".join(secids),
-            "fields": cls.EM_FIELDS,
-            "_": str(int(time.time() * 1000)),
-        }
         headers = {
             "User-Agent": (
                 "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
@@ -555,45 +553,56 @@ class StockAPI:
             ),
             "Referer": "https://quote.eastmoney.com/",
         }
-        try:
-            response = requests_get_with_retry(
-                cls.EM_ULIST_URL,
-                params=params,
-                headers=headers,
-                timeout=cls.BATCH_HTTP_TIMEOUT,
-                retries=0,
-            )
-            response.raise_for_status()
-            body = response.json()
-        except Exception:
-            logger.exception('unexpected error in _query_eastmoney_batch')
-            return {}
-        data = body.get("data") if isinstance(body, dict) else None
-        if not isinstance(data, dict):
-            return {}
-        diff = data.get("diff")
-        if isinstance(diff, dict):
-            rows = list(diff.values())
-        elif isinstance(diff, list):
-            rows = diff
-        else:
-            rows = []
         out: Dict[str, dict] = {}
         now = time.time()
-        for row in rows:
-            if not isinstance(row, dict):
+        chunk_n = max(1, int(cls.BATCH_CHUNK_SIZE or 80))
+        for i in range(0, len(secids), chunk_n):
+            chunk_secids = secids[i : i + chunk_n]
+            params = {
+                "secids": ",".join(chunk_secids),
+                "fields": cls.EM_FIELDS,
+                "_": str(int(time.time() * 1000)),
+            }
+            try:
+                response = requests_get_with_retry(
+                    cls.EM_ULIST_URL,
+                    params=params,
+                    headers=headers,
+                    timeout=cls.BATCH_HTTP_TIMEOUT,
+                    retries=0,
+                )
+                response.raise_for_status()
+                body = response.json()
+            except Exception:
+                logger.exception(
+                    "unexpected error in _query_eastmoney_batch chunk=%s",
+                    i // chunk_n,
+                )
                 continue
-            code = cls._match_em_row_code(row, codes, symbols_map)
-            if not code:
+            data = body.get("data") if isinstance(body, dict) else None
+            if not isinstance(data, dict):
                 continue
-            sym = symbols_map.get(code)
-            if not sym:
-                continue
-            parsed = cls._parse_em_data(code, sym, row)
-            if parsed.get("success"):
-                with cls._cache_lock:
-                    cls._cache[sym] = (now, dict(parsed))
-                out[code] = parsed
+            diff = data.get("diff")
+            if isinstance(diff, dict):
+                rows = list(diff.values())
+            elif isinstance(diff, list):
+                rows = diff
+            else:
+                rows = []
+            for row in rows:
+                if not isinstance(row, dict):
+                    continue
+                code = cls._match_em_row_code(row, codes, symbols_map)
+                if not code:
+                    continue
+                sym = symbols_map.get(code)
+                if not sym:
+                    continue
+                parsed = cls._parse_em_data(code, sym, row)
+                if parsed.get("success"):
+                    with cls._cache_lock:
+                        cls._cache[sym] = (now, dict(parsed))
+                    out[code] = parsed
         return out
 
     @classmethod

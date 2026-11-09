@@ -1034,6 +1034,81 @@ class TestAttachAndPersistLiveRanks(unittest.TestCase):
             save.assert_not_called()
         self.assertEqual(scored[0]["y_oo_rank"], 1)
 
+    def test_attach_skips_persist_on_fallback_score_day(self):
+        """昨收立方补洞不得落成今日名次快照，否则持仓表与手动开盘错位。"""
+        import os
+        import tempfile
+
+        from core.paper.rebalance.watching_matrix import attach_and_persist_live_ranks
+
+        scored = [
+            {
+                "stock_code": f"{i:06d}",
+                "lake_score_day": "2026-10-26",
+                "lake_score_fallback_from": "2026-11-09",
+            }
+            for i in range(1, 21)
+        ]
+
+        def _oo(items, score_codes=None, day_cube=None, clock="open"):
+            for i, it in enumerate(items):
+                it["y_oo_rank"] = i + 1
+                it["y_oo_rank_n"] = len(items)
+                it["y_tc_rank"] = i + 1
+                it["y_tc_rank_n"] = len(items)
+
+        with tempfile.TemporaryDirectory() as tmp:
+            path = os.path.join(tmp, "live_rank_snapshot.json")
+            with patch(
+                "core.paper.rebalance.watching_matrix._live_rank_snapshot_path",
+                return_value=path,
+            ), patch(
+                "core.paper.rebalance.watching_matrix._attach_oo_rank_scores",
+                side_effect=_oo,
+            ), patch(
+                "core.paper.rebalance.watching_matrix._attach_tc_rank_scores",
+                side_effect=_oo,
+            ), patch(
+                "core.paper.rebalance.watching_matrix.save_live_rank_snapshot"
+            ) as save:
+                attach_and_persist_live_ranks(
+                    scored, score_codes=None, clock="open", persist=True
+                )
+            save.assert_not_called()
+
+    def test_refresh_refuses_non_session_cube(self):
+        from core.paper.rebalance.watching_matrix import refresh_live_open_ranks
+
+        with patch(
+            "core.paper.rebalance.watching_matrix._resolve_live_rank_pool",
+            return_value=(
+                [f"{i:06d}" for i in range(1, 21)],
+                [f"{i:06d}" for i in range(1, 21)],
+                [],
+                {},
+            ),
+        ), patch(
+            "core.paper.rebalance.watching_matrix.read_cube_codes",
+            create=True,
+            return_value=[],
+        ), patch(
+            "core.research.materialize.coverage.read_cube_codes",
+            return_value=[],
+        ), patch(
+            "core.paper.rebalance.watching_matrix._try_score_pool_from_cube",
+            return_value=None,
+        ), patch(
+            "core.paper.rebalance.watching_matrix._score_pool",
+        ) as score_fn, patch(
+            "core.paper.rebalance.watching_matrix.attach_and_persist_live_ranks"
+        ) as attach:
+            out = refresh_live_open_ranks(paper={})
+        self.assertFalse(out.get("ok"))
+        self.assertEqual(out.get("error"), "open_session_unavailable")
+        self.assertEqual(out.get("error_code"), "materialize_required")
+        score_fn.assert_not_called()
+        attach.assert_not_called()
+
 
 class TestLiveRankSnapshot(unittest.TestCase):
     def test_today_snapshot_fills_holding_ranks(self):
@@ -1177,53 +1252,8 @@ class TestLiveRankSnapshot(unittest.TestCase):
         self.assertEqual(rows[0]["y_tc_rank"], 6)
 
 
-class TestLakeSessionHoleFill(unittest.TestCase):
-    def test_session_cube_holes_fill_from_fallback(self):
-        from core.paper.rebalance import watching_matrix as wm
-
-        session = (
-            [{"stock_code": "600000", "y_oo": 0.1}],
-            [{"stock_code": "000890", "reason": "L2 缺 2026-11-04"}],
-            object(),
-        )
-        filled = (
-            [
-                {
-                    "stock_code": "000890",
-                    "y_oo": 0.38,
-                    "lake_score_fallback_from": "2026-11-04",
-                }
-            ],
-            [],
-            object(),
-        )
-        calls = {"n": 0}
-
-        def _cube(*_a, **kw):
-            calls["n"] += 1
-            if kw.get("cycle_day_only"):
-                return session
-            self.assertEqual(kw.get("skip_days"), ["2026-11-04"])
-            return filled
-
-        with patch.object(wm, "_try_score_pool_from_cube", side_effect=_cube), patch(
-            "core.signal.session_pit.oo_cycle_date", return_value="2026-11-04"
-        ), patch(
-            "core.research.materialize.coverage.read_cube_codes",
-            return_value=["600000", "000890"],
-        ), patch.object(wm, "_consumer_score_clock", return_value="open"):
-            scored, rejected, _cube = wm._score_pool_from_lake(
-                ["600000", "000890"],
-                use_minute_tau=False,
-                refuse_day_fallback=False,
-            )
-        self.assertEqual(calls["n"], 2)
-        by = {it["stock_code"]: it for it in scored}
-        self.assertIn("000890", by)
-        self.assertEqual(by["000890"].get("y_oo"), 0.38)
-        self.assertEqual(rejected, [])
-
-    def test_refuse_day_fallback_keeps_session_holes(self):
+class TestLakeSessionHoles(unittest.TestCase):
+    def test_session_cube_holes_stay_rejected(self):
         from core.paper.rebalance import watching_matrix as wm
 
         session = (
@@ -1243,7 +1273,6 @@ class TestLakeSessionHoleFill(unittest.TestCase):
             scored, rejected, _c = wm._score_pool_from_lake(
                 ["600000", "000890"],
                 use_minute_tau=False,
-                refuse_day_fallback=True,
             )
         self.assertEqual(cube.call_count, 1)
         self.assertEqual(len(scored), 1)

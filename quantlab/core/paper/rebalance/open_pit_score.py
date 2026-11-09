@@ -1,15 +1,17 @@
-"""Live 开盘窗：会话日官方立方缺失时，用昨收日线 + 行情今开建内存截面。
+"""会话日开盘截面特征构建（物化写盘用）：昨收日线 + 行情今开。
 
 风格因子与训练面板同一套 PIT：X 只用 date < 会话日的日线，quote 是今开 / 昨收。
-今收不进 X。不写入官方 open L2。覆盖不足返回 None，由调用方拒单
-（禁止退昨日立方成交）。
+今收不进 X。
+
+仅供 ``materialize.session_open.materialize_session_open_l2`` 正式落官方 open DayCube。
+调仓 / 持仓出分 **不得** 直接消费本模块拼截面；缺 L2 → ``materialize_required``。
 """
 
 from __future__ import annotations
 
 import logging
 import math
-from typing import Any, Collection, Dict, List, Optional, Sequence, Tuple
+from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 logger = logging.getLogger(__name__)
 
@@ -485,7 +487,7 @@ def _feature_item(
         "trade_date": cycle_day,
         "trade_day": cycle_day,
         "success": True,
-        "_score_source": "open_pit",
+        "_score_source": "session_open_build",
         "lake_score_day": cycle_day,
         "day_open": float(ot),
         "open_t": float(ot),
@@ -591,73 +593,3 @@ def build_open_pit_feature_items(
         if code not in have and code not in {r.get("stock_code") for r in rejected}:
             rejected.append({"stock_code": code, "reason": f"open-pit 缺 {day}"})
     return scored, rejected, meta
-
-
-def score_open_pit_pool(
-    codes: Sequence[str],
-    *,
-    cycle_day: str,
-    cube_codes: Optional[Sequence[str]] = None,
-    score_codes: Optional[Collection[str]] = None,
-    paper: Optional[dict] = None,
-    quotes: Optional[Dict[str, dict]] = None,
-    stamp_heads,
-) -> Optional[Tuple[List[dict], List[dict], Any]]:
-    """建内存 DayCube（不落盘）并打 ŷ；覆盖不足返回 None。
-
-    返回 ``(scored, rejected, cube)``，cube 须显式交给 rank 头，勿只靠 remember。
-    """
-    from core.research.batch_score import features_by_code_from_items
-    from core.research.day_cube import build_day_cube, remember
-
-    uni = [str(c or "").strip() for c in (cube_codes or []) if str(c or "").strip()]
-    _scored_focus, rejected, meta = build_open_pit_feature_items(
-        codes,
-        cycle_day=cycle_day,
-        universe_codes=uni or codes,
-        quotes=quotes,
-    )
-    if not meta.get("ok"):
-        return None
-    pool_items = list(meta.get("pool_items") or [])
-    if len(pool_items) < 2:
-        return None
-
-    by_code = features_by_code_from_items(pool_items)
-    cube = build_day_cube(
-        cycle_day,
-        by_code,
-        clock="open",
-        universe_codes=uni or list(by_code),
-    )
-    if cube is None:
-        logger.info("open_pit build_day_cube failed day=%s", cycle_day)
-        return None
-    # 进程内可读；rank / 二次 resolve 仍应优先用返回的 cube 引用
-    remember(cube)
-
-    work = list(pool_items)
-    stamp_heads(
-        cube,
-        work,
-        score_codes=score_codes,
-        explain_codes=codes,
-        paper=paper,
-    )
-
-    want = {str(c or "").strip() for c in codes if str(c or "").strip()}
-    scored = (
-        [it for it in work if str(it.get("stock_code") or "") in want] if want else work
-    )
-    for it in scored:
-        it["_score_source"] = "open_pit"
-        it["lake_score_day"] = str(cycle_day)[:10]
-        it.pop("lake_score_fallback_from", None)
-    logger.info(
-        "open_pit score day=%s n_pool=%s n_scored=%s rejected=%s",
-        cycle_day,
-        len(pool_items),
-        len(scored),
-        len(rejected),
-    )
-    return scored, rejected, cube

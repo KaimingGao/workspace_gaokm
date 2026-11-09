@@ -217,9 +217,12 @@ class PaperAccountMixin:
                         holding_codes, paper=paper
                     )
                 except MaterializeRequired as exc:
-                    summary["score_error"] = str(
-                        (exc.to_dict() or {}).get("error") or exc
-                    )
+                    payload = exc.to_dict() or {}
+                    summary["score_error"] = str(payload.get("error") or exc)
+                    summary["error_code"] = payload.get("error_code") or "materialize_required"
+                    summary["hint"] = payload.get("hint")
+                    summary["request"] = payload.get("request")
+                    summary["cycle_day"] = payload.get("cycle_day")
                     return summary
                 by_item = {
                     str(it.get("stock_code") or "").strip(): it
@@ -441,6 +444,10 @@ class PaperAccountMixin:
                 "scored": len(by_code),
                 "selection_min_score": enriched.get("selection_min_score"),
                 "score_error": enriched.get("score_error"),
+                "error_code": enriched.get("error_code"),
+                "hint": enriched.get("hint"),
+                "request": enriched.get("request"),
+                "cycle_day": enriched.get("cycle_day"),
                 "offline_only": bool(offline_only),
             }
         finally:

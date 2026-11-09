@@ -463,6 +463,14 @@ class MaterializeRequest(BaseModel):
         description="物化训练网格 tc_HHMM L1（τc∪窗头；须本地 5m）",
     )
     do_l2: bool = True
+    do_session_open_l2: bool = Field(
+        default=False,
+        description="盘中补齐会话日官方 open L2（今开行情 + ≤T−1 日线落盘）",
+    )
+    cycle_day: Optional[str] = Field(
+        default=None,
+        description="会话日 YYYY-MM-DD；do_session_open_l2 时默认 oo_cycle_date()",
+    )
     lookback: int = Field(
         default=BARS_DAILY_LOOKBACK,
         ge=FIT_LOOKBACK_MIN,

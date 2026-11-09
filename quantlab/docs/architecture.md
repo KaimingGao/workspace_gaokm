@@ -389,7 +389,7 @@ Skill / Service / 研究 CLI
 
 产品流程（观察 · 模拟 · 回溯；观察≠模拟）：见 [quant-ui.md](quant-ui.md)。路由：`/watching` `/follow` `/replay`（`/paper` `/strategy` `/quant` 等仍可用）。见 `action_map.py`、`GET /api/quant/actions` 与 [quant.md · 入门概念](quant.md#量化入门概念)。
 
-**观察池**（Watching）：用户维护的**候选股票宇宙**（静态名单和/或 `screen` 筛选），落盘 `data/watching.json`，页 `/watching`。划定打分、行情预热、截面 μ/σ、调仓开加、回测宇宙的范围（上限默认 300、硬顶 `WATCHING_MAX_SIZE`=1600，研究枢纽可改）；**不是**持仓、**不是**全市场。持仓在模拟账本 `paper.json`。生产调仓主路径：观察池 → 开盘出分（立方 / open-pit）→ **y_oo_fuse 入场 + y_oo_rank 买序（rank_lots）**；建仓只从观察页进（见下「入口边界」）。做 T 不从池新开，只 overlay 已持底仓；分钟截面常为观察池 ∪ 持仓。细则见 [rebalance-logic.md](rebalance-logic.md) · [quant.md · ŷ](quant.md#predictedscoreŷ全链路)。
+**观察池**（Watching）：用户维护的**候选股票宇宙**（静态名单和/或 `screen` 筛选），落盘 `data/watching.json`，页 `/watching`。划定打分、行情预热、截面 μ/σ、调仓开加、回测宇宙的范围（上限默认 300、硬顶 `WATCHING_MAX_SIZE`=1600，研究枢纽可改）；**不是**持仓、**不是**全市场。持仓在模拟账本 `paper.json`。生产调仓主路径：观察池 → 会话日官方开盘 L2 出分（缺则物化补齐）→ **y_oo_fuse 入场 + y_oo_rank 买序（rank_lots）**；建仓只从观察页进（见下「入口边界」）。做 T 不从池新开，只 overlay 已持底仓；分钟截面常为观察池 ∪ 持仓。细则见 [rebalance-logic.md](rebalance-logic.md) · [quant.md · ŷ](quant.md#predictedscoreŷ全链路)。
 
 **研究宇宙 / 可交易严筛**：`data/research_universe.json` 为日线研究与观察池扩容的**门票池**，经 `core/universe/tradable_screen.py` 按 `data/tradable_universe_policy.json` 严筛（剔 ST、流通市值/成交额/价格带等）后写入。主入口 `POST /api/quant/research-universe/rebuild-and-reconcile`；运维可分步 `rebuild-tradable` / `reconcile-watching`。默认 **`watching ⊆ research_universe`**（`QUANTLAB_WATCHING_SUBSET_OF_RESEARCH=1`）；扩容只从研究池补，手工加票须已在研究池。回测剔 ST 时同步套用 policy 绝对成交额门槛。
 
@@ -1386,7 +1386,7 @@ quantlab/
 | 行情更新缓存 | [internal/bars-update-cache.md](internal/bars-update-cache.md) | 日线/5m 写仓读仓 · 指纹 · 已知缝 |
 | Feature Lake / DayCube | [internal/feature-lake-daycube.md](internal/feature-lake-daycube.md) | L1/L2 物化 · 写穿 · `allow_l1_end_lag` |
 | DayCube 宇宙键 | [internal/daycube-universe-key.md](internal/daycube-universe-key.md) | `universe_hash` |
-| Live open-pit | [internal/live-open-pit-rebalance.md](internal/live-open-pit-rebalance.md) | 早开盘今开截面 · 风格因子拒单 |
+| Live 开盘 L2 | [internal/live-open-pit-rebalance.md](internal/live-open-pit-rebalance.md) | 只读会话日 open 立方；缺则 `do_session_open_l2` |
 | 日线契约修补 | [internal/bars-update-plan.md](internal/bars-update-plan.md) | 四处缝改造顺序 |
 | AkShare vs Tushare | [internal/akshare-tushare-daily-compare.md](internal/akshare-tushare-daily-compare.md) | 日线对齐审计 |
 

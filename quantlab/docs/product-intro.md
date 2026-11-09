@@ -43,7 +43,7 @@
 
 ## 三、选股策略说明
 
-选股采用 **多因子横截面打分 + 双预测头**。核心流程：观察池 → `score_stock()`（日线 → 因子 → `score_bars` → `predicted_score`）→ 开盘立方 / open-pit 出分 → 调仓侧 **y_oo_fuse + y_oo_rank（rank_lots）**。
+选股采用 **多因子横截面打分 + 双预测头**。核心流程：观察池 → 会话日官方开盘 L2 出分（缺则 `do_session_open_l2` 物化）→ 调仓侧 **y_oo_fuse + y_oo_rank（rank_lots）**。
 
 - **因子库**：`core/signal/factors/`；元数据 `factors/meta/`。
 - **生产打分**：线性回归 / Ridge ŷ%（`ReturnScoreModel` · `factor_ols`）。

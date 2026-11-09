@@ -2775,12 +2775,17 @@ class QuantFactorMixin:
         do_l1: bool = True,
         do_l1_tau_grid: bool = False,
         do_l2: bool = True,
+        do_session_open_l2: bool = False,
+        cycle_day: Optional[str] = None,
         lookback: Optional[int] = None,
         watching_limit: int = WATCHING_MAX_SIZE,
         progress_cb: Optional[Any] = None,
         cancel_cb: Optional[Any] = None,
     ) -> Dict[str, Any]:
-        """同步物化特征（L1/L2）（可选 τ 网格 L1）。L1 与 open L2 共用 ``lookback``。"""
+        """同步物化特征（L1/L2）（可选 τ 网格 L1）。L1 与 open L2 共用 ``lookback``。
+
+        ``do_session_open_l2``：盘中补齐会话日官方 open 立方。
+        """
         from core.data.policy import BARS_DAILY_LOOKBACK
         from core.research.materialize import run_materialize
 
@@ -2790,6 +2795,8 @@ class QuantFactorMixin:
             do_l1=bool(do_l1),
             do_l1_tau_grid=bool(do_l1_tau_grid),
             do_l2=bool(do_l2),
+            do_session_open_l2=bool(do_session_open_l2),
+            cycle_day=cycle_day,
             lookback=int(lookback or BARS_DAILY_LOOKBACK),
             watching_limit=int(watching_limit or WATCHING_MAX_SIZE),
             progress_cb=progress_cb,
@@ -2804,6 +2811,8 @@ class QuantFactorMixin:
         do_l1: bool = True,
         do_l1_tau_grid: bool = False,
         do_l2: bool = True,
+        do_session_open_l2: bool = False,
+        cycle_day: Optional[str] = None,
         lookback: Optional[int] = None,
         watching_limit: int = WATCHING_MAX_SIZE,
     ) -> Dict[str, Any]:
@@ -2816,7 +2825,9 @@ class QuantFactorMixin:
 
         materialize_job.reclaim_if_stale()
         # open / τ / 混合 分 kind，避免日线与分钟线互抢同一 in-flight 结果
-        if do_l1_tau_grid and not do_l1:
+        if do_session_open_l2:
+            job_kind = "materialize_open"
+        elif do_l1_tau_grid and not do_l1:
             job_kind = "materialize_tau"
         elif do_l1 and not do_l1_tau_grid:
             job_kind = "materialize_open"
@@ -2826,7 +2837,10 @@ class QuantFactorMixin:
         watch_limit = clamp_watching_limit(
             watching_limit or WATCHING_MAX_SIZE, WATCHING_MAX_SIZE
         )
-        steps = (1 if do_l1 else 0) + (1 if do_l1_tau_grid else 0) + (1 if do_l2 else 0)
+        if do_session_open_l2:
+            steps = 1
+        else:
+            steps = (1 if do_l1 else 0) + (1 if do_l1_tau_grid else 0) + (1 if do_l2 else 0)
         # 原子开槽，避免 is_running→start 之间双开
         job_id, started_or_running = materialize_job.try_start(
             kind=job_kind,
@@ -2922,6 +2936,8 @@ class QuantFactorMixin:
                     do_l1=do_l1,
                     do_l1_tau_grid=do_l1_tau_grid,
                     do_l2=do_l2,
+                    do_session_open_l2=do_session_open_l2,
+                    cycle_day=cycle_day,
                     lookback=int(lookback or BARS_DAILY_LOOKBACK),
                     watching_limit=watch_limit,
                     progress_cb=_pcb,

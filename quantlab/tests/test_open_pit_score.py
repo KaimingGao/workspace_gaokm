@@ -1,9 +1,9 @@
-"""Live 开盘 open-pit：今开截面、覆盖闸、禁止写入官方立方。"""
+"""会话日 open 特征构建（物化写盘）与消费侧只读 L2 闸。"""
 
 from __future__ import annotations
 
 import unittest
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 
 def _bars(n: int = 70, *, last_day: str = "2026-10-27") -> list:
@@ -66,7 +66,7 @@ class TestOpenPitScore(unittest.TestCase):
         self.assertEqual(len(scored), 2)
         self.assertEqual(rejected, [])
         row = next(it for it in scored if it["stock_code"] == "600887")
-        self.assertEqual(row.get("_score_source"), "open_pit")
+        self.assertEqual(row.get("_score_source"), "session_open_build")
         self.assertEqual(row.get("lake_score_day"), "2026-10-28")
         self.assertNotIn("lake_score_fallback_from", row)
         self.assertAlmostEqual(float(row.get("day_open")), 29.06, places=4)
@@ -221,57 +221,7 @@ class TestOpenPitScore(unittest.TestCase):
         self.assertEqual(scored, [])
         self.assertEqual(meta.get("reason"), "open_cover_short")
 
-    def test_score_open_pit_does_not_save_cube(self) -> None:
-        from core.paper.rebalance.open_pit_score import score_open_pit_pool
-
-        codes = ["600887", "000001"]
-        pool_items = [
-            {
-                "stock_code": "600887",
-                "sub_scores": {"raw_aoo_GAP": 0.01, "raw_aoo_CLOSE0": 0.99},
-                "features_tau": {"raw_atc_x": 0.1},
-                "_score_source": "open_pit",
-                "lake_score_day": "2026-10-28",
-            },
-            {
-                "stock_code": "000001",
-                "sub_scores": {"raw_aoo_GAP": -0.01, "raw_aoo_CLOSE0": 1.01},
-                "features_tau": {"raw_atc_x": -0.1},
-                "_score_source": "open_pit",
-                "lake_score_day": "2026-10-28",
-            },
-        ]
-        meta = {
-            "ok": True,
-            "pool_items": pool_items,
-            "n_open": 2,
-            "n_items": 2,
-        }
-        stamp = MagicMock()
-        with patch(
-            "core.paper.rebalance.open_pit_score.build_open_pit_feature_items",
-            return_value=(pool_items, [], meta),
-        ), patch(
-            "core.research.day_cube.save_day_cube"
-        ) as save, patch(
-            "core.research.day_cube.remember"
-        ) as rem:
-            out = score_open_pit_pool(
-                codes,
-                cycle_day="2026-10-28",
-                cube_codes=codes,
-                stamp_heads=stamp,
-            )
-        self.assertIsNotNone(out)
-        scored, _rej, cube = out
-        self.assertEqual(len(scored), 2)
-        self.assertIsNotNone(cube)
-        self.assertTrue(all(it.get("_score_source") == "open_pit" for it in scored))
-        save.assert_not_called()
-        rem.assert_called()
-        stamp.assert_called()
-
-    def test_lake_prefers_session_cube_over_pit(self) -> None:
+    def test_lake_uses_session_cube(self) -> None:
         from core.paper.rebalance.watching_matrix import _score_pool_from_lake
 
         fake_cube = object()
@@ -301,43 +251,21 @@ class TestOpenPitScore(unittest.TestCase):
         ), patch(
             "core.paper.rebalance.watching_matrix._try_score_pool_from_cube",
             side_effect=[cube_hit],
-        ) as cube_fn, patch(
-            "core.paper.rebalance.watching_matrix._try_score_pool_from_open_pit"
-        ) as pit_fn:
+        ) as cube_fn:
             scored, rejected, got_cube = _score_pool_from_lake(
                 ["a", "b"],
                 use_minute_tau=False,
-                refuse_day_fallback=True,
             )
         self.assertEqual(rejected, [])
         self.assertEqual(len(scored), 2)
         self.assertIs(got_cube, fake_cube)
-        pit_fn.assert_not_called()
-        cube_fn.assert_called()
-        self.assertEqual(cube_fn.call_args.kwargs.get("cycle_day_only"), True)
+        cube_fn.assert_called_once()
 
-    def test_lake_uses_open_pit_when_session_cube_missing(self) -> None:
+    def test_lake_refuses_temp_fill_when_session_cube_missing(self) -> None:
+        """消费路径缺会话日 L2 → MaterializeRequired，不走临时补数。"""
         from core.paper.rebalance.watching_matrix import _score_pool_from_lake
+        from core.research.materialize.consumer import MaterializeRequired
 
-        fake_cube = object()
-        pit_hit = (
-            [
-                {
-                    "stock_code": "a",
-                    "lake_score_day": "2026-10-28",
-                    "_score_source": "open_pit",
-                    "y_oo": 0.11,
-                },
-                {
-                    "stock_code": "b",
-                    "lake_score_day": "2026-10-28",
-                    "_score_source": "open_pit",
-                    "y_oo": 0.22,
-                },
-            ],
-            [],
-            fake_cube,
-        )
         with patch(
             "core.signal.session_pit.oo_cycle_date", return_value="2026-10-28"
         ), patch(
@@ -346,19 +274,16 @@ class TestOpenPitScore(unittest.TestCase):
         ), patch(
             "core.paper.rebalance.watching_matrix._try_score_pool_from_cube",
             return_value=None,
-        ), patch(
-            "core.paper.rebalance.watching_matrix._try_score_pool_from_open_pit",
-            return_value=pit_hit,
         ):
-            scored, rejected, got_cube = _score_pool_from_lake(
-                ["a", "b"],
-                use_minute_tau=False,
-                refuse_day_fallback=True,
-            )
-        self.assertEqual(rejected, [])
-        self.assertIs(got_cube, fake_cube)
-        self.assertTrue(all(it.get("_score_source") == "open_pit" for it in scored))
-        self.assertTrue(all(it.get("lake_score_day") == "2026-10-28" for it in scored))
+            with self.assertRaises(MaterializeRequired) as ctx:
+                _score_pool_from_lake(
+                    ["a", "b"],
+                    use_minute_tau=False,
+                )
+        payload = ctx.exception.to_dict()
+        self.assertEqual(payload.get("error_code"), "materialize_required")
+        self.assertIn("开盘 L2", str(payload.get("error") or ""))
+        self.assertTrue((payload.get("request") or {}).get("do_session_open_l2"))
 
     def test_simulate_passes_day_cube_to_rank(self) -> None:
         """调仓预演把出分立方显式交给 oo/τc rank。"""

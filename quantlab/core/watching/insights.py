@@ -798,7 +798,7 @@ def _insight_one(
         out["sub_scores"] = item.get("sub_scores") or {}
         out["score_formula_terms"] = item.get("score_formula_terms")
         asof_eod = item.get("eod_feature_as_of")
-        # 湖出分日；浏览路径可能带 lake_score_fallback_from（落账禁用）
+        # 湖出分日；保留历史行上的 lake_score_fallback_from 供 tip 展示
         lake_day = str(item.get("lake_score_day") or item.get("as_of") or "")[:10]
         if len(lake_day) >= 10:
             out["lake_score_day"] = lake_day

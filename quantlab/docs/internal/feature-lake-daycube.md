@@ -211,7 +211,7 @@ panel meta 额外写入：
 | 做 T 回测 | `tc_HHMM` + 分钟钟 L2 | 分钟线物化 |
 | 调仓回测 / 出分 / ŷ_oo | oo/tc + open L2 | 日线物化 |
 
-产品入口打开 ``QUANTLAB_MATERIALIZE_CONSUMER``。缺覆盖返回 ``materialize_required``；``request`` 按缺口分流（仅 τ → ``do_l1_tau_grid``；仅 open → ``do_l1``）。特征与截面 μ/σ 只读已写好的 L1/L2（开盘钟 live 缺当日 open 立方时例外：见下节 open-pit）。分钟 L2 生产允许空 oo panel（空 dict ≠ 取消）。调仓出分优先会话日同钟 L2；开盘钟可现场建今开截面。
+产品入口打开 ``QUANTLAB_MATERIALIZE_CONSUMER``。缺覆盖返回 ``materialize_required``；``request`` 按缺口分流（仅 τ → ``do_l1_tau_grid``；仅 open → ``do_l1``）。特征与截面 μ/σ **只读**已写好的 L1/L2（拟合 / 回测 / live 同口径；**禁止**消费侧 open-pit 临时补数）。分钟 L2 生产允许空 oo panel（空 dict ≠ 取消）。调仓出分优先会话日同钟 L2。
 
 L1 存的是特征行和拟合标签 y，不存可成交价格。消费方仍读日线或分钟线的只有这三件事：
 
@@ -263,8 +263,7 @@ L1 存的是特征行和拟合标签 y，不存可成交价格。消费方仍读
 产品调仓（``PaperService.rebalance``）、数据中心观察摘要、持仓表 ŷ 打开消费开关：
 
 1. **会话日同钟官方立方**命中 → 读 L2 ``X_raw`` / μ/σ 出 ŷ 与 rank。  
-2. **开盘钟**且会话日 open 立方缺失 → **open-pit**（昨收日线 + 行情今开，内存立方不落盘）；ŷ_oo / ŷ_τc / rank 同立方。落账禁止回退昨日立方。  
-3. 浏览 / 预演在 pit 仍失败时可带 ``lake_score_fallback_from`` 读昨收周期；持仓补名次**不再**回退昨日快照。  
+2. 会话日立方缺失 → ``materialize_required``（手动预演 / 落账 / 持仓与观察摘要同口径）；**禁止**昨收回退与临时拼截面。开盘钟可经 ``do_session_open_l2`` 正式补齐后重试。   
 
 报价和落账价格另读行情或日线。观察摘要按整池宇宙哈希读立方。细节见 [live-open-pit-rebalance.md](./live-open-pit-rebalance.md)。
 

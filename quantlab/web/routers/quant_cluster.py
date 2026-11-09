@@ -60,6 +60,8 @@ def quant_materialize(body: MaterializeRequest) -> Dict[str, Any]:
         do_l1=bool(body.do_l1),
         do_l1_tau_grid=bool(body.do_l1_tau_grid),
         do_l2=bool(body.do_l2),
+        do_session_open_l2=bool(getattr(body, "do_session_open_l2", False)),
+        cycle_day=(str(body.cycle_day)[:10] if getattr(body, "cycle_day", None) else None),
         lookback=body.lookback,
         watching_limit=body.watching_limit,
     )
