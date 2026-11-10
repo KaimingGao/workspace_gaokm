@@ -1,10 +1,12 @@
-"""滚动验证（研究枢纽）：A 档 walk-forward Top1 闸门，不写模型。
+"""滚动验证（研究枢纽）：A 档 walk-forward 相对分闸门，不写模型。
 
 宇宙 = 观察池 ∩ 可预测性 A 档（读 ``predictability_tiers_last``），缩小内存与算量。
-OO：ŷ_oo>y_min 且 A 档内 oo_rank=1（LambdaRank）
-τc：ŷ_τc>y_min 且 A 档内 τc_rank=1（开盘钟 LambdaRank）
+OO：ŷ_oo>y_min 且 oo_rank 相对分 > rank_score_min，按相对分降序最多取 top_n
+τc：ŷ_τc>y_min 且 τc_rank 相对分 > rank_score_min（开盘钟），按相对分降序最多取 top_n
+有仓日收益 = 入选等权均值；命中 = 等权收益 > 0。
 
-默认 lookback=500、holdout=10、folds=3、y_min=0.2（百分点）。
+默认 lookback=500、holdout=10、folds=3、y_min=0.2、rank_score_min=0.3、top_n=10。
+API / Job wire：``roll-gate``；落盘 ``roll_gate_last.json`` / ``jobs/roll_gate.json``。
 """
 
 from __future__ import annotations
@@ -26,6 +28,8 @@ DEFAULT_LOOKBACK = 500
 DEFAULT_HOLDOUT = 10
 DEFAULT_FOLDS = 3
 DEFAULT_Y_MIN = 0.2  # 百分点
+DEFAULT_RANK_SCORE_MIN = 0.3  # oo_rank / τc_rank 相对分
+DEFAULT_TOP_N = 10  # 过闸后按相对分最多取 N
 DEFAULT_RIDGE_LAMBDA = 1.0
 
 ProgressCb = Optional[Callable[[int, int, str], None]]
@@ -51,13 +55,26 @@ def _set_progress(**kwargs: Any) -> None:
 
 
 def last_path() -> str:
-    from core.paths import ROLL_GATE_TOP1_LAST_PATH
+    """规范落盘路径（写入只用此路径）。"""
+    from core.paths import ROLL_GATE_LAST_PATH
 
-    return ROLL_GATE_TOP1_LAST_PATH
+    return ROLL_GATE_LAST_PATH
+
+
+def resolved_last_path() -> str:
+    """可读路径：优先规范文件，否则旧 ``roll_gate_top1_last.json``。"""
+    from core.paths import ROLL_GATE_LAST_LEGACY_PATH
+
+    path = last_path()
+    if os.path.isfile(path):
+        return path
+    if os.path.isfile(ROLL_GATE_LAST_LEGACY_PATH):
+        return ROLL_GATE_LAST_LEGACY_PATH
+    return path
 
 
 def load_last() -> Optional[Dict[str, Any]]:
-    path = last_path()
+    path = resolved_last_path()
     if not os.path.isfile(path):
         return None
     try:
@@ -293,13 +310,16 @@ def _model_to_ridge_dict(model: Any) -> Optional[dict]:
     return out
 
 
-def _pick_gated_top1(
+def _pick_gated_top_n(
     day: dict,
     *,
     y_preds: Sequence[Any],
     rank_preds: Sequence[Any],
     y_min: float,
+    rank_score_min: float = DEFAULT_RANK_SCORE_MIN,
+    top_n: int = DEFAULT_TOP_N,
 ) -> Dict[str, Any]:
+    """过 ŷ 与相对分闸后，按相对分降序最多取 top_n；等权收益，否则空闸。"""
     codes = [str(c) for c in (day.get("codes") or [])]
     ys = list(day.get("ys") or [])
     n = len(codes)
@@ -319,22 +339,38 @@ def _pick_gated_top1(
     if not rows:
         return {"empty": True, "reason": "no_rows"}
     rows.sort(key=lambda t: (-t[2], t[0]))
-    code, y_hat, score, lab = rows[0]
-    if y_hat <= float(y_min):
+    score_thr = float(rank_score_min)
+    y_thr = float(y_min)
+    k = max(1, int(top_n or DEFAULT_TOP_N))
+    passed = [
+        (code, y_hat, score, lab)
+        for code, y_hat, score, lab in rows
+        if score > score_thr and y_hat > y_thr
+    ]
+    if not passed:
+        code, y_hat, score, _lab = rows[0]
+        reason = "rank_score" if score <= score_thr else "y_gate"
         return {
             "empty": True,
-            "reason": "y_gate",
+            "reason": reason,
             "code": code,
             "y_hat": y_hat,
             "rank_score": score,
+            "n_picks": 0,
         }
+    picked = passed[:k]
+    labs = [lab for _c, _y, _s, lab in picked]
+    mean_lab = sum(labs) / len(labs)
+    top_code, top_y, top_score, _ = picked[0]
     return {
         "empty": False,
-        "code": code,
-        "y_hat": y_hat,
-        "rank_score": score,
-        "label": lab,
-        "hit": 1 if lab > 1e-12 else 0,
+        "code": top_code,
+        "y_hat": top_y,
+        "rank_score": top_score,
+        "label": mean_lab,
+        "hit": 1 if mean_lab > 1e-12 else 0,
+        "n_picks": len(picked),
+        "codes": [c for c, _y, _s, _lab in picked],
     }
 
 
@@ -400,12 +436,14 @@ def _sum_arm(folds: Sequence[dict], key: str) -> Dict[str, Any]:
     return out
 
 
-def run_roll_gate_top1(
+def run_roll_gate(
     *,
     lookback: int = DEFAULT_LOOKBACK,
     holdout: int = DEFAULT_HOLDOUT,
     folds: int = DEFAULT_FOLDS,
     y_min: float = DEFAULT_Y_MIN,
+    rank_score_min: float = DEFAULT_RANK_SCORE_MIN,
+    top_n: int = DEFAULT_TOP_N,
     ridge_lambda: float = DEFAULT_RIDGE_LAMBDA,
     progress_cb: ProgressCb = None,
     persist: bool = True,
@@ -423,11 +461,26 @@ def run_roll_gate_top1(
     hold_n = max(1, min(30, int(holdout or DEFAULT_HOLDOUT)))
     n_folds = max(1, min(20, int(folds or DEFAULT_FOLDS)))
     try:
-        y_gate = float(y_min if y_min is not None else DEFAULT_Y_MIN)
+        y_min = float(y_min if y_min is not None else DEFAULT_Y_MIN)
     except (TypeError, ValueError):
-        y_gate = float(DEFAULT_Y_MIN)
-    if y_gate != y_gate:  # NaN
-        y_gate = float(DEFAULT_Y_MIN)
+        y_min = float(DEFAULT_Y_MIN)
+    if y_min != y_min:  # NaN
+        y_min = float(DEFAULT_Y_MIN)
+    try:
+        rank_score_min = float(
+            rank_score_min
+            if rank_score_min is not None
+            else DEFAULT_RANK_SCORE_MIN
+        )
+    except (TypeError, ValueError):
+        rank_score_min = float(DEFAULT_RANK_SCORE_MIN)
+    if rank_score_min != rank_score_min:  # NaN
+        rank_score_min = float(DEFAULT_RANK_SCORE_MIN)
+    try:
+        top_n = int(top_n if top_n is not None else DEFAULT_TOP_N)
+    except (TypeError, ValueError):
+        top_n = int(DEFAULT_TOP_N)
+    top_n = max(1, min(100, top_n))
     run_id = str(job_id or "").strip() or None
     need = lb + hold_n * n_folds + 40
 
@@ -572,8 +625,13 @@ def run_roll_gate_top1(
                         oo_m, xx, names, list(range(n)), row_dates=[date] * n
                     )
                     rk_preds = _predict_oo_rank_matrix(oo_rk, od)
-                    pick = _pick_gated_top1(
-                        od, y_preds=y_preds, rank_preds=rk_preds, y_min=y_gate
+                    pick = _pick_gated_top_n(
+                        od,
+                        y_preds=y_preds,
+                        rank_preds=rk_preds,
+                        y_min=y_min,
+                        rank_score_min=rank_score_min,
+                        top_n=top_n,
                     )
                     oo_day_rows.append({**base, **pick})
 
@@ -582,8 +640,13 @@ def run_roll_gate_top1(
             else:
                 y_preds = _predict_ridge_matrix(tau_fit, td)
                 rk_preds = _predict_oo_rank_matrix(tc_rk, td)
-                pick = _pick_gated_top1(
-                    td, y_preds=y_preds, rank_preds=rk_preds, y_min=y_gate
+                pick = _pick_gated_top_n(
+                    td,
+                    y_preds=y_preds,
+                    rank_preds=rk_preds,
+                    y_min=y_min,
+                    rank_score_min=rank_score_min,
+                    top_n=top_n,
                 )
                 tc_day_rows.append({**base, **pick})
 
@@ -605,7 +668,9 @@ def run_roll_gate_top1(
                 "lookback": lb,
                 "holdout": hold_n,
                 "folds": n_folds,
-                "y_min": y_gate,
+                "y_min": y_min,
+                "rank_score_min": rank_score_min,
+                "top_n": top_n,
                 "universe": "tier_a",
             },
             "window": {
@@ -644,7 +709,9 @@ def run_roll_gate_top1(
                 "lookback": lb,
                 "holdout": hold_n,
                 "folds": n_folds,
-                "y_min": y_gate,
+                "y_min": y_min,
+                "rank_score_min": rank_score_min,
+                "top_n": top_n,
                 "universe": "tier_a",
             },
             "window": {
@@ -673,7 +740,9 @@ def run_roll_gate_top1(
             "lookback": lb,
             "holdout": hold_n,
             "folds": n_folds,
-            "y_min": y_gate,
+            "y_min": y_min,
+            "rank_score_min": rank_score_min,
+            "top_n": top_n,
             "universe": "tier_a",
             "embargo": 1,
             "oo_rank_backend": "lambdarank",
@@ -706,20 +775,22 @@ def run_roll_gate_top1(
     return doc
 
 
-def start_roll_gate_top1_job(
+def start_roll_gate_job(
     *,
     lookback: int = DEFAULT_LOOKBACK,
     holdout: int = DEFAULT_HOLDOUT,
     folds: int = DEFAULT_FOLDS,
     y_min: float = DEFAULT_Y_MIN,
+    rank_score_min: float = DEFAULT_RANK_SCORE_MIN,
+    top_n: int = DEFAULT_TOP_N,
 ) -> Dict[str, Any]:
     """后台开槽跑；返回 job 快照。"""
-    from core.job_progress import roll_gate_top1_job
+    from core.job_progress import roll_gate_job
 
-    roll_gate_top1_job.reclaim_if_stale()
+    roll_gate_job.reclaim_if_stale()
     n_folds = max(1, min(20, int(folds or DEFAULT_FOLDS)))
-    job_id, started_or_running = roll_gate_top1_job.try_start(
-        kind="roll_gate_top1",
+    job_id, started_or_running = roll_gate_job.try_start(
+        kind="roll-gate",
         total=n_folds,
         message="排队中…",
     )
@@ -729,7 +800,7 @@ def start_roll_gate_top1_job(
             "success": True,
             "background": True,
             "reused": True,
-            "job": started_or_running or roll_gate_top1_job.get(),
+            "job": started_or_running or roll_gate_job.get(),
         }
 
     # 新开槽：清掉上一轮内存 partial，避免 UI 把旧折表当成当前进度
@@ -748,14 +819,14 @@ def start_roll_gate_top1_job(
         def _hb() -> None:
             while not stop_hb.wait(30.0):
                 try:
-                    roll_gate_top1_job.touch(job_id=job_id)
+                    roll_gate_job.touch(job_id=job_id)
                 except Exception:  # noqa: BLE001
                     break
 
         def _pcb(cur: int, tot: int, msg: str) -> None:
             try:
                 pct = 100.0 * float(cur) / float(max(1, tot))
-                roll_gate_top1_job.update(
+                roll_gate_job.update(
                     current=int(cur),
                     total=int(tot),
                     pct=pct,
@@ -766,46 +837,48 @@ def start_roll_gate_top1_job(
                 logger.debug("roll_gate job update failed", exc_info=True)
 
         threading.Thread(
-            target=_hb, name="roll-gate-top1-hb", daemon=True
+            target=_hb, name="roll-gate-hb", daemon=True
         ).start()
         try:
-            result = run_roll_gate_top1(
+            result = run_roll_gate(
                 lookback=lookback,
                 holdout=holdout,
                 folds=folds,
                 y_min=y_min,
+                rank_score_min=rank_score_min,
+                top_n=top_n,
                 progress_cb=_pcb,
                 persist=True,
                 job_id=job_id,
             )
             if result.get("success"):
                 try:
-                    roll_gate_top1_job.update(
+                    roll_gate_job.update(
                         message="滚动验证完成", job_id=job_id
                     )
                 except Exception:  # noqa: BLE001
                     pass
-                roll_gate_top1_job.finish(result=result, job_id=job_id)
+                roll_gate_job.finish(result=result, job_id=job_id)
             else:
-                roll_gate_top1_job.finish(
+                roll_gate_job.finish(
                     error=str(result.get("error") or "failed"),
                     job_id=job_id,
                 )
         except Exception as exc:  # noqa: BLE001
-            logger.exception("roll_gate_top1 job failed")
+            logger.exception("roll_gate job failed")
             try:
-                roll_gate_top1_job.finish(error=str(exc), job_id=job_id)
+                roll_gate_job.finish(error=str(exc), job_id=job_id)
             except Exception:  # noqa: BLE001
                 pass
             _set_progress(status="failed", message=str(exc))
         finally:
             stop_hb.set()
 
-    threading.Thread(target=_worker, name="roll-gate-top1", daemon=True).start()
+    threading.Thread(target=_worker, name="roll-gate", daemon=True).start()
     return {
         "ok": True,
         "success": True,
         "background": True,
         "reused": False,
-        "job": roll_gate_top1_job.get(),
+        "job": roll_gate_job.get(),
     }

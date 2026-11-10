@@ -809,7 +809,7 @@ A 改进「估得准」；B 改进「做得对」。北极星乘积两者都要�
 | **物化写穿** | 物化写入时日线新于湖必须重算（`allow_l1_end_lag()=False`），禁止只切交集仍报成功 | [internal/feature-lake-daycube.md](internal/feature-lake-daycube.md) |
 | **舆情标签** | 读 `news.db` 决策窗标签写表列；规则栏已下掉软先验闸；不进 ŷ | [component/risk.md](component/risk.md#舆情与另类数据sentiment-altdata) |
 | **今日收益** | `当前净值 − session_nav[昨收]`；快照裁剪后仍可对账 | [rebalance-logic.md](rebalance-logic.md) · [quant-ui.md](quant-ui.md) `/follow` |
-| **滚动验证** | 研究枢纽 Walk-forward Top1（默认 **A 档**）；不写模型 | [quant-ui.md](quant-ui.md) `#quant-section-roll-gate` |
+| **滚动验证** | 研究枢纽 Walk-forward 相对分闸（默认 **A 档**；ŷ>0.2% ∧ `rank_score>0.3` · `top_n=10` 等权）；Job `roll-gate`；不写模型 | [quant-ui.md](quant-ui.md) `#quant-section-roll-gate` |
 
 <a id="13-盘中剩余收益头intraday-residual方案"></a>
 

@@ -13,7 +13,7 @@ from core.platform.job_progress import (  # noqa: F401
     portfolio_backtest_job,
     public_refresh_job_snapshot,
     quant_ols_clusters_job,
-    roll_gate_top1_job,
+    roll_gate_job,
     t0_backtest_job,
     t30_ridge_job,
     t45_ridge_job,

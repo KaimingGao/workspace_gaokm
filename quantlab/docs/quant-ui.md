@@ -534,7 +534,7 @@ OMS 级盘口布局仍禁止。
 - **ŷ_oo_rank**：同窗 LambdaRank+Ridge（Ridge 仅对照）；标签 **100 档**相关度；鲁棒默认 truncation=100 / z±3 / min_leaf=50 / L2=5；固定落盘 LambdaRank；训练档多选 A/B/C（不选=整池，截面 z 仍整池）；过入场后买序按相对分；与 τc_rank 共用 `/replay` **rank 阈值**（限制 oo_rank / τc_rank 相对分，不是 y_oo / y_τc）。对照板**主看 Gate lift**（IC 仅对照；胜场仅展示，**不择优**；落盘固定 LambdaRank）；meta：Holdout / 训日 / 测日之后挂 **训行 · 测行 · 票**，并标 **落盘=LambdaRank（Ridge 仅对照，不择优）**。卡头若仍显示落盘 Ridge：有同窗 LambdaRank 包则**重新启用研究**即可（不重训）；否则先拟合
 - **ŷ_τc_rank**：同协议；不进 fuse、不改买序；对照板同 ŷ_oo_rank（Gate lift 主）
 - **ŷ_τ30…90**：`P(窗收益>0)` 双 backend；Holdout AUC 择优
-- **滚动验证**（`#quant-section-roll-gate`）：Walk-forward Top1 · **A 档** lookback 500 · holdout 10×3 · ŷ>0.2% ∧ rank=1 · oo/τc 两臂；不写模型；蓝主按钮 + 上次执行时间；Job `roll-gate-top1`
+- **滚动验证**（`#quant-section-roll-gate`）：Walk-forward 相对分闸 · **A 档** lookback 500 · holdout 10×3 · ŷ>0.2% ∧ `rank_score>0.3` · 按分最多 **top_n=10** 等权 · oo/τc 两臂；不写模型；蓝主按钮 + 上次执行时间；Job `roll-gate`
 
 ### `/platform` 平台
 

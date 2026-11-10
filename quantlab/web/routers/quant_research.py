@@ -229,31 +229,31 @@ def quant_tc_rank_model() -> Dict[str, Any]:
         raise HTTPException(status_code=500, detail=str(e)) from e
 
 
-@router.post("/api/quant/roll-gate-top1")
-def quant_roll_gate_top1() -> Dict[str, Any]:
-    """滚动验证：A 档 lookback500 · holdout10×3 · oo/τc 两臂；后台 Job，不写模型。
+@router.post("/api/quant/roll-gate")
+def quant_roll_gate() -> Dict[str, Any]:
+    """滚动验证：A 档 lookback500 · holdout10×3 · ŷ>0.2% ∧ rank_score>0.3 · top_n=10 等权 · oo/τc 两臂；后台 Job，不写模型。
 
-    轮询 ``GET /api/jobs/roll-gate-top1?progress=1``；折表读 ``GET /api/quant/roll-gate-top1/last``。
+    轮询 ``GET /api/jobs/roll-gate?progress=1``；折表读 ``GET /api/quant/roll-gate/last``。
     """
-    from core.research.roll_gate_top1 import start_roll_gate_top1_job
+    from core.research.roll_gate import start_roll_gate_job
 
     try:
-        return start_roll_gate_top1_job()
+        return start_roll_gate_job()
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e)) from e
 
 
-@router.get("/api/quant/roll-gate-top1/progress")
-def quant_roll_gate_top1_progress() -> Dict[str, Any]:
+@router.get("/api/quant/roll-gate/progress")
+def quant_roll_gate_progress() -> Dict[str, Any]:
     """滚动验证进度（内存快照 + Job 槽）。"""
-    from core.job_progress import roll_gate_top1_job
-    from core.research.roll_gate_top1 import progress_snapshot
+    from core.job_progress import roll_gate_job
+    from core.research.roll_gate import progress_snapshot
 
     try:
-        roll_gate_top1_job.reclaim_if_stale()
+        roll_gate_job.reclaim_if_stale()
     except Exception:  # noqa: BLE001
         pass
-    job = roll_gate_top1_job.get()
+    job = roll_gate_job.get()
     snap = progress_snapshot()
     # 进度轮询不附逐日明细，避免大 JSON
     slim = {
@@ -305,14 +305,19 @@ def quant_roll_gate_top1_progress() -> Dict[str, Any]:
     return {"ok": True, "progress": slim, "job": job}
 
 
-@router.get("/api/quant/roll-gate-top1/last")
-def quant_roll_gate_top1_last() -> Dict[str, Any]:
+@router.get("/api/quant/roll-gate/last")
+def quant_roll_gate_last() -> Dict[str, Any]:
     """读取上次滚动验证结果（含逐日明细）。"""
-    from core.research.roll_gate_top1 import attach_saved_at, last_path, load_last
+    from core.research.roll_gate import (
+        attach_saved_at,
+        last_path,
+        load_last,
+        resolved_last_path,
+    )
 
     try:
-        path = last_path()
         last = load_last()
+        path = resolved_last_path() if last else last_path()
         if not last:
             return {
                 "success": False,

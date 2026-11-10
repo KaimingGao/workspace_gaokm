@@ -6,7 +6,7 @@ import {
   jobTimings,
 } from "./cluster_job_ui.js";
 
-/** 研究枢纽 · 滚动验证（A 档 walk-forward Top1 闸门，不写模型） */
+/** 研究枢纽 · 滚动验证（A 档 walk-forward 相对分闸门，不写模型） */
 export function installRollGateUi(q) {
   const { on, apiFetch, escapeHtml } = q;
   const chip = document.getElementById("quant-rg-chip");
@@ -539,6 +539,7 @@ export function installRollGateUi(q) {
     ok: "—",
     empty: "空闸",
     y_gate: "ŷ 门槛",
+    rank_score: "相对分",
     no_day: "无截面",
     bad_day: "截面坏",
     no_rows: "无有效行",
@@ -616,16 +617,19 @@ export function installRollGateUi(q) {
         const out = dayOutcome(d);
         let cls = "is-empty";
         let title = `${d.date || ""} · ${out.label}`;
+        const nPicks = Number(d.n_picks) || (d.code ? 1 : 0);
+        const codeBit =
+          d.code && nPicks > 1 ? `${d.code}×${nPicks}` : d.code || "";
         if (out.kind === "empty") {
           empty += 1;
         } else if (out.kind === "hit") {
           hit += 1;
           cls = "is-hit";
-          title = `${d.date || ""} · 命中 · ${d.code || ""}`;
+          title = `${d.date || ""} · 命中 · ${codeBit}`;
         } else {
           miss += 1;
           cls = "is-miss";
-          title = `${d.date || ""} · 未中 · ${d.code || ""}`;
+          title = `${d.date || ""} · 未中 · ${codeBit}`;
         }
         return `<button type="button" class="quant-rg-dot ${cls}" data-day-idx="${i}" title="${escapeHtml(
           title
@@ -671,7 +675,16 @@ export function installRollGateUi(q) {
         const foldChanged =
           prevFold != null && String(d.fold) !== String(prevFold);
         prevFold = d.fold;
-        const code = d.code ? String(d.code) : "—";
+        const nPicks = Number(d.n_picks) || (d.code && !empty ? 1 : 0);
+        const code = d.code
+          ? nPicks > 1
+            ? `${d.code}×${nPicks}`
+            : String(d.code)
+          : "—";
+        const codeTitle =
+          Array.isArray(d.codes) && d.codes.length
+            ? d.codes.join(" ")
+            : String(d.code || "");
         const y = fmtDayY(d.y_hat);
         const lab = fmtDayLabel(d.label, empty);
         const note = dayNote(d);
@@ -693,7 +706,7 @@ export function installRollGateUi(q) {
           <td class="quant-rg-day-out"><span class="quant-rg-out quant-rg-out--${out.kind}">${escapeHtml(
             out.label
           )}</span></td>
-          <td class="quant-rg-day-code">${escapeHtml(code)}</td>
+          <td class="quant-rg-day-code" title="${escapeHtml(codeTitle)}">${escapeHtml(code)}</td>
           <td class="num quant-rg-day-y">${escapeHtml(y)}</td>
           <td class="num quant-rg-day-ret ${retTone(
             empty ? null : d.label
@@ -781,7 +794,7 @@ export function installRollGateUi(q) {
   }
 
   async function fetchLast() {
-    const { ok, data } = await apiFetch("/api/quant/roll-gate-top1/last");
+    const { ok, data } = await apiFetch("/api/quant/roll-gate/last");
     if (!ok || !data || data.exists === false || data.success === false) {
       return null;
     }
@@ -790,7 +803,7 @@ export function installRollGateUi(q) {
 
   async function fetchProgress() {
     const { ok, data } = await apiFetch(
-      "/api/quant/roll-gate-top1/progress"
+      "/api/quant/roll-gate/progress"
     );
     if (!ok || !data) return null;
     return data;
@@ -972,7 +985,7 @@ export function installRollGateUi(q) {
         );
       } else {
         applyDoc(null);
-        setStatus("idle", "未跑", "Walk-forward · Top1 闸门 · 不入库");
+        setStatus("idle", "未跑", "Walk-forward · rank_score>0.3 · top_n=10 · 不入库");
       }
       return last;
     } catch (err) {
@@ -1006,7 +1019,7 @@ export function installRollGateUi(q) {
     });
     try {
       const { ok, data, error } = await apiFetch(
-        "/api/quant/roll-gate-top1",
+        "/api/quant/roll-gate",
         { method: "POST" }
       );
       if (!ok || !data || data.success === false) {
