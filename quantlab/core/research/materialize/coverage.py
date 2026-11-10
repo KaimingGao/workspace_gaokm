@@ -407,13 +407,9 @@ def assess_coverage(
             out.append(key)
         return out
 
-    if universe_changed:
-        hint = "日线物化"
-        lead = "观察池已变，请按当前池重跑日线物化"
-        do_l1, do_tau = True, False
-        req_fams = [f for f in fams if f in _OPEN_FAMILIES] or list(_OPEN_DEFAULT)
-        req_clks = ["open"]
-    elif has_minute and not has_open:
+    # universe_changed 只加说明，不吞分钟缺口（旧 hash 残留不得逼成只修 open）
+    univ_note = "观察池已变，请按当前池重跑" if universe_changed else ""
+    if has_minute and not has_open:
         hint = "分钟线物化"
         lead = "请先分钟线物化特征（L1/L2）"
         do_l1, do_tau = False, True
@@ -439,6 +435,8 @@ def assess_coverage(
         do_l1, do_tau = True, True
         req_fams = [f for f in fams if f in _OPEN_FAMILIES] or list(_OPEN_DEFAULT)
         req_clks = _dedupe_clocks(clks) or ["open"]
+    if univ_note:
+        lead = f"{univ_note}；{lead}"
     error = lead
     detail = _coverage_error_bits(problems)
     if detail:
@@ -500,6 +498,23 @@ def enforce_consumer_coverage(
     keep = _loaded_lookback(items, min_history)
     if keep and len(dates) > keep:
         dates = dates[-keep:]
+    if len(codes) < 2 or not dates:
+        # 消费闸：空窗不得 skipped=ok 放行
+        from core.research.materialize.consumer import hint_for_family
+
+        fam0 = str((families or [None])[0] or "")
+        hint = hint_for_family(fam0) if fam0 else "日线物化"
+        raise MaterializeRequired(
+            {
+                "error_code": "materialize_required",
+                "error": "无可评分日或宇宙不足 2 只；请先补齐日线并物化",
+                "hint": hint,
+                "families": list(families or []),
+                "clocks": list(clocks or []),
+                "n_codes": len(codes),
+                "n_dates": len(dates),
+            }
+        )
     got = read_cube_codes()
     report = assess_coverage(
         codes,

@@ -98,7 +98,7 @@ class CoverPolicyUnitTests(unittest.TestCase):
         )
         self.assertIn("立方 09:35", text)
         self.assertIn("hit+built=0/50", text)
-        self.assertIn("need≥25", text)
+        self.assertIn("need≥50", text)
         self.assertIn("slim_reject=50", text)
 
     def test_probe_must_not_scale_calendar_span(self) -> None:
@@ -108,6 +108,39 @@ class CoverPolicyUnitTests(unittest.TestCase):
         row = {"n_stocks": 798, "n_dates": 192}
         self.assertFalse(_clock_reaches_lake(row, n_eligible=800, n_days=6400))
         self.assertTrue(_clock_reaches_lake(row, n_eligible=800, n_days=192))
+        # 天数按日齐套：半数日子不得假绿（与 L2 对齐）
+        half = {"n_stocks": 798, "n_dates": 96}
+        self.assertFalse(_clock_reaches_lake(half, n_eligible=800, n_days=192))
+
+    def test_format_l1_clock_cover_error_strict_days(self) -> None:
+        from core.research.materialize.cover_policy import format_l1_clock_cover_error
+
+        text = format_l1_clock_cover_error(
+            "10:30",
+            n_stocks=400,
+            n_dates=30,
+            n_eligible=800,
+            n_days=60,
+        )
+        self.assertIn("stocks=400/400", text)
+        self.assertIn("dates=30/60", text)
+
+    def test_minute_lookback_single_source(self) -> None:
+        from core.research.materialize.cover_policy import (
+            L2_MINUTE_LOOKBACK,
+            dates_reach_span,
+            resolve_minute_lookback,
+        )
+        from core.research.materialize.orchestrate import (
+            L2_MINUTE_LOOKBACK as ORCH_LB,
+            resolve_l2_lookback,
+        )
+
+        self.assertEqual(ORCH_LB, L2_MINUTE_LOOKBACK)
+        self.assertEqual(resolve_minute_lookback(), L2_MINUTE_LOOKBACK)
+        self.assertEqual(resolve_l2_lookback(1000, minute=True), L2_MINUTE_LOOKBACK)
+        self.assertTrue(dates_reach_span(60, 60))
+        self.assertFalse(dates_reach_span(30, 60))
 
     def test_tau_l2_clocks_minute_only_no_open(self) -> None:
         from core.research.materialize.cover_policy import resolve_tau_l2_clocks
@@ -125,8 +158,9 @@ class CoverPolicyUnitTests(unittest.TestCase):
             suggested=["09:35", "10:30"],
         )
         self.assertNotIn("open", clks2)
-        self.assertEqual(clks2[0], "09:35")
-        self.assertIn("10:30", clks2)
+        self.assertEqual(clks2, ["09:35"])
+        # 显式单钟不强制拉全网格
+        self.assertNotIn("10:30", clks2)
 
     def test_l2_empty_build_fails_cover(self) -> None:
         from core.research.materialize.cover_policy import LAKE_COVER_FRAC
@@ -139,9 +173,17 @@ class CoverPolicyUnitTests(unittest.TestCase):
                 lake_frac=LAKE_COVER_FRAC,
             )
         )
-        self.assertTrue(
+        # 按日齐套：30/50 不足
+        self.assertFalse(
             _clock_reaches_days(
                 {"cubes_hit": 10, "cubes_built": 20},
+                n_days=50,
+                lake_frac=LAKE_COVER_FRAC,
+            )
+        )
+        self.assertTrue(
+            _clock_reaches_days(
+                {"cubes_hit": 20, "cubes_built": 30},
                 n_days=50,
                 lake_frac=LAKE_COVER_FRAC,
             )
@@ -184,7 +226,7 @@ class CoverPolicyUnitTests(unittest.TestCase):
         ), mock.patch(
             "core.research.materialize.orchestrate.materialize_l1_tau_grid",
             return_value={"ok": True, "clocks_ok": 2},
-        ), mock.patch(
+        ) as tau_l1, mock.patch(
             "core.research.materialize.orchestrate.materialize_l2",
             return_value={"ok": True},
         ) as l2:
@@ -193,8 +235,15 @@ class CoverPolicyUnitTests(unittest.TestCase):
                 do_l1_tau_grid=True,
                 do_l2=True,
                 clocks=["open"],
+                lookback=1000,
             )
         self.assertTrue(out.get("ok"), out)
+        from core.research.materialize.orchestrate import L2_MINUTE_LOOKBACK
+
+        self.assertEqual(
+            int(tau_l1.call_args.kwargs.get("lookback") or 0),
+            int(L2_MINUTE_LOOKBACK),
+        )
         clks = list(l2.call_args.kwargs.get("clocks") or [])
         self.assertNotIn("open", clks)
         self.assertIn("09:35", clks)
@@ -367,6 +416,37 @@ class CoverPolicyUnitTests(unittest.TestCase):
         self.assertTrue(req.get("do_l1_tau_grid"))
         self.assertEqual(list(req.get("families") or []), [])
         self.assertIn("09:35", list(req.get("clocks") or []))
+
+    def test_assess_coverage_universe_changed_keeps_minute(self) -> None:
+        """旧 hash 残留不得把分钟缺口改成只修日线 open。"""
+        from unittest.mock import patch
+
+        from core.research.materialize.coverage import assess_coverage
+
+        days = ["2099-01-04", "2099-01-05"]
+
+        with patch(
+            "core.research.day_cube.day_cube_status", return_value="universe"
+        ), patch(
+            "core.research.feature_lake.load_stock_dates", return_value=set(days)
+        ), patch(
+            "core.research.materialize.coverage._other_hash_days",
+            return_value=set(days),
+        ):
+            report = assess_coverage(
+                ["a", "b", "c", "d"],
+                days,
+                families=["tc_0935"],
+                clocks=["09:35"],
+            )
+        self.assertFalse(report.get("ok"))
+        self.assertTrue(report.get("universe_changed"))
+        self.assertEqual(report.get("hint"), "分钟线物化")
+        req = report.get("request") or {}
+        self.assertFalse(req.get("do_l1"))
+        self.assertTrue(req.get("do_l1_tau_grid"))
+        self.assertIn("09:35", list(req.get("clocks") or []))
+        self.assertIn("观察池已变", str(report.get("error") or ""))
 
     def test_assess_coverage_open_only_request(self) -> None:
         from unittest.mock import patch

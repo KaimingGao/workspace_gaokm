@@ -289,7 +289,17 @@ def _maybe_materialize_session_open(out: Optional[dict]) -> bool:
                 "session open L2 materialize failed: %s",
                 report.get("error") or report,
             )
-        return ok
+            return False
+        sess = report.get("session_open_l2") or report.get("l2") or {}
+        if report.get("needs_final") or (
+            isinstance(sess, dict) and sess.get("needs_final")
+        ):
+            logger.warning(
+                "session open L2 provisional (needs_final) day=%s lake_error=%s",
+                day or sess.get("cycle_day"),
+                sess.get("lake_error") or report.get("lake_error"),
+            )
+        return True
     except Exception:  # noqa: BLE001
         logger.exception("session open L2 materialize raised")
         return False

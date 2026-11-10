@@ -30,6 +30,12 @@ class MaterializeTcBarsTests(unittest.TestCase):
             heads.append(kwargs.get("cache_head"))
             lengths.append(len(packs[0]["bars"]))
             packs[0]["bars"].append({"date": "mutated"})
+            stats = kwargs.get("stats_out")
+            if isinstance(stats, dict):
+                stats["n_rows"] = 2
+                stats["n_stocks"] = 2
+                stats["n_cols"] = 1
+                stats["hits"] = 0
             return None, [], [0.1, 0.2], [], [], 2
 
         with mock.patch.object(l1_jobs, "_stock_bar_items", _load), mock.patch(
@@ -42,6 +48,7 @@ class MaterializeTcBarsTests(unittest.TestCase):
         self.assertEqual(heads, ["tc", "tc_rank"])
         self.assertEqual(lengths, [1, 1])
         self.assertTrue(row["tc_rank"]["ok"])
+        self.assertTrue(row["ok"])
 
     def test_tc_short_bars_load_once(self) -> None:
         from core.research.materialize import l1_jobs
@@ -241,19 +248,16 @@ class MaterializeOrchestrateTests(unittest.TestCase):
         self.assertEqual(out["l2"]["by_clock"]["open"]["cubes_hit"], 2)
 
     def test_resolve_l2_lookback_one_knob(self):
-        """日线跟 lookback；分钟用内部短窗。无第二 lookback 入参。"""
+        """日线跟 lookback（不再二次 +pad）；分钟用内部短窗。"""
         from core.research.materialize.orchestrate import (
             L2_MINUTE_LOOKBACK,
             request_has_minute_clock,
             resolve_l2_lookback,
         )
 
-        from core.signal.factors.alpha_oo import ALPHA_OO_PANEL_WINDOW
-
-        pad = max(35, int(ALPHA_OO_PANEL_WINDOW))
-        # 日线 +alpha_oo 垫窗：对齐拟合 lookback+pad
-        self.assertEqual(resolve_l2_lookback(1000, minute=False), 1000 + pad)
-        self.assertEqual(resolve_l2_lookback(0, minute=False), 1000 + pad)
+        # open L2 = 请求 lookback；垫窗只在 L1 拉日线时加一次
+        self.assertEqual(resolve_l2_lookback(1000, minute=False), 1000)
+        self.assertEqual(resolve_l2_lookback(0, minute=False), 1000)
         self.assertEqual(resolve_l2_lookback(1000, minute=True), L2_MINUTE_LOOKBACK)
         self.assertFalse(request_has_minute_clock(["open"]))
         self.assertTrue(request_has_minute_clock(["09:35"]))
@@ -277,11 +281,8 @@ class MaterializeOrchestrateTests(unittest.TestCase):
                 clocks=["open"],
                 lookback=1000,
             )
-        from core.signal.factors.alpha_oo import ALPHA_OO_PANEL_WINDOW
-
-        pad = max(35, int(ALPHA_OO_PANEL_WINDOW))
         self.assertTrue(out.get("ok"), out)
-        self.assertEqual(l2_fn.call_args.kwargs.get("lookback_days"), 1000 + pad)
+        self.assertEqual(l2_fn.call_args.kwargs.get("lookback_days"), 1000)
 
         with mock.patch(
             "core.research.materialize.orchestrate.resolve_materialize_codes",
@@ -1795,7 +1796,7 @@ class HorizonL1StitchTests(unittest.TestCase):
                         watching_limit=2,
                         lookback=40,
                         tau_end_hm="11:00",
-                        cross_section_zscore=False,
+                        cross_section_zscore=True,
                     )
         payload = ctx.exception.to_dict()
         self.assertEqual(payload.get("error_code"), "materialize_required")
@@ -1907,7 +1908,7 @@ class HorizonL1StitchTests(unittest.TestCase):
                         watching_limit=len(codes),
                         lookback=40,
                         tau_end_hm="11:00",
-                        cross_section_zscore=False,
+                        cross_section_zscore=True,
                     )
         payload = ctx.exception.to_dict()
         self.assertEqual(payload.get("reason"), "early_abort")
@@ -2028,7 +2029,7 @@ class HorizonL1StitchTests(unittest.TestCase):
                 watching_limit=2,
                 lookback=40,
                 tau_end_hm="10:00",
-                cross_section_zscore=False,
+                cross_section_zscore=True,
                 progress_cb=lambda c, t, m: msgs.append(str(m)),
             )
         load_min.assert_not_called()
@@ -2358,7 +2359,8 @@ class MaterializeL2UniverseHashTests(unittest.TestCase):
                 dates=["2026-10-16", "2026-10-17"],
                 clocks=["09:35"],
             )
-        self.assertTrue(out.get("ok"), out)
+        # 按日齐套：缺 1 日 → 整钟失败；仍保留 hit/skipped 计数
+        self.assertFalse(out.get("ok"), out)
         self.assertEqual(out["by_clock"]["09:35"]["days_skipped"], 1)
         self.assertEqual(out["by_clock"]["09:35"]["cubes_hit"], 1)
         ensure.assert_not_called()

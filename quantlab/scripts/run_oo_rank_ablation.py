@@ -1,6 +1,6 @@
-"""ŷ_oo_rank 单段 raw holdout 验证。
+"""ŷ_oo_rank 单段 raw holdout 验证（单头 LambdaRank）。
 
-一次建面板，再拟合 LambdaRank + 同窗 Ridge ŷ_oo 对照。
+一次建面板，再拟合 LambdaRank。
 
 用法: PYTHONUNBUFFERED=1 python scripts/run_oo_rank_ablation.py
 结果: data/oo_rank_ablation_matrix.json
@@ -17,8 +17,8 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if ROOT not in sys.path:
     sys.path.insert(0, ROOT)
 
-from core.research.portfolio_bars import load_portfolio_stock_bars
 from core.research.oo_rank_lambdarank import compare_oo_rank_shadow_track
+from core.research.portfolio_bars import load_portfolio_stock_bars
 from core.research.rank_day_panels import build_rank_day_panels
 from core.watching.store import read_watching
 
@@ -27,27 +27,14 @@ def _log(msg: str) -> None:
     print(msg, flush=True)
 
 
-def _gate_row(rank_m: Dict[str, Any], ridge_m: Dict[str, Any], deltas: Dict[str, Any]) -> Dict[str, Any]:
+def _gate_row(rank_m: Dict[str, Any]) -> Dict[str, Any]:
     nd = rank_m.get("ndcg_at_k")
     gl = rank_m.get("gate_lift")
-    gl_r = ridge_m.get("gate_lift")
     topk = rank_m.get("topk_mean_y_oo")
-    topk_r = ridge_m.get("topk_mean_y_oo")
-    d_gl = deltas.get("delta_gate_lift")
     checks = {
         "ndcg_ge_055": nd is not None and float(nd) >= 0.55,
-        # 主裁判：名次闸对齐 lift，不再用全截面 Rank IC
-        "gate_lift_beats_ridge": (
-            gl is not None
-            and gl_r is not None
-            and float(gl) > float(gl_r)
-            and (float(gl) > 0 or (d_gl is not None and float(d_gl) >= 0.02))
-        ),
-        "topk_not_worse": (
-            topk is not None
-            and topk_r is not None
-            and float(topk) >= float(topk_r) - 1e-9
-        ),
+        "gate_lift_positive": gl is not None and float(gl) > 0,
+        "topk_finite": topk is not None,
     }
     checks["pass"] = all(checks.values())
     return checks
@@ -92,7 +79,7 @@ def main() -> None:
         _log("ERROR: 截面日不足")
         sys.exit(1)
 
-    _log("\n>>> LambdaRank + Ridge ŷ_oo 对照")
+    _log("\n>>> LambdaRank")
     track = compare_oo_rank_shadow_track(
         stock_bars,
         holdout_trading_days=20,
@@ -107,15 +94,7 @@ def main() -> None:
     else:
         oos = track.get("oos") or {}
         rank_m = oos.get("oo_rank") or {}
-        ridge_m = oos.get("ridge_oo_baseline") or {}
-        deltas = {
-            "delta_gate_lift": track.get("delta_gate_lift"),
-            "delta_spearman": track.get("delta_spearman"),
-            "delta_topk_overlap": track.get("delta_topk_overlap"),
-            "delta_topk_mean_y_oo": track.get("delta_topk_mean_y_oo"),
-            "delta_ndcg_at_k": track.get("delta_ndcg_at_k"),
-        }
-        gate = _gate_row(rank_m, ridge_m, deltas)
+        gate = _gate_row(rank_m)
         row = {
             "success": True,
             "n_days": track.get("n_days"),
@@ -130,20 +109,11 @@ def main() -> None:
                 "topk_overlap": rank_m.get("topk_overlap"),
                 "topk_mean_y_oo": rank_m.get("topk_mean_y_oo"),
             },
-            "ridge": {
-                "gate_lift": ridge_m.get("gate_lift"),
-                "gate_mean_y": ridge_m.get("gate_mean_y"),
-                "spearman": ridge_m.get("spearman"),
-                "ndcg_at_k": ridge_m.get("ndcg_at_k"),
-                "topk_overlap": ridge_m.get("topk_overlap"),
-                "topk_mean_y_oo": ridge_m.get("topk_mean_y_oo"),
-            },
-            "delta": deltas,
             "gate": gate,
         }
         rows.append(row)
         _log(
-            f"  gate_lift={rank_m.get('gate_lift')} Δgate={deltas.get('delta_gate_lift')} "
+            f"  gate_lift={rank_m.get('gate_lift')} "
             f"ndcg={rank_m.get('ndcg_at_k')} pass={gate.get('pass')}"
         )
 
@@ -160,8 +130,7 @@ def main() -> None:
             (r.get("gate") or {}).get("pass") for r in rows if r.get("success")
         ),
         "note": (
-            "单段 holdout；正式推进需 ≥2 段互不重叠 holdout 均过闸。"
-            "any_gate_pass=false → 维持影子，不上中性标签/LGBM。"
+            "单段 holdout · 单头 LambdaRank；正式推进需 ≥2 段互不重叠 holdout 均过闸。"
         ),
     }
     path = os.path.join(ROOT, "data", "oo_rank_ablation_matrix.json")

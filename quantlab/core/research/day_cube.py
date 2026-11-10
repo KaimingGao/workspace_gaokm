@@ -462,6 +462,15 @@ def day_cube_status(
 
             if clk in ("open", "0930"):
                 required = open_cube_required_names()
+                # 整体仍按 HORIZON_COVER_FRAC；开盘 τc 子集必须齐全（禁 oo 单边过半）
+                from core.research.materialize.horizon_names import (
+                    open_tc_required_names,
+                )
+
+                if not names_cover_horizon(
+                    stored, min_frac=1.0, need=open_tc_required_names()
+                ):
+                    return "thin"
             else:
                 required = minute_horizon_required_names()
             if not names_cover_horizon(

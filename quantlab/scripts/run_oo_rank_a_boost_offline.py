@@ -12,8 +12,6 @@
   OO_RANK_ABOOST_HOLDOUT   Holdout 日（默认 20）
   OO_RANK_ABOOST_WEIGHT    A 权重（默认 2.0）
   OO_RANK_ABOOST_TOPK      TopK / NDCG@K（默认 10）
-  OO_RANK_ABOOST_CS_Z      1=日截面 Z（默认），0=全局 μ/σ
-
 结果: data/oo_rank_a_boost_offline.json
 """
 
@@ -162,12 +160,7 @@ def main() -> None:
     limit = int(os.environ.get("OO_RANK_ABOOST_LIMIT", "200"))
     holdout = int(os.environ.get("OO_RANK_ABOOST_HOLDOUT", "20"))
     topk = int(os.environ.get("OO_RANK_ABOOST_TOPK", "10"))
-    use_cs = os.environ.get("OO_RANK_ABOOST_CS_Z", "1").strip() not in {
-        "0",
-        "false",
-        "False",
-        "no",
-    }
+    use_cs = True
 
     uni = read_watching()
     pool = [str(c).strip() for c in (uni.get("watchlist") or []) if str(c).strip()]

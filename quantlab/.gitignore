@@ -24,6 +24,12 @@ data/alerts/
 data/backtest_fusion_compare.json
 data/oo_rank_ablation_matrix.json
 data/oo_rank_shadow_result.json
+data/tc_rank_depth_offline.json
+data/tc_rank_depth_offline.log
+data/*_offline.json
+data/*_offline.log
+data/*_offline_*.json
+data/_tmp/
 data/t0_bt_lookback20_full.json
 
 # 数据缓存

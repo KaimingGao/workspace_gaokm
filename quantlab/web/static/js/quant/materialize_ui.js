@@ -33,6 +33,7 @@ function phaseFromMessage(msg) {
   if (/网格|L1\s*τ|τL1/i.test(s)) return { chip: "τL1", phase: "物化 τL1" };
   if (/\bL1\b|物化 L1/.test(s)) return { chip: "L1", phase: "物化 L1" };
   if (/\bL2\b|物化 L2|Cube/i.test(s)) return { chip: "L2", phase: "物化 L2" };
+  if (/失败/.test(s)) return { chip: "FAIL", phase: "物化失败" };
   if (/完成/.test(s)) return { chip: "DONE", phase: "物化完成" };
   return { chip: "SYNC", phase: "物化中" };
 }
@@ -367,7 +368,16 @@ function installMaterializeRunner(q, cfg) {
       lastPolledJob = job;
       const status = String(job.status || "").toLowerCase();
       if (status === "done" || status === "success" || status === "finished") {
-        return { ok: true, job };
+        const result = (job && job.result) || {};
+        const ok =
+          result.success !== false &&
+          result.ok !== false &&
+          !String(job.error || result.error || "").trim();
+        return {
+          ok,
+          job,
+          error: String(job.error || result.error || "物化失败"),
+        };
       }
       // 仅认 status；勿用 job.error（落盘残留会误杀 running）
       if (status === "failed" || status === "error") {
@@ -405,7 +415,16 @@ function installMaterializeRunner(q, cfg) {
         (st === "running" || st === "done" || st === "success" || st === "finished")
       ) {
         if (st === "done" || st === "success" || st === "finished") {
-          return { ok: true, job };
+          const result = (job && job.result) || {};
+          const ok =
+            result.success !== false &&
+            result.ok !== false &&
+            !String(job.error || result.error || "").trim();
+          return {
+            ok,
+            job,
+            error: String(job.error || result.error || "物化失败"),
+          };
         }
         lastPolledJob = job;
         return {

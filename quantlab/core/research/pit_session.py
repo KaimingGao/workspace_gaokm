@@ -142,10 +142,52 @@ def should_force_open_lake_rebuild(
     codes: Sequence[str],
     meta: Optional[Dict[str, Any]],
 ) -> bool:
-    """日线已齐且立方仍是 provisional/legacy → L2 预热必须重建。"""
-    if not meta_needs_lake_rebuild(meta):
+    """日线已齐且立方仍是 provisional/legacy/半池 final → L2 预热必须重建。"""
+    if meta_needs_lake_rebuild(meta):
+        return daily_bars_ready_for_day(day, codes)
+    # 已 final 但截面成员明显少于宇宙门槛 → 半池卡住，强制重建
+    if not isinstance(meta, dict):
         return False
-    return daily_bars_ready_for_day(day, codes)
+    if not daily_bars_ready_for_day(day, codes):
+        return False
+    try:
+        from core.research.materialize.cover_policy import LAKE_COVER_FRAC, cover_need
+
+        code_list = [str(c).strip() for c in (codes or []) if str(c or "").strip()]
+        need = cover_need(len(code_list), frac=LAKE_COVER_FRAC, minimum=2)
+        n_cube = int(meta.get("n_codes") or 0)
+    except Exception:  # noqa: BLE001
+        return False
+    return bool(need > 0 and n_cube > 0 and n_cube < need)
+
+
+def force_open_rebuild_after_status_ok(
+    day: str,
+    codes: Sequence[str],
+    *,
+    clock: str = "open",
+) -> bool:
+    """``day_cube_status==ok`` 后是否仍须重建。
+
+    读 meta / provenance 失败时 fail-closed：日线已齐 → 重建；连日线状态都读不了 → 重建。
+    warmup / spill 共用，避免「异常吞掉后当 hit」。
+    """
+    try:
+        from core.research.day_cube import read_day_cube_meta
+
+        meta = read_day_cube_meta(day, codes, clock=str(clock or "open"))
+        return should_force_open_lake_rebuild(day, codes, meta)
+    except Exception:  # noqa: BLE001
+        logger.warning(
+            "open provenance check failed day=%s clock=%s",
+            day,
+            clock,
+            exc_info=True,
+        )
+        try:
+            return bool(daily_bars_ready_for_day(day, codes))
+        except Exception:  # noqa: BLE001
+            return True
 
 
 def read_open_cube_meta(
@@ -234,9 +276,11 @@ def ensure_session_open_l2(
             return out
         if prefer_s == "daily":
             return out
-        # auto：湖重建失败则回落行情临时立方
+        # auto：湖重建失败则回落行情临时立方（日线已齐时标 needs_final，勿当终态）
         out["lake_error"] = out.get("error")
         out.pop("error", None)
+        if ready:
+            out["needs_final"] = True
 
     from core.research.materialize.session_open import materialize_session_open_l2
 
@@ -251,6 +295,8 @@ def ensure_session_open_l2(
         out["phase"] = PHASE_PROVISIONAL
         out["open_source"] = OPEN_SOURCE_QUOTE
         out["builder"] = BUILDER_SESSION_OPEN_QUOTE
+        if ready or out.get("needs_final"):
+            out["needs_final"] = True
     return out
 
 
@@ -286,17 +332,6 @@ def _build_final_open_from_lake(
     *,
     progress_cb: ProgressCb = None,
 ) -> Dict[str, Any]:
-    from core.research.day_cube import day_cube_status, forget_dates
-    from core.research.lake_bridge import FAMILY_OO, FAMILY_TC
-    from core.research.materialize.cube_batch import build_day_cubes_from_lake
-    from core.research.materialize.coverage import cover_need
-    from core.research.materialize.params import LAKE_COVER_FRAC
-
-    code_list = [str(c).strip() for c in (codes or []) if str(c or "").strip()]
-    need = cover_need(len(code_list), frac=LAKE_COVER_FRAC, minimum=2)
-    prev_meta = read_open_cube_meta(day, code_list, clock="open") or {}
-    prev_n = prev_meta.get("n_codes")
-    prev_phase = str(prev_meta.get("phase") or "").strip().lower()
     out: Dict[str, Any] = {
         "ok": False,
         "success": False,
@@ -305,8 +340,23 @@ def _build_final_open_from_lake(
         "phase": PHASE_FINAL,
         "open_source": OPEN_SOURCE_DAILY,
         "builder": BUILDER_LAKE_OPEN,
-        "n_universe": len(code_list),
     }
+    try:
+        from core.research.day_cube import day_cube_status, forget_dates
+        from core.research.lake_bridge import FAMILY_OO, FAMILY_TC
+        from core.research.materialize.cover_policy import LAKE_COVER_FRAC, cover_need
+        from core.research.materialize.cube_batch import build_day_cubes_from_lake
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("final open lake imports failed day=%s", day, exc_info=True)
+        out["error"] = f"lake open 重建失败: {exc}"
+        return out
+
+    code_list = [str(c).strip() for c in (codes or []) if str(c or "").strip()]
+    need = cover_need(len(code_list), frac=LAKE_COVER_FRAC, minimum=2)
+    prev_meta = read_open_cube_meta(day, code_list, clock="open") or {}
+    prev_n = prev_meta.get("n_codes")
+    prev_phase = str(prev_meta.get("phase") or "").strip().lower()
+    out["n_universe"] = len(code_list)
     try:
         stats = build_day_cubes_from_lake(
             code_list,
@@ -317,7 +367,7 @@ def _build_final_open_from_lake(
             universe_codes=code_list,
             min_items=need,
             require_oo_item=True,
-            require_tc_day=False,
+            require_tc_day=True,
             replace_existing=True,
             progress_cb=progress_cb,
             label=f"终态 open {day}",
@@ -425,6 +475,7 @@ __all__ = [
     "PHASE_PROVISIONAL",
     "daily_bars_ready_for_day",
     "ensure_session_open_l2",
+    "force_open_rebuild_after_status_ok",
     "item_provenance_fields",
     "load_session_open_l2",
     "membership_drift",

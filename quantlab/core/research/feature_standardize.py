@@ -2,7 +2,8 @@
 
 ``feature_zscore`` 仍表示入模前做了标准化。``zscore_scope=cross_section`` 时
 按决策日截面算 μ/σ（当天各股票），不把整段训练窗的均值和标准差套到每一天。
-没有日期时仍可用训练窗列向 μ/σ（旧路径）。
+
+产品拟合固定日截面 Z；训练窗全局 μ/σ 已下线（旧落盘包推理仍可读）。
 """
 
 from __future__ import annotations
@@ -12,10 +13,9 @@ from typing import Any, Dict, List, Mapping, Optional, Sequence
 
 DEFAULT_FEATURE_ZSCORE = True
 ZSCORE_SCOPE_CROSS_SECTION = "cross_section"
-# 排序头截面 z 恒用整观察池（与主头一致）。旧落盘 ``tier_a`` 仅作训练宇宙兼容读。
+# 排序头截面 z 恒用整观察池（与主头一致）。
 ZSCORE_UNIVERSE_POOL = "pool"
-ZSCORE_UNIVERSE_TIER_A = "tier_a"  # 历史别名；打分侧不再缩 z
-# 排序头训练/损失宇宙（可与 z 宇宙分离）
+# 排序头训练/损失宇宙：产品固定 pool；下列 token 仅兼容旧落盘审计。
 TRAIN_UNIVERSE_POOL = "pool"
 TRAIN_UNIVERSE_TIER_A = "tier_a"  # 仅 A；兼容旧落盘
 TRAIN_UNIVERSE_TIER = "tier"  # 任意 A/B/C 子集（见 train_universe_tiers）
@@ -137,95 +137,6 @@ def normalize_train_universe(raw: Any, *, tiers: Any = None) -> str:
     return TRAIN_UNIVERSE_POOL
 
 
-def read_train_universe_tiers(*sources: Any) -> List[str]:
-    """从报告/模型读训练档；缺省时 ``tier_a`` → ``[A]``，``tier`` 无字段则空。"""
-    for src in sources:
-        if not isinstance(src, Mapping):
-            continue
-        if "train_universe_tiers" in src:
-            return normalize_train_tiers(src.get("train_universe_tiers"))
-        hp = src.get("hyperparams")
-        if isinstance(hp, Mapping) and "train_universe_tiers" in hp:
-            return normalize_train_tiers(hp.get("train_universe_tiers"))
-        tu = normalize_train_universe(src.get("train_universe"))
-        if tu == TRAIN_UNIVERSE_TIER_A:
-            return ["A"]
-        if tu == TRAIN_UNIVERSE_TIER:
-            return []
-        # 旧：仅 zscore_universe=tier_a
-        if normalize_train_universe(src.get("zscore_universe")) == TRAIN_UNIVERSE_TIER_A:
-            return ["A"]
-        inner = src.get("return_model")
-        if isinstance(inner, Mapping) and inner is not src:
-            got = read_train_universe_tiers(inner)
-            if got:
-                return got
-    return []
-
-
-def is_tier_train_universe(*sources: Any) -> bool:
-    """任一来源标记训练宇宙为分档子集（A/B/C 任一非空）。"""
-    for src in sources:
-        if src is None:
-            continue
-        if isinstance(src, Mapping):
-            tiers = None
-            if "train_universe_tiers" in src:
-                tiers = normalize_train_tiers(src.get("train_universe_tiers"))
-                if tiers:
-                    return True
-            tu = None
-            if "train_universe" in src:
-                tu = normalize_train_universe(src.get("train_universe"))
-            elif normalize_train_universe(src.get("zscore_universe")) in (
-                TRAIN_UNIVERSE_TIER_A,
-                TRAIN_UNIVERSE_TIER,
-            ):
-                tu = normalize_train_universe(src.get("zscore_universe"))
-            if tu in (TRAIN_UNIVERSE_TIER_A, TRAIN_UNIVERSE_TIER):
-                return True
-            hp = src.get("hyperparams")
-            if isinstance(hp, Mapping):
-                if normalize_train_tiers(hp.get("train_universe_tiers")):
-                    return True
-                if "train_universe" in hp:
-                    if normalize_train_universe(hp.get("train_universe")) in (
-                        TRAIN_UNIVERSE_TIER_A,
-                        TRAIN_UNIVERSE_TIER,
-                    ):
-                        return True
-                elif normalize_train_universe(hp.get("zscore_universe")) in (
-                    TRAIN_UNIVERSE_TIER_A,
-                    TRAIN_UNIVERSE_TIER,
-                ):
-                    return True
-            inner = src.get("return_model")
-            if isinstance(inner, Mapping) and inner is not src:
-                if is_tier_train_universe(inner):
-                    return True
-        else:
-            tu = getattr(src, "train_universe", None)
-            if tu is not None:
-                if normalize_train_universe(tu) in (
-                    TRAIN_UNIVERSE_TIER_A,
-                    TRAIN_UNIVERSE_TIER,
-                ):
-                    return True
-            elif normalize_train_universe(
-                getattr(src, "zscore_universe", None)
-            ) in (TRAIN_UNIVERSE_TIER_A, TRAIN_UNIVERSE_TIER):
-                return True
-            tiers_attr = getattr(src, "train_universe_tiers", None)
-            if normalize_train_tiers(tiers_attr):
-                return True
-    return False
-
-
-def is_tier_a_train_universe(*sources: Any) -> bool:
-    """兼容旧名：任一来源为分档训练宇宙（不限仅 A）。"""
-    return is_tier_train_universe(*sources)
-
-
 def stamp_zscore_universe(
     dest: dict,
     universe: Any = ZSCORE_UNIVERSE_POOL,
@@ -310,6 +221,18 @@ def is_cross_section_zscore(doc: Any) -> bool:
     if isinstance(inner, Mapping) and inner is not doc:
         return is_cross_section_zscore(inner)
     return False
+
+
+GLOBAL_ZSCORE_RETIRED_MSG = "已下线训练窗全局 μ/σ；请用日截面 Z（cross_section_zscore=true）"
+
+
+def reject_global_zscore(flag: Any) -> Optional[str]:
+    """拟合请求若关闭日截面 Z，返回错误文案；None=通过（缺省/True）。"""
+    if flag is None:
+        return None
+    if bool(flag):
+        return None
+    return GLOBAL_ZSCORE_RETIRED_MSG
 
 
 def stamp_cross_section_zscore(dest: dict) -> dict:

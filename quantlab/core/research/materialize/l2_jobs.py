@@ -107,14 +107,19 @@ def _attach_open_slim(codes: Sequence[str], days: Sequence[str]) -> int:
 
 
 def _clock_reaches_days(row: dict, *, n_days: int, lake_frac: float) -> bool:
-    """单钟 hit+built 达到 ``LAKE_COVER_FRAC``（与 L1 τ / 消费同口径）。"""
-    from core.research.materialize.cover_policy import cover_reaches
+    """单钟：请求窗内每一天都要 hit 或 built（与消费 assess 按日齐套对齐）。
 
+    单日截面票数门槛仍由构建侧 ``LAKE_COVER_FRAC`` / ``min_items`` 约束；
+    ``lake_frac`` 保留入参以兼容调用方，不再用于「日子也可以只齐一半」。
+    """
+    from core.research.materialize.cover_policy import dates_reach_span
+
+    del lake_frac  # 按日齐套；票级 frac 在 cube build
     try:
         hit = int(row.get("cubes_hit") or 0) + int(row.get("cubes_built") or 0)
     except (TypeError, ValueError):
         hit = 0
-    return cover_reaches(hit, n_days, frac=lake_frac, minimum=1)
+    return dates_reach_span(hit, n_days)
 
 
 def _mark_clock_cover_short(
@@ -401,11 +406,9 @@ def _materialize_l2_with_minute(
             _step_emit(0, done, total, message or "L2 open")
 
         _step_emit(0, 0, 1, "L2 open…")
-        # 与分钟钟同一窗：未指定 dates 时不拿千日日历空跑 open
-        open_days = minute_days if clip_minute_store else list(day_list)
-        if clip_minute_store and open_days:
-            open_days = list(open_days)  # 已是近端优先
-        elif open_days:
+        # open 始终用日线回看窗；分钟短窗不得裁 open（混钟同单时的兜底）
+        open_days = list(day_list)
+        if open_days:
             open_days = list(reversed(open_days))
         for clock in open_clocks:
             _warmup_open_clock(
@@ -769,8 +772,9 @@ def materialize_l2(
 ) -> Dict[str, Any]:
     """Ensure DayCube for codes × dates × clocks（复用 warmup 逻辑）。
 
-    ``require_horizon_names``：兼容旧入参；分钟钟按 ``HORIZON_COVER_FRAC`` 验收窗头列。
-    开盘钟仍走 warmup。分钟钟整窗 oo 读一次，每个钟的 tc 只读一次。
+    ``require_horizon_names``：开盘钟是否按窗头列验收（编排 open=False）。
+    分钟钟一律按 ``HORIZON_COVER_FRAC`` 验收窗头列。开盘钟仍走 warmup。
+    分钟钟整窗 oo 读一次，每个钟的 tc 只读一次。
     未指定 ``dates`` 时，只覆盖本地 5m 里达到截面人数的交易日，不按日线回看窗空跑。
     """
     explicit_dates = any(len(str(d or "")[:10]) >= 10 for d in (dates or []))

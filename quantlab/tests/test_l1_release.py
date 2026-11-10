@@ -63,6 +63,7 @@ class MetaCoverTests(unittest.TestCase):
             fingerprint=fp,
         )
         self.assertIsNone(meta_covers_bars(FAMILY_OO, "000001", fp, bars))
+        # 未传 panel_dates：不得把 bar 末日冒充已打分
         write_stock_panel(
             FAMILY_OO,
             "000001",
@@ -71,6 +72,22 @@ class MetaCoverTests(unittest.TestCase):
             names=names,
             fingerprint=fp,
             extra_meta=stem_extra_meta(bars),
+        )
+        self.assertIsNone(meta_covers_bars(FAMILY_OO, "000001", fp, bars))
+        panel_dates = [
+            "2024-01-02",
+            "2024-01-03",
+            "2024-01-04",
+            "2024-01-05",
+        ]
+        write_stock_panel(
+            FAMILY_OO,
+            "000001",
+            dates=panel_dates,
+            X=X,
+            names=names,
+            fingerprint=fp,
+            extra_meta=stem_extra_meta(bars, panel_dates=panel_dates),
         )
         hit = meta_covers_bars(FAMILY_OO, "000001", fp, bars)
         self.assertEqual(hit, {"n_rows": 4, "n_cols": 4})
@@ -132,14 +149,15 @@ class ReleaseRowsTests(unittest.TestCase):
             horizon=1,
             ridge_core_only=0,
         )
+        dates = [b["date"] for b in bars[:4]]
         write_stock_panel(
             FAMILY_OO,
             code,
-            dates=[b["date"] for b in bars[:4]],
+            dates=dates,
             X=np.arange(8, dtype=np.float64).reshape(4, 2),
             names=["f0", "f1"],
             fingerprint=fp,
-            extra_meta=stem_extra_meta(bars),
+            extra_meta=stem_extra_meta(bars, panel_dates=dates),
         )
 
     def test_oo_hit_skips_worker_and_thin_cubes(self) -> None:
@@ -170,7 +188,12 @@ class ReleaseRowsTests(unittest.TestCase):
         self.assertEqual(stats.get("hits"), 2)
         self.assertEqual(stats.get("n_rows"), 8)
         self.assertEqual(stats.get("n_stocks"), 2)
-        self.assertIn("2024-01-07", dates)
+        # meta hit 的日期取自湖面板，不再虚增 bars 末日
+        self.assertEqual(
+            sorted(dates),
+            ["2024-01-02", "2024-01-03", "2024-01-04", "2024-01-05"],
+        )
+        self.assertNotIn("2024-01-07", dates)
 
     def test_oo_release_does_not_stack_or_write_cubes(self) -> None:
         from core.research.oo_ridge_compact import assemble_oo_panels
@@ -264,14 +287,15 @@ class ReleaseRowsTests(unittest.TestCase):
             include_alpha_th=0,
             use_minute=0,
         )
+        dates = [b["date"] for b in bars[:4]]
         write_stock_panel(
             family_for_tc(tau_hm="open", rank=False),
             "000001",
-            dates=[b["date"] for b in bars[:4]],
+            dates=dates,
             X=np.ones((4, len(names)), dtype=np.float64),
             names=names,
             fingerprint=fp,
-            extra_meta=stem_extra_meta(bars),
+            extra_meta=stem_extra_meta(bars, panel_dates=dates),
         )
         stats: dict = {}
         with mock.patch(
@@ -291,7 +315,12 @@ class ReleaseRowsTests(unittest.TestCase):
         self.assertEqual(stats.get("n_rows"), 4)
         self.assertEqual(n_stocks, 1)
         self.assertEqual(x.shape[0], 0)
-        self.assertIn(bars[-1]["date"], dates)
+        # meta hit 日期取自湖面板，不再虚增 bars 末日
+        self.assertEqual(
+            sorted(dates),
+            ["2024-01-02", "2024-01-03", "2024-01-04", "2024-01-05"],
+        )
+        self.assertNotIn(bars[-1]["date"], dates)
 
     def test_materialize_loads_daily_bars_once(self) -> None:
         from core.research.materialize import l1_jobs

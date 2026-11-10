@@ -35,38 +35,13 @@ const HOLDOUT_DAYS_STORAGE_KEYS = Object.fromEntries(
 const FIT_LOOKBACK_MIN = 100;
 const FIT_LOOKBACK_MAX = 1000;
 
-/** 支持日截面 Z 勾选的拟合头。 */
-const CS_Z_FIT_HEADS = [
-  "oo",
-  "tc",
-  "t30",
-  "t45",
-  "t60",
-  "t75",
-  "t90",
-  "oo_rank",
-  "tc_rank",
-];
-const CS_ZSCORE_STORAGE_KEYS = Object.fromEntries(
-  CS_Z_FIT_HEADS.map((h) => [h, `quant_fit_cs_z_${h}`])
-);
-
-/** 排序头：训练档 A/B/C 多选（oo_rank / tc_rank；截面 z 仍全池）。 */
-const RANK_TRAIN_TIER_HEADS = ["oo_rank", "tc_rank"];
-const RANK_TRAIN_TIER_LABELS = ["A", "B", "C"];
-const RANK_TRAIN_TIER_STORAGE_KEYS = Object.fromEntries(
-  RANK_TRAIN_TIER_HEADS.map((h) => [h, `quant_fit_train_tiers_${h}`])
-);
-
 /** ŷ_τc：09:30…11:00（含 0 前缀）；ŷ_τ*：09:35…11:00（方案 B，仅分钟）。 */
-const TAU_END_TC_HEADS = ["tc"];
+const TAU_END_TC_HEADS = ["tc", "tc_rank"];
 const TAU_END_HORIZON_HEADS = ["t30", "t45", "t60", "t75", "t90"];
 const TAU_END_FIT_HEADS = [...TAU_END_TC_HEADS, ...TAU_END_HORIZON_HEADS];
 /** τc 默认 09:30；τ* 默认 11:00。拖动/拟合按组写入。 */
 const TAU_END_STORAGE_KEY_TC = "quant_fit_tau_end_hm_tc_v1";
 const TAU_END_STORAGE_KEY_HZ = "quant_fit_tau_end_hm_hz_v1";
-/** 旧共用键：仅迁移到 τ* 组，避免把 11:00 盖到 τc。 */
-const TAU_END_STORAGE_KEY_LEGACY = "quant_fit_tau_end_hm_v3";
 const DEFAULT_TAU_END_HM_TC = "09:30";
 const DEFAULT_TAU_END_HM_HORIZON = "11:00";
 /** clamp / 做 T 回测等无组上下文时的回落（保持 11:00）。 */
@@ -311,9 +286,6 @@ export function createResearchParams(opts = {}) {
   const getFitLookbackEl =
     opts.getFitLookbackEl ||
     ((head) => document.getElementById(`quant-fit-lookback-${head}`));
-  const getFitCsZEl =
-    opts.getFitCsZEl ||
-    ((head) => document.getElementById(`quant-fit-cs-z-${head}`));
 
   function syncHorizonInputs(h) {
     const v = String(clampHorizonDays(h, prefsHorizonDays));
@@ -470,43 +442,27 @@ export function createResearchParams(opts = {}) {
     return n;
   }
 
-  function readCrossSectionZscore(head) {
-    const h = String(head || "").trim().toLowerCase();
-    if (!CS_Z_FIT_HEADS.includes(h)) return true;
-    const el = getFitCsZEl(h);
-    const key = CS_ZSCORE_STORAGE_KEYS[h];
-    let on = true;
-    if (el) {
-      on = !!el.checked;
-    } else {
-      try {
-        const saved = localStorage.getItem(key);
-        if (saved === "0") on = false;
-        else if (saved === "1") on = true;
-      } catch (_) {}
-    }
-    try {
-      localStorage.setItem(key, on ? "1" : "0");
-    } catch (_) {}
-    if (el) el.checked = on;
-    return on;
+  function readCrossSectionZscore(_head) {
+    // 产品固定日截面 Z；训练窗全局 μ/σ 已下线
+    return true;
   }
 
-  /** 拟合请求体片段：日截面 Z。 */
+  /** 拟合请求体片段：日截面 Z（恒开；False 服务端拒）。 */
   function readCrossSectionFitParams(head) {
     return {
       cross_section_zscore: readCrossSectionZscore(head),
     };
   }
 
-  function getFitTrainTiersRoot(head) {
-    const h = String(head || "").trim().toLowerCase();
-    return document.getElementById(`quant-fit-train-tiers-${h}`);
-  }
-
-  function normalizeRankTrainTiers(raw) {
-    const allow = new Set(RANK_TRAIN_TIER_LABELS);
-    const out = [];
+  /** 卡头：仅旧包仍带 train_universe / tiers 时提示；新训全池不标。 */
+  function formatTrainTiersBit(data) {
+    const src = data && typeof data === "object" ? data : {};
+    const meta = src.meta && typeof src.meta === "object" ? src.meta : {};
+    const rm =
+      (src.return_model && typeof src.return_model === "object" && src.return_model) ||
+      {};
+    const allow = new Set(["A", "B", "C"]);
+    const tiers = [];
     const seen = new Set();
     const push = (t) => {
       const u = String(t || "")
@@ -514,209 +470,45 @@ export function createResearchParams(opts = {}) {
         .toUpperCase();
       if (allow.has(u) && !seen.has(u)) {
         seen.add(u);
-        out.push(u);
+        tiers.push(u);
       }
     };
-    if (Array.isArray(raw)) {
-      raw.forEach(push);
-    } else if (typeof raw === "string") {
-      String(raw)
-        .split(/[,+|/\s]+/)
-        .forEach(push);
-    }
-    return out;
-  }
-
-  function formatRankTrainTiersLabel(tiers) {
-    const t = normalizeRankTrainTiers(tiers);
-    return t.length ? t.join("+") : "整池";
-  }
-
-  function paintRankTrainTiersSummary(root, tiers) {
-    if (!root) return;
-    const lab = root.querySelector("[data-tiers-label]");
-    if (lab) lab.textContent = formatRankTrainTiersLabel(tiers);
-  }
-
-  function applyRankTrainTiersToDom(root, tiers) {
-    if (!root) return;
-    const want = new Set(normalizeRankTrainTiers(tiers));
-    root
-      .querySelectorAll('.quant-fit-train-tiers-menu input[type="checkbox"]')
-      .forEach((inp) => {
-        inp.checked = want.has(String(inp.value || "").toUpperCase());
-      });
-    paintRankTrainTiersSummary(root, [...want]);
-  }
-
-  function readRankTrainTiersFromDom(root) {
-    if (!root) return [];
-    const out = [];
-    root
-      .querySelectorAll('.quant-fit-train-tiers-menu input[type="checkbox"]')
-      .forEach((inp) => {
-        if (inp.checked) out.push(String(inp.value || "").toUpperCase());
-      });
-    return normalizeRankTrainTiers(out);
-  }
-
-  function loadStoredRankTrainTiers(head) {
-    const h = String(head || "").trim().toLowerCase();
-    const key = RANK_TRAIN_TIER_STORAGE_KEYS[h];
-    try {
-      const raw = localStorage.getItem(key);
-      if (raw != null && String(raw).trim() !== "") {
-        if (raw === "[]" || raw === "") return [];
-        try {
-          const parsed = JSON.parse(raw);
-          return normalizeRankTrainTiers(parsed);
-        } catch (_) {
-          return normalizeRankTrainTiers(raw);
-        }
-      }
-      const legacyKey = `quant_fit_z_univ_a_${h}`;
-      if (localStorage.getItem(legacyKey) === "1") {
-        localStorage.removeItem(legacyKey);
-        return ["A"];
-      }
-      localStorage.removeItem(legacyKey);
-    } catch (_) {}
-    return [];
-  }
-
-  function persistRankTrainTiers(head, tiers) {
-    const h = String(head || "").trim().toLowerCase();
-    const key = RANK_TRAIN_TIER_STORAGE_KEYS[h];
-    const t = normalizeRankTrainTiers(tiers);
-    try {
-      localStorage.setItem(key, JSON.stringify(t));
-      localStorage.removeItem(`quant_fit_z_univ_a_${h}`);
-    } catch (_) {}
-    return t;
-  }
-
-  /** 排序头训练档多选；空=整池。截面 z 不受影响。 */
-  function readRankTrainTiers(head) {
-    const h = String(head || "").trim().toLowerCase();
-    if (!RANK_TRAIN_TIER_HEADS.includes(h)) return [];
-    const root = getFitTrainTiersRoot(h);
-    let tiers = root ? readRankTrainTiersFromDom(root) : loadStoredRankTrainTiers(h);
-    tiers = persistRankTrainTiers(h, tiers);
-    if (root) {
-      applyRankTrainTiersToDom(root, tiers);
-    }
-    return tiers;
-  }
-
-  function readRankZUniverseFitParams(head) {
-    const h = String(head || "").trim().toLowerCase();
-    if (!RANK_TRAIN_TIER_HEADS.includes(h)) return {};
-    return { train_tiers: readRankTrainTiers(h) };
-  }
-
-  /** 卡头摘要：日截面 / 全局 Z（Ridge return_model · Tree tree_return_model）。 */
-  function formatCrossSectionZBit(data) {
-    const src = data && typeof data === "object" ? data : {};
-    const meta = src.meta && typeof src.meta === "object" ? src.meta : {};
-    let cs;
-    if ("cross_section_zscore" in src) cs = src.cross_section_zscore !== false;
-    else if ("cross_section_zscore" in meta) cs = meta.cross_section_zscore !== false;
-    else {
-      const rm =
-        (src.tree_return_model &&
-          typeof src.tree_return_model === "object" &&
-          src.tree_return_model) ||
-        (src.return_model && typeof src.return_model === "object" && src.return_model) ||
-        (src.model && typeof src.model === "object" && src.model) ||
-        {};
-      const hp = rm.hyperparams && typeof rm.hyperparams === "object" ? rm.hyperparams : {};
-      if ("cross_section_zscore" in hp) cs = hp.cross_section_zscore !== false;
-      else {
-        const scope = String(rm.zscore_scope || hp.zscore_scope || "");
-        if (scope === "cross_section") cs = true;
-        else if (
-          rm.zscore_means &&
-          typeof rm.zscore_means === "object" &&
-          Object.keys(rm.zscore_means).length > 0
-        ) {
-          cs = false;
-        } else if (
-          hp.zscore_means &&
-          typeof hp.zscore_means === "object" &&
-          Object.keys(hp.zscore_means).length > 0
-        ) {
-          cs = false;
-        }
-      }
-    }
-    if (cs === undefined) return "";
-    let bit = cs ? "日截面Z" : "全局Z";
-    const rm =
-      (src.return_model && typeof src.return_model === "object" && src.return_model) ||
-      {};
-    const tiersRaw =
+    const raw =
       src.train_universe_tiers ||
       meta.train_universe_tiers ||
       rm.train_universe_tiers ||
       null;
-    let tiers = normalizeRankTrainTiers(tiersRaw);
+    if (Array.isArray(raw)) raw.forEach(push);
+    else if (typeof raw === "string") {
+      String(raw)
+        .split(/[,+|/\s]+/)
+        .forEach(push);
+    }
     if (!tiers.length) {
       const trainRaw =
         src.train_universe ||
         meta.train_universe ||
         rm.train_universe ||
-        src.zscore_universe ||
-        meta.zscore_universe ||
-        rm.zscore_universe ||
         "";
       const uni = String(trainRaw || "").toLowerCase();
-      if (uni === "tier_a" || uni === "a") tiers = ["A"];
-      else if (uni === "tier" || uni === "tiers") {
-        return `${bit}·训练档`;
-      }
+      if (uni === "tier_a" || uni === "a") tiers.push("A");
+      else if (uni === "tier" || uni === "tiers") return "旧训练档";
     }
-    if (tiers.length) {
-      bit = `${bit}·训练${tiers.join("+")}`;
-    }
-    return bit;
+    if (tiers.length) return `旧训练${tiers.join("+")}`;
+    return "";
   }
 
+  /** 清已下线拟合控件的 localStorage（训练档 / 旧 z 宇宙勾选 / 旧共用 τ 钟）。 */
   function hydrateCrossSectionZParams() {
-    for (const head of RANK_TRAIN_TIER_HEADS) {
-      const root = getFitTrainTiersRoot(head);
-      if (!root) continue;
-      const saved = loadStoredRankTrainTiers(head);
-      applyRankTrainTiersToDom(root, saved);
-      persistRankTrainTiers(head, saved);
-      if (root.dataset.wired === "1") continue;
-      root.dataset.wired = "1";
-      root
-        .querySelectorAll('.quant-fit-train-tiers-menu input[type="checkbox"]')
-        .forEach((inp) => {
-          inp.addEventListener("change", (ev) => {
-            ev.stopPropagation();
-            const tiers = readRankTrainTiersFromDom(root);
-            persistRankTrainTiers(head, tiers);
-            paintRankTrainTiersSummary(root, tiers);
-          });
-        });
-      document.addEventListener("click", (ev) => {
-        const dd = root.querySelector(".quant-fit-train-tiers-dd");
-        if (!dd || !dd.open) return;
-        if (dd.contains(ev.target)) return;
-        dd.open = false;
-      });
-    }
-    for (const head of CS_Z_FIT_HEADS) {
-      const csEl = getFitCsZEl(head);
-      if (!csEl) continue;
+    for (const h of ["oo_rank", "tc_rank"]) {
       try {
-        const saved = localStorage.getItem(CS_ZSCORE_STORAGE_KEYS[head]);
-        if (saved === "0") csEl.checked = false;
-        else if (saved === "1") csEl.checked = true;
+        localStorage.removeItem(`quant_fit_train_tiers_${h}`);
+        localStorage.removeItem(`quant_fit_z_univ_a_${h}`);
       } catch (_) {}
-      csEl.addEventListener("change", () => readCrossSectionZscore(head));
     }
+    try {
+      localStorage.removeItem("quant_fit_tau_end_hm_v3");
+    } catch (_) {}
   }
 
   function tauEndIndex(hm, group = "horizon") {
@@ -754,10 +546,7 @@ export function createResearchParams(opts = {}) {
     const g = tauEndGroup(group);
     const fb = tauEndDefault(g);
     try {
-      let saved = localStorage.getItem(tauEndStorageKey(g));
-      if (!saved && g === "horizon") {
-        saved = localStorage.getItem(TAU_END_STORAGE_KEY_LEGACY);
-      }
+      const saved = localStorage.getItem(tauEndStorageKey(g));
       if (saved) return clampTauEndHmForGroup(saved, g);
     } catch (_) {}
     return fb;
@@ -806,7 +595,7 @@ export function createResearchParams(opts = {}) {
     return { tau_end_hm: readTauEndHm(head) };
   }
 
-  /** 卡头摘要：前缀11:00；τc 在 09:30 显示 0前缀·OC，τ* 自 09:35。 */
+  /** 卡头摘要：非默认前缀才标「前缀HH:MM」；τc 默认 09:30 / 0 前缀不占卡头。 */
   function formatTauEndBit(data, opts) {
     const src = data && typeof data === "object" ? data : {};
     const ySpec = src.y_spec && typeof src.y_spec === "object" ? src.y_spec : {};
@@ -823,10 +612,13 @@ export function createResearchParams(opts = {}) {
     if (forHorizon) {
       if (hm === "09:30" || hm.toLowerCase() === "open") hm = "09:35";
       if (!hm || !TAU_END_CLOCKS_HORIZON.includes(hm)) return "";
+      // τ* 默认 11:00 不占卡头
+      if (hm === DEFAULT_TAU_END_HM_HORIZON) return "";
       return `前缀${hm}`;
     }
     if (!hm || !TAU_END_CLOCKS.includes(hm)) return "";
-    if (hm === "09:30") return "0前缀·OC";
+    // τc 默认 09:30（0 前缀·OC）不占卡头
+    if (hm === "09:30" || hm === DEFAULT_TAU_END_HM_TC) return "";
     return `前缀${hm}`;
   }
 
@@ -955,9 +747,7 @@ export function createResearchParams(opts = {}) {
     hydrateFitLookbackDays,
     readCrossSectionZscore,
     readCrossSectionFitParams,
-    readRankTrainTiers,
-    readRankZUniverseFitParams,
-    formatCrossSectionZBit,
+    formatTrainTiersBit,
     hydrateCrossSectionZParams,
     readTauEndHm,
     readTauEndFitParams,

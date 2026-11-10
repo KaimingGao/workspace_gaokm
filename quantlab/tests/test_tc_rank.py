@@ -11,6 +11,15 @@ class TestTcRank(unittest.TestCase):
         self.assertFalse(out.get("success"))
         self.assertEqual(out.get("task"), "tc_rank")
         self.assertIn("rows_insufficient", str(out.get("error") or ""))
+        self.assertEqual(out.get("tau_end_hm"), "09:30")
+        self.assertTrue(out.get("zero_prefix"))
+
+    def test_bad_tau_end_rejected(self):
+        from core.research.tc_rank import fit_tc_rank_report
+
+        out = fit_tc_rank_report([], tau_end_hm="12:00")
+        self.assertFalse(out.get("success"))
+        self.assertIn("tau_end_hm", str(out.get("error") or ""))
 
     def test_rank_cs_z_hydrates_missing_from_cube(self):
         """行上只有 raw_atc 时，从立方回填 z_τc_*，避免 tip 缺 theme_day/gap_atr。"""
@@ -287,9 +296,28 @@ class TestTcRank(unittest.TestCase):
                     "X": np.column_stack([gap, atc, vol, vol_sd, const]),
                 }
             )
-        kept = _fit_ridge_baseline(
-            days, feature_names=names, cross_section_zscore=False
-        )
+        from unittest.mock import patch
+
+        from core.research.feature_standardize import cross_section_zscore_matrix
+
+        def _all_days_have_cube(groups, **_kw):
+            n = len(groups or [])
+            return np.ones(n, dtype=bool), []
+
+        def _l2_as_batch(raw, names, groups, **_kw):
+            z = cross_section_zscore_matrix(raw, groups)
+            return np.where(np.isfinite(z), z, 0.0), {"ok": True}
+
+        with patch(
+            "core.research.materialize.cube_z.apply_day_cube_mu_sigma_matrix",
+            side_effect=_l2_as_batch,
+        ), patch(
+            "core.research.materialize.cube_z.groups_with_day_cube",
+            side_effect=_all_days_have_cube,
+        ):
+            kept = _fit_ridge_baseline(
+                days, feature_names=names, cross_section_zscore=True
+            )
         self.assertTrue(kept.get("success"), kept)
         active = set(kept.get("active_features") or [])
         self.assertIn("z_τc_gap_pct", active)

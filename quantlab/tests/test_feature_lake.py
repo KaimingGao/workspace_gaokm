@@ -103,6 +103,48 @@ class TestFeatureLake(unittest.TestCase):
         self.assertEqual(hit.get("_meta", {}).get("fingerprint"), "long-fp")
         np.testing.assert_allclose(hit["X"].ravel()[0], 0.0)
 
+    def test_refuse_empty_panel_overwrite(self) -> None:
+        from core.research.feature_lake import load_stock_panel, write_stock_panel
+
+        dates = ["2024-02-01", "2024-02-02", "2024-02-03"]
+        write_stock_panel(
+            "oo",
+            "000020",
+            dates=dates,
+            X=np.asarray([[1.0], [2.0], [3.0]]),
+            names=["f"],
+            fingerprint="keep-fp",
+            y=np.asarray([0.1, 0.2, 0.3]),
+            extra_meta={"bars_fp": "keep-bars", "end_date": dates[-1], "panel_end": dates[-1]},
+        )
+        ok = write_stock_panel(
+            "oo",
+            "000020",
+            dates=[],
+            X=np.zeros((0, 1), dtype=np.float64),
+            names=["f"],
+            fingerprint="empty-fp",
+            y=np.zeros((0,), dtype=np.float64),
+            extra_meta={"bars_fp": "empty-bars", "end_date": dates[-1], "panel_end": ""},
+        )
+        self.assertTrue(ok)
+        hit = load_stock_panel("oo", "000020", fingerprint=None)
+        self.assertIsNotNone(hit)
+        assert hit is not None
+        self.assertEqual(hit["dates"], dates)
+        self.assertEqual(hit.get("_meta", {}).get("fingerprint"), "keep-fp")
+        # 无旧面板时 0 行不得落盘
+        ok2 = write_stock_panel(
+            "oo",
+            "000021",
+            dates=[],
+            X=np.zeros((0, 1), dtype=np.float64),
+            names=["f"],
+            fingerprint="empty-new",
+        )
+        self.assertFalse(ok2)
+        self.assertIsNone(load_stock_panel("oo", "000021", fingerprint=None))
+
     def test_load_day_rows(self) -> None:
         from core.research.feature_lake import load_day_rows, write_stock_panel
 

@@ -13,7 +13,11 @@
 
 门槛
 ----
-- ``LAKE_COVER_FRAC``：L1 票/日、L2 hit+built、消费 assess 同口径（默认 0.5）
+- ``LAKE_COVER_FRAC``：单日截面票数（L1 票/日、cube min_items、消费按日够票）；默认 0.5
+- 写入 L1 τ ``ok``：票数达 ``LAKE_COVER_FRAC``；**天数按日齐套**（``n_dates ≥ n_days``），
+  与 L2 对齐，禁止「L1 假绿、L2 必然失败」
+- 写入 L2 ``ok``：请求窗内 **每一天** 都须 hit 或 built（与消费 assess 按日齐套对齐；
+  禁止「日子只齐一半」仍绿灯）
 - ``HORIZON_COVER_FRAC``：窗头列名覆盖；与湖日同口径。早盘缺 ``raw_ath_*`` 不得按 1.0 全拒
 - 探针可外推「有分钟的票数」，**禁止**按池比例放大交易日跨度
 - 写入 ``ok``：禁止 hit+built=0 仍成功；失败文案须带 hit/built/slim_reject/need
@@ -25,6 +29,29 @@ from typing import Any, Dict, List, Optional, Sequence
 
 LAKE_COVER_FRAC = 0.5
 HORIZON_COVER_FRAC = LAKE_COVER_FRAC
+# 分钟 τ L1 / 分钟钟 L2 共用近端窗（新浪 5m≈41 交易日；Ready 默认 40）。
+# 不暴露第二 lookback 入参；orchestrate / l1_jobs 同读此常量。
+L2_MINUTE_LOOKBACK = 60
+
+
+def resolve_minute_lookback() -> int:
+    """分钟 τ L1 / 分钟钟 L2 固定近端窗。"""
+    return max(2, min(1500, int(L2_MINUTE_LOOKBACK)))
+
+
+def dates_reach_span(have: int, need: int) -> bool:
+    """按日齐套：``have >= need``；``need<1`` 时有任意日即可。"""
+    try:
+        got = int(have or 0)
+    except (TypeError, ValueError):
+        got = 0
+    try:
+        want = int(need or 0)
+    except (TypeError, ValueError):
+        want = 0
+    if want < 1:
+        return got > 0
+    return got >= want
 
 
 def cover_need(
@@ -134,11 +161,15 @@ def format_cube_cover_error(
     slim_reject: int = 0,
     skipped: int = 0,
 ) -> str:
-    """统一 L2 写入失败文案：``立方 09:35 覆盖不足 hit+built=0/50 need≥25 …``。"""
+    """统一 L2 写入失败文案：按日齐套 ``hit+built=1/50 need≥50``。
+
+    ``frac`` 保留兼容调用方；日子门槛为全部请求日（与消费 assess 对齐）。
+    """
+    del frac
     h = _as_int(hit)
     b = _as_int(built)
     days = _as_int(n_days)
-    need = cover_need(days, frac=frac, minimum=1)
+    need = max(1, days) if days else 1
     who = str(clock or "").strip() or "?"
     text = f"立方 {who} 覆盖不足 hit+built={h + b}/{days} need≥{need}"
     slim = _as_int(slim_reject)
@@ -159,11 +190,16 @@ def format_l1_clock_cover_error(
     n_days: int,
     frac: float = LAKE_COVER_FRAC,
 ) -> str:
-    """L1 τ 单钟覆盖不足文案。"""
+    """L1 τ 单钟覆盖不足文案。
+
+    票数仍用 ``LAKE_COVER_FRAC``；天数与 L2 对齐为按日齐套 ``need≥n_days``。
+    ``frac`` 仅影响票数门槛（保留兼容调用方）。
+    """
     stocks = _as_int(n_stocks)
     dates = _as_int(n_dates)
     need_s = cover_need(n_eligible, frac=frac, minimum=2)
-    need_d = cover_need(n_days, frac=frac, minimum=1)
+    need_days = _as_int(n_days)
+    need_d = max(1, need_days) if need_days else 1
     who = str(clock or "").strip() or "?"
     return (
         f"{who} 覆盖不足 stocks={stocks}/{need_s} "
@@ -177,7 +213,11 @@ def finalize_l2_report(
     *,
     lake_frac: float = LAKE_COVER_FRAC,
 ) -> Dict[str, Any]:
-    """对账 by_clock：有失败钟或 hit+built 全 0 则 report.ok=False。"""
+    """对账 by_clock：有失败钟或 hit+built 全 0 则 report.ok=False。
+
+    写入成功要求请求窗内每一天都 hit/built（按日齐套）；``lake_frac`` 仅用于
+    文案里的票级 need 展示，不再放宽「日子只齐一半」。
+    """
     if not isinstance(report, dict):
         return {"ok": False, "error": "L2 report invalid"}
     if report.get("error") == "cancelled":
@@ -189,6 +229,7 @@ def finalize_l2_report(
         clock_list = [str(k) for k in by.keys()]
     ok_n = 0
     total_have = 0
+    frac = float(lake_frac) if lake_frac is not None else float(LAKE_COVER_FRAC)
     for clk in clock_list:
         row = by.get(clk) if isinstance(by.get(clk), dict) else None
         if row is None:
@@ -196,13 +237,18 @@ def finalize_l2_report(
             by[clk] = row
         have = _as_int(row.get("cubes_hit")) + _as_int(row.get("cubes_built"))
         total_have += have
-        days = _as_int(row.get("days") or report.get("minute_days") or 0)
+        # open 行禁止回退 minute_days（混钟拆分后归因错位）
+        clk_l = str(clk).strip().lower()
+        if clk_l in ("open", "09:30", "0930"):
+            days = _as_int(row.get("days") or 0)
+        else:
+            days = _as_int(row.get("days") or report.get("minute_days") or 0)
         if days < 1:
             try:
                 days = len(report.get("dates") or [])
             except TypeError:
                 days = 0
-        reaches = cover_reaches(have, days, frac=lake_frac, minimum=1) if days else have > 0
+        reaches = (have >= days) if days else have > 0
         if row.get("ok") is False or row.get("error"):
             if not reaches and not row.get("error"):
                 row["error"] = format_cube_cover_error(
@@ -210,7 +256,7 @@ def finalize_l2_report(
                     hit=_as_int(row.get("cubes_hit")),
                     built=_as_int(row.get("cubes_built")),
                     n_days=days,
-                    frac=lake_frac,
+                    frac=frac,
                     slim_reject=_as_int(row.get("slim_reject")),
                     skipped=_as_int(row.get("days_skipped")),
                 )
@@ -223,7 +269,7 @@ def finalize_l2_report(
                 hit=_as_int(row.get("cubes_hit")),
                 built=_as_int(row.get("cubes_built")),
                 n_days=days,
-                frac=lake_frac,
+                frac=frac,
                 slim_reject=_as_int(row.get("slim_reject")),
                 skipped=_as_int(row.get("days_skipped")),
             )
@@ -270,8 +316,10 @@ def resolve_tau_l2_clocks(
     *,
     suggested: Sequence[str] | None = None,
 ) -> List[str]:
-    """纯 τ 物化 L2 时钟：仅分钟钟（suggested τ），**不含 open**。
+    """纯 τ 物化 L2 时钟：仅分钟钟，**不含 open**。
 
+    请求已显式给出分钟钟 → 只修这些钟（一键缺口修复）；
+    未给或剔 open 后为空 → 回退 suggested 全网格。
     日线 open 由日线物化卡单独写，不经此函数。
     """
     from core.research.materialize.catalog import normalize_clocks, suggested_tau_clocks
@@ -288,17 +336,21 @@ def resolve_tau_l2_clocks(
         for c in clks
         if str(c).lower() not in ("open", "09:30", "0930")
     ]
-    if not clks:
-        clks = list(sug)
-    for c in sug:
-        if c not in clks and str(c).lower() not in ("open", "09:30", "0930"):
-            clks.append(c)
-    return list(clks)
+    if clks:
+        return list(clks)
+    return [
+        c
+        for c in sug
+        if str(c).lower() not in ("open", "09:30", "0930")
+    ]
 
 
 __all__ = [
     "LAKE_COVER_FRAC",
     "HORIZON_COVER_FRAC",
+    "L2_MINUTE_LOOKBACK",
+    "resolve_minute_lookback",
+    "dates_reach_span",
     "cover_need",
     "cover_reaches",
     "scale_eligible_stocks",

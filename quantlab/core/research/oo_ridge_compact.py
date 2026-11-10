@@ -348,7 +348,7 @@ def _oo_stock_job(
         from core.research.incremental_panel import stem_extra_meta
         from core.research.lake_bridge import FAMILY_OO, sync_panel_to_lake
 
-        sync_panel_to_lake(
+        synced = sync_panel_to_lake(
             FAMILY_OO,
             code_s,
             X=x,
@@ -356,11 +356,55 @@ def _oo_stock_job(
             names=names,
             fingerprint=fp,
             y=y,
-            extra_meta=stem_extra_meta(bars_l),
+            extra_meta=stem_extra_meta(bars_l, panel_dates=dates),
         )
+        if not synced:
+            try:
+                from core.research.materialize.consumer import writer_active
+
+                if writer_active():
+                    logger.debug("oo L1 sync returned false code=%s", code_s)
+            except Exception:  # noqa: BLE001
+                pass
     except Exception:  # noqa: BLE001
         logger.debug("oo L1 sync failed code=%s", code_s, exc_info=True)
     return x, y, names, dates
+
+
+def _oo_stock_job_pooled(
+    job: Tuple[Any, ...],
+) -> Tuple[Any, Dict[str, Any]]:
+    """ProcessPool 入口：算完 drain L2 stale，交给父进程 note。"""
+    from core.research.day_cube_gc import attach_deferred_to_exc, drain_deferred_stale
+    from core.research.materialize.consumer import MaterializeRequired
+
+    try:
+        pack = _oo_stock_job(job)
+    except MaterializeRequired as exc:
+        attach_deferred_to_exc(exc, drain_deferred_stale())
+        raise
+    except Exception:  # noqa: BLE001
+        code = job[0] if isinstance(job, (tuple, list)) and job else "?"
+        logger.debug("ŷ_oo 单票失败，已跳过 code=%s", code, exc_info=True)
+        return None, drain_deferred_stale()
+    return pack, drain_deferred_stale()
+
+
+def _apply_oo_pool_stale(stale: Any) -> None:
+    try:
+        from core.research.day_cube_gc import apply_deferred_stale
+
+        apply_deferred_stale(stale if isinstance(stale, dict) else None)
+    except Exception:  # noqa: BLE001
+        logger.debug("oo apply deferred l2 stale failed", exc_info=True)
+
+
+def _split_oo_pool_result(raw: Any) -> Tuple[Any, Dict[str, Any]]:
+    """解析工人返回值 ``(pack, stale_payload)``。"""
+    if isinstance(raw, tuple) and len(raw) == 2:
+        pack, stale = raw
+        return pack, stale if isinstance(stale, dict) else {}
+    return raw, {}
 
 
 def _resolve_workers(n_jobs: int, workers: Optional[int]) -> int:
@@ -537,10 +581,18 @@ def _drain_stock_batch(
         return (str(code), list(bars or []), int(horizon_days), core)
 
     def _submit(i: int) -> Any:
-        return pool.submit(_oo_stock_job, _job(i))
+        return pool.submit(_oo_stock_job_pooled, _job(i))
 
     def _run(i: int) -> Any:
-        return _oo_stock_job(_job(i))
+        # 串行回落仍在父进程：无 defer 可 drain，保持 (pack, {}) 形状。
+        return _oo_stock_job(_job(i)), {}
+
+    def _on_done_wrapped(i: int) -> None:
+        pack, stale = _split_oo_pool_result(results[i])
+        _apply_oo_pool_stale(stale)
+        results[i] = pack
+        if on_done is not None:
+            on_done(i)
 
     return consume_process_batch(
         start=start,
@@ -550,7 +602,7 @@ def _drain_stock_batch(
         submit=_submit,
         run_one=_run,
         label=lambda i: str(items[i][0]),
-        on_done=on_done,
+        on_done=_on_done_wrapped,
     )
 
 
@@ -707,12 +759,20 @@ def _assemble_oo_released(
             summary["n_cols"] = max(int(summary["n_cols"]), int(hit["n_cols"]))
             summary["n_stocks"] += 1
             summary["hits"] += 1
-            for raw in bars_l:
-                if not isinstance(raw, dict):
-                    continue
-                day = str(raw.get("date") or raw.get("trade_date") or "")[:10]
-                if len(day) >= 10:
-                    date_set.add(day)
+            # 日期以湖面板为准，禁止用整段 bars 日期虚增 n_dates
+            try:
+                from core.research.feature_lake import load_stock_dates
+
+                for day in load_stock_dates(FAMILY_OO, str(code)) or []:
+                    d = str(day or "")[:10]
+                    if len(d) >= 10:
+                        date_set.add(d)
+            except Exception:  # noqa: BLE001
+                logger.debug(
+                    "oo meta-hit load_stock_dates failed code=%s",
+                    code,
+                    exc_info=True,
+                )
             _tick()
             continue
         misses.append((str(code), bars_l))
@@ -1158,7 +1218,8 @@ def fit_oo_ridge_matrix(
     """在矩阵上拟合 ŷ_oo，返回 ``(ReturnScoreModel | None, report)``。
 
     ``sample_weights`` 与全表 ``y`` 等长（或与 ``row_idx`` 等长）；√w 加权最小二乘。
-    ``cross_section_zscore=False``：训练样本内全局 μ/σ（不用日截面）。
+    ``cross_section_zscore=False``：调用方已预 z（或单测矩阵），不再二次截面 z。
+    产品拟合入口固定日截面；勿用本参开关「训练窗全局 μ/σ」。
     日截面 z 与损失用同一批行。真常数仍剔除。
     """
     from core.signal.return_score import ReturnScoreModel

@@ -127,16 +127,23 @@ def _materialize_oo(
     n_rows = int(summary.get("n_rows") or 0)
     n_features = int(summary.get("n_cols") or 0) or len(feat_names or [])
     n_dates = len(summary.get("dates") or [])
-    return {
+    n_stocks = int(summary.get("n_stocks") or 0)
+    ok = n_rows > 0 and n_stocks >= 2
+    out: Dict[str, Any] = {
         "family": FAMILY_OO,
-        "ok": True,
-        "n_stocks": len(items),
+        "ok": ok,
+        "n_stocks": n_stocks if n_stocks else len(items),
         "n_rows": n_rows,
         "n_features": n_features,
         "n_dates": n_dates,
         "hits": int(summary.get("hits") or 0),
         "elapsed_s": round(time.perf_counter() - t0, 2),
     }
+    if not ok:
+        out["error"] = (
+            f"L1 oo 空面板（stocks={n_stocks} rows={n_rows} dates={n_dates}）"
+        )
+    return out
 
 
 def _materialize_tc(
@@ -202,21 +209,35 @@ def _materialize_tc(
         stats_out=tc_stats,
     )
     rank_row = _materialize_tc_rank(rank_packs, progress_cb=progress_cb)
-    return {
+    tc_rows = int(tc_stats.get("n_rows") or 0)
+    tc_ok = tc_rows > 0 and int(tc_stats.get("n_stocks") or n_stocks or 0) >= 2
+    rank_ok = bool(rank_row.get("ok"))
+    ok = tc_ok and rank_ok
+    out: Dict[str, Any] = {
         "family": FAMILY_TC,
-        "ok": bool(rank_row.get("ok")),
+        "ok": ok,
         "n_stocks": int(tc_stats.get("n_stocks") or n_stocks),
-        "n_rows": int(tc_stats.get("n_rows") or 0),
+        "n_rows": tc_rows,
         "n_features": int(tc_stats.get("n_cols") or 0) or len(col_names or []),
         "n_dates": int(tc_stats.get("n_dates") or 0),
         "hits": int(tc_stats.get("hits") or 0),
         "elapsed_s": round(time.perf_counter() - t0, 2),
         "x_shape": [
-            int(tc_stats.get("n_rows") or 0),
+            tc_rows,
             int(tc_stats.get("n_cols") or 0) or len(col_names or []),
         ],
         "tc_rank": rank_row,
     }
+    if not ok:
+        if not tc_ok and not rank_ok:
+            out["error"] = "L1 tc 与 tc_rank 均未写成有效面板"
+        elif not tc_ok:
+            out["error"] = f"L1 tc 空面板（rows={tc_rows}）"
+        else:
+            out["error"] = str(
+                rank_row.get("error") or "L1 tc_rank 失败"
+            )
+    return out
 
 
 def _materialize_tc_rank(
@@ -354,17 +375,18 @@ def _eligible_minute_span(packs: Sequence[dict]) -> tuple:
 
 
 def _clock_reaches_lake(row: dict, *, n_eligible: int, n_days: int) -> bool:
-    """单钟写入股票数和天数都达到 ``LAKE_COVER_FRAC``。"""
-    from core.research.materialize.cover_policy import cover_reaches
+    """单钟：票数达 ``LAKE_COVER_FRAC``；天数与 L2 对齐为按日齐套。"""
+    from core.research.materialize.cover_policy import cover_reaches, dates_reach_span
 
     try:
         stocks = int(row.get("n_stocks") or 0)
         dates = int(row.get("n_dates") or 0)
+        need_days = int(n_days or 0)
     except (TypeError, ValueError):
         return False
-    return cover_reaches(stocks, n_eligible, minimum=2) and cover_reaches(
-        dates, n_days, minimum=1
-    )
+    if not cover_reaches(stocks, n_eligible, minimum=2):
+        return False
+    return dates_reach_span(dates, need_days)
 
 
 def _attach_minute_bars(packs: List[dict]) -> int:
@@ -396,21 +418,24 @@ def _tau_grid_clocks(clocks: Sequence[str] | None) -> List[str]:
 def materialize_l1_tau_grid(
     codes: Sequence[str],
     *,
-    lookback: int = 1000,
+    lookback: int = 0,
     clocks: Sequence[str] | None = None,
     progress_cb: ProgressCb = None,
     cancel_cb: CancelCb = None,
 ) -> Dict[str, Any]:
     """H1：按训练网格写 ``tc_HHMM`` L1（τc∪窗头列）。须本地 5m。
 
+    ``lookback`` 忽略；固定 ``resolve_minute_lookback()``（与分钟 L2 同窗）。
     作废只落在这些分钟钟上。open 立方不读 ``tc_HHMM``，留着给日线物化。
     """
     from core.research.day_cube_gc import l2_invalidation_batch
+    from core.research.materialize.cover_policy import resolve_minute_lookback
 
+    _ = lookback
     with l2_invalidation_batch(clocks=_tau_grid_clocks(clocks)):
         return _materialize_l1_tau_grid_body(
             codes,
-            lookback=lookback,
+            lookback=int(resolve_minute_lookback()),
             clocks=clocks,
             progress_cb=progress_cb,
             cancel_cb=cancel_cb,
@@ -420,15 +445,17 @@ def materialize_l1_tau_grid(
 def _materialize_l1_tau_grid_body(
     codes: Sequence[str],
     *,
-    lookback: int = 1000,
+    lookback: int = 0,
     clocks: Sequence[str] | None = None,
     progress_cb: ProgressCb = None,
     cancel_cb: CancelCb = None,
 ) -> Dict[str, Any]:
+    from core.research.materialize.cover_policy import resolve_minute_lookback
     from core.research.materialize.horizon_names import horizon_l1_feature_names
     from core.research.panel_matrix import collect_tau_grid_panels
 
     t0 = time.perf_counter()
+    lookback = int(resolve_minute_lookback())
     code_list = [str(c).strip() for c in (codes or []) if str(c or "").strip()]
     clock_list = _tau_grid_clocks(clocks)
     report: Dict[str, Any] = {

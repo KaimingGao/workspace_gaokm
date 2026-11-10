@@ -223,6 +223,7 @@ def _pack_shorter_lookback(
 ) -> Optional[Dict[str, Any]]:
     """精确指纹 miss 时，把物化长窗切成与当前日线重叠的后缀（含 ``M``）。"""
     from core.research.incremental_panel import try_slice_shorter_lookback
+    from core.research.materialize.consumer import allow_l1_end_lag
 
     try:
         sliced = try_slice_shorter_lookback(
@@ -233,7 +234,7 @@ def _pack_shorter_lookback(
             names=names,
             min_rows=int(min_rows),
             with_m=True,
-            allow_end_lag=True,
+            allow_end_lag=allow_l1_end_lag(),
         )
     except Exception:  # noqa: BLE001
         logger.debug(
@@ -913,7 +914,7 @@ def sync_horizon_head_panel(
     fp = horizon_head_fingerprint(
         bars, head, tau_grid, min_history=min_history
     )
-    extra = stem_extra_meta(bars)
+    extra = stem_extra_meta(bars, panel_dates=dates[:n])
     extra["m_names"] = m_names
     extra["head"] = str(head)
     return bool(

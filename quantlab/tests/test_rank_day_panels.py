@@ -27,7 +27,35 @@ class TestRankDayPanels(unittest.TestCase):
         )
         self.assertEqual([d["date"] for d in days], ["2024-01-01", "2024-01-02"])
         self.assertEqual(days[0]["codes"], codes)
+        self.assertEqual(days[0].get("clock"), "open")
         self.assertEqual(list(days[0]["X"].shape), [4, 0])  # a/b 不在 TAU_Z 入模列
+
+    def test_tau_compact_to_day_panels_groups_by_date_clock(self):
+        from core.research.rank_day_panels import tau_compact_to_day_panels
+
+        codes = ["A", "B", "C", "D"]
+        # 同日两钟各 4 只
+        dates = ["2024-01-01"] * 8
+        metas = (
+            [{"stock_code": c, "tau": "09:35"} for c in codes]
+            + [{"stock_code": c, "tau": "10:30"} for c in codes]
+        )
+        x = np.arange(8 * 2, dtype=np.float64).reshape(8, 2)
+        days = tau_compact_to_day_panels(
+            x,
+            ["a", "b"],
+            list(range(8)),
+            dates,
+            metas,
+            min_names=4,
+            group_by_clock=True,
+        )
+        self.assertEqual(len(days), 2)
+        self.assertEqual(
+            [(d["date"], d["clock"]) for d in days],
+            [("2024-01-01", "09:35"), ("2024-01-01", "10:30")],
+        )
+        self.assertEqual(days[0]["codes"], codes)
 
     def test_build_rank_day_panels_rejects_unknown_family(self):
         from core.research.rank_day_panels import build_rank_day_panels

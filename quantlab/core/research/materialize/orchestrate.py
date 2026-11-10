@@ -13,6 +13,10 @@ from core.research.materialize.catalog import (
     normalize_families,
     suggested_tau_clocks,
 )
+from core.research.materialize.cover_policy import (
+    L2_MINUTE_LOOKBACK,
+    resolve_minute_lookback,
+)
 from core.research.materialize.l1_jobs import materialize_l1, materialize_l1_tau_grid
 from core.research.materialize.l2_jobs import materialize_l2
 from core.watching.store import WATCHING_MAX_SIZE
@@ -24,37 +28,23 @@ CancelCb = Optional[Callable[[], bool]]
 
 
 _OPEN_CLOCKS = frozenset({"", "open", "09:30", "0930"})
-# 分钟钟 L2 近端窗（新浪 5m≈41 交易日；Ready 默认 40）。不暴露第二 lookback 入参。
-L2_MINUTE_LOOKBACK = 60
-
-
-def _daily_l2_pad() -> int:
-    """与 ``portfolio_bars`` / 拟合加载同口径：lookback 外再垫 alpha_oo 窗。"""
-    pad = 35
-    try:
-        from core.signal.factors.alpha_oo import ALPHA_OO_PANEL_WINDOW
-
-        pad = max(pad, int(ALPHA_OO_PANEL_WINDOW))
-    except Exception:  # noqa: BLE001
-        logger.debug("daily L2 pad alpha_oo failed", exc_info=True)
-    return max(1, int(pad))
 
 
 def resolve_l2_lookback(lookback: int, *, minute: bool) -> int:
     """L2 交易日回看：日线跟 ``lookback``；分钟钟用内部 ``L2_MINUTE_LOOKBACK``。
 
-    日线再垫 ``alpha_oo`` 窗（与拟合 ``lookback+pad`` 同长）：首个可算日可落在
-    垫窗内任一日，只 +1 仍会 ``cube miss``（例如本地已有 n=lookback+1 仍缺更早日）。
+    open 窗 = 请求 ``lookback``（与 L1 决策日跨度对齐）。垫窗只在
+    ``load_portfolio_stock_bars`` / 拟合拉日线时加一次，这里禁止再 +pad。
     """
     if minute:
-        return max(2, min(1500, int(L2_MINUTE_LOOKBACK)))
+        return int(resolve_minute_lookback())
     try:
         lb = int(lookback or 0)
     except (TypeError, ValueError):
         lb = 0
     if lb <= 0:
         lb = int(BARS_DAILY_LOOKBACK)
-    return max(2, min(1500, lb + _daily_l2_pad()))
+    return max(2, min(1500, lb))
 
 
 def request_has_minute_clock(
@@ -72,7 +62,10 @@ def request_has_minute_clock(
 
 
 def _merge_l2(parts: Sequence[Dict[str, Any]]) -> Dict[str, Any]:
-    """两次 L2（open 全日窗 + 分钟短窗）合成一份报告。"""
+    """两次 L2（open 全日窗 + 分钟短窗）合成一份报告。
+
+    同 clock 保留先写入的行（open 长窗先入），禁止短窗结果覆盖。
+    """
     by_clock: Dict[str, Any] = {}
     elapsed = 0.0
     ok = True
@@ -91,7 +84,13 @@ def _merge_l2(parts: Sequence[Dict[str, Any]]) -> Dict[str, Any]:
             error = err
         rows = part.get("by_clock")
         if isinstance(rows, dict):
-            by_clock.update(rows)
+            for key, row in rows.items():
+                clk = str(key or "").strip()
+                if not clk:
+                    continue
+                if clk in by_clock:
+                    continue
+                by_clock[clk] = row
     out: Dict[str, Any] = {
         "ok": ok,
         "by_clock": by_clock,
@@ -203,15 +202,17 @@ def _run_materialize(
             "session_open_l2": session,
             "elapsed_s": float(session.get("elapsed_s") or round(time.perf_counter() - t0, 2)),
         }
+        if session.get("needs_final"):
+            out["needs_final"] = True
         if not out["ok"]:
             out["error"] = str(session.get("error") or "会话日开盘 L2 补齐失败")
         out["track"] = build_materialize_track(out)
-        _emit(
-            progress_cb,
-            1,
-            1,
-            ("已补齐开盘 L2" if out["ok"] else out.get("error") or "补齐失败"),
-        )
+        done_msg = "已补齐开盘 L2"
+        if out["ok"] and out.get("needs_final"):
+            done_msg = "已补齐开盘 L2（临时·待终态）"
+        elif not out["ok"]:
+            done_msg = out.get("error") or "补齐失败"
+        _emit(progress_cb, 1, 1, done_msg)
         return out
 
     fams = normalize_families(families) if do_l1 else []
@@ -299,9 +300,11 @@ def _run_materialize(
         tau_clocks = [c for c in clks if str(c).lower() not in ("open", "09:30", "0930")]
         if not tau_clocks:
             tau_clocks = suggested_tau_clocks()
+        # 与分钟 L2 同窗：禁止 lookback=1000 写一长段无立方可消费的 tc_HHMM
+        tau_lb = resolve_l2_lookback(int(lookback or 0), minute=True)
         out["l1_tau_grid"] = materialize_l1_tau_grid(
             code_list,
-            lookback=int(lookback or BARS_DAILY_LOOKBACK),
+            lookback=int(tau_lb),
             clocks=tau_clocks,
             progress_cb=_pcb_tau,
             cancel_cb=cancel_cb,
@@ -317,30 +320,69 @@ def _run_materialize(
         def _pcb2(c: int, t: int, m: str = "") -> None:
             _emit(progress_cb, c, t, m or "L2…")
 
-        # 日线 L1 只拆了 open，分钟 L1 只拆了分钟钟。两条一起开时各建各的窗，
-        # 不能拿分钟短窗去补 open。
-        if do_l1 and do_l1_tau_grid:
+        # open 用日线 lookback；分钟钟用近端短窗。
+        # 1) 日线 L1 + 分钟 L1 同开：即使 resolve 后 clks 已无 open，仍拆两次；
+        # 2) 同单 clocks 混有 open+分钟：同样拆窗，禁止分钟短窗裁 open。
+        open_clks = [
+            c
+            for c in clks
+            if str(c).strip().lower() in ("open", "09:30", "0930")
+        ]
+        minute_clks = [
+            c
+            for c in clks
+            if str(c).strip().lower() not in ("open", "09:30", "0930")
+        ]
+        dual_cards = bool(do_l1 and do_l1_tau_grid)
+        if dual_cards or (open_clks and minute_clks):
             open_lb = resolve_l2_lookback(int(lookback or 0), minute=False)
             minute_lb = resolve_l2_lookback(int(lookback or 0), minute=True)
-            open_part = materialize_l2(
-                code_list,
-                dates=dates,
-                clocks=["open"],
-                lookback_days=open_lb,
-                progress_cb=_pcb2,
-                cancel_cb=cancel_cb,
-                require_horizon_names=False,
-            )
-            minute_part = materialize_l2(
-                code_list,
-                dates=dates,
-                clocks=clks,
-                lookback_days=minute_lb,
-                progress_cb=_pcb2,
-                cancel_cb=cancel_cb,
-                require_horizon_names=True,
-            )
-            out["l2"] = _merge_l2([open_part, minute_part])
+            # 双卡：即使 resolve 后 clks 已无 open，仍建长窗 open。
+            open_use = list(open_clks) or (["open"] if dual_cards else [])
+            # 分钟列表为空时补 suggested；禁止 fallback 到 open（短窗盖长窗）。
+            minute_use = list(minute_clks)
+            if dual_cards and not minute_use:
+                minute_use = [
+                    c
+                    for c in suggested_tau_clocks()
+                    if str(c).strip().lower() not in _OPEN_CLOCKS
+                ]
+            parts: List[Dict[str, Any]] = []
+            if open_use:
+                parts.append(
+                    materialize_l2(
+                        code_list,
+                        dates=dates,
+                        clocks=open_use,
+                        lookback_days=open_lb,
+                        progress_cb=_pcb2,
+                        cancel_cb=cancel_cb,
+                        require_horizon_names=False,
+                    )
+                )
+            if minute_use:
+                parts.append(
+                    materialize_l2(
+                        code_list,
+                        dates=dates,
+                        clocks=minute_use,
+                        lookback_days=minute_lb,
+                        progress_cb=_pcb2,
+                        cancel_cb=cancel_cb,
+                        require_horizon_names=True,
+                    )
+                )
+            if not parts:
+                out["l2"] = {
+                    "ok": False,
+                    "error": "L2 无可用钟（open/分钟均为空）",
+                    "by_clock": {},
+                    "elapsed_s": 0.0,
+                }
+            elif len(parts) == 1:
+                out["l2"] = parts[0]
+            else:
+                out["l2"] = _merge_l2(parts)
         else:
             l2_lb = resolve_l2_lookback(
                 int(lookback or 0),
@@ -355,7 +397,7 @@ def _run_materialize(
                 lookback_days=l2_lb,
                 progress_cb=_pcb2,
                 cancel_cb=cancel_cb,
-                require_horizon_names=bool(do_l1_tau_grid),
+                require_horizon_names=bool(do_l1_tau_grid or minute_clks),
             )
         step += 1
         _emit(progress_cb, step, tot_steps, "L2 完成")
@@ -387,7 +429,8 @@ def _run_materialize(
     from core.research.materialize.track import build_materialize_track
 
     out["track"] = build_materialize_track(out)
-    _emit(progress_cb, tot_steps, tot_steps, f"物化完成 · {out['elapsed_s']}s")
+    done_label = "物化完成" if out["ok"] else "物化失败"
+    _emit(progress_cb, tot_steps, tot_steps, f"{done_label} · {out['elapsed_s']}s")
     logger.info(
         "materialize done ok=%s codes=%s l1=%s tau_grid=%s l2=%s elapsed=%.1fs track=%s",
         out["ok"],

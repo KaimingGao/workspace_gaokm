@@ -41,6 +41,18 @@ def horizon_cube_required_names() -> Tuple[str, ...]:
     return tuple(k for k in Z_TH_FIT_FEATURES if k not in Z_TH_FIT_DROP_ALIASES)
 
 
+def open_tc_required_names() -> Tuple[str, ...]:
+    """开盘 τc 入模列（非分钟）：缺任一带 → open 立方 thin / 消费 fail-closed。"""
+    from core.signal.factors.z_tc import Z_TC_FIT_FEATURES, Z_TC_MINUTE_KEYS
+
+    minute = set(Z_TC_MINUTE_KEYS)
+    return tuple(
+        str(k)
+        for k in Z_TC_FIT_FEATURES
+        if str(k or "").strip() and k not in minute
+    )
+
+
 def open_cube_required_names() -> Tuple[str, ...]:
     """日线 open 立方必须盖住的入模列：oo、开盘 τc。不含分钟键。"""
     from core.signal.factors.alpha_oo import (
@@ -49,7 +61,6 @@ def open_cube_required_names() -> Tuple[str, ...]:
         Z_OO_DROP_WHEN_AOO_CORE,
     )
     from core.signal.factors.z_oo import Z_OO_SKIP_PACKS, to_z_oo_key, z_oo_legacy_keys
-    from core.signal.factors.z_tc import Z_TC_FIT_FEATURES, Z_TC_MINUTE_KEYS
 
     need: List[str] = []
     seen = set()
@@ -69,10 +80,8 @@ def open_cube_required_names() -> Tuple[str, ...]:
         _add(canon)
     for key in ALPHA_OO_FIELD_NAMES:
         _add(f"{ALPHA_OO_RAW_PREFIX}{key}")
-    minute = set(Z_TC_MINUTE_KEYS)
-    for key in Z_TC_FIT_FEATURES:
-        if key not in minute:
-            _add(key)
+    for key in open_tc_required_names():
+        _add(key)
     return tuple(need)
 
 
@@ -151,5 +160,6 @@ __all__ = [
     "horizon_cube_required_names",
     "minute_horizon_required_names",
     "open_cube_required_names",
+    "open_tc_required_names",
     "names_cover_horizon",
 ]

@@ -1084,16 +1084,14 @@ class QuantFactorMixin:
         persist_role: str = "live",
         note: str = "",
         cross_section_zscore: bool = True,
-        train_tiers: Optional[Sequence[str]] = None,
     ) -> Dict[str, Any]:
-        """ŷ_oo_rank：同窗 LambdaRank + Ridge。
+        """ŷ_oo_rank：单头 LambdaRank。
 
         日线与 ŷ_oo / ŷ_τc 同源（``load_portfolio_stock_bars``：
         本地仓够长则不补远端，避免拟合时把当日 K 线刷进仓里）。
-        截面 z 恒用整观察池。``train_tiers``（A/B/C 多选）非空时，损失 / Holdout
-        缩到观察池∩这些档（须先跑枢纽分档）；打分仍全池 z。
-        成交明细 oo_rank=1..n；不进 ranking 融合分；过入场后作买序；可选 oo_rank_max（与 τc_rank 取 max）入场闸。
-        ``persist=True``：research=写入研究槽；live=研究槽晋级执行槽；固定落盘 LambdaRank（Ridge 仅对照），不重训。
+        截面 z 与损失宇宙均用整观察池（训练档已下线）。
+        成交明细 oo_rank=1..n；不进 ranking 融合分；过入场后作买序；与 τc_rank 共用 rank 相对分闸。
+        ``persist=True``：research=写入研究槽；live=研究槽晋级执行槽；落盘 LambdaRank，不重训。
         """
         from core.research.feature_standardize import ZSCORE_UNIVERSE_POOL
         from core.research.oo_rank_panel import resolve_rank_fit_plan
@@ -1147,7 +1145,6 @@ class QuantFactorMixin:
 
         plan = resolve_rank_fit_plan(
             watching_limit=watching_limit,
-            train_tiers=train_tiers,
             task="oo_rank",
         )
         if not plan.get("success"):
@@ -1155,10 +1152,7 @@ class QuantFactorMixin:
         codes = list(plan.get("codes") or [])
         cap = int(plan.get("cap") or watching_limit)
         pool_n = int(plan.get("watching_pool_size") or len(codes))
-        train_codes = plan.get("train_codes")
         train_u = str(plan.get("train_universe") or "pool")
-        train_meta = dict(plan.get("train_meta") or {})
-        labels = list(plan.get("train_universe_tiers") or [])
 
         loaded, _failures, _fund = load_portfolio_stock_bars(
             codes,
@@ -1181,7 +1175,7 @@ class QuantFactorMixin:
                 backend=backend or "auto",
                 persist=False,
                 cross_section_zscore=bool(cross_section_zscore),
-                train_codes=train_codes,
+                train_codes=None,
             )
         finally:
             stock_bars.clear()
@@ -1196,47 +1190,15 @@ class QuantFactorMixin:
         report["universe_source"] = plan.get("universe_source") or "watching"
         report["n_codes"] = len(codes)
         report["lookback"] = lookback
-        if train_codes is not None:
-            report["n_train_codes"] = len(train_codes)
         stamp_rank_zscore_universe_meta(
             report,
             zscore_universe=ZSCORE_UNIVERSE_POOL,
             train_universe=train_u,
-            train_tiers=labels or None,
-            tier_codes=train_meta.get("tier_codes"),
-            tier_meta={
-                k: train_meta.get(k)
-                for k in (
-                    "tier_as_of_last",
-                    "holdout_n",
-                    "tier_n",
-                    "tier_fingerprint",
-                    "train_universe_tiers",
-                )
-                if train_meta.get(k) is not None
-            },
         )
         if note:
             report["api_note"] = str(note)[:200]
         if report.get("success"):
             save_oo_rank_last_report(report)
-            # fit_oo_rank_report 已写 shadow_track；缺则补（旧路径/缓存）
-            if not isinstance(report.get("shadow_track"), dict):
-                from core.research.oo_rank_lambdarank import rank_oos_shadow_deltas
-
-                oos = report.get("oos") or {}
-                report["shadow_track"] = {
-                    **rank_oos_shadow_deltas(
-                        oos.get("oo_rank") or {},
-                        oos.get("ridge_oo_baseline") or {},
-                        y_key="topk_mean_y_oo",
-                    ),
-                    "recommended_backend": report.get("recommended_backend"),
-                }
-            else:
-                report["shadow_track"]["recommended_backend"] = report.get(
-                    "recommended_backend"
-                )
         if persist and report.get("success"):
             saved = persist_oo_rank_model(
                 report, note=note or "", role=persist_role or "live"
@@ -1285,42 +1247,50 @@ class QuantFactorMixin:
                 live_present=False,
             )
         out = dict(chosen)
-        # 因子表 β 列依赖 backends.ridge；落盘或缺包时从同窗 / 最近 last_report 补
-        def _has_ridge_backend(doc: Any) -> bool:
+        # 单头 LambdaRank：若落盘缺 backends.lambdarank，从同窗 last_report 补
+        def _has_lambda_backend(doc: Any) -> bool:
             be = doc.get("backends") if isinstance(doc, dict) else None
             if not isinstance(be, dict):
                 return False
-            pack = be.get("ridge")
+            pack = be.get("lambdarank")
             if not isinstance(pack, dict):
                 return False
             rm = pack.get("return_model_research") or pack.get("return_model")
-            return isinstance(rm, dict) and isinstance(rm.get("coefficients"), dict)
+            return isinstance(rm, dict) and bool(rm.get("booster_b64") or rm.get("coefficients"))
 
-        if not _has_ridge_backend(out) and isinstance(last, dict) and _has_ridge_backend(last):
-            same_desk = _ridge_desk_key(last) == _ridge_desk_key(chosen)
-            same_fit = bool(
-                fitted and model_fit_id(last) and model_fit_id(last) == fitted
+        if not _has_lambda_backend(out) and isinstance(last, dict) and _has_lambda_backend(last):
+            be_out = (
+                dict(out["backends"])
+                if isinstance(out.get("backends"), dict)
+                else {}
             )
-            # 优先同窗；否则只要 live 完全缺 ridge 也补（研究台展示用）
-            if use_last or same_desk or same_fit or not isinstance(out.get("backends"), dict):
-                be_out = (
-                    dict(out["backends"])
-                    if isinstance(out.get("backends"), dict)
-                    else {}
-                )
-                be_last = last.get("backends") if isinstance(last.get("backends"), dict) else {}
-                if isinstance(be_last.get("ridge"), dict):
-                    be_out["ridge"] = be_last["ridge"]
-                if isinstance(be_last.get("lambdarank"), dict) and "lambdarank" not in be_out:
-                    be_out["lambdarank"] = be_last["lambdarank"]
-                if be_out:
-                    out["backends"] = be_out
+            be_last = last.get("backends") if isinstance(last.get("backends"), dict) else {}
+            if isinstance(be_last.get("lambdarank"), dict):
+                be_out["lambdarank"] = be_last["lambdarank"]
+            if be_out:
+                out["backends"] = be_out
+        # 清掉旧 Ridge 对照包，避免因子表再走双列
+        if isinstance(out.get("backends"), dict) and "ridge" in out["backends"]:
+            be_clean = {
+                k: v
+                for k, v in out["backends"].items()
+                if str(k).strip().lower() != "ridge"
+            }
+            out["backends"] = be_clean
+        out.pop("ridge_return_model_research", None)
+        out.pop("shadow_track", None)
         if (
             not isinstance(out.get("oos"), dict)
             and isinstance(last, dict)
             and isinstance(last.get("oos"), dict)
         ):
             out["oos"] = last["oos"]
+        if isinstance(out.get("oos"), dict):
+            from core.research.oo_rank_lambdarank import _scrub_rank_oos
+
+            out["oos"] = _scrub_rank_oos(
+                out["oos"], drop_keys=("ridge_oo_baseline", "ridge_tc_baseline")
+            )
         for _k in ("n_train_days", "n_test_days", "holdout_trading_days"):
             if out.get(_k) is None and isinstance(last, dict) and last.get(_k) is not None:
                 out[_k] = last.get(_k)
@@ -1362,14 +1332,15 @@ class QuantFactorMixin:
         persist_role: str = "live",
         note: str = "",
         cross_section_zscore: bool = True,
-        train_tiers: Optional[Sequence[str]] = None,
+        tau_end_hm: Optional[str] = None,
     ) -> Dict[str, Any]:
-        """ŷ_τc_rank：同窗 LambdaRank + Ridge。
+        """ŷ_τc_rank：单头 LambdaRank。
 
         日线与 ŷ_oo / ŷ_τc 同源（``load_portfolio_stock_bars``：
         本地仓够长则不补远端）。
-        截面 z 恒用整观察池。``train_tiers`` 非空时损失 / Holdout 缩到观察池∩档。
-        启用只落盘；不改买序、不进 fuse；与 oo_rank 共用 rank 入场。
+        ``tau_end_hm`` 与 ŷ_τc 同组前缀（默认 09:30）。
+        截面 z 与损失宇宙均用整观察池（训练档已下线）。
+        启用只落盘；不改买序、不进 fuse；与 oo_rank 共用 rank 相对分闸。
         """
         from core.research.feature_standardize import ZSCORE_UNIVERSE_POOL
         from core.research.oo_rank_lambdarank import stamp_rank_zscore_universe_meta
@@ -1423,7 +1394,6 @@ class QuantFactorMixin:
 
         plan = resolve_rank_fit_plan(
             watching_limit=watching_limit,
-            train_tiers=train_tiers,
             task="tc_rank",
         )
         if not plan.get("success"):
@@ -1431,10 +1401,7 @@ class QuantFactorMixin:
         codes = list(plan.get("codes") or [])
         cap = int(plan.get("cap") or watching_limit)
         pool_n = int(plan.get("watching_pool_size") or len(codes))
-        train_codes = plan.get("train_codes")
         train_u = str(plan.get("train_universe") or "pool")
-        train_meta = dict(plan.get("train_meta") or {})
-        labels = list(plan.get("train_universe_tiers") or [])
 
         loaded, _failures, _fund = load_portfolio_stock_bars(
             codes,
@@ -1456,7 +1423,8 @@ class QuantFactorMixin:
                 l2=l2,
                 backend=backend or "auto",
                 cross_section_zscore=bool(cross_section_zscore),
-                train_codes=train_codes,
+                train_codes=None,
+                tau_end_hm=tau_end_hm,
             )
         finally:
             stock_bars.clear()
@@ -1471,25 +1439,10 @@ class QuantFactorMixin:
         report["universe_source"] = plan.get("universe_source") or "watching"
         report["n_codes"] = len(codes)
         report["lookback"] = lookback
-        if train_codes is not None:
-            report["n_train_codes"] = len(train_codes)
         stamp_rank_zscore_universe_meta(
             report,
             zscore_universe=ZSCORE_UNIVERSE_POOL,
             train_universe=train_u,
-            train_tiers=labels or None,
-            tier_codes=train_meta.get("tier_codes"),
-            tier_meta={
-                k: train_meta.get(k)
-                for k in (
-                    "tier_as_of_last",
-                    "holdout_n",
-                    "tier_n",
-                    "tier_fingerprint",
-                    "train_universe_tiers",
-                )
-                if train_meta.get(k) is not None
-            },
         )
         if note:
             report["api_note"] = str(note)[:200]
@@ -1536,31 +1489,64 @@ class QuantFactorMixin:
             )
         out = dict(chosen)
 
-        def _has_ridge_backend(doc: Any) -> bool:
+        def _has_lambda_backend(doc: Any) -> bool:
             be = doc.get("backends") if isinstance(doc, dict) else None
             if not isinstance(be, dict):
                 return False
-            pack = be.get("ridge")
+            pack = be.get("lambdarank")
             if not isinstance(pack, dict):
                 return False
-            rm = pack.get("return_model_research") or pack.get("return_model")
-            return isinstance(rm, dict) and isinstance(rm.get("coefficients"), dict)
+            rm0 = pack.get("return_model_research") or pack.get("return_model")
+            return isinstance(rm0, dict) and bool(
+                rm0.get("booster_b64") or rm0.get("coefficients")
+            )
 
-        if not _has_ridge_backend(out) and isinstance(last, dict) and _has_ridge_backend(last):
+        if not _has_lambda_backend(out) and isinstance(last, dict) and _has_lambda_backend(last):
             be_out = dict(out["backends"]) if isinstance(out.get("backends"), dict) else {}
             be_last = last.get("backends") if isinstance(last.get("backends"), dict) else {}
-            if isinstance(be_last.get("ridge"), dict):
-                be_out["ridge"] = be_last["ridge"]
-            if isinstance(be_last.get("lambdarank"), dict) and "lambdarank" not in be_out:
+            if isinstance(be_last.get("lambdarank"), dict):
                 be_out["lambdarank"] = be_last["lambdarank"]
             if be_out:
                 out["backends"] = be_out
+        if isinstance(out.get("backends"), dict) and "ridge" in out["backends"]:
+            out["backends"] = {
+                k: v
+                for k, v in out["backends"].items()
+                if str(k).strip().lower() != "ridge"
+            }
+        out.pop("ridge_return_model_research", None)
+        out.pop("shadow_track", None)
         if not isinstance(out.get("oos"), dict) and isinstance(last, dict):
             if isinstance(last.get("oos"), dict):
                 out["oos"] = last["oos"]
-        for _k in ("n_train_days", "n_test_days", "holdout_trading_days"):
+        if isinstance(out.get("oos"), dict):
+            from core.research.oo_rank_lambdarank import _scrub_rank_oos
+
+            out["oos"] = _scrub_rank_oos(
+                out["oos"], drop_keys=("ridge_oo_baseline", "ridge_tc_baseline")
+            )
+        for _k in (
+            "n_train_days",
+            "n_test_days",
+            "holdout_trading_days",
+            "tau_end_hm",
+            "tau_hm",
+            "tau_grid",
+            "zero_prefix",
+            "y_spec",
+        ):
             if out.get(_k) is None and isinstance(last, dict) and last.get(_k) is not None:
                 out[_k] = last.get(_k)
+        # 落盘包缺前缀戳时，从 return_model.y_spec 抬一层，供 UI restore
+        if out.get("tau_end_hm") is None:
+            rm0 = out.get("return_model") if isinstance(out.get("return_model"), dict) else {}
+            ys0 = rm0.get("y_spec") if isinstance(rm0.get("y_spec"), dict) else {}
+            if ys0.get("tau_end_hm") is not None:
+                out["tau_end_hm"] = ys0.get("tau_end_hm")
+            if out.get("zero_prefix") is None and "zero_prefix" in ys0:
+                out["zero_prefix"] = ys0.get("zero_prefix")
+            if out.get("tau_grid") is None and ys0.get("tau_grid") is not None:
+                out["tau_grid"] = ys0.get("tau_grid")
         rm = out.get("return_model") if isinstance(out.get("return_model"), dict) else {}
         backend = (
             out.get("backend")
@@ -2452,7 +2438,7 @@ class QuantFactorMixin:
     ) -> Dict[str, Any]:
         """后台 ŷ_τ horizon 拟合；不写盘。
 
-        须透传 ``tau_end_hm`` / ``cross_section_zscore``（与 UI 前缀滑条、日截面 Z 对齐）。
+        须透传 ``tau_end_hm``（与 UI 前缀滑条对齐）；日截面 Z 恒开。
         """
         from core import job_progress
 

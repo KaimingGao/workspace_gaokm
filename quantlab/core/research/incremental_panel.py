@@ -250,14 +250,22 @@ def lake_row_covers_bar_end(
     bars: Sequence[dict],
     meta: Optional[Dict[str, Any]] = None,
 ) -> bool:
-    """末根决策日已在面板里，或这份 bars 已经重算过、该日仍然没有特征行。"""
+    """末根决策日已在面板里，或本次写穿已对这批 bars 打过分。
+
+    ``stem_extra_meta(..., panel_dates=)`` 才会写入 ``panel_end`` + ``scored_through``。
+    仅有 ``end_date``/旧 ``scored_through``、无 ``panel_end`` 的 meta 不命中，
+    避免「没跑 collect 却标已覆盖」。
+    """
     end = bar_end_date(bars)
     if len(end) < 10:
         return True
     for raw in dates or []:
         if str(raw)[:10] == end:
             return True
-    return str((meta or {}).get("scored_through") or "")[:10] == end
+    meta_d = meta if isinstance(meta, dict) else {}
+    if "panel_end" not in meta_d:
+        return False
+    return str(meta_d.get("scored_through") or "")[:10] == end
 
 
 def meta_covers_bars(
@@ -301,19 +309,39 @@ def meta_covers_bars(
     return {"n_rows": rows, "n_cols": cols}
 
 
-def stem_extra_meta(bars: Sequence[dict]) -> Dict[str, Any]:
-    """写入 bars_fp / stem_fp / end_date / scored_through / n_bars，供下次增量判断。"""
+def stem_extra_meta(
+    bars: Sequence[dict],
+    panel_dates: Optional[Sequence[str]] = None,
+) -> Dict[str, Any]:
+    """写入 bars_fp / stem_fp / end_date / n_bars；有面板时再写 scored_through。
+
+    传 ``panel_dates``（含空列表）表示已对这批 bars 跑过 collect/写穿：
+    ``panel_end``=面板最大决策日，``scored_through``=bar 末日（末根无行也不再空转）。
+    未传时不写这两项，读侧不得把 bar 末日当成已覆盖。
+    """
     from core.research.panel_fingerprint import bars_fingerprint
 
     seq = [b for b in (bars or []) if isinstance(b, dict)]
     end = bar_end_date(seq)
-    return {
+    out: Dict[str, Any] = {
         "bars_fp": bars_fingerprint(seq),
         "stem_fp": stem_bars_fingerprint(seq),
         "end_date": end,
-        "scored_through": end,
         "n_bars": int(len(seq)),
     }
+    if panel_dates is not None:
+        panel_end = ""
+        for raw in panel_dates or []:
+            day = str(raw or "")[:10]
+            if len(day) >= 10 and day >= panel_end:
+                panel_end = day
+        # 零行面板不写 scored_through，避免只靠 n_rows 兜底
+        if panel_end:
+            out["panel_end"] = panel_end
+            out["scored_through"] = end
+        else:
+            out["panel_end"] = ""
+    return out
 
 
 def _offline_daily_bars(code: str, limit: int) -> List[dict]:
@@ -710,6 +738,18 @@ def try_incremental_merge(
         return None
     if nx is None or int(getattr(nx, "shape", (0,))[0] or 0) <= 0:
         if mode == "tail":
+            # 物化写入：空尾窗不得假装刷新成功（否则 panel_end 停旧日、Job 仍绿）
+            try:
+                from core.research.materialize.consumer import writer_active
+
+                if writer_active():
+                    return None
+            except Exception:  # noqa: BLE001
+                logger.debug(
+                    "incremental writer_active check failed code=%s",
+                    code,
+                    exc_info=True,
+                )
             return old_x, old_y, list(prev.get("names") or []), old_dates
         return None
     nx = np.asarray(nx, dtype=np.float64)

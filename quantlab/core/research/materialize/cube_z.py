@@ -128,6 +128,25 @@ def _format_l2_miss_error(meta: Optional[Mapping[str, Any]], *, default_clock: s
 _FIT_TIME_CS_Z = frozenset({"raw_ath_H_LAG1", "raw_ath_H_MA5"})
 
 
+def _critical_open_tc_missing(
+    missing_cols: Sequence[str],
+    requested_names: Sequence[str],
+) -> List[str]:
+    """请求了开盘 τc 列且立方缺失时返回缺列（fail-closed，禁止静默填 0）。"""
+    try:
+        from core.research.materialize.horizon_names import open_tc_required_names
+
+        critical = set(open_tc_required_names())
+    except Exception:  # noqa: BLE001
+        return []
+    want = {str(n) for n in (requested_names or []) if str(n or "").strip()}
+    need = critical & want
+    if not need:
+        return []
+    miss = [str(c) for c in (missing_cols or []) if str(c) in need]
+    return miss
+
+
 def _zscore_bucket_column(
     out: np.ndarray,
     ix: np.ndarray,
@@ -329,6 +348,20 @@ def apply_day_cube_mu_sigma_matrix(
             "open_fallback": open_fb,
             "fallback_open": allow_open_fb,
             "clock": clk0 or clock,
+        }
+
+    critical_miss = _critical_open_tc_missing(missing_col_seen, name_list)
+    if critical_miss:
+        return None, {
+            "ok": False,
+            "error": f"open 立方缺 τc 列: {', '.join(critical_miss[:6])}",
+            "hit_days": hit,
+            "miss_days": 0,
+            "missing_cols": missing_col_seen[:32],
+            "critical_missing_cols": critical_miss[:16],
+            "open_fallback": open_fb,
+            "fallback_open": allow_open_fb,
+            "clock": clock,
         }
 
     return out, {

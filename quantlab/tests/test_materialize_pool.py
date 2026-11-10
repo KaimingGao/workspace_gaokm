@@ -183,3 +183,29 @@ class ConsumeProcessBatchTests(unittest.TestCase):
             )
         self.assertEqual(ctx.exception.payload.get("stock_code"), "000001")
         self.assertEqual(ctx.exception.payload.get("families"), ["oo_rank"])
+
+    def test_diskish_failures_log_once(self) -> None:
+        from unittest import mock
+
+        from core.research.materialize.pool import consume_process_batch
+
+        def _submit(i: int) -> Future:
+            fut: Future = Future()
+            fut.set_exception(OSError("disk full"))
+            return fut
+
+        results = [None, None, None]
+        with mock.patch("core.research.materialize.pool.logger") as log:
+            broke = consume_process_batch(
+                start=0,
+                end=3,
+                n_workers=1,
+                results=results,
+                submit=_submit,
+                run_one=lambda i: f"s{i}",
+                label=lambda i: f"c{i}",
+            )
+        self.assertFalse(broke)
+        self.assertEqual(results, ["s0", "s1", "s2"])
+        self.assertEqual(log.warning.call_count, 1)
+        self.assertGreaterEqual(log.debug.call_count, 2)

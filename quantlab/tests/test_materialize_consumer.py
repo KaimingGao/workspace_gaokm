@@ -34,19 +34,14 @@ class InvalidateDecisionTest(unittest.TestCase):
 
 class ConsumerCoverageTest(unittest.TestCase):
     def setUp(self) -> None:
-        self._old_consumer = os.environ.get("QUANTLAB_MATERIALIZE_CONSUMER")
+        # 消费只读走 contextvar（materialized_consumer），无进程级 env
         self._old_lake = os.environ.get("QUANTLAB_FEATURE_LAKE_DIR")
         self._old_cube = os.environ.get("QUANTLAB_DAY_CUBE_DIR")
         self.tmp = tempfile.TemporaryDirectory()
         os.environ["QUANTLAB_FEATURE_LAKE_DIR"] = os.path.join(self.tmp.name, "lake")
         os.environ["QUANTLAB_DAY_CUBE_DIR"] = os.path.join(self.tmp.name, "cubes")
-        os.environ.pop("QUANTLAB_MATERIALIZE_CONSUMER", None)
 
     def tearDown(self) -> None:
-        if self._old_consumer is None:
-            os.environ.pop("QUANTLAB_MATERIALIZE_CONSUMER", None)
-        else:
-            os.environ["QUANTLAB_MATERIALIZE_CONSUMER"] = self._old_consumer
         if self._old_lake is None:
             os.environ.pop("QUANTLAB_FEATURE_LAKE_DIR", None)
         else:
@@ -471,6 +466,22 @@ class ConsumerCoverageTest(unittest.TestCase):
         self.assertEqual(payload.get("error_code"), "materialize_required")
         self.assertIn("物化", str(payload.get("error") or ""))
         self.assertFalse(payload.get("success"))
+
+    def test_empty_scorable_window_does_not_skip_ok(self) -> None:
+        """消费闸：无可评分日不得 skipped=ok 放行。"""
+        from core.research.materialize.consumer import MaterializeRequired, materialized_consumer
+        from core.research.materialize.coverage import enforce_consumer_coverage
+
+        items = [
+            ("000001", [{"date": "2024-01-02"}]),
+            ("000002", [{"date": "2024-01-02"}]),
+        ]
+        with materialized_consumer(), self.assertRaises(MaterializeRequired) as ctx:
+            enforce_consumer_coverage(
+                items, families=["oo"], clocks=["open"], min_history=50
+            )
+        err = str(ctx.exception.to_dict().get("error") or "")
+        self.assertTrue("无可评分日" in err or "物化" in err)
 
     def test_attach_slim_keeps_matrix(self) -> None:
         import numpy as np

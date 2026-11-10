@@ -10,7 +10,7 @@ import {
 /** Quant domain: suggest */
 export function installSuggest(q) {
   const { on, els, state, ctx, escapeHtml, apiFetch, setQuantMeta, setBusyText } = q;
-  const { readHorizonDays, readRidgeLambda, readWatchingLimit, readHoldoutTradingDays, readFitLookbackDays, readCrossSectionFitParams, formatCrossSectionZBit, ensureFactorMeta, rememberFactorMeta, factorMetaByName, factorMetaByLabel, factorIcWeightMergedHtml, parseOosGateReason, fmtEmptyCell, fmtOlsCell } = q;
+  const { readHorizonDays, readRidgeLambda, readWatchingLimit, readHoldoutTradingDays, readFitLookbackDays, readCrossSectionFitParams, ensureFactorMeta, rememberFactorMeta, factorMetaByName, factorMetaByLabel, factorIcWeightMergedHtml, parseOosGateReason, fmtEmptyCell, fmtOlsCell } = q;
   const { researchGridHtml, metricCell, metricClass, fmtPct } = q;
 
 

@@ -8,6 +8,16 @@ import numpy as np
 
 
 class TestFeatureZscore(unittest.TestCase):
+    def test_reject_global_zscore(self):
+        from core.research.feature_standardize import (
+            GLOBAL_ZSCORE_RETIRED_MSG,
+            reject_global_zscore,
+        )
+
+        self.assertIsNone(reject_global_zscore(None))
+        self.assertIsNone(reject_global_zscore(True))
+        self.assertEqual(reject_global_zscore(False), GLOBAL_ZSCORE_RETIRED_MSG)
+
     def test_resolve_and_annotate(self):
         from core.research.feature_standardize import (
             annotate_feature_zscore,
@@ -155,9 +165,8 @@ class TestZscoreUniverse(unittest.TestCase):
         self.assertEqual(train_universe_token_for_tiers(["A", "B"]), "tier")
         self.assertEqual(train_universe_token_for_tiers([]), "pool")
 
-    def test_stamp_and_detect(self):
+    def test_stamp_train_universe_pool_z(self):
         from core.research.feature_standardize import (
-            is_tier_a_train_universe,
             stamp_train_universe,
             stamp_zscore_universe,
         )
@@ -168,24 +177,17 @@ class TestZscoreUniverse(unittest.TestCase):
         self.assertEqual(doc["train_universe"], "tier_a")
         self.assertEqual(doc["train_universe_tiers"], ["A"])
         self.assertEqual(doc["tier_codes"], ["000001", "600519"])
-        self.assertTrue(is_tier_a_train_universe(doc))
-        self.assertTrue(is_tier_a_train_universe({"return_model": doc}))
-        # 旧落盘仅 zscore_universe=tier_a 仍当训练 A
-        self.assertTrue(
-            is_tier_a_train_universe({"zscore_universe": "tier_a", "tier_codes": ["1"]})
-        )
         stamp_train_universe(
             doc, "tier", tiers=["A", "C"], tier_codes=["000001", "600519"]
         )
         self.assertEqual(doc["train_universe"], "tier")
         self.assertEqual(doc["train_universe_tiers"], ["A", "C"])
-        self.assertTrue(is_tier_a_train_universe(doc))
         stamp_zscore_universe(doc, "pool")
         self.assertEqual(doc["zscore_universe"], "pool")
         self.assertNotIn("zscore_universe_tiers", doc)
         stamp_train_universe(doc, "pool")
         self.assertEqual(doc["train_universe"], "pool")
-        self.assertFalse(is_tier_a_train_universe(doc))
+        self.assertNotIn("train_universe_tiers", doc)
 
 if __name__ == "__main__":
     unittest.main()

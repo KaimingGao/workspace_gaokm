@@ -388,17 +388,28 @@ class RelabelT30Tests(unittest.TestCase):
         self.assertLess(elapsed, 6.0, msg=f"collect too slow: {elapsed:.2f}s n={len(ys)}")
 
 class T30RidgeFitTests(unittest.TestCase):
+    def test_fit_rejects_global_z(self):
+        from core.research.horizon_ridge import fit_horizon_ridge_report
+
+        out = fit_horizon_ridge_report("t30", [], cross_section_zscore=False)
+        self.assertFalse(out.get("success"))
+        self.assertIn("全局 μ/σ", str(out.get("error") or ""))
+
     def test_fit_report_runs_on_synthetic(self):
         import os
         from unittest import mock
 
+        import numpy as np
+
+        from core.research.feature_standardize import cross_section_zscore_matrix
         from core.research.horizon_ridge import (
             _horizon_ridge_config,
             fit_horizon_ridge_report,
         )
+
         T30_Z_FEATURES = _horizon_ridge_config("t30")["z_features"]
 
-        # 合成路径：关 L1 命中 + 关截面 z（免本地 Cube/湖污染）
+        # 合成路径：关 L1 命中；截面 z 走批内 stub（免本地 Cube/湖）
         d0 = date(2026, 4, 1)
         daily = []
         minutes = []
@@ -431,14 +442,42 @@ class T30RidgeFitTests(unittest.TestCase):
             "QUANTLAB_FEATURE_LAKE": "0",
             "QUANTLAB_DAY_CUBE": "0",
         }
-        with mock.patch.dict(os.environ, env, clear=False):
+
+        def _pass_filter(groups, parallel_cols=None, **_kw):
+            cols = list(parallel_cols or [])
+            return list(groups or []), cols, []
+
+        def _apply_l2(raw, names, groups, **_kw):
+            z = cross_section_zscore_matrix(raw, groups)
+            return np.where(np.isfinite(z), z, 0.0), {"ok": True}
+
+        def _cs_prefer(raw, names, groups, **_kw):
+            z = cross_section_zscore_matrix(raw, groups)
+            return np.where(np.isfinite(z), z, 0.0)
+
+        with mock.patch.dict(os.environ, env, clear=False), mock.patch(
+            "core.research.materialize.cube_z.filter_rows_to_day_cube",
+            side_effect=_pass_filter,
+        ), mock.patch(
+            "core.research.materialize.cube_z.apply_day_cube_mu_sigma_matrix",
+            side_effect=_apply_l2,
+        ), mock.patch(
+            "core.research.materialize.cube_z.cs_z_matrix_prefer_cube",
+            side_effect=_cs_prefer,
+        ), mock.patch(
+            "core.research.materialize.cube_z.groups_with_day_cube",
+            side_effect=lambda groups, **_kw: (
+                np.ones(len(groups or []), dtype=bool),
+                [],
+            ),
+        ):
             report = fit_horizon_ridge_report(
                 "t30",
                 [{"code": "SYN_T30", "bars": daily, "minute_bars": minutes}],
                 ridge_lambda=1.0,
                 tau_grid=["09:35", "09:50", "11:00"],
                 holdout_trading_days=5,
-                cross_section_zscore=False,
+                cross_section_zscore=True,
             )
         self.assertTrue(report.get("success"), msg=report)
         self.assertEqual(report.get("schema"), "t30_ridge_v4")
@@ -453,7 +492,10 @@ class T30RidgeFitTests(unittest.TestCase):
         self.assertEqual(list(extras), list(T30_Z_FEATURES))
         for k in extras:
             self.assertTrue(
-                str(k).startswith("z_τh_") or str(k).startswith("raw_ath_"),
+                str(k).startswith("z_τh_")
+                or str(k).startswith("z_τc_")
+                or str(k).startswith("raw_ath_")
+                or str(k).startswith("raw_atc_"),
                 msg=k,
             )
         for k in (
@@ -481,7 +523,6 @@ class T30RidgeFitTests(unittest.TestCase):
             "range_pct",
             "down_extent",
             "z_τh_range_pct",
-            "z_τc_gap_pct",
         ):
             self.assertNotIn(k, extras)
 
@@ -609,7 +650,7 @@ class T30GateTests(unittest.TestCase):
         out = svc.start_t30_ridge_job(
             watching_limit=2,
             tau_end_hm="10:00",
-            cross_section_zscore=False,
+            cross_section_zscore=True,
         )
         self.assertLess(time.time() - t0, 0.2)
         self.assertTrue(out.get("background"))
@@ -626,7 +667,7 @@ class T30GateTests(unittest.TestCase):
         self.assertTrue((snap.get("result") or {}).get("success"))
         kw = started["kwargs"] or {}
         self.assertEqual(kw.get("tau_end_hm"), "10:00")
-        self.assertIs(kw.get("cross_section_zscore"), False)
+        self.assertIs(kw.get("cross_section_zscore"), True)
         self.assertIs(kw.get("persist"), False)
         self.assertTrue(callable(kw.get("progress_cb")))
         self.assertTrue(callable(kw.get("job_alive_cb")))

@@ -3658,7 +3658,8 @@ def _align_item_to_watching_pool(item: dict, date: str) -> None:
     """用观察池当天全样本 μ/σ 重算本票 ŷ（与拟合 / 调仓 batch 同路径）。
 
     DayCube 命中：只对本票 ``rescore_fitted_cross_section``（μ/σ 信 cube，不重建同伴）。
-    miss：抽全池同伴 raw → ensure cube → rescore；池内 leave-one-in，池外持仓不进 μ/σ。
+    miss：消费只读 → ``MaterializeRequired``；否则抽同伴 → ensure cube → rescore；
+    非消费且仍无 cube 时池内 leave-one-in / 池外 legacy（仅脚本路径）。
     """
     if not isinstance(item, dict):
         return
@@ -3668,7 +3669,13 @@ def _align_item_to_watching_pool(item: dict, date: str) -> None:
     code = str(item.get("stock_code") or "").strip()
     allow = {code} if code else None
     watching_codes = _watching_codes_for_z()
+    from core.research.materialize.consumer import (
+        MaterializeRequired,
+        consumer_read_only,
+    )
+
     # 快路径：已有 DayCube → 单票 z+ŷ，跳过整池同伴重建
+    cube_hit = False
     try:
         from core.research.day_cube import enabled as cube_on, load_day_cube
         from core.signal.cross_section_rescore import rescore_fitted_cross_section
@@ -3676,12 +3683,43 @@ def _align_item_to_watching_pool(item: dict, date: str) -> None:
         if cube_on() and len(watching_codes) >= 2:
             cube = load_day_cube(dkey, watching_codes, clock="open")
             if cube is not None:
+                cube_hit = True
                 rescore_fitted_cross_section(
                     [item], score_codes=allow, day_cube=cube
                 )
                 return
+    except MaterializeRequired:
+        raise
     except Exception:  # noqa: BLE001
         logger.debug("pool z cube-hit rescore failed", exc_info=True)
+        if cube_hit:
+            if consumer_read_only():
+                raise MaterializeRequired(
+                    {
+                        "error_code": "materialize_required",
+                        "error": f"请先日线物化：open Cube rescore 失败 {dkey}",
+                        "layer": "l2",
+                        "hint": "日线物化",
+                        "clocks": ["open"],
+                        "date": dkey,
+                        "stock_code": code,
+                        "reason": "rescore_failed",
+                    }
+                )
+            # 非消费：不带着半截分去 leave-one-in，改走同伴重建
+
+    if consumer_read_only():
+        raise MaterializeRequired(
+            {
+                "error_code": "materialize_required",
+                "error": f"请先日线物化：open Cube 缺失 {dkey}",
+                "layer": "l2",
+                "hint": "日线物化",
+                "clocks": ["open"],
+                "date": dkey,
+                "stock_code": code,
+            }
+        )
 
     peers = _peer_feature_rows(dkey)
     if len(peers) < 2:
@@ -3729,7 +3767,7 @@ def _align_item_to_watching_pool(item: dict, date: str) -> None:
             )
             return
         if in_pool:
-            # 无 cube：整批 leave-one-in 现算 μ/σ（与 rescore 同函数）
+            # 无 cube：整批 leave-one-in 现算 μ/σ（与 rescore 同函数；仅非消费）
             rescore_fitted_cross_section(score_items, score_codes=allow)
             return
     except Exception:  # noqa: BLE001
@@ -4009,7 +4047,8 @@ def warmup_watching_day_cubes(
                 family_tc=fam_tc,
                 min_items=need,
                 require_oo_item=bool(is_open),
-                require_tc_day=not is_open,
+                # open 也要有 tc 行，避免 oo 单边立方过半列门槛仍缺 τc
+                require_tc_day=True,
                 progress_cb=progress_cb,
                 cancel_cb=cancel_cb,
                 day_pos=day_pos,
@@ -4046,25 +4085,13 @@ def warmup_watching_day_cubes(
                 if status == "ok":
                     force_rebuild = False
                     if is_open:
-                        try:
-                            from core.research.day_cube import read_day_cube_meta
-                            from core.research.pit_session import (
-                                should_force_open_lake_rebuild,
-                            )
+                        from core.research.pit_session import (
+                            force_open_rebuild_after_status_ok,
+                        )
 
-                            meta = read_day_cube_meta(
-                                day, code_list, clock=str(clock)
-                            )
-                            force_rebuild = should_force_open_lake_rebuild(
-                                day, code_list, meta
-                            )
-                        except Exception:  # noqa: BLE001
-                            logger.debug(
-                                "warmup open provenance check failed day=%s",
-                                day,
-                                exc_info=True,
-                            )
-                            force_rebuild = False
+                        force_rebuild = force_open_rebuild_after_status_ok(
+                            day, code_list, clock=str(clock)
+                        )
                     if not force_rebuild:
                         out["cubes_hit"] += 1
                         continue
@@ -4095,7 +4122,7 @@ def warmup_watching_day_cubes(
                         universe_codes=code_list,
                         min_items=need,
                         require_oo_item=bool(is_open),
-                        require_tc_day=not is_open,
+                        require_tc_day=True,
                         replace_existing=True,
                         on_items=_seed if is_open else None,
                         progress_cb=lambda cur, tot, msg="": _emit(msg, cur, tot),
@@ -4702,7 +4729,11 @@ def compute_scores_from_bars(
         out = scores_from_item(item)
         out["_score_source"] = "compute"
         return out
-    except Exception:  # noqa: BLE001
+    except Exception as exc:  # noqa: BLE001
+        from core.research.materialize.consumer import MaterializeRequired
+
+        if isinstance(exc, MaterializeRequired):
+            raise
         logger.debug("compute_scores_from_bars failed for %s", raw, exc_info=True)
         return scores_from_item(None)
 

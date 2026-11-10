@@ -207,7 +207,7 @@ def backtest_paper_replay(
     ``score_backend`` 恒为 ridge（影子树头已下线）；传入 tree 会被忽略。
     ŷ_oo_rank 有模型时按当日截面编成 1..n 名次透传到成交行；过入场后买序按 oo_rank_score。
     ``tradable_codes`` 给定时：主头与排序头截面 z 仍用整池；ŷ 与名次只写这份名单（分档内）。
-    排序头 ``train_universe``（``tier_a`` / ``tier``，或旧 ``zscore_universe=tier_a``）只影响拟合损失，打分不再缩 z。
+    产品排序头拟合固定全池；旧落盘 ``train_universe`` / ``zscore_universe=tier_a`` 仅审计，打分不缩 z。
     ``oo_tc_score_min`` 开则未过强档时另须 oo_rank / τc_rank 相对分均 ≥ 阈值（不是 y_oo / y_τc；缺省 0.3；None=关）。
     y_oo_fuse > fuse_strong 时改看 ``oo_tc_score_strong_min``（缺省 0.3；None=关）。
     """

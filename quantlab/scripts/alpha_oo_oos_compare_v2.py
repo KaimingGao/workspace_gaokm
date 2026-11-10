@@ -93,7 +93,6 @@ def run(days, backend):
     )
     elapsed = time.time() - t0
     oos = rep.get("oos") or {}
-    ridge = oos.get("ridge_oo_baseline") or {}
     rank = oos.get("oo_rank") or {}
     return {
         "success": rep.get("success"),
@@ -102,9 +101,6 @@ def run(days, backend):
         "n_test": rep.get("n_test_days"),
         "rank_ic": rank.get("spearman"),
         "rank_topk": rank.get("topk_mean_y_oo"),
-        "ridge_ic": ridge.get("spearman"),
-        "ridge_topk": ridge.get("topk_mean_y_oo"),
-        "ridge_ndcg": ridge.get("ndcg_at_k"),
         "elapsed": round(elapsed, 1),
         "ridge_active": ridge_active_summary(days),
     }
@@ -136,8 +132,8 @@ def main():
     r = run(days_base, "lambdarank")
     ra = r["ridge_active"]
     print(
-        f"  feats={r['n_features']} rank_ic={r['rank_ic']} ridge_ic={r['ridge_ic']} "
-        f"ridge_topk={r['ridge_topk']} ridge_active={ra.get('n_active')} "
+        f"  feats={r['n_features']} rank_ic={r['rank_ic']} rank_topk={r['rank_topk']} "
+        f"ols_active={ra.get('n_active')} "
         f"aoo_active={ra.get('n_alpha_oo_active')} ({r['elapsed']}s)"
     )
 
@@ -145,22 +141,22 @@ def main():
     r2 = run(days_full, "lambdarank")
     ra2 = r2["ridge_active"]
     print(
-        f"  feats={r2['n_features']} rank_ic={r2['rank_ic']} ridge_ic={r2['ridge_ic']} "
-        f"ridge_topk={r2['ridge_topk']} ridge_active={ra2.get('n_active')} "
+        f"  feats={r2['n_features']} rank_ic={r2['rank_ic']} rank_topk={r2['rank_topk']} "
+        f"ols_active={ra2.get('n_active')} "
         f"aoo_active={ra2.get('n_alpha_oo_active')} ({r2['elapsed']}s)"
     )
 
-    print("\n=== 汇总（Ridge 为重点）===")
-    hdr = f"{'场景':<10} {'feats':>6} {'ridge_ic':>10} {'ridge_topk':>12} {'active':>7} {'aoo':>5}"
+    print("\n=== 汇总（LambdaRank + 旁路 OLS active）===")
+    hdr = f"{'场景':<10} {'feats':>6} {'rank_ic':>10} {'rank_topk':>12} {'active':>7} {'aoo':>5}"
     print(hdr)
     print(
-        f"{'基线':<10} {_fmt(r['n_features']):>6} {_fmt(r['ridge_ic']):>10} "
-        f"{_fmt(r['ridge_topk']):>12} {_fmt(ra.get('n_active')):>7} "
+        f"{'基线':<10} {_fmt(r['n_features']):>6} {_fmt(r['rank_ic']):>10} "
+        f"{_fmt(r['rank_topk']):>12} {_fmt(ra.get('n_active')):>7} "
         f"{_fmt(ra.get('n_alpha_oo_active')):>5}"
     )
     print(
-        f"{'引入后':<10} {_fmt(r2['n_features']):>6} {_fmt(r2['ridge_ic']):>10} "
-        f"{_fmt(r2['ridge_topk']):>12} {_fmt(ra2.get('n_active')):>7} "
+        f"{'引入后':<10} {_fmt(r2['n_features']):>6} {_fmt(r2['rank_ic']):>10} "
+        f"{_fmt(r2['rank_topk']):>12} {_fmt(ra2.get('n_active')):>7} "
         f"{_fmt(ra2.get('n_alpha_oo_active')):>5}"
     )
 

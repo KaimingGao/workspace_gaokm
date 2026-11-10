@@ -635,7 +635,7 @@ export function createFactorIcUi(deps) {
   }
 
   /**
-   * ŷ_oo / ŷ_τc / ŷ_τ30…90 / ŷ_oo_rank 因子表：入模因子；KPI + 双向 β 图（oo_rank 双训另含 gain%）。
+   * ŷ_oo / ŷ_τc / ŷ_τ30…90 / ŷ_oo_rank / ŷ_τc_rank 因子表：入模因子；KPI + β/gain 图。
    * @param {object|null} rm return_model 或含 coefficients 的报告块
    * @param {{ oos?: object, head?: "τc"|"tc"|"tau"|"oo"|"path"|"r"|"t30"|"t45"|"t60"|"t75"|"t90"|"oo_rank", topN?: number } } [opts]
    *   ``topN`` 默认 10：表体只展 |β| TopN，其余进折叠。
@@ -934,10 +934,14 @@ export function createFactorIcUi(deps) {
       rm.r_squared != null && Number.isFinite(Number(rm.r_squared))
         ? Number(rm.r_squared)
         : null;
+    const lamRaw =
+      rm.l2 != null
+        ? rm.l2
+        : rm.lambda_l2 != null
+          ? rm.lambda_l2
+          : rm.ridge_lambda;
     const lam =
-      rm.ridge_lambda != null && Number.isFinite(Number(rm.ridge_lambda))
-        ? Number(rm.ridge_lambda)
-        : null;
+      lamRaw != null && Number.isFinite(Number(lamRaw)) ? Number(lamRaw) : null;
     const ySpecObj = rm.y_spec && typeof rm.y_spec === "object" ? rm.y_spec : {};
     const ySpecRaw =
       ySpecObj.formula ||
@@ -1046,10 +1050,9 @@ export function createFactorIcUi(deps) {
     const csIcTip = "对齐 Qlib IC：每日截面 Pearson 再对日平均";
     const csRankTip = "对齐 Qlib Rank IC：每日截面 Spearman 再对日平均";
 
-    // 样本 n / Holdout / 训·测：ŷ_oo / ŷ_τc 挂表头；
-    // ŷ_oo_rank / ŷ_τ* 已在上方 OOS 对照板，此处不下
+    // 样本 n / Holdout / 训·测：ŷ_oo / ŷ_τc / rank 挂表头；ŷ_τ* 已有对照板
     const sampleKpis =
-      isOoRank || isHorizon
+      isHorizon
         ? ""
         : (nFmt != null ? kpi("样本 n", nFmt, nTip) : "") +
           (oos.holdout_trading_days != null &&
@@ -1080,9 +1083,56 @@ export function createFactorIcUi(deps) {
         `</div>`
       : "";
 
-    // ŷ_oo_rank / ŷ_τ*：基率·λ·AUC·入模等 KPI 下掉（对照在上方 OOS 板）
-    const metrics = isOoRank || isHorizon
+    const rankYKey =
+      oos.y_key ||
+      (isTcRank ? "topk_mean_y_tc" : "topk_mean_y_oo");
+    const rankYLabel = oos.y_label || (isTcRank ? "TopK y_τc%" : "TopK y_oo%");
+    const rankMetrics = isOoRank
+      ? `<div class="quant-rem-coef-spec-metrics" role="group" aria-label="${esc(
+          isTcRank ? "τc_rank 模型摘要" : "oo_rank 模型摘要"
+        )}">` +
+        (oos.gate_lift != null && Number.isFinite(Number(oos.gate_lift))
+          ? kpi("Gate lift", Number(oos.gate_lift).toFixed(3), "Holdout 日 Gate 相对全日 lift（winsor 均值）", {
+              signed: true,
+              raw: oos.gate_lift,
+            })
+          : "") +
+        (oos.gate_mean_y != null && Number.isFinite(Number(oos.gate_mean_y))
+          ? kpi("Gate y%", Number(oos.gate_mean_y).toFixed(3), "Holdout Gate 等权标签均值", {
+              signed: true,
+              raw: oos.gate_mean_y,
+            })
+          : "") +
+        (oos.ndcg_at_k != null && Number.isFinite(Number(oos.ndcg_at_k))
+          ? kpi("NDCG", Number(oos.ndcg_at_k).toFixed(3), "Holdout NDCG@K")
+          : "") +
+        (oos[rankYKey] != null && Number.isFinite(Number(oos[rankYKey]))
+          ? kpi(rankYLabel, Number(oos[rankYKey]).toFixed(3), "Holdout TopK 等权标签均值", {
+              signed: true,
+              raw: oos[rankYKey],
+            })
+          : "") +
+        (oos.spearman != null && Number.isFinite(Number(oos.spearman))
+          ? kpi("Rank IC", Number(oos.spearman).toFixed(3), "日截面 Spearman 均值", {
+              signed: true,
+              raw: oos.spearman,
+            })
+          : "") +
+        (oos.cs_ic != null && Number.isFinite(Number(oos.cs_ic))
+          ? kpi("IC", Number(oos.cs_ic).toFixed(3), csIcTip, {
+              signed: true,
+              raw: oos.cs_ic,
+            })
+          : "") +
+        `</div>`
+      : "";
+
+    // ŷ_τ*：基率·λ·AUC·入模等 KPI 下掉（对照在上方 OOS 板）
+    // rank：单头 Gate KPI（上）；ŷ_oo / ŷ_τc：原 Ridge OOS KPI
+    const metrics = isHorizon
       ? ""
+      : isOoRank
+        ? rankMetrics
       : `<div class="quant-rem-coef-spec-metrics" role="group" aria-label="${esc(
         isPath
           ? "path 模型摘要"

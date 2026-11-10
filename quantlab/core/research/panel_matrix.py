@@ -5,8 +5,8 @@
 单票任务内折矩阵、在途≤4、批大小 24、算完 pop bars（8GB）。
 Ridge 口径与 ``fit_factor_ols_from_panel`` 对齐：√w + keep_all；拟合用完整行。
 入模前丢掉 SUMP/SUMN（及 V 对）恒等冗余，只留 SUMD/VSUMD（L1 算子仍算全，供树模型）。
-``cross_section_zscore=True``（默认）且有决策日 → 当天截面 z；``False`` → 训练窗
-全局 μ/σ。截面模型预测缺测填 z=0。
+产品拟合固定日截面 Z；矩阵 API 的 ``cross_section_zscore=False`` 仅表示
+调用方已预 z（勿二次截面），不是训练窗全局 μ/σ 产品路径。截面模型预测缺测填 z=0。
 """
 
 from __future__ import annotations
@@ -367,7 +367,7 @@ def _tau_stock_job_pooled(
         code = ""
         if isinstance(item, dict):
             code = str(item.get("code") or item.get("stock_code") or "")
-        logger.warning("ŷ_τc 单票失败，已跳过 code=%s", code or "?", exc_info=True)
+        logger.debug("ŷ_τc 单票失败，已跳过 code=%s", code or "?", exc_info=True)
         pack = None
     return pack, drain_deferred_stale()
 
@@ -503,7 +503,9 @@ def _tau_stock_job(
                                 names=list(col_names),
                                 fingerprint=fp,
                                 y=np.asarray(ys_l, dtype=np.float64),
-                                extra_meta=stem_extra_meta(bars),
+                                extra_meta=stem_extra_meta(
+                                    bars, panel_dates=dates_l
+                                ),
                             )
                         except Exception:  # noqa: BLE001
                             logger.debug(
@@ -628,7 +630,7 @@ def _tau_stock_job(
                     names=list(col_names),
                     fingerprint=fp,
                     y=np.asarray(ys_l, dtype=np.float64),
-                    extra_meta=stem_extra_meta(bars),
+                    extra_meta=stem_extra_meta(bars, panel_dates=dates_l),
                 )
             except Exception:  # noqa: BLE001
                 logger.debug("tau L1 sync (incremental) failed code=%s", code, exc_info=True)
@@ -684,7 +686,7 @@ def _tau_stock_job(
             from core.research.incremental_panel import stem_extra_meta
             from core.research.lake_bridge import sync_panel_to_lake
 
-            extra = stem_extra_meta(bars)
+            extra = stem_extra_meta(bars, panel_dates=dates_l)
             M = None
             m_names = None
             if use_minute and metas_l:
@@ -795,7 +797,7 @@ def _write_tau_clock_block(
         try:
             from core.research.incremental_panel import stem_extra_meta
 
-            extra = stem_extra_meta(bars)
+            extra = stem_extra_meta(bars, panel_dates=dates_l)
             if m_names:
                 extra["m_names"] = list(m_names)
             sync_panel_to_lake(
@@ -841,7 +843,7 @@ def _tau_grid_stock_job_pooled(
         code = ""
         if isinstance(item, dict):
             code = str(item.get("code") or item.get("stock_code") or "")
-        logger.warning("ŷ_τc 网格单票失败 code=%s", code or "?", exc_info=True)
+        logger.debug("ŷ_τc 网格单票失败 code=%s", code or "?", exc_info=True)
         out = {}
     return out, drain_deferred_stale()
 
@@ -1095,7 +1097,7 @@ def collect_tau_grid_panels(
             code = ""
             if isinstance(it, dict):
                 code = str(it.get("code") or it.get("stock_code") or "")
-            logger.warning("ŷ_τc 网格单票失败，已跳过 code=%s", code or i, exc_info=True)
+            logger.debug("ŷ_τc 网格单票失败，已跳过 code=%s", code or i, exc_info=True)
             return None
 
     def _stop() -> bool:
@@ -1453,11 +1455,20 @@ def collect_tau_compact(
             released["n_cols"] = max(int(released["n_cols"]), int(hit["n_cols"]))
             released["n_stocks"] += 1
             released["hits"] += 1
-            for raw in bars:
-                if isinstance(raw, dict):
-                    day = str(raw.get("date") or raw.get("trade_date") or "")[:10]
-                    if len(day) >= 10:
-                        released["dates"].add(day)
+            # 与 oo 一致：日期取湖面板，禁止用整段 bars 虚增 n_dates
+            try:
+                from core.research.feature_lake import load_stock_dates
+
+                for day in load_stock_dates(tau_family, code) or []:
+                    d = str(day or "")[:10]
+                    if len(d) >= 10:
+                        released["dates"].add(d)
+            except Exception:  # noqa: BLE001
+                logger.debug(
+                    "tc meta-hit load_stock_dates failed code=%s",
+                    code,
+                    exc_info=True,
+                )
             it.pop("bars", None)
             it.pop("minute_bars", None)
         items = kept_items
@@ -1534,7 +1545,7 @@ def collect_tau_compact(
             code = ""
             if isinstance(it, dict):
                 code = str(it.get("code") or it.get("stock_code") or "")
-            logger.warning("ŷ_τc 单票失败，已跳过 code=%s", code or i, exc_info=True)
+            logger.debug("ŷ_τc 单票失败，已跳过 code=%s", code or i, exc_info=True)
             return None
 
     def _fold_one(pack) -> None:
@@ -1543,7 +1554,7 @@ def collect_tau_compact(
         except Exception as exc:  # noqa: BLE001
             if isinstance(exc, MaterializeRequired):
                 raise
-            logger.warning("ŷ_τc 单票折叠失败，已跳过", exc_info=True)
+            logger.debug("ŷ_τc 单票折叠失败，已跳过", exc_info=True)
 
     def _apply_stale(stale: Any) -> None:
         try:
@@ -2014,7 +2025,7 @@ def fit_keepall_ridge_matrix(
     """keep-all、标准化、可选 √w。系数四舍五入口径与 dict OLS 相同。
 
     ``cross_section_zscore=True``（且提供 ``row_dates``）：按日截面 z。
-    ``False``：训练样本内全局 μ/σ（落盘 zscore_means/stds）。
+    ``False``：调用方已预 z（或单测矩阵），不再二次截面；非产品全局 μ/σ 路径。
     """
     from core.signal.factors.alpha_oo import (
         ALPHA_OO_FACTOR_KEY,

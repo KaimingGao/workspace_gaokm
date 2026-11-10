@@ -597,17 +597,23 @@ def fit_horizon_ridge_report(
 ) -> Dict[str, Any]:
     """池化拟合 ŷ_τ{num}=p_up + 时间 OOS。标签 = I(mean(price(τ⊕off1/off2/off3))/price(τ)−1 > 0)。
 
-    ``cross_section_zscore``：True=日截面 z；False=训练样本内全局 μ/σ。
+    拟合固定日截面 Z；``cross_section_zscore=False`` 已下线。
     ``enriched_panels``：双训预建面板（跳过再灌分钟线；入模前折 float64 并清空）。
     ``compact_panel``：已折好的 ``HorizonCompact``（双训共用，优先于 enriched）。
     ``calendar_dates``：Holdout 共用日历；缺省从 ``stock_bars`` 抽（抽完不改 bars）。
     """
+    from core.research.feature_standardize import reject_global_zscore
     from core.research.horizon_compact import (
         cs_groups_from_dates_metas,
         summarize_cs_groups,
         feature_fill_rates_matrix,
     )
     from core.research.tau_panel import theme_sample_weights
+
+    err_cs = reject_global_zscore(cross_section_zscore)
+    if err_cs:
+        return {"success": False, "ok": False, "error": err_cs, "task": str(head or "")}
+    cross_section_zscore = True
 
     cfg = _horizon_ridge_config(head)
     h = cfg["head"]
@@ -1017,13 +1023,20 @@ def fit_horizon_dual_report(
     LightGBM / Ridge 同 X（alpha_τh）。面板只建一次（或传入 ``enriched_panels`` /
     ``compact_panel``），折 float64 后共用；分钟线与日线 ``bars`` 在抽日历后释放。
     Ridge 走紧凑矩阵（无 dict 物化）；树腿 ``skip_ridge_baseline`` 复用本函数 Ridge OOS。
+    拟合固定日截面 Z；``cross_section_zscore=False`` 已下线。
     """
+    from core.research.feature_standardize import reject_global_zscore
     from core.research.horizon_compact import (
         release_stock_bar_payloads,
         take_calendar_and_release,
     )
     from core.research.horizon_lgb import _delta_oos
     from core.research.horizon_tree import fit_horizon_tree_report
+
+    err_cs = reject_global_zscore(cross_section_zscore)
+    if err_cs:
+        return {"success": False, "ok": False, "error": err_cs, "task": str(head or "")}
+    cross_section_zscore = True
 
     prepared = prepare_horizon_compact(
         head,

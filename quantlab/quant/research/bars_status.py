@@ -42,6 +42,40 @@ def _stored_oo_bars_fp(code: str) -> Optional[str]:
     return str(meta.get("bars_fp") or "")
 
 
+def _lake_has_any_family(code: str) -> bool:
+    """盘上是否仍有任意 L1 family（无 oo meta 时也要能失效 tc* / hz_*）。"""
+    try:
+        from core.research.feature_lake import panel_npz_exists, peek_stock_dates
+        from core.research.lake_bridge import (
+            FAMILY_OO,
+            FAMILY_OO_RANK,
+            list_hz_l1_families,
+            list_tc_l1_families,
+        )
+
+        fams = [
+            FAMILY_OO,
+            FAMILY_OO_RANK,
+            *list(list_tc_l1_families() or ()),
+            *list(list_hz_l1_families() or ()),
+        ]
+        for fam in fams:
+            try:
+                if panel_npz_exists(fam, code):
+                    return True
+            except Exception:  # noqa: BLE001
+                try:
+                    exists, _ = peek_stock_dates(fam, code)
+                    if exists:
+                        return True
+                except Exception:  # noqa: BLE001
+                    continue
+        return False
+    except Exception:  # noqa: BLE001
+        logger.debug("lake family probe failed code=%s", code, exc_info=True)
+        return False
+
+
 def _current_bars_fp(code: str, *, fetch_limit: int) -> str:
     try:
         from core.data.facade import bars_and_source
@@ -527,9 +561,12 @@ def refresh_bars_only(
             stale: List[str] = []
             for code in need:
                 stored = _stored_oo_bars_fp(code)
-                if stored is None:
-                    continue
                 current = _current_bars_fp(code, fetch_limit=fetch_limit)
+                if stored is None:
+                    # 无 oo meta：日线已动且盘上仍有 tc*/hz_* 等 → 仍失效
+                    if current and _lake_has_any_family(code):
+                        stale.append(code)
+                    continue
                 if l1_invalidate_decision(stored, current):
                     stale.append(code)
             if stale:

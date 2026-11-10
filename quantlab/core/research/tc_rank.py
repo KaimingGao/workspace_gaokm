@@ -1,11 +1,11 @@
-"""ŷ_τc_rank：与 ŷ_oo_rank 同协议的截面排序头。
+"""ŷ_τc_rank：与 ŷ_oo_rank 同协议的截面排序头（单头 LambdaRank）。
 
-标签：price[τ]→close[T]（开盘钟 τ=open 时即 close/open−1；百分点），embargo=0。
-特征：alpha_τc（z_τc_* ∪ raw_atc_*），日截面 z-score。
+标签：price[τ]→close[T]（与 ŷ_τc 同前缀族；默认 09:30=open 即 close/open−1），embargo=0。
+特征：alpha_τc（z_τc_* ∪ raw_atc_*），日截面 z-score；非开盘前缀按 date|clock 成组。
 面板按股落在 ``tc_rank/``；与 ŷ_τc 的 ``tc/`` 分片 fingerprint 一致时直接复制，不重算。
-同窗 LambdaRank + Ridge 对照；落盘固定 LambdaRank（``backend=auto`` 同义）。
+落盘 LambdaRank（``backend=auto`` / ``lambdarank`` 同义；``ridge`` 拒）。
 研究枢纽启用只落盘；不进 y_oo_fuse，不改买序。
-回测/live 写入当日截面名次；与 oo_rank 取 max 作「rank 入场」闸。
+回测/live 写入当日截面名次；与 oo_rank 共用 rank 相对分闸。
 """
 
 from __future__ import annotations
@@ -47,6 +47,8 @@ def tc_rank_last_report_path() -> str:
 
 
 def _load_model_file(path: str) -> Optional[Dict[str, Any]]:
+    from core.research.oo_rank_lambdarank import _scrub_rank_label_meta
+
     if not path or not os.path.isfile(path):
         return None
     try:
@@ -59,7 +61,7 @@ def _load_model_file(path: str) -> Optional[Dict[str, Any]]:
         return None
     if doc.get("success") is False:
         return None
-    return doc
+    return _scrub_rank_label_meta(doc)
 
 
 def load_tc_rank_model(*, prefer_research: bool = True) -> Optional[Dict[str, Any]]:
@@ -68,12 +70,15 @@ def load_tc_rank_model(*, prefer_research: bool = True) -> Optional[Dict[str, An
     - ``prefer_research=True``：只读研究套 sidecar
     - ``prefer_research=False``：只读执行套
     """
+    from core.research.oo_rank_lambdarank import _scrub_rank_label_meta
+
     live = tc_rank_model_path()
     if prefer_research:
         try:
             from core.research.holdout import load_research_promoted_json
 
-            return load_research_promoted_json(live)
+            doc = load_research_promoted_json(live)
+            return _scrub_rank_label_meta(doc) if isinstance(doc, dict) else doc
         except Exception:  # noqa: BLE001
             logger.debug("tc_rank research load failed", exc_info=True)
             return None
@@ -85,12 +90,15 @@ def save_tc_rank_last_report(report: Dict[str, Any]) -> None:
         return
     if not isinstance(report.get("return_model"), dict):
         return
-    from core.research.oo_rank_lambdarank import stamp_oo_rank_fitted_at
+    from core.research.oo_rank_lambdarank import (
+        _scrub_rank_label_meta,
+        stamp_oo_rank_fitted_at,
+    )
 
     stamp_oo_rank_fitted_at(report)
     path = tc_rank_last_report_path()
     os.makedirs(os.path.dirname(path), exist_ok=True)
-    atomic_write_json(path, report)
+    atomic_write_json(path, _scrub_rank_label_meta(report))
 
 
 def load_tc_rank_last_report() -> Optional[Dict[str, Any]]:
@@ -101,6 +109,8 @@ def load_tc_rank_last_report() -> Optional[Dict[str, Any]]:
 
 def _load_json_report(path: str) -> Optional[Dict[str, Any]]:
     """上次拟合草稿可以没有可推理包，只要 success。"""
+    from core.research.oo_rank_lambdarank import _scrub_rank_label_meta
+
     if not path or not os.path.isfile(path):
         return None
     try:
@@ -111,7 +121,7 @@ def _load_json_report(path: str) -> Optional[Dict[str, Any]]:
         return None
     if not isinstance(doc, dict) or not doc.get("success"):
         return None
-    return doc
+    return _scrub_rank_label_meta(doc)
 
 
 def _relabel_metrics(raw: Dict[str, Any]) -> Dict[str, Any]:
@@ -137,10 +147,6 @@ def _stamp_model(
     out["model_role"] = "research"
     out["ndcg_k"] = int(ndcg_k)
     out.pop("shadow_only", None)
-    if backend == "ridge":
-        solver = str(out.get("solver") or "").strip().lower()
-        if solver in {"", "lambdarank", "lightgbm_lambda"}:
-            out["solver"] = "ridge"
     if backend == "lambdarank":
         out["intercept"] = 0.0
     return out
@@ -155,15 +161,19 @@ def fit_tc_rank_report(
     l2: float = LAMBDARANK_L2,
     topk_track: int = DEFAULT_TOPK_TRACK,
     ndcg_k: int = DEFAULT_NDCG_K,
-    ridge_lambda: float = 1.0,
     backend: str = "auto",
     cross_section_zscore: bool = True,
     train_codes: Optional[Collection[str]] = None,
+    tau_end_hm: Optional[str] = None,
+    tau_hm: Optional[str] = None,
 ) -> Dict[str, Any]:
     """拟合 ŷ_τc_rank。``stock_bars``: ``[{code, bars}, ...]``。不落盘。
 
-    日截面 z 用当天全池行；``train_codes`` 给定时损失与 Holdout 缩到该子集。
+    前缀与 ŷ_τc 同族：``tau_end_hm`` → ``resolve_tau_train_prefix``。
+    拟合固定日截面 Z；``train_codes`` 给定时损失与 Holdout 缩到该子集。
+    非开盘前缀按 ``date|clock`` 成 LambdaRank 组。
     """
+    from core.research.feature_standardize import reject_global_zscore
     from core.research.holdout import (
         attach_holdout_meta,
         calendar_dates_from_stock_bars,
@@ -173,14 +183,18 @@ def fit_tc_rank_report(
     from core.research.oo_rank_lambdarank import (
         DEFAULT_GATE_N,
         DEFAULT_GATE_STRONG_N,
-        _fit_ridge_baseline,
         _oos_day_metrics,
         fit_lambdarank,
-        rank_oos_shadow_deltas,
         select_oo_rank_backend,
         stamp_oo_rank_fitted_at,
     )
     from core.research.rank_day_panels import build_rank_day_panels
+    from core.signal.dual_score import get_dual_score_cfg
+    from core.signal.minute_tau_grid import resolve_tau_train_prefix
+
+    err_cs = reject_global_zscore(cross_section_zscore)
+    if err_cs:
+        return {"success": False, "error": err_cs, "task": TASK}
 
     # 物化刚扫过的整窗立方还在进程缓存里。面板起来之前先卸掉。
     try:
@@ -189,6 +203,28 @@ def fit_tc_rank_report(
         release_allocator_cache()
     except Exception:  # noqa: BLE001
         logger.debug("tc_rank release before panel failed", exc_info=True)
+
+    # 产品默认 09:30（与 UI τc 组滑条一致）；勿在未传 end 时吃 enable_minute_tau→整网 11:00
+    end_raw = tau_end_hm
+    if end_raw is None and tau_hm is None:
+        end_raw = "09:30"
+    ds = get_dual_score_cfg()
+    prefix = resolve_tau_train_prefix(
+        tau_end_hm=end_raw,
+        tau_hm=tau_hm,
+        enable_minute_tau=bool(ds.get("enable_minute_tau")),
+    )
+    if prefix.get("error"):
+        return {
+            "success": False,
+            "error": prefix["error"],
+            "task": TASK,
+        }
+    tau_key = str(prefix.get("tau_hm") or "open")
+    tau_grid = prefix.get("tau_grid")
+    resolved_end = str(prefix.get("tau_end_hm") or "09:30")[:5]
+    zero_prefix = bool(prefix.get("zero_prefix"))
+    use_minute = bool(prefix.get("use_minute"))
 
     bars = [it for it in (stock_bars or []) if isinstance(it, dict)]
     calendar = calendar_dates_from_stock_bars(bars)
@@ -202,14 +238,31 @@ def fit_tc_rank_report(
     )
     fit_dates = sorted(split_pre.get("train_days") or [])
     panel_stats: Dict[str, Any] = {}
-    days_all = build_rank_day_panels(
-        bars,
-        family="tc_rank",
-        fit_dates=fit_dates,
-        min_history=int(min_history),
-        min_names=int(min_names),
-        stats_out=panel_stats,
-    )
+    try:
+        days_all = build_rank_day_panels(
+            bars,
+            family="tc_rank",
+            fit_dates=fit_dates,
+            min_history=int(min_history),
+            min_names=int(min_names),
+            stats_out=panel_stats,
+            tau_hm=tau_key,
+            tau_grid=tau_grid,
+        )
+    except Exception as exc:  # noqa: BLE001
+        # MaterializeRequired 等：透传给 consume_materialized
+        from core.research.materialize.consumer import MaterializeRequired
+
+        if isinstance(exc, MaterializeRequired):
+            raise
+        logger.debug("tc_rank panel failed", exc_info=True)
+        return {
+            "success": False,
+            "error": str(exc) or "tc_rank_panel_failed",
+            "task": TASK,
+            "tau_end_hm": resolved_end,
+            "zero_prefix": zero_prefix,
+        }
     n_stocks = int(panel_stats.get("n_stocks") or 0)
     n_rows = int(panel_stats.get("n_rows") or 0)
     if n_rows < 20 or not days_all:
@@ -219,9 +272,13 @@ def fit_tc_rank_report(
             "task": TASK,
             "n_rows": n_rows,
             "n_stocks": n_stocks,
+            "tau_end_hm": resolved_end,
+            "zero_prefix": zero_prefix,
+            "tau_hm": tau_key,
+            "tau_grid": list(tau_grid) if tau_grid else None,
         }
 
-    # 与 oo_rank 同构：按日截面下标切 Holdout
+    # 与 oo_rank 同构：按交易日切 Holdout（date[:10]；多钟同日同侧）
     date_rows = [str(d.get("date") or "")[:10] for d in days_all]
     train_idx, test_idx, split_meta = resolve_ridge_split(
         date_rows,
@@ -239,28 +296,50 @@ def fit_tc_rank_report(
             "n_days": len(days_all),
             "n_train_days": len(days_tr),
             "n_test_days": len(days_te),
+            "tau_end_hm": resolved_end,
+            "zero_prefix": zero_prefix,
         }
 
     force_backend = str(backend or "auto").strip().lower()
-    if force_backend not in {"auto", "lambdarank", "ridge"}:
+    if force_backend == "ridge":
         return {
             "success": False,
-            "error": f"unsupported backend={force_backend}",
+            "error": "ŷ_τc_rank 已下线 Ridge 对照；请用 auto / lambdarank",
+            "task": TASK,
+            "backend": force_backend,
+        }
+    if force_backend not in {"auto", "lambdarank"}:
+        return {
+            "success": False,
+            "error": f"unsupported backend={force_backend}；支持 auto / lambdarank",
             "task": TASK,
         }
 
     kept_names = list(days_tr[0].get("names") or [])
-    use_cs = bool(cross_section_zscore)
     train_allow = {
         str(c).strip() for c in (train_codes or []) if str(c or "").strip()
     } or None
-    fit_tr = fit_lambdarank(
-        days_tr,
-        feature_names=kept_names,
-        l2=float(l2),
-        cross_section_zscore=use_cs,
-        train_codes=train_allow,
-    )
+    try:
+        fit_tr = fit_lambdarank(
+            days_tr,
+            feature_names=kept_names,
+            l2=float(l2),
+            cross_section_zscore=True,
+            train_codes=train_allow,
+        )
+    except Exception as exc:  # noqa: BLE001
+        from core.research.materialize.consumer import MaterializeRequired
+
+        if isinstance(exc, MaterializeRequired):
+            raise
+        return {
+            "success": False,
+            "error": str(exc) or "lambdarank_fit_failed",
+            "task": TASK,
+            "n_days": len(days_all),
+            "backend": "lambdarank",
+            "tau_end_hm": resolved_end,
+        }
     if not fit_tr.get("success"):
         return {
             "success": False,
@@ -268,6 +347,8 @@ def fit_tc_rank_report(
             "task": TASK,
             "n_days": len(days_all),
             "backend": "lambdarank",
+            "tau_end_hm": resolved_end,
+            "zero_prefix": zero_prefix,
         }
 
     oos_rank = _relabel_metrics(
@@ -279,45 +360,27 @@ def fit_tc_rank_report(
             train_codes=train_allow,
         )
     )
-    ridge_tr = _fit_ridge_baseline(
-        days_tr,
-        feature_names=kept_names,
-        ridge_lambda=float(ridge_lambda),
-        cross_section_zscore=use_cs,
-        train_codes=train_allow,
-    )
-    oos_ridge: Dict[str, Any] = {"success": bool(ridge_tr.get("success"))}
-    if ridge_tr.get("success"):
-        oos_ridge.update(
-            _relabel_metrics(
-                _oos_day_metrics(
-                    days_te,
-                    ridge_tr,
-                    topk_track=topk_track,
-                    ndcg_k=ndcg_k,
-                    train_codes=train_allow,
-                )
-            )
-        )
 
-    recommended = select_oo_rank_backend(oos_rank, oos_ridge)
-    chosen = recommended if force_backend == "auto" else force_backend
-    if chosen == "ridge" and not ridge_tr.get("success"):
-        chosen = "lambdarank"
+    recommended = select_oo_rank_backend()
+    chosen = "lambdarank"
 
+    tau_label = "open" if zero_prefix or not use_minute else tau_key
     y_spec_base = {
         "formula": FORMULA_TC_RANK,
         "unit": "score",
-        "anchor": "open[T]",
+        "anchor": "open[T]" if tau_label == "open" else f"price[{tau_label}]",
         "label": "rank(price[τ]->close[T]) cross-section",
-        "tau": "open",
+        "tau": tau_label,
+        "tau_end_hm": resolved_end,
+        "zero_prefix": zero_prefix,
     }
+    if tau_grid:
+        y_spec_base["tau_grid"] = list(tau_grid)
 
     def _pack(backend_key: str, holdout_src: Dict[str, Any]) -> Dict[str, Any]:
         note = (
-            "Ridge 相对分；研究枢纽对照 y_τc 名次；不进 y_oo_fuse；不改买序；与 oo_rank 共用 rank 入场"
-            if backend_key == "ridge"
-            else "LambdaRank 相对分；研究枢纽对照 y_τc 名次；不进 y_oo_fuse；不改买序；与 oo_rank 共用 rank 入场"
+            "LambdaRank 相对分；不进 y_oo_fuse；不改买序；与 oo_rank 共用 rank 相对分闸；"
+            "前缀与 ŷ_τc 同组"
         )
         y_spec = dict(y_spec_base, backend=backend_key, note=note)
         research = _stamp_model(
@@ -334,10 +397,6 @@ def fit_tc_rank_report(
 
     lambda_pack = _pack("lambdarank", dict(fit_tr))
     backends: Dict[str, Any] = {"lambdarank": lambda_pack}
-    if ridge_tr.get("success"):
-        backends["ridge"] = _pack("ridge", dict(ridge_tr))
-    if chosen not in backends:
-        chosen = "lambdarank"
     chosen_pack = backends[chosen]
     model = chosen_pack["return_model"]
     hold_n_meta = int(split_meta.get("holdout_trading_days") or hold_n)
@@ -356,10 +415,12 @@ def fit_tc_rank_report(
         "sample_count": int(model.get("sample_count") or 0),
         "n_features": len(kept_names),
         "ndcg_k": int(ndcg_k),
-        "tau_hm": "open",
+        "tau_hm": tau_label,
+        "tau_end_hm": resolved_end,
+        "zero_prefix": zero_prefix,
+        "tau_grid": list(tau_grid) if tau_grid else None,
         "oos": {
             "tc_rank": oos_rank,
-            "ridge_tc_baseline": oos_ridge,
             "holdout_trading_days": hold_n_meta,
             "topk_track": int(topk_track),
             "ndcg_k": int(ndcg_k),
@@ -375,23 +436,18 @@ def fit_tc_rank_report(
             ),
             "recommended_backend": recommended,
         },
-        "shadow_track": {
-            **rank_oos_shadow_deltas(
-                oos_rank, oos_ridge, y_key="topk_mean_y_tc"
-            ),
-            "recommended_backend": recommended,
-        },
         "backends": backends,
         "return_model": model,
         "return_model_research": chosen_pack["return_model_research"],
         "y_spec": chosen_pack["y_spec"],
-        "cross_section_zscore": use_cs,
+        "cross_section_zscore": True,
         "zscore_universe": "pool",
         "note": (
-            f"ŷ_τc_rank backend={chosen}（固定落盘 LambdaRank；Ridge 仅同窗对照）；"
-            "只训 Holdout 前一套；启用研究→研究槽；启用执行=研究槽晋级；"
-            "OOS 主看 Gate lift（对齐名次闸，不择优）；IC 仅对照；"
-            "不进 y_oo_fuse；不改买序；与 oo_rank 共用 rank 入场"
+            "ŷ_τc_rank=LambdaRank；只训 Holdout 前一套；"
+            "前缀与 ŷ_τc 同组（默认 09:30）；"
+            "启用研究→研究槽；启用执行=研究槽晋级；"
+            "OOS 主看 Gate lift；IC 仅对照；"
+            "不进 y_oo_fuse；不改买序；与 oo_rank 共用 rank 相对分闸"
         ),
     }
     attach_holdout_meta(report, split_meta)
@@ -417,6 +473,8 @@ def persist_tc_rank_model(
         _backend_pack_from_report,
         _oo_rank_model_valid,
         _oo_rank_use_booster,
+        _scrub_rank_label_meta,
+        _scrub_rank_oos,
         select_oo_rank_backend,
         stamp_oo_rank_fitted_at,
     )
@@ -449,11 +507,7 @@ def persist_tc_rank_model(
             "error": report.get("error") if isinstance(report, dict) else "no report",
         }
     stamp_oo_rank_fitted_at(report)
-    oos = report.get("oos") if isinstance(report.get("oos"), dict) else {}
-    backend = select_oo_rank_backend(
-        oos.get("tc_rank") if isinstance(oos, dict) else None,
-        oos.get("ridge_tc_baseline") if isinstance(oos, dict) else None,
-    )
+    backend = select_oo_rank_backend()
     pack = _backend_pack_from_report(report, backend)
     if not isinstance(pack, dict) or not isinstance(pack.get("return_model"), dict):
         return {
@@ -470,7 +524,7 @@ def persist_tc_rank_model(
     model = select_fit_return_model(view)
     if not isinstance(model, dict):
         return {"success": False, "error": "return_model missing"}
-    if backend == "lambdarank" and not _oo_rank_use_booster(model):
+    if not _oo_rank_use_booster(model):
         return {
             "success": False,
             "error": (
@@ -480,7 +534,7 @@ def persist_tc_rank_model(
         }
     if not _oo_rank_model_valid(model):
         return {"success": False, "error": "return_model missing usable tc_rank pack"}
-    model = dict(model)
+    model = _scrub_rank_label_meta(dict(model))
     model["model_role"] = MODEL_ROLE_RESEARCH
     model["backend"] = backend
     model.pop("shadow_only", None)
@@ -498,14 +552,15 @@ def persist_tc_rank_model(
         "recommended_backend": backend,
         "return_model": model,
         "return_model_research": dict(model),
-        "oos": report.get("oos"),
+        "oos": _scrub_rank_oos(
+            report.get("oos"), drop_keys=("ridge_tc_baseline", "ridge_oo_baseline")
+        ),
         "y_spec": y_spec,
         "note": note or report.get("note") or f"tc_rank promote research backend={backend}",
         "n_days": report.get("n_days"),
         "n_train_days": report.get("n_train_days"),
         "n_test_days": report.get("n_test_days"),
         "sample_count": report.get("sample_count") or model.get("sample_count"),
-        "shadow_track": report.get("shadow_track"),
         "fitted_at": fitted_at,
         "promoted_at": promoted_at,
         "model_role": MODEL_ROLE_RESEARCH,
@@ -520,6 +575,12 @@ def persist_tc_rank_model(
         "holdout_n",
         "tier_n",
         "cross_section_zscore",
+        "train_universe",
+        "train_universe_tiers",
+        "tau_end_hm",
+        "tau_hm",
+        "tau_grid",
+        "zero_prefix",
     ):
         if k in report and report.get(k) is not None:
             doc[k] = report.get(k)
@@ -528,7 +589,16 @@ def persist_tc_rank_model(
                 doc["return_model_research"][k] = report.get(k)
     backends = report.get("backends")
     if isinstance(backends, dict) and backends:
-        doc["backends"] = backends
+        lr_only = {
+            k: _scrub_rank_label_meta(v)
+            for k, v in backends.items()
+            if str(k).strip().lower() == "lambdarank" and isinstance(v, dict)
+        }
+        if lr_only:
+            doc["backends"] = lr_only
+    doc.pop("ridge_return_model_research", None)
+    doc.pop("shadow_track", None)
+    doc = _scrub_rank_label_meta(doc)
     path = research_model_path(live)
     os.makedirs(os.path.dirname(path), exist_ok=True)
     atomic_write_json(path, doc)

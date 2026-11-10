@@ -59,25 +59,16 @@ class TestPanelFingerprint(unittest.TestCase):
         self.assertNotEqual(bars_fingerprint(a), bars_fingerprint(b))
         self.assertEqual(PANEL_CACHE_SCHEMA, 3)
 
-    def test_head_keys_stable(self) -> None:
-        from core.research.panel_fingerprint import (
-            make_fingerprint,
-            oo_head_key,
-            tc_head_key,
-        )
+    def test_make_fingerprint_kw_order_stable(self) -> None:
+        from core.research.panel_fingerprint import make_fingerprint
 
-        self.assertEqual(
-            oo_head_key(horizon_days=1, ridge_core_only=False),
-            oo_head_key(horizon_days=1, ridge_core_only=False),
-        )
-        self.assertNotEqual(
-            oo_head_key(horizon_days=1, ridge_core_only=False),
-            oo_head_key(horizon_days=1, ridge_core_only=True),
-        )
-        self.assertIn("tc", tc_head_key(tau_hm="open", min_history=12, include_alpha_tc=False, use_minute=False))
         a = make_fingerprint(bars_fp="z", horizon=1, ridge_core_only=0)
         b = make_fingerprint(bars_fp="z", ridge_core_only=0, horizon=1)
         self.assertEqual(a, b)
+        self.assertNotEqual(
+            make_fingerprint(bars_fp="z", horizon=1, ridge_core_only=0),
+            make_fingerprint(bars_fp="z", horizon=1, ridge_core_only=1),
+        )
 
 class TestAssembleUsesL1(unittest.TestCase):
     def setUp(self) -> None:

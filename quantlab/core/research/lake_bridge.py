@@ -210,7 +210,7 @@ def _l1_dates_before_invalidate(code: str, families: Sequence[str]) -> tuple:
         try:
             exists, found = lake.peek_stock_dates(fam, code)
         except Exception:  # noqa: BLE001
-            logger.warning("l1 dates read failed code=%s family=%s", code, fam, exc_info=True)
+            logger.debug("l1 dates read failed code=%s family=%s", code, fam, exc_info=True)
             unreadable = True
             had_shard = True
             continue
@@ -240,23 +240,23 @@ def invalidate_l1_for_code(code: str, *, families: Optional[Sequence[str]] = Non
                 *list_hz_l1_families(),
             ]
     except Exception:  # noqa: BLE001
-        logger.warning("l1 family list failed code=%s", code, exc_info=True)
+        logger.debug("l1 family list failed code=%s", code, exc_info=True)
         fams = [FAMILY_OO, FAMILY_OO_RANK]
     dates, had_shard, unreadable = _l1_dates_before_invalidate(code, fams)
     for fam in fams:
         try:
             lake.invalidate_code(fam, code)
         except Exception:  # noqa: BLE001
-            logger.warning("l1 invalidate file failed code=%s family=%s", code, fam, exc_info=True)
+            logger.debug("l1 invalidate file failed code=%s family=%s", code, fam, exc_info=True)
     if not had_shard:
         return
     try:
         if unreadable and not dates:
-            logger.warning("l1 dates unreadable code=%s; dropping current-schema cubes", code)
+            logger.debug("l1 dates unreadable code=%s; dropping current-schema cubes", code)
             note_all_dates()
             return
         if unreadable:
-            logger.warning(
+            logger.debug(
                 "l1 dates partial unreadable code=%s; dropping %s known dates",
                 code,
                 len(dates),
@@ -264,7 +264,7 @@ def invalidate_l1_for_code(code: str, *, families: Optional[Sequence[str]] = Non
         if dates:
             note_stale_dates(dates)
     except Exception:  # noqa: BLE001
-        logger.warning("l2 note after l1 invalidate failed code=%s", code, exc_info=True)
+        logger.debug("l2 note after l1 invalidate failed code=%s", code, exc_info=True)
 
 
 def invalidate_l1_many(codes: Sequence[str]) -> Dict[str, Any]:

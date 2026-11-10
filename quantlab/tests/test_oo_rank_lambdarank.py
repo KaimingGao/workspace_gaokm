@@ -105,6 +105,26 @@ class TestOoRankUniverse(unittest.TestCase):
         self.assertEqual(out.get("universe_source"), "watching")
         self.assertEqual(len(out.get("codes") or []), 12)
 
+    def test_resolve_rank_fit_plan_rejects_train_tiers(self):
+        from core.research.oo_rank_panel import resolve_rank_fit_plan
+
+        out = resolve_rank_fit_plan(watching_limit=100, train_tiers=["A"])
+        self.assertFalse(out.get("success"), out)
+        self.assertIn("训练档已下线", str(out.get("error") or ""))
+
+    def test_resolve_rank_fit_plan_pool_only(self):
+        from core.research.oo_rank_panel import resolve_rank_fit_plan
+
+        with patch(
+            "core.watching.store.read_watching",
+            return_value={"watchlist": [f"{i:06d}" for i in range(12)]},
+        ):
+            out = resolve_rank_fit_plan(watching_limit=100, train_tiers=None)
+        self.assertTrue(out.get("success"), out)
+        self.assertIsNone(out.get("train_codes"))
+        self.assertEqual(out.get("train_universe"), "pool")
+        self.assertEqual(out.get("train_universe_tiers") or [], [])
+
 class TestOoRankCompactPanel(unittest.TestCase):
     def test_group_day_matrices_keeps_views_no_xs(self):
         from core.research.oo_rank_panel import group_day_matrices
@@ -157,8 +177,8 @@ class TestNanLabelRank(unittest.TestCase):
         self.assertEqual(n_drop, 1)
         self.assertEqual(kept_y, [1.0, -2.0, 0.5, 3.0])
         self.assertEqual(kept_z.shape, (4, 2))
-        # 稠密名次（n_buckets<=1）；默认 100 档与本断言无关
-        self.assertEqual(_rank_labels(kept_y, n_buckets=0), [2, 0, 1, 3])
+        # 稠密名次 0..n-1（高 ys = 高 label）
+        self.assertEqual(_rank_labels(kept_y), [2, 0, 1, 3])
 
         short_y, short_z, short_drop = _slice_finite_label_rows(
             [1.0, float("nan"), -2.0, 0.5],
@@ -166,7 +186,7 @@ class TestNanLabelRank(unittest.TestCase):
         )
         self.assertEqual(short_drop, 1)
         self.assertEqual(len(short_y), 3)
-        self.assertEqual(max(_rank_labels(short_y, n_buckets=0)), 2)
+        self.assertEqual(max(_rank_labels(short_y)), 2)
         dirty_y, dirty_z, dirty_drop = _slice_finite_label_rows(
             [1.0, None, -2.0, 0.5, "bad"],
             np.arange(10, dtype=np.float64).reshape(5, 2),
@@ -331,29 +351,57 @@ def _synth_varying_pool_days(seed: int = 0):
         day += timedelta(days=1)
     return days
 
-class TestRankBuckets(unittest.TestCase):
-    def test_rank_labels_100_buckets(self):
-        from core.research.oo_rank_lambdarank import (
-            LAMBDARANK_N_BUCKETS,
-            _rank_labels,
-        )
+class TestRankLabels(unittest.TestCase):
+    def test_rank_labels_dense(self):
+        from core.research.oo_rank_lambdarank import _rank_labels
 
-        self.assertEqual(LAMBDARANK_N_BUCKETS, 100)
-        # 600 只：等分到 100 档，每档约 6 只；最差=0、最好=99
+        # 600 只：稠密名次 0..599；最差=0、最好=599
         ys = [float(i) for i in range(600)]
-        labels = _rank_labels(ys, n_buckets=100)
+        labels = _rank_labels(ys)
         self.assertEqual(len(labels), 600)
         self.assertEqual(min(labels), 0)
-        self.assertEqual(max(labels), 99)
-        self.assertEqual(len(set(labels)), 100)
+        self.assertEqual(max(labels), 599)
+        self.assertEqual(len(set(labels)), 600)
         self.assertEqual(labels[0], 0)  # 最小 y
-        self.assertEqual(labels[-1], 99)  # 最大 y
-        # 稠密退回
-        dense = _rank_labels(ys[:5], n_buckets=0)
-        self.assertEqual(dense, [0, 1, 2, 3, 4])
+        self.assertEqual(labels[-1], 599)  # 最大 y
+        self.assertEqual(_rank_labels(ys[:5]), [0, 1, 2, 3, 4])
+
+    def test_scrub_rank_label_meta_drops_legacy_bucket_keys(self):
+        from core.research.oo_rank_lambdarank import _scrub_rank_label_meta
+
+        raw = {
+            "n_dense_labels": 40,
+            "n_relevance_buckets": 100,
+            "label_gain_mode": "linear_buckets",
+            "return_model": {
+                "booster_b64": "x",
+                "n_relevance_buckets": 100,
+                "label_gain_mode": "linear_buckets",
+                "n_dense_labels": 40,
+            },
+            "backends": {
+                "lambdarank": {
+                    "return_model": {
+                        "n_relevance_buckets": 100,
+                        "label_gain_mode": "linear_dense",
+                    }
+                }
+            },
+        }
+        cleaned = _scrub_rank_label_meta(raw)
+        self.assertEqual(cleaned.get("n_dense_labels"), 40)
+        self.assertNotIn("n_relevance_buckets", cleaned)
+        self.assertNotIn("label_gain_mode", cleaned)
+        rm = cleaned["return_model"]
+        self.assertEqual(rm.get("n_dense_labels"), 40)
+        self.assertNotIn("n_relevance_buckets", rm)
+        self.assertNotIn("label_gain_mode", rm)
+        be_rm = cleaned["backends"]["lambdarank"]["return_model"]
+        self.assertNotIn("n_relevance_buckets", be_rm)
+        self.assertNotIn("label_gain_mode", be_rm)
 
     @unittest.skipUnless(_has_lightgbm(), "lightgbm 未安装")
-    def test_fit_stamps_n_relevance_buckets(self):
+    def test_fit_stamps_n_dense_labels(self):
         from core.research.oo_rank_lambdarank import fit_lambdarank
 
         days = _synth_days(8, 24)
@@ -364,11 +412,11 @@ class TestRankBuckets(unittest.TestCase):
                 max_depth=2,
                 min_child_samples=1,
                 subsample=1.0,
-                n_buckets=100,
             )
         self.assertTrue(fit.get("success"), fit)
-        self.assertEqual(fit.get("n_relevance_buckets"), 100)
-        self.assertEqual(fit.get("label_gain_mode"), "linear_buckets")
+        self.assertEqual(fit.get("n_dense_labels"), 24)
+        self.assertNotIn("n_relevance_buckets", fit)
+        self.assertNotIn("label_gain_mode", fit)
 
     def test_z_clip_and_robust_defaults(self):
         from core.research.oo_rank_lambdarank import (
@@ -404,7 +452,6 @@ class TestRankBuckets(unittest.TestCase):
                 max_depth=2,
                 min_child_samples=1,
                 subsample=1.0,
-                n_buckets=100,
                 truncation_level=100,
                 z_clip=3.0,
             )
@@ -434,7 +481,10 @@ class TestOoRankVaryingPool(unittest.TestCase):
             )
         self.assertTrue(fit.get("success"), fit)
         self.assertEqual(fit.get("n_groups"), len(days))
-        self.assertEqual(fit.get("n_relevance_buckets"), 100)
+        # 稠密：n_dense_labels = 最大日池 size（y_max+1）
+        self.assertEqual(fit.get("n_dense_labels"), max(len(d["ys"]) for d in days))
+        self.assertNotIn("n_relevance_buckets", fit)
+        self.assertNotIn("label_gain_mode", fit)
         self.assertNotIn("n_pair_days", fit)
 
 class TestOoRankRidgeBaseline(unittest.TestCase):
@@ -459,40 +509,18 @@ class TestOoRankRidgeBaseline(unittest.TestCase):
     def test_select_oo_rank_backend_fixed_lambdarank(self):
         from core.research.oo_rank_lambdarank import select_oo_rank_backend
 
-        # Ridge 仅对照：即使 NDCG 更高也不胜出
+        self.assertEqual(select_oo_rank_backend(), "lambdarank")
+        # 旧签名仍可调用（忽略 OOS 参数）
         self.assertEqual(
             select_oo_rank_backend(
-                {"ndcg_at_k": 0.55, "success": True},
-                {"ndcg_at_k": 0.62, "success": True},
+                {"ndcg_at_k": 0.4}, {"ndcg_at_k": 0.7, "success": True}
             ),
-            "lambdarank",
-        )
-        self.assertEqual(
-            select_oo_rank_backend(
-                {"ndcg_at_k": 0.62, "success": True},
-                {"ndcg_at_k": 0.55, "success": True},
-            ),
-            "lambdarank",
-        )
-        self.assertEqual(
-            select_oo_rank_backend(
-                {"ndcg_at_k": 0.5, "success": True},
-                {"ndcg_at_k": 0.5, "success": True},
-            ),
-            "lambdarank",
-        )
-        self.assertEqual(
-            select_oo_rank_backend({"ndcg_at_k": 0.4}, {"success": False}),
-            "lambdarank",
-        )
-        self.assertEqual(
-            select_oo_rank_backend(None, {"ndcg_at_k": 0.7, "success": True}),
             "lambdarank",
         )
 
 class TestOoRankFit(unittest.TestCase):
     @unittest.skipUnless(_has_lightgbm(), "lightgbm 未安装")
-    def test_fit_report_vs_ridge_shadow(self):
+    def test_fit_report_lambdarank_only(self):
         from core.research.oo_rank_lambdarank import (
             compare_oo_rank_shadow_track,
             fit_oo_rank_report,
@@ -520,32 +548,22 @@ class TestOoRankFit(unittest.TestCase):
         self.assertEqual(report.get("backend"), "lambdarank")
         self.assertEqual(report.get("recommended_backend"), "lambdarank")
         self.assertIn("lambdarank", (report.get("backends") or {}))
+        self.assertNotIn("ridge", (report.get("backends") or {}))
         self.assertIn("oo_rank", (report.get("oos") or {}))
-        self.assertIn("ridge_oo_baseline", (report.get("oos") or {}))
+        self.assertNotIn("ridge_oo_baseline", (report.get("oos") or {}))
         oos_rank = (report.get("oos") or {}).get("oo_rank") or {}
         self.assertIn("ndcg_at_k", oos_rank)
         self.assertEqual(oos_rank.get("ndcg_k"), 5)
         self.assertIn("gate_lift", oos_rank)
-        track = report.get("shadow_track") or {}
-        self.assertIn("delta_gate_lift", track)
-        oos_ridge = (report.get("oos") or {}).get("ridge_oo_baseline") or {}
-        self.assertTrue(oos_ridge.get("success"), oos_ridge)
-        self.assertGreater(int(oos_ridge.get("n_days") or 0), 0)
-        self.assertIsNotNone(oos_ridge.get("spearman"))
-        self.assertIsNotNone(oos_ridge.get("cs_ic"))
-        self.assertIsNotNone(oos_ridge.get("cs_icir"))
-        self.assertIsNotNone(oos_ridge.get("ndcg_at_k"))
+        self.assertNotIn("shadow_track", report)
         model = report.get("return_model") or {}
         self.assertNotIn("shadow_only", model)
         self.assertEqual(model.get("model_role"), "research")
-        self.assertEqual(model.get("backend"), report.get("backend"))
+        self.assertEqual(model.get("backend"), "lambdarank")
         self.assertTrue(report.get("fitted_at"))
         self.assertEqual(model.get("fitted_at"), report.get("fitted_at"))
-        if report.get("backend") == "lambdarank":
-            self.assertEqual(float(model.get("intercept") or 0), 0.0)
-            self.assertTrue(model.get("booster_b64"))
-        else:
-            self.assertTrue(model.get("coefficients"))
+        self.assertEqual(float(model.get("intercept") or 0), 0.0)
+        self.assertTrue(model.get("booster_b64"))
 
         with patch(
             "core.research.oo_rank_panel.build_oo_rank_day_panels",
@@ -558,14 +576,10 @@ class TestOoRankFit(unittest.TestCase):
                 ndcg_k=5,
             )
         self.assertTrue(track.get("success"), track)
-        self.assertIn("delta_topk_mean_y_oo", track)
-        self.assertIn("delta_ndcg_at_k", track)
-        self.assertIn("delta_cs_ic", track)
-        self.assertIn("delta_cs_icir", track)
-        self.assertIn("delta_gate_lift", track)
         oos_rank_gate = (track.get("oos") or {}).get("oo_rank") or {}
         self.assertIn("gate_lift", oos_rank_gate)
         self.assertIn("gate_mean_y", oos_rank_gate)
+        self.assertNotIn("delta_gate_lift", track)
 
     @unittest.skipUnless(_has_lightgbm(), "lightgbm 未安装")
     def test_apply_and_aux_passthrough(self):
@@ -904,7 +918,7 @@ class TestOoRankFit(unittest.TestCase):
             self.assertFalse(out.get("success"), out)
             self.assertIn("lambdarank pack missing", str(out.get("error") or ""))
 
-    def test_persist_auto_keeps_lambdarank_even_if_ridge_ndcg_higher(self):
+    def test_persist_strips_legacy_ridge_backend_pack(self):
         import json
 
         from core.research.oo_rank_lambdarank import persist_oo_rank_model
@@ -963,7 +977,6 @@ class TestOoRankFit(unittest.TestCase):
             ):
                 research_out = persist_oo_rank_model(report, role="research")
                 self.assertTrue(research_out.get("success"), research_out)
-                # 固定落盘 LambdaRank（Ridge 仅对照；NDCG 高低不再择优）
                 self.assertEqual(research_out.get("backend"), "lambdarank")
                 out = persist_oo_rank_model(report, role="live")
             self.assertTrue(out.get("success"), out)
@@ -973,8 +986,9 @@ class TestOoRankFit(unittest.TestCase):
             self.assertEqual(doc.get("backend"), "lambdarank")
             self.assertEqual((doc.get("return_model") or {}).get("backend"), "lambdarank")
             self.assertEqual((doc.get("return_model") or {}).get("solver"), "lambdarank")
-            self.assertIn("ridge", (doc.get("backends") or {}))
+            self.assertNotIn("ridge", (doc.get("backends") or {}))
             self.assertIn("lambdarank", (doc.get("backends") or {}))
+            self.assertNotIn("ridge_return_model_research", doc)
 
     def test_load_research_does_not_fall_back_to_live(self):
         """研究套缺失时不得读执行套。"""
@@ -1181,8 +1195,8 @@ class TestOoRankFittedAt(unittest.TestCase):
             self.assertEqual(doc.get("promoted_from"), "research")
             self.assertTrue(doc.get("promoted_at"))
 
-    def test_get_model_merges_backends_from_last_report(self):
-        """落盘包无 backends 时，同窗 last_report 补 Ridge 供因子表 β 列。"""
+    def test_get_model_merges_lambdarank_from_last_report(self):
+        """落盘包无 backends 时，同窗 last_report 补 LambdaRank；旧 ridge 包剔除。"""
         import json
 
         from quant.services.quant_service import QuantService
@@ -1213,7 +1227,6 @@ class TestOoRankFittedAt(unittest.TestCase):
             },
             "oos": {
                 "oo_rank": {"spearman": 0.12, "ndcg_at_k": 0.55},
-                "ridge_oo_baseline": {"spearman": 0.1, "ndcg_at_k": 0.5},
                 "holdout_trading_days": 20,
                 "n_test": 40,
             },
@@ -1254,13 +1267,13 @@ class TestOoRankFittedAt(unittest.TestCase):
             ):
                 out = QuantService().get_oo_rank_model()
             self.assertTrue(out.get("exists"), out)
-            self.assertIn("ridge", (out.get("backends") or {}))
-            ridge_rm = (
-                ((out.get("backends") or {}).get("ridge") or {}).get("return_model")
+            self.assertNotIn("ridge", (out.get("backends") or {}))
+            lr_rm = (
+                ((out.get("backends") or {}).get("lambdarank") or {}).get("return_model")
                 or {}
             )
-            self.assertEqual(ridge_rm.get("backend"), "ridge")
-            self.assertIn("vol", ridge_rm.get("coefficients") or {})
+            self.assertEqual(lr_rm.get("backend"), "lambdarank")
+            self.assertTrue(lr_rm.get("booster_b64"))
             self.assertEqual(out.get("n_train_days"), 60)
 
     def test_get_model_restores_last_report_without_persist(self):

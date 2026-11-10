@@ -1,4 +1,4 @@
-"""研究台因子 / ŷ_τ / 影子实验请求模型。"""
+"""研究台因子 / ŷ_τ / 排序头请求模型。"""
 
 from __future__ import annotations
 
@@ -14,14 +14,22 @@ FIT_LOOKBACK_MAX = 1000
 
 
 class _CrossSectionZscore(BaseModel):
-    """可选：日截面 z vs 训练窗全局 μ/σ。"""
+    """日截面 Z（产品固定开；False 拒）。"""
 
     cross_section_zscore: bool = Field(
         default=True,
-        description="True=日截面 z；False=训练样本内全局 μ/σ",
+        description="产品固定 True=日截面 z；False 已下线（训练窗全局 μ/σ）",
     )
 
+    @field_validator("cross_section_zscore")
+    @classmethod
+    def _cs_z_only(cls, value: bool) -> bool:
+        from core.research.feature_standardize import reject_global_zscore
 
+        err = reject_global_zscore(value)
+        if err:
+            raise ValueError(err)
+        return True
 
 
 class CrossSectionRequest(BaseModel):
@@ -63,7 +71,7 @@ class FactorOlsPoolRequest(BaseModel):
     )
 
 
-class TauRidgeRequest(BaseModel):
+class TauRidgeRequest(_CrossSectionZscore):
     """open→close / τ→close ŷ_τ 头研究拟合（不写 ŷ_oo）。"""
 
     lookback: int = Field(default=120, ge=FIT_LOOKBACK_MIN, le=FIT_LOOKBACK_MAX)
@@ -89,11 +97,6 @@ class TauRidgeRequest(BaseModel):
         ge=1,
         le=60,
         description="近 N 个交易日不进训练（Holdout）；只训前段一套 β",
-    )
-
-    cross_section_zscore: bool = Field(
-        default=True,
-        description="True=日截面 z；False=训练样本内全局 μ/σ",
     )
     force_promote: bool = Field(
         default=False,
@@ -127,7 +130,7 @@ class TauRidgeRequest(BaseModel):
 
 
 class OoRankRequest(_CrossSectionZscore):
-    """ŷ_oo_rank：同窗 LambdaRank+Ridge 对照；落盘固定 LambdaRank（成交 oo_rank=1..n；过入场后作买序；可选 oo_rank_max，与 τc_rank 共用）。"""
+    """ŷ_oo_rank：单头 LambdaRank；成交 oo_rank=1..n；过入场后作买序；与 τc_rank 共用 rank 相对分闸。"""
 
     lookback: int = Field(default=700, ge=FIT_LOOKBACK_MIN, le=FIT_LOOKBACK_MAX)
     watching_limit: int = Field(
@@ -136,39 +139,9 @@ class OoRankRequest(_CrossSectionZscore):
         le=MODEL_FIT_MAX_SIZE,
         description=(
             f"观察池截断（默认满池 {MODEL_FIT_MAX_SIZE}）。"
-            "截面 z 恒用该池；未选训练档时损失也用该池。"
+            "截面 z 与损失宇宙均用该池（训练档已下线）。"
         ),
     )
-    train_tiers: Optional[List[str]] = Field(
-        default=None,
-        description=(
-            "训练档多选：子集 of A/B/C。非空=损失/Holdout 缩到观察池∩这些档（须先跑分档）；"
-            "空/省略=整池。截面 z 仍整池。落盘 train_universe + train_universe_tiers。"
-        ),
-    )
-
-    @field_validator("train_tiers")
-    @classmethod
-    def _train_tiers(cls, value: Optional[List[str]]) -> Optional[List[str]]:
-        if value is None:
-            return None
-        if not isinstance(value, (list, tuple)):
-            raise ValueError("train_tiers 须为 A/B/C 列表")
-        from core.research.feature_standardize import (
-            TRAIN_TIER_LABELS,
-            normalize_train_tiers,
-        )
-
-        bad = [
-            str(item)
-            for item in value
-            if str(item or "").strip()
-            and str(item).strip().upper() not in TRAIN_TIER_LABELS
-        ]
-        if bad:
-            raise ValueError("训练档仅支持 A/B/C，收到 " + ",".join(bad))
-        labels = normalize_train_tiers(list(value))
-        return labels or None
     holdout_trading_days: int = Field(
         default=20,
         ge=1,
@@ -189,12 +162,12 @@ class OoRankRequest(_CrossSectionZscore):
     )
     backend: str = Field(
         default="auto",
-        description="auto=固定 LambdaRank；也可强制 lambdarank / ridge（拟合仍双训，Ridge 默认仅对照）",
+        description="auto / lambdarank（同义）；ridge 拒",
         max_length=24,
     )
     persist: bool = Field(
         default=False,
-        description="True=固定写入 LambdaRank 到模型文件（路径由 persist_role 决定；不重训）",
+        description="True=写入 LambdaRank 到模型文件（路径由 persist_role 决定；不重训）",
     )
     persist_role: str = Field(
         default="live",
@@ -202,9 +175,26 @@ class OoRankRequest(_CrossSectionZscore):
     )
     note: str = Field(default="", max_length=200)
 
+    @field_validator("backend")
+    @classmethod
+    def _rank_backend(cls, value: str) -> str:
+        raw = str(value or "auto").strip().lower() or "auto"
+        if raw in ("auto", "lambdarank", "lightgbm", "lgbm"):
+            return "lambdarank" if raw != "auto" else "auto"
+        raise ValueError("排序头仅支持 auto / lambdarank")
+
 
 class TcRankRequest(OoRankRequest):
-    """ŷ_τc_rank：同窗 LambdaRank+Ridge；标签 price[τ]→close[T]。启用只落盘；不进 fuse、不改买序；与 oo_rank 共用 rank 入场。"""
+    """ŷ_τc_rank：单头 LambdaRank；标签 price[τ]→close[T]。启用只落盘；不进 fuse、不改买序；与 oo_rank 共用 rank 入场。"""
+
+    tau_end_hm: Optional[str] = Field(
+        default=None,
+        description=(
+            "训练前缀终点 09:30…11:00（与 ŷ_τc 同组滑条；09:30=0 前缀 open→close；"
+            "省略默认 09:30）"
+        ),
+        max_length=5,
+    )
 
 
 class T30RidgeRequest(_CrossSectionZscore):
@@ -577,7 +567,7 @@ class AbCompareRequest(BaseModel):
     note: str = ""
 
 
-class ReturnModelFitRequest(BaseModel):
+class ReturnModelFitRequest(_CrossSectionZscore):
     """拟合收益排序模型并可选落研究草稿。"""
 
     codes: Optional[list] = None
@@ -592,10 +582,6 @@ class ReturnModelFitRequest(BaseModel):
         ge=3,
         le=60,
         description="近 N 个交易日 Holdout，只测不训（与 ŷ_oo 卡片 Holdout 共用）",
-    )
-    cross_section_zscore: bool = Field(
-        default=True,
-        description="True=日截面 z；False=训练样本内全局 μ/σ",
     )
 
 

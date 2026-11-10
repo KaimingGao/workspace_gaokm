@@ -7,6 +7,16 @@ from typing import Any, Callable, List, Optional
 
 logger = logging.getLogger(__name__)
 
+# 单票失败：前几条带栈；磁盘类整池故障只打一次 warning，其余降 debug 防刷屏。
+_STOCK_FAIL_FULL = 3
+
+
+def _is_diskish(exc: BaseException) -> bool:
+    if isinstance(exc, OSError):
+        return True
+    cause = getattr(exc, "__cause__", None) or getattr(exc, "__context__", None)
+    return isinstance(cause, OSError)
+
 
 def consume_process_batch(
     *,
@@ -38,6 +48,8 @@ def consume_process_batch(
     pending = set(range(start, end))
     next_i = start
     window = max(1, int(n_workers))
+    stock_fails = 0
+    disk_warned = False
 
     def _name(i: int) -> str:
         if label is None:
@@ -46,6 +58,41 @@ def consume_process_batch(
             return str(label(i))
         except Exception:  # noqa: BLE001
             return str(i)
+
+    def _log_stock_fail(i: int, exc: BaseException) -> None:
+        nonlocal stock_fails, disk_warned
+        stock_fails += 1
+        who = _name(i)
+        if _is_diskish(exc):
+            if not disk_warned:
+                disk_warned = True
+                logger.warning(
+                    "research pool disk/IO failure at %s (%s); "
+                    "further per-stock traces at debug",
+                    who,
+                    type(exc).__name__,
+                    exc_info=True,
+                )
+            else:
+                logger.debug(
+                    "research pool stock %s failed (disk/IO); retrying serially",
+                    who,
+                    exc_info=True,
+                )
+            return
+        if stock_fails <= _STOCK_FAIL_FULL:
+            logger.exception(
+                "research pool stock %s failed in worker; retrying serially",
+                who,
+            )
+        else:
+            logger.debug(
+                "research pool stock %s failed in worker; retrying serially "
+                "(suppressed after %s)",
+                who,
+                _STOCK_FAIL_FULL,
+                exc_info=True,
+            )
 
     def _store(i: int, value: Any) -> None:
         results[i] = value
@@ -104,11 +151,8 @@ def consume_process_batch(
                     )
                     _serial_fill()
                     return True
-                except Exception:
-                    logger.exception(
-                        "research pool stock %s failed in worker; retrying serially",
-                        _name(i),
-                    )
+                except Exception as exc:
+                    _log_stock_fail(i, exc)
                     _store(i, run_one(i))
             while next_i < end and len(inflight) < window:
                 _submit(next_i)

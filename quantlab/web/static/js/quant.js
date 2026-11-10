@@ -127,8 +127,7 @@ export function initQuant(ctx) {
     readFitLookbackDays,
     hydrateFitLookbackDays,
     readCrossSectionFitParams,
-    readRankZUniverseFitParams,
-    formatCrossSectionZBit,
+    formatTrainTiersBit,
     hydrateCrossSectionZParams,
     readTauEndFitParams,
     formatTauEndBit,
@@ -237,7 +236,7 @@ export function initQuant(ctx) {
     fmtPct, metricClass, researchGridHtml, metricCell,
     clampHorizonDays, syncHorizonInputs, readHorizonDays, readRidgeLambda, readClusterK,
     readWatchingLimit, readHoldoutTradingDays, readFitLookbackDays,
-    readCrossSectionFitParams, formatCrossSectionZBit,
+    readCrossSectionFitParams, formatTrainTiersBit,
     readTauEndFitParams, formatTauEndBit,
     setPrefsHorizonDays, getPrefsHorizonDays,
     factorMetaByName, factorMetaByLabel, rememberFactorMeta, ensureFactorMeta,
@@ -542,13 +541,10 @@ export function initQuant(ctx) {
         message = message ? `${tauEndBit} · ${message}` : tauEndBit;
       }
     }
-    const csZBit =
-      typeof formatCrossSectionZBit === "function" ? formatCrossSectionZBit(src) : "";
-    if (csZBit) {
-      // 调用方已拼过同一段则不重复
-      if (!String(message || "").includes(csZBit)) {
-        message = message ? `${csZBit} · ${message}` : csZBit;
-      }
+    const tiersBit =
+      typeof formatTrainTiersBit === "function" ? formatTrainTiersBit(src) : "";
+    if (tiersBit && !String(message || "").includes(tiersBit)) {
+      message = message ? `${tiersBit} · ${message}` : tiersBit;
     }
     const researchAt =
       extra.researchAt !== undefined
@@ -596,24 +592,20 @@ export function initQuant(ctx) {
     coefId: "quant-oo-rank-coef-table",
     head: "oo_rank",
     rankKey: "oo_rank",
-    ridgeKey: "ridge_oo_baseline",
     yKey: "topk_mean_y_oo",
-    deltaYKey: "delta_topk_mean_y_oo",
     yLabel: "TopK y_oo%",
     icTip: "日频截面 Pearson 均值；原始排序分对 y_oo（对照用，不预示调仓）",
-    idleMessage: "拟合后对照 Gate lift · 启用固定落盘 LambdaRank",
+    idleMessage: "拟合后看 Gate lift · 再启用研究/执行",
   };
   const TC_RANK_DESK = {
     resultId: "quant-tc-rank-result",
     coefId: "quant-tc-rank-coef-table",
     head: "tc_rank",
     rankKey: "tc_rank",
-    ridgeKey: "ridge_tc_baseline",
     yKey: "topk_mean_y_tc",
-    deltaYKey: "delta_topk_mean_y_tc",
     yLabel: "TopK y_τc%",
     icTip: "日频截面 Pearson 均值；原始排序分对 y_τc（对照用，不预示调仓）",
-    idleMessage: "拟合后对照 Gate lift · 启用固定落盘 LambdaRank",
+    idleMessage: "拟合后看 Gate lift · 再启用研究/执行",
   };
 
   async function renderOoRankCoefTable(rm, opts = {}) {
@@ -726,35 +718,34 @@ export function initQuant(ctx) {
     return solver === "ridge" || be === "" || solver === "";
   }
 
-  /** 系数表优先 Ridge（与 v2 ŷ_oo 同壳）；无 Ridge 时回落当前 return_model。 */
+  /** 系数表取 LambdaRank 包（gain%）；不再回落 Ridge β。 */
   function ooRankCoefModel(data) {
     if (!data || typeof data !== "object") return null;
     const be =
       data.backends && typeof data.backends === "object" ? data.backends : {};
-    const ridgeBe = be.ridge && typeof be.ridge === "object" ? be.ridge : null;
-    const ridge =
-      (ridgeBe && ridgeBe.return_model_research) ||
-      (ridgeBe && ridgeBe.return_model) ||
+    const lrBe = be.lambdarank && typeof be.lambdarank === "object" ? be.lambdarank : null;
+    const lr =
+      (lrBe && lrBe.return_model_research) ||
+      (lrBe && lrBe.return_model) ||
       null;
-    if (ridge && typeof ridge === "object" && ridge.coefficients) {
-      const model = { ...ridge };
-      model.backend = "ridge";
-      model.solver = model.solver || "ridge";
-      delete model.booster_b64;
+    if (lr && typeof lr === "object" && (lr.booster_b64 || lr.coefficients)) {
+      const model = { ...lr };
+      model.backend = "lambdarank";
+      model.solver = model.solver || "lambdarank";
       return { model };
     }
-    // 顶层研究套若是 Ridge（启用侧可能是 LambdaRank）也优先
     const candidates = [
       data.return_model_research,
       data.return_model,
       data.coefficients && typeof data.coefficients === "object" ? data : null,
     ].filter((x) => x && typeof x === "object");
-    const ridgeTop = candidates.find((rm) => _ooRankLooksRidge(rm));
-    if (ridgeTop) {
-      const model = { ...ridgeTop };
-      model.backend = "ridge";
-      model.solver = model.solver || "ridge";
-      delete model.booster_b64;
+    const lambdaTop = candidates.find(
+      (rm) => !_ooRankLooksRidge(rm) && (rm.booster_b64 || rm.coefficients)
+    );
+    if (lambdaTop) {
+      const model = { ...lambdaTop };
+      model.backend = "lambdarank";
+      model.solver = model.solver || "lambdarank";
       return { model };
     }
     const rm = candidates[0] || null;
@@ -1006,7 +997,7 @@ export function initQuant(ctx) {
         : data.holdout_trading_days != null
           ? `Holdout ${Number(data.holdout_trading_days)} 日`
           : "同窗 Holdout";
-    // 与 ŷ_oo_rank 对照同口径：训/测行数（同窗双训两侧相同）
+    // ŷ_τ* 同窗双训：训/测行数两侧相同
     const nTr =
       oos.n_train != null
         ? `训 ${Number(oos.n_train).toLocaleString("en-US")}`
@@ -1112,22 +1103,11 @@ export function initQuant(ctx) {
     let message = extra.message;
     let messageHtml = !!extra.messageHtml;
     if (message === undefined) {
-      if (extra.persistOk) {
-        const be = src.backend || src.recommended_backend || "";
+      if (extra.persistOk || flags.liveOn || flags.researchOn) {
+        // 落盘态看卡头「研究/执行」meta；此处只保留 backend 色标
+        const be =
+          src.backend || src.recommended_backend || "";
         const box = rankBackendBox(be);
-        message = flags.liveOn
-          ? box || ""
-          : flags.researchOn
-            ? box
-              ? `研究套已落盘 ${box} · 执行未写`
-              : "研究套已落盘 · 执行未写"
-            : box
-              ? `已启用 ${box}`
-              : "";
-        messageHtml = !!box;
-      } else if (flags.liveOn || flags.researchOn) {
-        const rec = src.recommended_backend || src.backend || "";
-        const box = rankBackendBox(rec);
         message = box || "";
         messageHtml = !!box;
       } else {
@@ -1160,16 +1140,37 @@ export function initQuant(ctx) {
     });
   }
 
+  function flattenRankOos(src, desk) {
+    const root = src && src.oos && typeof src.oos === "object" ? src.oos : {};
+    const head = root[desk.rankKey] && typeof root[desk.rankKey] === "object"
+      ? root[desk.rankKey]
+      : {};
+    return {
+      ...head,
+      holdout_trading_days:
+        root.holdout_trading_days != null
+          ? root.holdout_trading_days
+          : src.holdout_trading_days,
+      n_train:
+        src.n_train_days != null ? src.n_train_days : root.n_train_days,
+      n_test: src.n_test_days != null ? src.n_test_days : root.n_test_days,
+      recommended_backend: root.recommended_backend || src.recommended_backend,
+      y_key: desk.yKey,
+      y_label: desk.yLabel,
+    };
+  }
+
   async function paintOoRankDesk(sum, data, extra = {}, spec) {
     const desk = spec || OO_RANK_DESK;
     const src = data && typeof data === "object" ? data : {};
     const coefPack = ooRankCoefModel(src);
     const rm = coefPack && coefPack.model;
-    const oos = src.oos && typeof src.oos === "object" ? src.oos : {};
+    const oosFlat = flattenRankOos(src, desk);
     const hasBody = !!(
       (rm && typeof rm === "object") ||
-      oos[desk.rankKey] ||
-      oos[desk.ridgeKey]
+      oosFlat.gate_lift != null ||
+      oosFlat.spearman != null ||
+      oosFlat[desk.yKey] != null
     );
     const flags = ridgeDiskFlags(src, {
       persistOk: !!extra.persistOk,
@@ -1184,58 +1185,32 @@ export function initQuant(ctx) {
           (src.last_report_exists
             ? "有上次拟合 · 可启用研究 / 执行"
             : desk.idleMessage);
-      } else if (extra.persistOk) {
-        const be =
-          src.backend ||
-          src.recommended_backend ||
-          (rm && rm.backend) ||
-          "";
-        const box = rankBackendBox(be);
-        message = flags.liveOn
-          ? box
-            ? `已落盘 ${box}`
-            : "已落盘"
-          : flags.researchOn
-            ? box
-              ? `研究套已落盘 ${box} · 执行未写`
-              : "研究套已落盘 · 执行未写"
-            : box
-              ? `已启用 ${box}`
-              : "";
-        messageHtml = !!box;
-      } else if (flags.liveOn || flags.researchOn) {
+      } else if (extra.persistOk || flags.liveOn || flags.researchOn) {
+        // 落盘态看卡头「研究/执行」meta；旧 Ridge 戳另提示
         const rec =
           src.recommended_backend ||
-          (oos && oos.recommended_backend) ||
           src.backend ||
-          "";
-        const box = rankBackendBox(rec);
+          "lambdarank";
         const beN = String(rec || "").trim().toLowerCase();
         if (beN === "ridge") {
           const hint = rankHasLambdaPack(src)
-            ? "请重新启用研究（固定 LambdaRank，不重训）"
-            : "请重拟合并启用 LambdaRank";
-          message = box
-            ? `落盘 ${box}（旧）· ${hint}`
-            : `落盘 Ridge（旧）· ${hint}`;
+            ? "请重新启用研究（不重训）"
+            : "请重拟合并启用";
+          message = `落盘 Ridge（旧）· ${hint}`;
         } else {
-          message = box ? `落盘 ${box}` : "落盘 backend 待定";
+          message = "";
         }
-        messageHtml = !!box;
+        messageHtml = false;
       } else {
-        const rec = src.recommended_backend || (oos && oos.recommended_backend);
-        const recTxt =
-          rec === "ridge"
-            ? "启用将落盘 Ridge（强制）"
-            : "启用将落盘 LambdaRank";
-        message = `草稿已存 · ${recTxt}`;
+        message = "草稿已存 · 可启用研究 / 执行";
       }
     }
     paintRidgeEnableStatus(sum, src, {
       persistOk: !!extra.persistOk,
       persistRole: extra.persistRole || "",
       justFitted: !!extra.justFitted,
-      omitTauEndBit: true,
+      // τc_rank 与 ŷ_τc 同前缀族：非默认钟显示「前缀HH:MM」；oo_rank 无前缀
+      omitTauEndBit: desk.head !== "tc_rank",
       message,
       messageHtml,
       idleMessage: desk.idleMessage,
@@ -1244,15 +1219,15 @@ export function initQuant(ctx) {
           ? extra.fittedAt
           : src.fitted_at || (rm && rm.fitted_at) || null,
     });
+    // 对齐 ŷ_oo / ŷ_τc：摘要区清空，OOS KPI 挂因子表
+    const box = document.getElementById(desk.resultId);
+    if (box) box.innerHTML = "";
     if (!hasBody) {
-      const box = document.getElementById(desk.resultId);
-      if (box) box.innerHTML = "";
       await renderRankCoefTable(desk, null);
       return;
     }
-    renderOoRankOosCompare(src, desk);
     await renderRankCoefTable(desk, rm && typeof rm === "object" ? rm : {}, {
-      oos,
+      oos: oosFlat,
       feature_importance: ooRankFeatureImportance(src),
     });
   }
@@ -1309,255 +1284,6 @@ export function initQuant(ctx) {
       bar(by, "is-rg", d != null && d < -1e-12) +
       `</div>`
     );
-  }
-
-  function renderOoRankOosCompare(data, spec) {
-    const desk = spec || OO_RANK_DESK;
-    const box = document.getElementById(desk.resultId);
-    if (!box) return;
-    if (!data || data.success === false) {
-      box.innerHTML = "";
-      return;
-    }
-    const oos = data.oos || {};
-    const rank = oos[desk.rankKey] || {};
-    const ridge = oos[desk.ridgeKey] || {};
-    if (
-      !rank.spearman &&
-      !ridge.spearman &&
-      rank[desk.yKey] == null &&
-      rank.gate_lift == null &&
-      ridge.gate_lift == null
-    ) {
-      box.innerHTML = "";
-      return;
-    }
-    const track = data.shadow_track || {};
-    function delta(a, b, fallback) {
-      if (fallback != null && fallback !== "") return Number(fallback);
-      if (a == null || b == null) return null;
-      const x = Number(a);
-      const y = Number(b);
-      if (!Number.isFinite(x) || !Number.isFinite(y)) return null;
-      return x - y;
-    }
-    const gateN =
-      rank.gate_n != null
-        ? Number(rank.gate_n)
-        : oos.gate_n != null
-          ? Number(oos.gate_n)
-          : 10;
-    const gateStrongN =
-      rank.gate_strong_n != null
-        ? Number(rank.gate_strong_n)
-        : oos.gate_strong_n != null
-          ? Number(oos.gate_strong_n)
-          : 100;
-    const gateLab = Number.isFinite(gateN) ? `Gate lift<${gateN}` : "Gate lift";
-    const gateMeanLab = Number.isFinite(gateN)
-      ? `Gate y%<${gateN}`
-      : "Gate y%";
-    const gateStrongLab = Number.isFinite(gateStrongN)
-      ? `Gate lift<${gateStrongN}`
-      : "Gate lift·强";
-    // 主裁判：名次闸对齐；IC 类仅对照（全截面相关不预示调仓）
-    // primary=true 才计入看板胜场，避免 IC 噪声稀释 Gate 结论
-    const rows = [
-      [
-        gateLab,
-        rank.gate_lift,
-        ridge.gate_lift,
-        delta(rank.gate_lift, ridge.gate_lift, track.delta_gate_lift),
-        "Holdout 日：本头相对分编 1..n，取 rank<N 的等权标签均值 − 全日均值；对齐回测名次闸（单头近似）。日度 winsor 聚合，截面不足 N 的日跳过。",
-        true,
-      ],
-      [
-        gateMeanLab,
-        rank.gate_mean_y,
-        ridge.gate_mean_y,
-        delta(rank.gate_mean_y, ridge.gate_mean_y, track.delta_gate_mean_y),
-        "Holdout 日 rank<N 集合的等权标签收益（%）",
-        true,
-      ],
-      [
-        gateStrongLab,
-        rank.gate_strong_lift,
-        ridge.gate_strong_lift,
-        delta(
-          rank.gate_strong_lift,
-          ridge.gate_strong_lift,
-          track.delta_gate_strong_lift
-        ),
-        "强档名次闸近似：rank<oo_rank_strong_max 的 lift",
-        true,
-      ],
-      [
-        "NDCG@K",
-        rank.ndcg_at_k,
-        ridge.ndcg_at_k,
-        delta(rank.ndcg_at_k, ridge.ndcg_at_k, track.delta_ndcg_at_k),
-        null,
-        true,
-      ],
-      [
-        "TopK overlap",
-        rank.topk_overlap,
-        ridge.topk_overlap,
-        delta(rank.topk_overlap, ridge.topk_overlap, track.delta_topk_overlap),
-        null,
-        true,
-      ],
-      [
-        desk.yLabel,
-        rank[desk.yKey],
-        ridge[desk.yKey],
-        delta(rank[desk.yKey], ridge[desk.yKey], track[desk.deltaYKey]),
-        null,
-        true,
-      ],
-      [
-        "IC",
-        rank.cs_ic,
-        ridge.cs_ic,
-        delta(rank.cs_ic, ridge.cs_ic, track.delta_cs_ic),
-        desk.icTip,
-        false,
-      ],
-      [
-        "ICIR",
-        rank.cs_icir,
-        ridge.cs_icir,
-        delta(rank.cs_icir, ridge.cs_icir, track.delta_cs_icir),
-        "日频 IC 均值 / 标准差；Holdout 不足 3 日不出；对照用",
-        false,
-      ],
-      [
-        "Rank IC",
-        rank.spearman,
-        ridge.spearman,
-        delta(rank.spearman, ridge.spearman, track.delta_spearman),
-        "日频截面 Spearman 均值；对照用，不预示调仓",
-        false,
-      ],
-    ];
-    let lrWins = 0;
-    let rgWins = 0;
-    const body = rows
-      .map(([lab, a, b, d, tip, primary]) => {
-        const dn = d == null || !Number.isFinite(Number(d)) ? null : Number(d);
-        if (primary) {
-          if (dn != null && dn > 1e-12) lrWins += 1;
-          if (dn != null && dn < -1e-12) rgWins += 1;
-        }
-        const lrCls = dn != null && dn > 1e-12 ? "num is-best" : "num";
-        const rgCls = dn != null && dn < -1e-12 ? "num is-best" : "num";
-        const dCls =
-          dn == null ? "num" : dn > 1e-12 ? "num up" : dn < -1e-12 ? "num down" : "num";
-        const dTxt =
-          dn == null ? "—" : `${dn > 0 ? "+" : ""}${_fmtOoRankNum(dn)}`;
-        const tipAttr = tip ? ` title="${escapeHtml(tip)}"` : "";
-        return (
-          `<tr><th scope="row"${tipAttr}>${lab}${_ooRankBarPair(a, b)}</th>` +
-          `<td class="${lrCls}">${_fmtOoRankNum(a)}</td>` +
-          `<td class="${rgCls}">${_fmtOoRankNum(b)}</td>` +
-          `<td class="${dCls}">${dTxt}</td></tr>`
-        );
-      })
-      .join("");
-    const scored = lrWins + rgWins;
-    const lrLead = scored > 0 && lrWins > rgWins;
-    const rgLead = scored > 0 && rgWins > lrWins;
-    // 与 v2 双训对照同壳：is-tree / is-ridge + board-row + meta
-    const hold =
-      oos.holdout_trading_days != null
-        ? `Holdout ${Number(oos.holdout_trading_days)} 日`
-        : data.holdout_trading_days != null
-          ? `Holdout ${Number(data.holdout_trading_days)} 日`
-          : "同窗 Holdout";
-    const nTr =
-      data.n_train_days != null
-        ? `训 ${Number(data.n_train_days).toLocaleString("en-US")} 日`
-        : oos.n_train_days != null
-          ? `训 ${Number(oos.n_train_days).toLocaleString("en-US")} 日`
-          : data.n_train != null
-            ? `训 ${Number(data.n_train).toLocaleString("en-US")}`
-            : "";
-    const nTe =
-      data.n_test_days != null
-        ? `测 ${Number(data.n_test_days).toLocaleString("en-US")} 日`
-        : oos.n_test_days != null
-          ? `测 ${Number(oos.n_test_days).toLocaleString("en-US")} 日`
-          : data.n_test != null
-            ? `测 ${Number(data.n_test).toLocaleString("en-US")}`
-            : "";
-    // 日数之后挂样本行数：训=拟合损失行，测=Holdout 有分的行（两侧 backend 同截面）
-    const nTrRows =
-      data.sample_count != null && Number.isFinite(Number(data.sample_count))
-        ? `训 ${Number(data.sample_count).toLocaleString("en-US")} 行`
-        : "";
-    const nTeRowsSrc =
-      rank.n_rows != null
-        ? rank.n_rows
-        : ridge.n_rows != null
-          ? ridge.n_rows
-          : null;
-    const nTeRows =
-      nTeRowsSrc != null && Number.isFinite(Number(nTeRowsSrc))
-        ? `测 ${Number(nTeRowsSrc).toLocaleString("en-US")} 行`
-        : "";
-    const nCodes =
-      data.n_train_codes != null && Number.isFinite(Number(data.n_train_codes))
-        ? `票 ${Number(data.n_train_codes).toLocaleString("en-US")}`
-        : data.n_codes != null && Number.isFinite(Number(data.n_codes))
-          ? `票 ${Number(data.n_codes).toLocaleString("en-US")}`
-          : "";
-    const metaBits = [
-      hold,
-      nTr,
-      nTe,
-      nTrRows,
-      nTeRows,
-      nCodes,
-      "落盘=LambdaRank（Ridge 仅对照，不择优）",
-    ].filter(Boolean);
-    const metaHtml = metaBits.length
-      ? `<div class="quant-oos-compare-meta" aria-label="Holdout 样本">` +
-        metaBits
-          .map(
-            (b) =>
-              `<span class="quant-oos-compare-meta-chip">${escapeHtml(String(b))}</span>`
-          )
-          .join("") +
-        `</div>`
-      : "";
-    const landed = String(
-      data.backend || data.recommended_backend || ""
-    ).toLowerCase();
-    const landedKind =
-      landed === "ridge" ? "ridge" : landed === "lambdarank" ? "tree" : "";
-    const headCard = (kind, kicker, name, wins, lead) =>
-      `<div class="quant-oos-board-card is-${kind}${lead ? " is-lead" : ""}${
-        landedKind === kind ? " is-landed" : ""
-      }">` +
-      `<span class="quant-oos-board-kicker">${kicker}</span>` +
-      `<div class="quant-oos-board-row">` +
-      `<span class="quant-oos-board-name">${name}</span>` +
-      `<span class="quant-oos-board-wins">${wins}<small>/${
-        scored || "—"
-      }</small></span>` +
-      `</div>` +
-      `</div>`;
-    box.innerHTML =
-      `<div class="quant-oos-compare" aria-label="LambdaRank vs Ridge 对照（不择优）">` +
-      `<div class="quant-oos-board">` +
-      headCard("tree", "排序头", "LambdaRank", lrWins, lrLead) +
-      headCard("ridge", "对照", "Ridge", rgWins, rgLead) +
-      `</div>` +
-      metaHtml +
-      `<table class="quant-weight-table quant-oos-compare-table">` +
-      `<thead><tr><th>指标</th><th>LambdaRank</th><th>Ridge</th><th>Δ</th></tr></thead>` +
-      `<tbody>${body}</tbody></table>` +
-      `</div>`;
   }
 
   async function renderT30CoefTable(rm, opts = {}) {
@@ -2097,6 +1823,7 @@ export function initQuant(ctx) {
       const data = await res.json().catch(() => ({}));
       const sum = document.getElementById("quant-tc-rank-summary");
       if (!sum) return;
+      restoreTauEndFromFitReport(data, "tc_rank");
       await paintOoRankDesk(sum, data, {}, TC_RANK_DESK);
     } catch (_) {
       /* ignore */
@@ -2882,7 +2609,7 @@ export function initQuant(ctx) {
     const s = Number(elapsedSec) || 0;
     if (s < 20) return "拉观察池日线";
     if (s < 180) return "组因子面板";
-    return "LambdaRank + Ridge · Holdout";
+    return "LambdaRank · Holdout";
   }
 
   function startRankFitBusy(sumEl, btnId) {
@@ -2912,7 +2639,7 @@ export function initQuant(ctx) {
       renderRemStatus(sum, {
         state: "busy",
         chip: "写入中",
-        message: `固定 LambdaRank 写入上次拟合（${roleLabel}）…`,
+        message: `写入上次拟合（${roleLabel}）…`,
         busy: true,
       });
     } else {
@@ -2932,7 +2659,6 @@ export function initQuant(ctx) {
           persist_role: persistRole || "live",
           backend: "lambdarank",
           ...readCrossSectionFitParams("oo_rank"),
-          ...readRankZUniverseFitParams("oo_rank"),
           note: persist ? `ui oo_rank promote ${persistRole} lambdarank` : "",
         }),
       });
@@ -2959,7 +2685,7 @@ export function initQuant(ctx) {
         const stData = await stRes.json().catch(() => ({}));
         if (stData && typeof stData === "object") {
           status = { ...stData, ...data };
-          // 保留任一侧带 Ridge 的 backends，避免 β 列回落成 gain
+          // 优先保留带 LambdaRank booster 的 backends
           const beA =
             data.backends && typeof data.backends === "object"
               ? data.backends
@@ -2968,8 +2694,8 @@ export function initQuant(ctx) {
             stData.backends && typeof stData.backends === "object"
               ? stData.backends
               : null;
-          if (beA && beA.ridge) status.backends = beA;
-          else if (beB && beB.ridge) status.backends = beB;
+          if (beA && beA.lambdarank) status.backends = beA;
+          else if (beB && beB.lambdarank) status.backends = beB;
           else if (beA) status.backends = beA;
           else if (beB) status.backends = beB;
         }
@@ -2999,7 +2725,7 @@ export function initQuant(ctx) {
       renderRemStatus(sum, {
         state: "busy",
         chip: "写入中",
-        message: `固定 LambdaRank 写入上次拟合（${roleLabel}）…`,
+        message: `写入上次拟合（${roleLabel}）…`,
         busy: true,
       });
     } else {
@@ -3018,8 +2744,8 @@ export function initQuant(ctx) {
           persist: !!persist,
           persist_role: persistRole || "live",
           backend: "lambdarank",
+          ...readTauEndFitParams("tc_rank"),
           ...readCrossSectionFitParams("tc_rank"),
-          ...readRankZUniverseFitParams("tc_rank"),
           note: persist ? `ui tc_rank promote ${persistRole} lambdarank` : "",
         }),
       });
@@ -3037,6 +2763,7 @@ export function initQuant(ctx) {
         await renderRankCoefTable(TC_RANK_DESK, null);
         return;
       }
+      restoreTauEndFromFitReport(data, "tc_rank");
       let status = data;
       try {
         const stRes = await fetch("/api/quant/tc-rank/model");
@@ -3049,12 +2776,13 @@ export function initQuant(ctx) {
             stData.backends && typeof stData.backends === "object"
               ? stData.backends
               : null;
-          if (beA && beA.ridge) status.backends = beA;
-          else if (beB && beB.ridge) status.backends = beB;
+          if (beA && beA.lambdarank) status.backends = beA;
+          else if (beB && beB.lambdarank) status.backends = beB;
           else if (beA) status.backends = beA;
           else if (beB) status.backends = beB;
         }
       } catch (_) {}
+      restoreTauEndFromFitReport(status, "tc_rank");
       await paintOoRankDesk(
         sum,
         status,
@@ -4272,7 +4000,7 @@ export function initQuant(ctx) {
     if (
       !window.confirm(
         persistRole === "research"
-          ? `将 ŷ_oo_rank 写入 ${target}？Holdout 前训 + 固定落盘 LambdaRank（Ridge 仅对照）；成交明细 oo_rank=1..n；过入场后作买序。`
+          ? `将 ŷ_oo_rank 写入 ${target}？Holdout 前训 LambdaRank；成交明细 oo_rank=1..n；过入场后作买序。`
           : `将当前研究套 ŷ_oo_rank 晋级为执行套？过入场后作买序。`
       )
     ) {
@@ -4342,7 +4070,7 @@ export function initQuant(ctx) {
     if (
       !window.confirm(
         persistRole === "research"
-          ? `将 ŷ_τc_rank 写入 ${target}？Holdout 前训 + 固定落盘 LambdaRank（Ridge 仅对照）。不进 fuse、不改买序；与 oo_rank 共用 rank 入场。`
+          ? `将 ŷ_τc_rank 写入 ${target}？Holdout 前训 LambdaRank。不进 fuse、不改买序；与 oo_rank 共用 rank 阈值。`
           : `将当前研究套 ŷ_τc_rank 晋级为执行套？不改买序；与 oo_rank 共用 rank 入场。`
       )
     ) {

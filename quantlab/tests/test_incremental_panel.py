@@ -97,11 +97,20 @@ class TestIncrementalPanel(unittest.TestCase):
         end = bars[-1]["date"]
         self.assertTrue(lake_row_covers_bar_end([end], bars, {}))
         self.assertFalse(lake_row_covers_bar_end([bars[0]["date"]], bars, {}))
-        self.assertTrue(
+        # 仅 scored_through、无 panel_end → 不命中（防假覆盖）
+        self.assertFalse(
             lake_row_covers_bar_end(
                 [bars[0]["date"]],
                 bars,
                 {"scored_through": end},
+            )
+        )
+        # 真实写穿：panel_end 存在且 scored_through 盖到 bar 末日
+        self.assertTrue(
+            lake_row_covers_bar_end(
+                [bars[0]["date"]],
+                bars,
+                {"scored_through": end, "panel_end": bars[0]["date"]},
             )
         )
 
@@ -195,6 +204,71 @@ class TestIncrementalPanel(unittest.TestCase):
         self.assertLess(dates[0], old_dates[0])
         self.assertEqual(dates[-1], old_dates[-1])
         self.assertGreater(len(dates), len(old_dates))
+
+    def test_empty_tail_under_writer_forces_full_collect(self) -> None:
+        """物化写入：尾窗 collect 空行不得回旧矩阵（防假绿 / panel_end 停旧）。"""
+        from core.research.feature_lake import write_stock_panel
+        from core.research.incremental_panel import stem_extra_meta, try_incremental_merge
+        from core.research.lake_bridge import FAMILY_OO
+        from core.research.materialize.consumer import materialize_writer
+        from core.research.panel_fingerprint import make_fingerprint
+
+        bars = _bars(40)
+        meta = stem_extra_meta(bars)
+        stored_fp = make_fingerprint(bars_fp=meta["bars_fp"], horizon=1)
+        write_stock_panel(
+            FAMILY_OO,
+            "000001",
+            dates=["2024-01-01", "2024-01-02"],
+            X=np.asarray([[1.0], [2.0]]),
+            names=["f"],
+            fingerprint=stored_fp,
+            y=np.asarray([0.1, 0.2]),
+            extra_meta=meta,
+        )
+        extended = list(bars) + [
+            {
+                "date": "2024-03-15",
+                "open": 12.0,
+                "high": 12.2,
+                "low": 11.8,
+                "close": 12.1,
+                "volume": 2_000_000,
+            }
+        ]
+
+        def _empty_tail(_keep):
+            return (
+                np.zeros((0, 1), dtype=np.float64),
+                np.zeros((0,), dtype=np.float64),
+                ["f"],
+                [],
+            )
+
+        def _spec(bars_fp: str) -> str:
+            return make_fingerprint(bars_fp=bars_fp, horizon=1)
+
+        kept = try_incremental_merge(
+            "000001",
+            extended,
+            pad=8,
+            collect_tail=_empty_tail,
+            family=FAMILY_OO,
+            spec_fp=_spec,
+        )
+        self.assertIsNotNone(kept)
+
+        with materialize_writer():
+            self.assertIsNone(
+                try_incremental_merge(
+                    "000001",
+                    extended,
+                    pad=8,
+                    collect_tail=_empty_tail,
+                    family=FAMILY_OO,
+                    spec_fp=_spec,
+                )
+            )
 
     def test_fingerprint_mismatch_skips_merge(self) -> None:
         from core.research.feature_lake import write_stock_panel

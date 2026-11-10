@@ -1064,6 +1064,69 @@ class TestWatchingPoolZRow(unittest.TestCase):
         self.assertEqual(item.get("y_oo"), 0.42)
         sp.clear_score_model_cache()
 
+    def test_align_item_consumer_miss_raises(self):
+        """消费只读 + open Cube miss → MaterializeRequired，不 leave-one-in。"""
+        from core.research.materialize.consumer import (
+            MaterializeRequired,
+            materialized_consumer,
+        )
+        from core.t0 import score_policy as sp
+
+        sp.clear_score_model_cache()
+        day = "2024-06-01"
+        item = {"stock_code": "000001", "sub_scores": {"a": 1.5}}
+        peer_calls = {"n": 0}
+
+        def _peer_should_not_run(_date):
+            peer_calls["n"] += 1
+            return [{"stock_code": "000001"}, {"stock_code": "000002"}]
+
+        with (
+            patch.object(sp, "_watching_codes_for_z", return_value=["000001", "000002"]),
+            patch.object(sp, "_peer_feature_rows", side_effect=_peer_should_not_run),
+            patch("core.research.day_cube.enabled", return_value=True),
+            patch("core.research.day_cube.load_day_cube", return_value=None),
+            patch.object(sp, "_align_item_to_watching_pool_legacy") as legacy,
+            self.assertRaises(MaterializeRequired),
+            materialized_consumer(),
+        ):
+            sp._align_item_to_watching_pool(item, day)
+        self.assertEqual(peer_calls["n"], 0)
+        legacy.assert_not_called()
+        sp.clear_score_model_cache()
+
+    def test_align_item_consumer_rescore_fail_raises(self):
+        """Cube 命中但 rescore 失败：消费只读须 MaterializeRequired（reason=rescore_failed）。"""
+        from core.research.materialize.consumer import (
+            MaterializeRequired,
+            materialized_consumer,
+        )
+        from core.t0 import score_policy as sp
+
+        sp.clear_score_model_cache()
+        day = "2024-06-01"
+        item = {"stock_code": "000001", "sub_scores": {"a": 1.5}}
+        cube = type("C", (), {"codes": ["000001", "000002"]})()
+
+        with (
+            patch.object(sp, "_watching_codes_for_z", return_value=["000001", "000002"]),
+            patch.object(sp, "_peer_feature_rows") as peers,
+            patch("core.research.day_cube.enabled", return_value=True),
+            patch("core.research.day_cube.load_day_cube", return_value=cube),
+            patch(
+                "core.signal.cross_section_rescore.rescore_fitted_cross_section",
+                side_effect=RuntimeError("boom"),
+            ),
+            patch.object(sp, "_align_item_to_watching_pool_legacy") as legacy,
+            self.assertRaises(MaterializeRequired) as ctx,
+            materialized_consumer(),
+        ):
+            sp._align_item_to_watching_pool(item, day)
+        self.assertEqual(ctx.exception.payload.get("reason"), "rescore_failed")
+        peers.assert_not_called()
+        legacy.assert_not_called()
+        sp.clear_score_model_cache()
+
 class TestQuotePxLiveFill(unittest.TestCase):
     def setUp(self):
         self._fit = patch(

@@ -54,15 +54,6 @@ export function isJobHeartbeatStale(job, freshSec = 90) {
   return hb == null || hb >= fresh;
 }
 
-function jobEtaSec(job, elapsed) {
-  const cur = Number(job?.current);
-  const tot = Number(job?.total);
-  if (cur > 0 && tot > cur && elapsed != null && elapsed > 2) {
-    return (tot - cur) * (elapsed / cur);
-  }
-  return null;
-}
-
 function finestCount(message) {
   const re = /(\d+)\s*\/\s*(\d+)/g;
   let best = null;
@@ -75,6 +66,47 @@ function finestCount(message) {
     if (!best || tot > best.tot) best = { done, tot };
   }
   return best;
+}
+
+/**
+ * 预计剩余秒。优先消息里的细计数 / Job pct；避开宏步整档
+ * （如物化 current=1/total=2 → 50%）导致「预计剩 ≡ 已用」的假 ETA。
+ * 细计数已满（如 L1 1598/1598）时也不回落宏步 pct，否则仍会算出 ≡ 已用。
+ */
+export function jobEtaSec(job, elapsed) {
+  if (elapsed == null || !(elapsed > 2)) return null;
+
+  const counted = finestCount(job?.message);
+  // 消息里已有票级/日级计数：只信它，满格或未开工都不回落宏步 pct
+  if (counted && counted.tot > 8) {
+    if (!(counted.done > 0)) return null;
+    if (counted.done >= counted.tot) return null;
+    return (counted.tot - counted.done) * (elapsed / counted.done);
+  }
+
+  const pct = Number(job?.pct);
+  const cur = Number(job?.current);
+  const tot = Number(job?.total);
+  if (Number.isFinite(pct) && pct >= 3 && pct < 99.5) {
+    // 宏步 planned 很小：pct 仍钉在整档（50%/33%/…）时不算 ETA
+    if (
+      Number.isFinite(cur) &&
+      Number.isFinite(tot) &&
+      tot > 0 &&
+      tot < 20 &&
+      Math.abs(pct - (100 * cur) / tot) < 0.75
+    ) {
+      return null;
+    }
+    return elapsed * ((100 - pct) / pct);
+  }
+
+  if (cur > 0 && tot > cur) {
+    // 两步任务中点：剩余步数×单步耗时 ≡ 已用，无信息量
+    if (tot <= 3) return null;
+    return (tot - cur) * (elapsed / cur);
+  }
+  return null;
 }
 
 function buildClusterJobFacts(job, { pollStartedAt } = {}) {

@@ -1,7 +1,6 @@
 """alpha_oo 引入前后 OOS IC 对比（真实数据）。
 
-30 票观察池样本，185 根日线，对比 LightGBM LambdaRank / Ridge
-在基线（无 alpha_oo）和引入 alpha_oo 后的 OOS spearman IC。
+LightGBM LambdaRank：基线（无 alpha_oo）vs 引入 alpha_oo 后的 OOS spearman IC。
 """
 
 import sys
@@ -49,8 +48,6 @@ def run_scenario(stock_bars, label, backend, alpha_oo_registered):
     elapsed = time.time() - t0
     oos = rep.get("oos") or {}
     rank_ic = (oos.get("oo_rank") or {}).get("spearman")
-    ridge_ic = (oos.get("ridge_oo_baseline") or {}).get("spearman")
-    rank_n_days = (oos.get("oo_rank") or {}).get("n_days")
     return {
         "label": label,
         "backend": backend,
@@ -61,7 +58,6 @@ def run_scenario(stock_bars, label, backend, alpha_oo_registered):
         "n_train": rep.get("n_train_days"),
         "n_test": rep.get("n_test_days"),
         "rank_ic": rank_ic,
-        "ridge_ic": ridge_ic,
         "elapsed": round(elapsed, 1),
     }
 
@@ -81,7 +77,7 @@ def main():
         results.append(r)
         print(
             f"[lambdarank] 基线  features={r['n_features']:>3}  "
-            f"rank_ic={r['rank_ic']}  ridge_ic={r['ridge_ic']}  "
+            f"rank_ic={r['rank_ic']}  "
             f"success={r['success']}  ({r['elapsed']}s)"
         )
     finally:
@@ -92,15 +88,18 @@ def main():
     results.append(r)
     print(
         f"[lambdarank] 引入后 features={r['n_features']:>3}  "
-        f"rank_ic={r['rank_ic']}  ridge_ic={r['ridge_ic']}  "
+        f"rank_ic={r['rank_ic']}  "
         f"success={r['success']}  ({r['elapsed']}s)"
     )
 
     # 汇总
     print("\n=== 汇总 ===")
-    print(f"{'backend':<20} {'场景':<8} {'features':>8} {'rank_ic':>10} {'ridge_ic':>10}")
+    print(f"{'backend':<20} {'场景':<8} {'features':>8} {'rank_ic':>10}")
     for r in results:
-        print(f"{r['backend']:<20} {r['alpha_oo']:<8} {r['n_features']:>8} {str(r['rank_ic']):>10} {str(r['ridge_ic']):>10}")
+        print(
+            f"{r['backend']:<20} {r['alpha_oo']:<8} "
+            f"{r['n_features']:>8} {str(r['rank_ic']):>10}"
+        )
 
 
 if __name__ == "__main__":

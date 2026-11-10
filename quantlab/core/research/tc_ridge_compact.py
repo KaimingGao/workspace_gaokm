@@ -505,7 +505,15 @@ def fit_tau_ridge_matrices(
     cross_section_zscore: bool = True,
     progress_cb: Optional[Any] = None,
 ) -> Dict[str, Any]:
-    """拼面板 + Holdout 前训 Ridge（单套 β）。不含 OOS 报告包装。"""
+    """拼面板 + Holdout 前训 Ridge（单套 β）。不含 OOS 报告包装。
+
+    拟合固定日截面 Z；``cross_section_zscore=False`` 已下线。
+    """
+    from core.research.feature_standardize import reject_global_zscore
+
+    err_cs = reject_global_zscore(cross_section_zscore)
+    if err_cs:
+        return {"success": False, "error": err_cs}
     tau_key = str(tau_hm or "open").strip() or "open"
     use_minute = tau_key.lower() not in ("", "open")
     grid = (
@@ -608,7 +616,7 @@ def fit_tau_ridge_matrices(
     y_tr = np.asarray(ys_tr, dtype=np.float64)
     dates_tr = [dates_use[i] for i in train_idx]
     dates_te = [dates_use[i] for i in test_idx]
-    use_cs = bool(cross_section_zscore)
+    use_cs = True
     _prog(max(1, n_stocks), max(1, n_stocks), "ŷ_τc Ridge 拟合…")
     fit = fit_keepall_ridge_matrix(
         X_fit[row_tr],
@@ -616,8 +624,8 @@ def fit_tau_ridge_matrices(
         feat_names,
         ridge_lambda=ridge_lambda,
         sample_weights=theme_w_tr,
-        row_dates=dates_tr if use_cs else None,
-        cross_section_zscore=use_cs,
+        row_dates=dates_tr,
+        cross_section_zscore=True,
     )
     if not fit.get("success"):
         fit = {
@@ -635,7 +643,7 @@ def fit_tau_ridge_matrices(
             fit,
             X_fit[row_te],
             feat_names,
-            row_dates=dates_te if use_cs else None,
+            row_dates=dates_te,
         )
         if len(test_idx)
         else []

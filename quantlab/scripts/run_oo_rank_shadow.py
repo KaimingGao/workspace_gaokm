@@ -1,4 +1,4 @@
-"""跑一轮 oo_rank 双 backend OOS：LambdaRank vs Ridge ŷ_oo（Ridge 仅对照；落盘固定 LambdaRank）。
+"""跑一轮 ŷ_oo_rank LambdaRank OOS（Gate lift 主，IC 对照）。
 
 特征与 ŷ_oo 同口径：原始 sub_score。
 标签: excess_mode=index（扣指数后的超额收益）
@@ -9,8 +9,8 @@
 from __future__ import annotations
 
 import json
-import sys
 import os
+import sys
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if ROOT not in sys.path:
@@ -18,11 +18,11 @@ if ROOT not in sys.path:
 
 from core.data.facade import index_bars_and_source
 from core.ports.market import default_benchmark
+from core.research.oo_rank_lambdarank import compare_oo_rank_shadow_track
 from core.research.portfolio_bars import load_portfolio_stock_bars
+from core.research.rank_day_panels import build_rank_day_panels
 from core.signal.factors.alpha_oo import ALPHA_OO_PANEL_WINDOW
 from core.watching.store import read_watching
-from core.research.oo_rank_lambdarank import compare_oo_rank_shadow_track
-from core.research.rank_day_panels import build_rank_day_panels
 
 
 def load_pool(lookback: int = 250):
@@ -85,7 +85,6 @@ def run_one(stock_bars, index_bars, day_panels, excess_mode: str = "index"):
 
     oos = track.get("oos") or {}
     rank_m = oos.get("oo_rank") or {}
-    ridge_m = oos.get("ridge_oo_baseline") or {}
 
     def _f(val, fmt="+", w=4):
         if val is None:
@@ -98,17 +97,17 @@ def run_one(stock_bars, index_bars, day_panels, excess_mode: str = "index"):
     print(f"  训练天数: {track.get('n_train_days')}, 验证天数: {track.get('n_test_days')}")
     rec = track.get("recommended_backend") or track.get("backend")
     if rec:
-        print(f"  落盘/对照 backend: {rec}")
+        print(f"  backend: {rec}")
     gn = rank_m.get("gate_n") or oos.get("gate_n") or 10
     print()
-    print(f"  {'':28s}  {'LambdaRank':>10s}  {'Ridge':>10s}  {'Δ':>10s}")
-    print(f"  {f'Gate lift<{gn}':28s}  {_f(rank_m.get('gate_lift')):>10s}  {_f(ridge_m.get('gate_lift')):>10s}  {_f(track.get('delta_gate_lift')):>10s}")
-    print(f"  {f'Gate y%<{gn}':28s}  {_f(rank_m.get('gate_mean_y')):>10s}  {_f(ridge_m.get('gate_mean_y')):>10s}  {_f(track.get('delta_gate_mean_y')):>10s}")
-    print(f"  {'NDCG@10':28s}  {_f(rank_m.get('ndcg_at_k'), fmt='', w=4):>10s}  {_f(ridge_m.get('ndcg_at_k'), fmt='', w=4):>10s}  {_f(track.get('delta_ndcg_at_k'), fmt='', w=4):>10s}")
-    print(f"  {'Top-10 Overlap':28s}  {_f(rank_m.get('topk_overlap'), fmt='', w=4):>10s}  {_f(ridge_m.get('topk_overlap'), fmt='', w=4):>10s}  {_f(track.get('delta_topk_overlap'), fmt='', w=4):>10s}")
-    print(f"  {'Top-10 均值收益(%)':28s}  {_f(rank_m.get('topk_mean_y_oo')):>9s}%  {_f(ridge_m.get('topk_mean_y_oo')):>9s}%  {_f(track.get('delta_topk_mean_y_oo')):>9s}%")
-    print(f"  {'IC（对照）':28s}  {_f(rank_m.get('cs_ic')):>10s}  {_f(ridge_m.get('cs_ic')):>10s}  {_f(track.get('delta_cs_ic')):>10s}")
-    print(f"  {'Rank IC（对照）':28s}  {_f(rank_m.get('spearman')):>10s}  {_f(ridge_m.get('spearman')):>10s}  {_f(track.get('delta_spearman')):>10s}")
+    print(f"  {'':28s}  {'LambdaRank':>10s}")
+    print(f"  {f'Gate lift<{gn}':28s}  {_f(rank_m.get('gate_lift')):>10s}")
+    print(f"  {f'Gate y%<{gn}':28s}  {_f(rank_m.get('gate_mean_y')):>10s}")
+    print(f"  {'NDCG@10':28s}  {_f(rank_m.get('ndcg_at_k'), fmt='', w=4):>10s}")
+    print(f"  {'Top-10 Overlap':28s}  {_f(rank_m.get('topk_overlap'), fmt='', w=4):>10s}")
+    print(f"  {'Top-10 均值收益(%)':28s}  {_f(rank_m.get('topk_mean_y_oo')):>9s}%")
+    print(f"  {'IC（对照）':28s}  {_f(rank_m.get('cs_ic')):>10s}")
+    print(f"  {'Rank IC（对照）':28s}  {_f(rank_m.get('spearman')):>10s}")
 
     return track
 
@@ -144,21 +143,17 @@ def main():
     if track is None:
         return
 
-    # 汇总对比
     print(f"\n{'=' * 70}")
     print("  汇总: LambdaRank Top-10 均值收益(%)")
     print(f"{'=' * 70}")
     oos = track.get("oos") or {}
     rank_m = oos.get("oo_rank") or {}
-    ridge_m = oos.get("ridge_oo_baseline") or {}
     rv = rank_m.get("topk_mean_y_oo")
-    iv = ridge_m.get("topk_mean_y_oo")
-    if rv is not None and iv is not None:
-        print(f"  LambdaRank={rv:+.4f}%  Ridge={iv:+.4f}%  Δ={(rv-iv):+.4f}%")
+    if rv is not None:
+        print(f"  LambdaRank={rv:+.4f}%")
     else:
         print("  N/A")
 
-    # 保存
     out_path = os.path.join(ROOT, "data", "oo_rank_shadow_result.json")
     with open(out_path, "w", encoding="utf-8") as f:
         json.dump(track, f, ensure_ascii=False, indent=2, default=str)

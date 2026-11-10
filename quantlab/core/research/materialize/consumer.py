@@ -90,7 +90,13 @@ def research_pool_init(writer: bool = False, consumer: bool = False) -> None:
             # 只读工人或复用进程：清掉可能残留的 defer，避免吞掉作废
             disable_stale_defer()
     except Exception:  # noqa: BLE001
-        pass
+        import logging
+
+        logging.getLogger(__name__).warning(
+            "research_pool_init stale defer bind failed writer=%s",
+            writer,
+            exc_info=True,
+        )
 
 
 @contextmanager

@@ -1,19 +1,22 @@
-"""离线对照：ŷ_τc_rank LambdaRank 默认树 vs max_depth=6 / num_leaves=64。
+"""离线对照：ŷ_τc_rank LambdaRank 树深/叶数网格。
 
-一次建 tc_rank 日面板、同窗切 Holdout；两臂只改树深/叶数，其余鲁棒默认不动
-（buckets=100、truncation=100、z_clip=3、min_leaf=50、L2=5、n_estimators=100）。
-不写模型、不入库。
+一次建 tc_rank 日面板、同窗切 Holdout；各臂只改 max_depth/num_leaves，
+其余鲁棒默认不动（稠密名次、truncation=100、z_clip=3、min_leaf=50、
+L2=5、n_estimators=100）。不写模型、不入库。
+
+默认三臂（depth, leaves 对齐 2^depth）: (4,16) · (5,32) · (6,64)。
 
 用法:
   PYTHONUNBUFFERED=1 .venv/bin/python scripts/run_tc_rank_depth_offline.py
 
-环境变量（默认对齐最近一次 tc_rank 拟合草稿口径）:
+环境变量:
   TC_RANK_DEPTH_LOOKBACK   默认 1000
   TC_RANK_DEPTH_LIMIT      观察池截断；0=全池（默认 0）
-  TC_RANK_DEPTH_HOLDOUT    默认 10
+  TC_RANK_DEPTH_HOLDOUT    默认 30
   TC_RANK_DEPTH_TOPK       Gate/NDCG@K（默认 10）
   TC_RANK_DEPTH_TIERS      训练档，逗号分隔；默认 A；空=整池损失
-  TC_RANK_DEPTH_CS_Z       1=日截面 Z（默认）
+  TC_RANK_DEPTH_TAU_END    前缀终点 09:30…11:00（默认 09:30；与 ŷ_τc 同族）
+  TC_RANK_DEPTH_ARMS       如 ``4:16,5:32,6:64``（默认即此）
 
 结果: data/tc_rank_depth_offline.json
 """
@@ -24,7 +27,7 @@ import json
 import os
 import sys
 import time
-from typing import Any, Dict, List, Optional, Sequence, Set
+from typing import Any, Dict, List, Optional, Sequence, Set, Tuple
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if ROOT not in sys.path:
@@ -71,6 +74,25 @@ def _delta(a: Dict[str, Any], b: Dict[str, Any], keys: Sequence[str]) -> Dict[st
     return out
 
 
+def _parse_arms(raw: str) -> List[Tuple[str, int, int]]:
+    """``4:16,5:32,6:64`` → [(d4_l16, 4, 16), ...]。"""
+    text = str(raw or "").strip() or "4:16,5:32,6:64"
+    out: List[Tuple[str, int, int]] = []
+    for part in text.split(","):
+        bit = part.strip()
+        if not bit:
+            continue
+        if ":" not in bit:
+            raise ValueError(f"bad arm={bit!r}；期望 depth:leaves")
+        d_s, l_s = bit.split(":", 1)
+        depth = int(d_s.strip())
+        leaves = int(l_s.strip())
+        out.append((f"d{depth}_l{leaves}", depth, leaves))
+    if not out:
+        raise ValueError("TC_RANK_DEPTH_ARMS empty")
+    return out
+
+
 def _fit_arm(
     *,
     name: str,
@@ -88,7 +110,6 @@ def _fit_arm(
         LAMBDARANK_L2,
         LAMBDARANK_MAX_DEPTH,
         LAMBDARANK_MIN_CHILD_SAMPLES,
-        LAMBDARANK_N_BUCKETS,
         LAMBDARANK_N_ESTIMATORS,
         LAMBDARANK_TRUNCATION_LEVEL,
         LAMBDARANK_Z_CLIP,
@@ -109,7 +130,6 @@ def _fit_arm(
         l2=float(LAMBDARANK_L2),
         n_estimators=int(LAMBDARANK_N_ESTIMATORS),
         min_child_samples=int(LAMBDARANK_MIN_CHILD_SAMPLES),
-        n_buckets=int(LAMBDARANK_N_BUCKETS),
         truncation_level=int(LAMBDARANK_TRUNCATION_LEVEL),
         z_clip=float(LAMBDARANK_Z_CLIP),
         cross_section_zscore=use_cs,
@@ -154,7 +174,7 @@ def _fit_arm(
         "baseline_depth": int(LAMBDARANK_MAX_DEPTH),
         "sample_count": fit.get("sample_count"),
         "n_groups": fit.get("n_groups"),
-        "n_relevance_buckets": fit.get("n_relevance_buckets"),
+        "n_dense_labels": fit.get("n_dense_labels"),
         "lambdarank_truncation_level": fit.get("lambdarank_truncation_level"),
         "oos": {
             "train_universe": _pick(oos_train_u),
@@ -169,11 +189,7 @@ def main() -> None:
         calendar_dates_from_stock_bars,
         resolve_ridge_split,
     )
-    from core.research.oo_rank_lambdarank import (
-        LAMBDARANK_MAX_DEPTH,
-        LAMBDARANK_NUM_LEAVES,
-        _collect_feature_names,
-    )
+    from core.research.oo_rank_lambdarank import _collect_feature_names
     from core.research.portfolio_bars import load_portfolio_stock_bars
     from core.research.predictability_tiers import (
         load_predictability_tiers_last,
@@ -184,15 +200,33 @@ def main() -> None:
 
     lookback = int(os.environ.get("TC_RANK_DEPTH_LOOKBACK", "1000"))
     limit = int(os.environ.get("TC_RANK_DEPTH_LIMIT", "0"))
-    holdout = int(os.environ.get("TC_RANK_DEPTH_HOLDOUT", "10"))
+    holdout = int(os.environ.get("TC_RANK_DEPTH_HOLDOUT", "30"))
     topk = int(os.environ.get("TC_RANK_DEPTH_TOPK", "10"))
     tiers_raw = os.environ.get("TC_RANK_DEPTH_TIERS", "A").strip()
-    use_cs = os.environ.get("TC_RANK_DEPTH_CS_Z", "1").strip() not in {
-        "0",
-        "false",
-        "False",
-        "no",
-    }
+    use_cs = True
+    tau_end_hm = str(os.environ.get("TC_RANK_DEPTH_TAU_END", "09:30") or "09:30").strip()[
+        :5
+    ]
+    try:
+        arms_spec = _parse_arms(os.environ.get("TC_RANK_DEPTH_ARMS", "4:16,5:32,6:64"))
+    except ValueError as exc:
+        _log(f"ERROR: {exc}")
+        sys.exit(1)
+
+    from core.signal.dual_score import get_dual_score_cfg
+    from core.signal.minute_tau_grid import resolve_tau_train_prefix
+
+    ds = get_dual_score_cfg()
+    prefix = resolve_tau_train_prefix(
+        tau_end_hm=tau_end_hm,
+        enable_minute_tau=bool(ds.get("enable_minute_tau")),
+    )
+    if prefix.get("error"):
+        _log(f"ERROR: 前缀 {prefix['error']}")
+        sys.exit(1)
+    tau_key = str(prefix.get("tau_hm") or "open")
+    tau_grid = prefix.get("tau_grid")
+    resolved_end = str(prefix.get("tau_end_hm") or tau_end_hm)[:5]
 
     uni = read_watching()
     pool = [str(c).strip() for c in (uni.get("watchlist") or []) if str(c).strip()]
@@ -217,7 +251,8 @@ def main() -> None:
     _log(
         f"池={len(pool)} lookback={lookback} holdout={holdout} "
         f"tiers={tier_labels or ['pool']} "
-        f"train_codes={len(train_codes) if train_codes else 'pool'} cs_z={int(use_cs)}"
+        f"train_codes={len(train_codes) if train_codes else 'pool'} cs_z={int(use_cs)} "
+        f"tau_end={resolved_end}"
     )
 
     loaded, _fail, _fund = load_portfolio_stock_bars(
@@ -252,7 +287,7 @@ def main() -> None:
     )
     fit_dates = sorted(split_pre.get("train_days") or [])
 
-    _log("建 tc_rank 日面板（仅一次）...")
+    _log(f"建 tc_rank 日面板（仅一次；前缀={resolved_end}）...")
     t_panel = time.time()
     days = build_rank_day_panels(
         stock_bars,
@@ -260,6 +295,8 @@ def main() -> None:
         fit_dates=fit_dates,
         min_history=12,
         min_names=8,
+        tau_hm=tau_key,
+        tau_grid=tau_grid,
     )
     _log(f"截面日: {len(days)}（{time.time() - t_panel:.0f}s）")
     if len(days) < 8:
@@ -281,10 +318,6 @@ def main() -> None:
         f"holdout={split_meta.get('holdout_trading_days')}"
     )
 
-    arms_spec = [
-        ("baseline", int(LAMBDARANK_MAX_DEPTH), int(LAMBDARANK_NUM_LEAVES)),
-        ("depth6_leaves64", 6, 64),
-    ]
     rows: List[Dict[str, Any]] = []
     for name, depth, leaves in arms_spec:
         rows.append(
@@ -302,9 +335,6 @@ def main() -> None:
             )
         )
 
-    by = {r["arm"]: r for r in rows if r.get("success")}
-    base = ((by.get("baseline") or {}).get("oos") or {}).get("train_universe") or {}
-    deep = ((by.get("depth6_leaves64") or {}).get("oos") or {}).get("train_universe") or {}
     keys = (
         "gate_lift",
         "gate_mean_y",
@@ -314,28 +344,35 @@ def main() -> None:
         "spearman",
         "cs_ic",
     )
-    deltas = _delta(base, deep, keys) if base and deep else {}
+    base_name = arms_spec[0][0]
+    by = {r["arm"]: r for r in rows if r.get("success")}
+    base = ((by.get(base_name) or {}).get("oos") or {}).get("train_universe") or {}
+    deltas_vs_base: Dict[str, Dict[str, Any]] = {}
+    for name, _d, _l in arms_spec[1:]:
+        cur = ((by.get(name) or {}).get("oos") or {}).get("train_universe") or {}
+        if base and cur:
+            deltas_vs_base[name] = _delta(base, cur, keys)
 
-    _log("\n=== Holdout · 训练宇宙（主评）===")
+    _log(f"\n=== Holdout · 训练宇宙（主评；Δ vs {base_name}）===")
     hdr = (
-        f"{'arm':16s}  {'depth':>5s}  {'leaves':>6s}  {'GateL':>8s}  "
+        f"{'arm':12s}  {'depth':>5s}  {'leaves':>6s}  {'GateL':>8s}  "
         f"{'GateY':>8s}  {'NDCG':>8s}  {'TopKy':>8s}  {'RankIC':>8s}"
     )
     _log(hdr)
     for row in rows:
         if not row.get("success"):
-            _log(f"{row.get('arm'):16s}  FAIL {row.get('error')}")
+            _log(f"{row.get('arm'):12s}  FAIL {row.get('error')}")
             continue
         m = ((row.get("oos") or {}).get("train_universe") or {})
         _log(
-            f"{row['arm']:16s}  {int(row['max_depth']):>5d}  {int(row['num_leaves']):>6d}  "
+            f"{row['arm']:12s}  {int(row['max_depth']):>5d}  {int(row['num_leaves']):>6d}  "
             f"{_f(m.get('gate_lift')):>8s}  {_f(m.get('gate_mean_y')):>8s}  "
             f"{_f(m.get('ndcg_at_k')):>8s}  {_f(m.get('topk_mean_y')):>8s}  "
             f"{_f(m.get('spearman')):>8s}"
         )
-    if deltas:
+    for name, deltas in deltas_vs_base.items():
         _log(
-            f"{'Δ deep-base':16s}  {'':>5s}  {'':>6s}  "
+            f"{'Δ '+name:12s}  {'':>5s}  {'':>6s}  "
             f"{_f(deltas.get('gate_lift')):>8s}  {_f(deltas.get('gate_mean_y')):>8s}  "
             f"{_f(deltas.get('ndcg_at_k')):>8s}  {_f(deltas.get('topk_mean_y')):>8s}  "
             f"{_f(deltas.get('spearman')):>8s}"
@@ -352,13 +389,19 @@ def main() -> None:
         "topk": topk,
         "ndcg_k": topk,
         "cross_section_zscore": use_cs,
+        "tau_end_hm": resolved_end,
+        "tau_hm": tau_key,
+        "tau_grid": list(tau_grid) if tau_grid else None,
+        "zero_prefix": bool(prefix.get("zero_prefix")),
         "n_panel_days": len(days),
         "n_train_days": len(days_tr),
         "n_test_days": len(days_te),
         "n_features": len(feat_names),
         "split": split_meta,
+        "arms_spec": [{"arm": n, "max_depth": d, "num_leaves": l} for n, d, l in arms_spec],
         "arms": rows,
-        "delta_deep_minus_baseline_train_universe": deltas,
+        "baseline_arm": base_name,
+        "delta_vs_baseline_train_universe": deltas_vs_base,
         "note": (
             "同窗同面板；仅改 max_depth/num_leaves。"
             "主评=训练宇宙 Holdout Gate lift；不落盘。"

@@ -637,13 +637,18 @@ def fit_watching_return_model(
     """研究池堆叠面板拟合收益模型 + Holdout OOS，可选落草稿。
 
     近 ``holdout_trading_days`` 个交易日只测；只训 Holdout 前一套 β。
-    ``cross_section_zscore``：True=日截面 z；False=训练样本内全局 μ/σ。
+    拟合固定日截面 Z；``cross_section_zscore=False`` 已下线。
     """
+    from core.research.feature_standardize import reject_global_zscore
     from core.research.holdout import (
         DEFAULT_HOLDOUT_TRADING_DAYS,
         attach_holdout_meta,
         resolve_ridge_split,
     )
+
+    err_cs = reject_global_zscore(cross_section_zscore)
+    if err_cs:
+        return {"success": False, "error": err_cs}
     from core.research.oo_ridge_compact import (
         assemble_oo_panels,
         fit_oo_ridge_matrix,
@@ -704,7 +709,6 @@ def fit_watching_return_model(
         calendar_dates=sorted(cal_days),
     )
     ys_te = [as_float(y_mat[i]) for i in test_idx]
-    use_cs = bool(cross_section_zscore)
     model, report = fit_oo_ridge_matrix(
         x_mat,
         y_mat,
@@ -714,8 +718,8 @@ def fit_watching_return_model(
         ridge_lambda=ridge_lambda,
         min_samples=min_samples,
         fitted_as_of=as_of,
-        row_dates=all_dates if use_cs else None,
-        cross_section_zscore=use_cs,
+        row_dates=all_dates,
+        cross_section_zscore=True,
     )
     oos: Dict[str, Any] = {
         "n_train": len(train_idx),
@@ -732,7 +736,7 @@ def fit_watching_return_model(
             x_mat,
             feat_names,
             test_idx,
-            row_dates=all_dates if use_cs else None,
+            row_dates=all_dates,
         )
         oos["ic"] = _oo_ic(preds_te, ys_te)
         oos["sign_hit"] = _oo_sign_hit(preds_te, ys_te)
@@ -782,7 +786,7 @@ def fit_watching_return_model(
         },
         "note": "已拟合 Holdout 前训 β + Holdout OOS；启用研究→回测；启用执行=研究槽晋级。",
     }
-    out["cross_section_zscore"] = use_cs
+    out["cross_section_zscore"] = True
     attach_holdout_meta(out, split_meta)
     if save_draft:
         saved = save_return_model_draft(
@@ -794,7 +798,7 @@ def fit_watching_return_model(
                 "r_squared": report.get("r_squared"),
                 "ridge_lambda": ridge_lambda,
                 "holdout_trading_days": oos.get("holdout_trading_days"),
-                "cross_section_zscore": use_cs,
+                "cross_section_zscore": True,
             },
             oos=oos,
         )

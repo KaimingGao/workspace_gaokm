@@ -3,7 +3,7 @@
 定档模型只拟合这 60 日之前（交界再空 1 日），不覆盖研究套。交易打分仍用研究套。
 定档 lift = 当场拟合的 oo / oo_rank / τc / τc_rank 有样本头等权（猜涨精度 − 上涨日比例）。
 - 收益头 oo / τc：内存 **Ridge**；说涨 = 预估 > ε（默认 0.05pp）
-- 排序头 oo_rank / τc_rank：内存 **LambdaRank**（100 档；truncation / z±3 / 强 L2 鲁棒默认）；说涨 = 预估高于当日截面中位数
+- 排序头 oo_rank / τc_rank：内存 **LambdaRank**（稠密名次；truncation / z±3 / 强 L2 鲁棒默认）；说涨 = 预估高于当日截面中位数
 - Score = 有样本头 lift 等权。收益大小不进分数。oo_rank 硬失败；其余头软跳过
 - 单头说涨少于 8 次的不计入该头。没有分数 → C
 - 有分数者按 Score 降序取 top ``a_count``→A，接着 ``b_count``→B，其余→C（默认 100 / 300）
@@ -1087,11 +1087,8 @@ def _ridge_model_from_days(days: Sequence[Dict[str, Any]]) -> Dict[str, Any]:
 
 
 def _lambdarank_model_from_days(days: Sequence[Dict[str, Any]]) -> Dict[str, Any]:
-    """定档窗前当场拟合 LambdaRank（100 档）；只在内存，不写研究套。"""
-    from core.research.oo_rank_lambdarank import (
-        LAMBDARANK_N_BUCKETS,
-        fit_lambdarank,
-    )
+    """定档窗前当场拟合 LambdaRank（稠密名次）；只在内存，不写研究套。"""
+    from core.research.oo_rank_lambdarank import fit_lambdarank
 
     names = _panel_feature_names(days)
     if not names:
@@ -1100,7 +1097,6 @@ def _lambdarank_model_from_days(days: Sequence[Dict[str, Any]]) -> Dict[str, Any
         days,
         feature_names=names,
         cross_section_zscore=True,
-        n_buckets=int(LAMBDARANK_N_BUCKETS),
     )
     if not isinstance(report, dict) or not report.get("success"):
         return (

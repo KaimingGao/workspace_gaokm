@@ -12,6 +12,7 @@ from core.research.pit_session import (
     OPEN_SOURCE_QUOTE,
     PHASE_FINAL,
     PHASE_PROVISIONAL,
+    force_open_rebuild_after_status_ok,
     membership_drift,
     meta_is_final_open,
     meta_needs_lake_rebuild,
@@ -87,6 +88,68 @@ class TestPitSessionProvenance(unittest.TestCase):
             self.assertFalse(
                 should_force_open_lake_rebuild("2026-11-09", ["a", "b"], final)
             )
+
+    def test_force_rebuild_after_status_ok_fail_closed(self) -> None:
+        """meta 读失败 + 日线已齐 → 必须重建，不得当 hit。"""
+        with (
+            patch(
+                "core.research.day_cube.read_day_cube_meta",
+                side_effect=RuntimeError("meta boom"),
+            ),
+            patch(
+                "core.research.pit_session.daily_bars_ready_for_day",
+                return_value=True,
+            ),
+        ):
+            self.assertTrue(
+                force_open_rebuild_after_status_ok(
+                    "2026-11-09", ["a", "b"], clock="open"
+                )
+            )
+        with (
+            patch(
+                "core.research.day_cube.read_day_cube_meta",
+                side_effect=RuntimeError("meta boom"),
+            ),
+            patch(
+                "core.research.pit_session.daily_bars_ready_for_day",
+                side_effect=RuntimeError("as_of boom"),
+            ),
+        ):
+            self.assertTrue(
+                force_open_rebuild_after_status_ok(
+                    "2026-11-09", ["a", "b"], clock="open"
+                )
+            )
+
+    def test_ensure_session_open_marks_needs_final_on_auto_fallback(self) -> None:
+        from core.research.pit_session import ensure_session_open_l2
+
+        with (
+            patch(
+                "core.research.materialize.orchestrate.resolve_materialize_codes",
+                return_value=["000001", "000002"],
+            ),
+            patch(
+                "core.research.pit_session.daily_bars_ready_for_day",
+                return_value=True,
+            ),
+            patch(
+                "core.research.pit_session._build_final_open_from_lake",
+                return_value={"ok": False, "error": "lake boom"},
+            ),
+            patch(
+                "core.research.materialize.session_open.materialize_session_open_l2",
+                return_value={"ok": True, "elapsed_s": 0.1},
+            ),
+        ):
+            out = ensure_session_open_l2(
+                cycle_day="2026-11-09", codes=["000001", "000002"], prefer="auto"
+            )
+        self.assertTrue(out.get("ok"))
+        self.assertTrue(out.get("needs_final"))
+        self.assertEqual(out.get("phase"), PHASE_PROVISIONAL)
+        self.assertEqual(out.get("lake_error"), "lake boom")
 
     def test_save_day_cube_lifts_provenance(self) -> None:
         import numpy as np
