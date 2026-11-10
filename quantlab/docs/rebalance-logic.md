@@ -1,6 +1,6 @@
 # 策略调仓产品文档
 
-> A 股 T+1 **rank_lots** 调仓：每个交易日 fill_clock（默认 09:30）用 y_oo_fuse 做入场，过线后按 y_oo_rank 买（缺名次才按 fuse），按已保存金额换算股数开仓或加仓（缺省 1 万/2 万）。非实盘、不代客下单。
+> A 股 T+1 **rank_lots** 调仓：每个交易日 fill_clock（默认 09:30）用 y_oo_fuse 做入场，过线后按 oo_rank 分买（缺分才按 fuse），可选 rank 阈值限制 **oo_rank / τc_rank**（默认 0.3；不是 y_oo / y_τc）；按已保存金额换算股数开仓或加仓（缺省 1 万/2 万）。非实盘、不代客下单。
 
 ---
 
@@ -61,14 +61,13 @@ live 与历史回测统一走 `rank_lots`（`watching_matrix` / `backtest_paper_
 |------|------|------|
 | `fuse_enter` | 0.001 | fuse 入场下限（0.1%；旧 1.01 / 101% 自动换成净收益） |
 | `fuse_strong` | 0.001 | 超过则买 lot_strong_amount，否则 lot_base_amount；缺省 2 万 / 1 万。与历史回测表单同一键 |
-| `fuse_high` | UI 默认 0.01（1%；≤0=关） | **高阈旁路**：fuse>阈值且可选 `oo_rank_high_max` 过线时与入场/强档 OR，用 `lot_high_amount`；不绕形态闸。默认 1% / 10 万 / rank 100 |
+| `fuse_high` | UI 默认 0.01（1%；≤0=关） | **高阈旁路**：fuse>阈值且可选 `oo_tc_score_high_min` 过线时与入场/强档 OR，用 `lot_high_amount`；不绕形态闸。默认 1% / 10 万 / 分数 0.3 |
 | `lot_high_amount` | 100000 | 高阈金额；仅旁路过线时用 |
-| `oo_rank_high_max` | 100（高阈开着时） | 高阈名次闸；≤0=关 |
 | `y_oo_gt0` | 关 | 开则入场须 y_oo>0；关=不看。缺分不拦 |
 | `y_τc_gt0` | 关 | 开则入场须 ŷ_τc>0；关=不看。缺分不拦 |
-| `oo_rank_max` | 关（回测表单默认 10） | 未过强档时入场另须 max(oo, τc) &lt; max（UI 入场「rank · oo & τc」）；≤0/None=关；缺 rank 不拦 |
-| `oo_rank_strong_max` | 100 | fuse&gt;fuse_strong 后改看 max(oo, τc) &lt; max（UI 强档「rank · oo & τc」）；≤0/None=关；缺键=100 |
-| `oo_rank_top_frac` | 关 | 旧相对名次闸；与 max 并存时优先 max。仅未过强档时生效 |
+| `oo_tc_score_min` | 0.3 | 未过强档时入场另须 **oo_rank / τc_rank** 相对分均 ≥ 阈值（UI「rank 阈值」；**不是** y_oo / y_τc）；显式 null=关；两侧都缺不拦 |
+| `oo_tc_score_strong_min` | 0.3 | fuse&gt;fuse_strong 后改看强档 rank 阈值（仍限 oo_rank / τc_rank）；显式 null=关；缺键=0.3 |
+| `oo_tc_score_high_min` | 0.3 | 高阈 rank 阈值（oo_rank / τc_rank）；显式 null=关；缺键且高阈开着=0.3 |
 | `fusion_w_oo` | 0.6（回测）/ live 随启动时间建议 | ŷ_oo 融合权重；Follow 单条滑条左端 |
 | `fusion_w_oc` | 0.4（回测）/ live 随启动时间建议 | ŷ_τc 头权重（键名历史遗留 `oc`）；Follow 滑条右端 |
 | `cash_floor` | 0 | 不留现金地板。现金不够该手则缩到整百（最少一手）；仍买不起才跳过。强档买不下先试基础手数。 |
@@ -108,15 +107,14 @@ live 与历史回测统一走 `rank_lots`（`watching_matrix` / `backtest_paper_
 | `lot_base_amount` | 10000 | 入场金额（元）；按价换算整手，不够一手则跳过；与历史回测表单同一键 |
 | `lot_strong_amount` | 20000 | 强档金额；不少于 lot_base_amount |
 | `lot_high_amount` | 100000 | 高阈金额 |
-| `oo_rank_high_max` | 100 | 高阈名次；≤0=关 |
+| `oo_tc_score_high_min` | 0.3 | 高阈 rank 阈值（oo_rank / τc_rank，不是 y_oo / y_τc）；显式 null=关 |
 | `stock_mv_cap` | max(强档, 高阈若开)×120% | 派生：单票持仓市值上限（不落盘；跟 `lot_strong_amount` / 开着的 `lot_high_amount`） |
 | `fusion_w_oo` | 0.6（回测表单）/ live 建议见下 | ŷ_oo 权重；Follow 单条滑条左端 |
 | `fusion_w_oc` | 0.4（回测表单）/ live 建议见下 | ŷ_τc 头权重（键名历史遗留 `oc`）；Follow 滑条右端 |
 | `y_oo_gt0` | 关 | 开则入场须 y_oo>0 |
 | `y_τc_gt0` | 关 | 开则入场须 ŷ_τc>0 |
-| `oo_rank_max` | 关（回测表单默认 10） | 未过强档时另须 `max(y_oo_rank, y_τc_rank) < max`（UI 入场「rank · oo & τc」；两侧都缺不拦）；≤0/None=关 |
-| `oo_rank_strong_max` | 100 | fuse&gt;fuse_strong 后改看该名次（UI 强档「rank · oo & τc」；与强档手数同一比较）；≤0/None=关；缺键=100 |
-| `oo_rank_top_frac` | 关 | 旧相对名次闸；与 max 并存时优先 max。仅未过强档时生效 |
+| `oo_tc_score_min` | 0.3 | 未过强档时另须 **oo_rank / τc_rank** ≥ rank 阈值（UI「rank 阈值」；**不是** y_oo / y_τc；两侧都缺不拦）；显式 null=关 |
+| `oo_tc_score_strong_min` | 0.3 | fuse&gt;fuse_strong 后改看强档 rank 阈值（仍限 oo_rank / τc_rank；与强档手数同一比较）；显式 null=关；缺键=0.3 |
 | `cash_floor` | 0 | 不留现金地板；现金不够该手则缩到整百（最少一手） |
 | `holdings_mv_cap` | 150_000 | live 持仓市值上限；历史回测为 0 |
 | `fill_clock` | 09:30 | **仅历史回测**：成交钟 09:30–10:00；09:30 日开盘不读整池 5m；>09:30 加载分钟，ŷ_τc+τc_rank 走前缀刷新 |

@@ -85,29 +85,47 @@ class PaperReplayBacktestRequest(BaseModel):
             "缺数据不拦；已持仓不清仓。默认关。"
         ),
     )
+    oo_tc_score_min: Optional[float] = Field(
+        default=0.3,
+        ge=-5.0,
+        le=5.0,
+        description="入场 rank 阈值：须 oo_rank 与 τc_rank 相对分（y_oo_rank_score / y_tc_rank_score）均 ≥ 阈值；不是 y_oo / y_τc。UI 默认 0.3；None=关。两侧都缺不拦。过强档改看 oo_tc_score_strong_min。",
+    )
+    oo_tc_score_strong_min: Optional[float] = Field(
+        default=0.3,
+        ge=-5.0,
+        le=5.0,
+        description="强档 rank 阈值：仍限 oo_rank / τc_rank（不是 y_oo / y_τc）。默认 0.3；None=关。两侧都缺不拦。",
+    )
+    oo_tc_score_high_min: Optional[float] = Field(
+        default=0.3,
+        ge=-5.0,
+        le=5.0,
+        description="高阈 rank 阈值：仍限 oo_rank / τc_rank（不是 y_oo / y_τc）。默认 0.3；None=关；缺键且高阈开着=0.3。两侧都缺不拦。",
+    )
     oo_rank_max: Optional[int] = Field(
         default=None,
         ge=1,
         le=500,
-        description="未过强档时入场另须 max(y_oo_rank, y_τc_rank) < max（UI 入场 rank 默认 10）；None/缺=关。两侧都缺不拦。y_oo_fuse > fuse_strong 时改看 oo_rank_strong_max。",
+        description="旧名次闸（已退役，忽略）。请用 oo_tc_score_min。",
     )
     oo_rank_strong_max: Optional[int] = Field(
         default=None,
         ge=0,
         le=500,
-        description="fuse 过强档后另须 max(y_oo_rank, y_τc_rank) < max（UI 强档 rank 默认 100）。缺省=100；0=关。两侧都缺不拦。",
+        description="旧强档名次闸（已退役，忽略）。请用 oo_tc_score_strong_min。",
     )
     oo_rank_high_max: Optional[int] = Field(
         default=None,
         ge=0,
         le=500,
-        description="高阈旁路另须 max(y_oo_rank, y_τc_rank) < max（默认 100）。0=关；缺省且高阈开着=100。两侧都缺不拦。",
+        description="旧高阈名次闸（已退役，忽略）。请用 oo_tc_score_high_min。",
     )
     oo_rank_top_frac: Optional[float] = Field(
         default=None,
         gt=0.0,
         le=1.0,
-        description="旧相对名次闸：未过强档时入场另须 max(y_oo_rank, y_τc_rank) < n·frac；与 oo_rank_max 并存时优先绝对 max。两侧都缺或不齐 n 不拦。y_oo_fuse > fuse_strong 时改看 oo_rank_strong_max。",
+        description="旧相对名次闸（已退役，忽略）。",
     )
     initial_cash: float = Field(
         default=200_000.0,

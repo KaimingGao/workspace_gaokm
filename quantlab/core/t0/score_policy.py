@@ -4096,7 +4096,7 @@ def warmup_watching_day_cubes(
                         min_items=need,
                         require_oo_item=bool(is_open),
                         require_tc_day=not is_open,
-                        replace_existing=bool(is_open),
+                        replace_existing=True,
                         on_items=_seed if is_open else None,
                         progress_cb=lambda cur, tot, msg="": _emit(msg, cur, tot),
                         cancel_cb=cancel_cb,
@@ -4104,7 +4104,6 @@ def warmup_watching_day_cubes(
                         progress_index=day_pos,
                         label=f"预热 DayCube {clock}",
                         swallow_ensure_errors=True,
-                        replace_existing=True,
                     )
                     out["cubes_built"] += int((filled or {}).get("cubes_built") or 0)
                 except Exception:  # noqa: BLE001

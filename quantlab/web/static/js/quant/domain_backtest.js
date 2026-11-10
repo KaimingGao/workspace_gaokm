@@ -391,8 +391,14 @@ export function installBacktest(q) {
       el.value = String(val);
     };
     const form = document.getElementById("paper-path-matrix-form");
-    const setName = (name, val) => {
-      if (!form || val == null || val === "") return;
+    const setName = (name, val, { allowEmpty = false } = {}) => {
+      if (!form) return;
+      if (val == null || val === "") {
+        if (!allowEmpty) return;
+        const el = form.querySelector(`[name="${name}"]`);
+        if (el) el.value = "";
+        return;
+      }
       const el = form.querySelector(`[name="${name}"]`);
       if (el) el.value = String(val);
     };
@@ -469,37 +475,38 @@ export function installBacktest(q) {
     setChk("pm_y_oo_gt0", req.y_oo_gt0, false);
     setChk("pm_y_τc_gt0", req.y_τc_gt0, false);
     setChk("pm_morph_gate", req.morph_gate_enabled, false);
-    const ooMax = Number(req.oo_rank_max);
-    if (Number.isFinite(ooMax) && ooMax > 0) {
-      setName("pm_oo_rank_max", Math.max(0, Math.min(500, Math.round(ooMax))));
+    const clampScore = (v, fb) => {
+      const n = Number(v);
+      if (!Number.isFinite(n)) return fb;
+      return Math.max(-5, Math.min(5, Math.round(n * 10000) / 10000));
+    };
+    // rank 阈值：oo_rank / τc_rank（不是 y_oo / y_τc）；空=关
+    if (Object.prototype.hasOwnProperty.call(req, "oo_tc_score_min")) {
+      const sc = req.oo_tc_score_min;
+      if (sc == null || sc === "") setName("pm_oo_tc_score_min", "", { allowEmpty: true });
+      else setName("pm_oo_tc_score_min", clampScore(sc, 0.3));
     } else {
-      const ooFrac = Number(req.oo_rank_top_frac);
-      setName(
-        "pm_oo_rank_max",
-        Number.isFinite(ooFrac) && ooFrac > 0 ? 10 : 0
-      );
+      setName("pm_oo_tc_score_min", 0.3);
     }
-    if (Object.prototype.hasOwnProperty.call(req, "oo_rank_strong_max")) {
-      const ooStrong = Number(req.oo_rank_strong_max);
-      setName(
-        "pm_oo_rank_strong_max",
-        Number.isFinite(ooStrong) && ooStrong > 0
-          ? Math.max(1, Math.min(500, Math.round(ooStrong)))
-          : 0
-      );
+    if (Object.prototype.hasOwnProperty.call(req, "oo_tc_score_strong_min")) {
+      const sc = req.oo_tc_score_strong_min;
+      if (sc == null || sc === "") {
+        setName("pm_oo_tc_score_strong_min", "", { allowEmpty: true });
+      } else {
+        setName("pm_oo_tc_score_strong_min", clampScore(sc, 0.3));
+      }
     } else {
-      setName("pm_oo_rank_strong_max", 100);
+      setName("pm_oo_tc_score_strong_min", 0.3);
     }
-    if (Object.prototype.hasOwnProperty.call(req, "oo_rank_high_max")) {
-      const ooHigh = Number(req.oo_rank_high_max);
-      setName(
-        "pm_oo_rank_high_max",
-        Number.isFinite(ooHigh) && ooHigh > 0
-          ? Math.max(1, Math.min(500, Math.round(ooHigh)))
-          : 0
-      );
+    if (Object.prototype.hasOwnProperty.call(req, "oo_tc_score_high_min")) {
+      const sc = req.oo_tc_score_high_min;
+      if (sc == null || sc === "") {
+        setName("pm_oo_tc_score_high_min", "", { allowEmpty: true });
+      } else {
+        setName("pm_oo_tc_score_high_min", clampScore(sc, 0.3));
+      }
     } else {
-      setName("pm_oo_rank_high_max", 100);
+      setName("pm_oo_tc_score_high_min", 0.3);
     }
   }
 
@@ -839,18 +846,12 @@ export function installBacktest(q) {
       const pack = collectPathMatrixForm(form);
       const lots = pack && pack.rebalance_timing && pack.rebalance_timing.rank_lots;
       if (lots) {
-        const ooMax =
-          lots.oo_rank_max != null && Number(lots.oo_rank_max) > 0
-            ? Math.max(1, Math.min(500, Math.round(Number(lots.oo_rank_max))))
-            : null;
-        const ooStrong =
-          lots.oo_rank_strong_max != null && Number(lots.oo_rank_strong_max) > 0
-            ? Math.max(1, Math.min(500, Math.round(Number(lots.oo_rank_strong_max))))
-            : 0;
-        const ooHigh =
-          lots.oo_rank_high_max != null && Number(lots.oo_rank_high_max) > 0
-            ? Math.max(1, Math.min(500, Math.round(Number(lots.oo_rank_high_max))))
-            : 0;
+        const clampSc = (v, fb) => {
+          if (v == null || v === "") return null;
+          const n = Number(v);
+          if (!Number.isFinite(n)) return fb;
+          return Math.max(-5, Math.min(5, Math.round(n * 10000) / 10000));
+        };
         const enter = lots.fuse_enter;
         const strong =
           lots.fuse_strong != null ? lots.fuse_strong : enter;
@@ -866,10 +867,9 @@ export function installBacktest(q) {
           y_τc_gt0: lots.y_τc_gt0 === true,
           morph_gate_enabled: lots.morph_gate_enabled === true,
           sentiment_gate_enabled: false,
-          oo_rank_max: ooMax,
-          oo_rank_strong_max: ooStrong,
-          oo_rank_high_max: ooHigh,
-          oo_rank_top_frac: null,
+          oo_tc_score_min: clampSc(lots.oo_tc_score_min, 0.3),
+          oo_tc_score_strong_min: clampSc(lots.oo_tc_score_strong_min, 0.3),
+          oo_tc_score_high_min: clampSc(lots.oo_tc_score_high_min, 0.3),
         };
       }
     }
@@ -878,10 +878,9 @@ export function installBacktest(q) {
       fuse_enter: enter,
       fuse_strong: enter,
       fuse_high: 0.01,
-      oo_rank_max: 10,
-      oo_rank_strong_max: 100,
-      oo_rank_high_max: 100,
-      oo_rank_top_frac: null,
+      oo_tc_score_min: 0.3,
+      oo_tc_score_strong_min: 0.3,
+      oo_tc_score_high_min: 0.3,
       morph_gate_enabled: false,
       sentiment_gate_enabled: false,
     };
@@ -1535,9 +1534,9 @@ export function installBacktest(q) {
         y_oo_gt0,
         y_τc_gt0,
         morph_gate_enabled,
-        oo_rank_max,
-        oo_rank_strong_max,
-        oo_rank_high_max,
+        oo_tc_score_min,
+        oo_tc_score_strong_min,
+        oo_tc_score_high_min,
         initial_cash,
         fill_clock,
         lot_base_amount,
@@ -1557,6 +1556,12 @@ export function installBacktest(q) {
           : Number(fuse_high) > 0
             ? Number(fuse_high)
             : 0;
+      const clampSc = (v, fb) => {
+        if (v == null || v === "") return null;
+        const n = Number(v);
+        if (!Number.isFinite(n)) return fb;
+        return Math.max(-5, Math.min(5, Math.round(n * 10000) / 10000));
+      };
       const ctx = portfolioRunContextLabel({
         lookback,
         score_model_role,
@@ -1587,18 +1592,9 @@ export function installBacktest(q) {
         y_τc_gt0: y_τc_gt0 === true,
         morph_gate_enabled: morph_gate_enabled === true,
         sentiment_gate_enabled: false,
-        oo_rank_max:
-          oo_rank_max != null && Number(oo_rank_max) > 0
-            ? Math.max(1, Math.min(500, Math.round(Number(oo_rank_max))))
-            : null,
-        oo_rank_strong_max:
-          oo_rank_strong_max != null && Number(oo_rank_strong_max) > 0
-            ? Math.max(1, Math.min(500, Math.round(Number(oo_rank_strong_max))))
-            : 0,
-        oo_rank_high_max:
-          oo_rank_high_max != null && Number(oo_rank_high_max) > 0
-            ? Math.max(1, Math.min(500, Math.round(Number(oo_rank_high_max))))
-            : 0,
+        oo_tc_score_min: clampSc(oo_tc_score_min, 0.3),
+        oo_tc_score_strong_min: clampSc(oo_tc_score_strong_min, 0.3),
+        oo_tc_score_high_min: clampSc(oo_tc_score_high_min, 0.3),
         initial_cash,
         fill_clock,
         lot_base_amount,
@@ -2568,98 +2564,8 @@ export function installBacktest(q) {
       restoreFillClock();
       el.addEventListener("change", () => {
         readFillClock();
-        refreshFollowReplayAlign();
       });
     }
-  }
-
-  /** 回测钟/权 vs 交易执行 live：不一致时提示，可一键同步自执行侧。 */
-  function refreshFollowReplayAlign() {
-    const el = document.getElementById("replay-follow-align");
-    if (!el) return;
-    const live =
-      (typeof window !== "undefined" && window.__quantlabLiveAlign) || null;
-    if (!live || !live.live_fill_clock) {
-      el.hidden = true;
-      el.textContent = "";
-      return;
-    }
-    const fill = readFillClock() || "09:30";
-    const w = readFusionWeights() || {};
-    const liveClock = String(live.live_fill_clock || "09:30").slice(0, 5);
-    const liveOo = Number(live.fusion_w_oo);
-    const liveOc = Number(live.fusion_w_oc);
-    const formOo = Number(w.fusion_w_oo);
-    const formOc = Number(w.fusion_w_oc);
-    const diffs = [];
-    if (liveClock && fill && liveClock !== fill) {
-      diffs.push(`钟 回测 ${fill} ≠ 执行 ${liveClock}`);
-    }
-    if (
-      Number.isFinite(liveOo) &&
-      Number.isFinite(formOo) &&
-      Math.abs(liveOo - formOo) > 0.011
-    ) {
-      diffs.push(
-        `w_oo 回测 ${formOo.toFixed(2)} ≠ 执行 ${liveOo.toFixed(2)}`
-      );
-    }
-    if (
-      Number.isFinite(liveOc) &&
-      Number.isFinite(formOc) &&
-      Math.abs(liveOc - formOc) > 0.011
-    ) {
-      diffs.push(
-        `w_τc 回测 ${formOc.toFixed(2)} ≠ 执行 ${liveOc.toFixed(2)}`
-      );
-    }
-    if (!diffs.length) {
-      el.hidden = true;
-      el.textContent = "";
-      return;
-    }
-    el.hidden = false;
-    el.innerHTML =
-      `对账注意：${diffs.join(" · ")} · ` +
-      `<button type="button" class="dialog-btn" id="replay-sync-from-follow" ` +
-      `title="把交易执行的启动时间建议与 fuse 权写入回测表单（不改落盘规则）">` +
-      `同步自交易执行</button>`;
-    const btn = document.getElementById("replay-sync-from-follow");
-    if (btn && btn.dataset.wired !== "1") {
-      btn.dataset.wired = "1";
-      btn.addEventListener("click", () => {
-        syncReplayFromFollowAlign();
-      });
-    }
-  }
-
-  function syncReplayFromFollowAlign() {
-    const live =
-      (typeof window !== "undefined" && window.__quantlabLiveAlign) || null;
-    if (!live) return;
-    const clock = String(live.live_fill_clock || "09:30").slice(0, 5);
-    const fillEl = document.getElementById("quant-fill-clock");
-    if (fillEl) {
-      const use = FILL_CLOCKS.includes(clock) ? clock : "09:30";
-      fillEl.value = use;
-      try {
-        localStorage.setItem(FILL_CLOCK_KEY, use);
-      } catch (_) {
-        /* ignore */
-      }
-    }
-    const form = document.getElementById("paper-path-matrix-form");
-    if (form) {
-      const ooEl = form.querySelector('[name="pm_fusion_w_oo"]');
-      const ocEl = form.querySelector('[name="pm_fusion_w_nc"]');
-      if (ooEl && Number.isFinite(Number(live.fusion_w_oo))) {
-        ooEl.value = String(Number(live.fusion_w_oo));
-      }
-      if (ocEl && Number.isFinite(Number(live.fusion_w_oc))) {
-        ocEl.value = String(Number(live.fusion_w_oc));
-      }
-    }
-    refreshFollowReplayAlign();
   }
 
   function wireReplayPriceSpaceGate() {
@@ -2701,28 +2607,12 @@ export function installBacktest(q) {
   wirePredTierChecks();
   if (typeof window !== "undefined") {
     window.addEventListener("quantlab-replay-desk-persist", () => persistReplayDeskPrefs());
-    window.__quantlabRefreshFollowReplayAlign = refreshFollowReplayAlign;
   }
   initExecutionRuleForms()
     .then(() => {
       const restored = restoreReplayDeskPrefs();
       // 无本地偏好时也按当前勾选同步 live（默认 A）
       if (!restored) syncLivePredTiersFromDesk();
-      refreshFollowReplayAlign();
-      const form = document.getElementById("paper-path-matrix-form");
-      if (form && form.dataset.alignWired !== "1") {
-        form.dataset.alignWired = "1";
-        form.addEventListener("change", (ev) => {
-          const name = ev && ev.target && ev.target.name;
-          if (
-            name === "pm_fusion_w_oo" ||
-            name === "pm_fusion_w_nc" ||
-            name === "pm_fusion_w_oc"
-          ) {
-            refreshFollowReplayAlign();
-          }
-        });
-      }
     })
     .catch(() => {});
 

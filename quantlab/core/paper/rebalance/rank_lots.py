@@ -8,17 +8,17 @@
     = w_oo·((ŷ_oo+1)/(1+rot)−1) + w_τc·ŷ_τc
     rot = price(τ)/open[T]−1（该 τ 相对开盘的涨跌）；基准 τ→open[T+1]
     τ = 开盘时 rot = 0，简化为 w_oo·ŷ_oo + w_τc·ŷ_τc
-  - 过入场（y_oo_fuse>fuse_enter）→ 按 oo_rank 升序（1=最好）开仓或加仓；
-    缺 oo_rank 回退 y_oo_fuse 降序；y_oo>0 / y_τc>0 看原始百分点符号
-  - 高阈旁路（fuse_high>0）：fuse>fuse_high 且可选 rank&lt;oo_rank_high_max 时
+  - 过入场（y_oo_fuse>fuse_enter）→ 按 oo_rank_score 降序开仓或加仓；
+    缺 oo_rank 相对分回退 y_oo_fuse 降序；y_oo>0 / y_τc>0 看原始百分点符号（与 rank 阈值无关）
+  - 高阈旁路（fuse_high>0）：fuse>fuse_high 且可选 oo_rank/τc_rank 相对分均≥oo_tc_score_high_min 时
     与入场/强档 OR，用 lot_high_amount；不绕过形态闸；已买过不叠第二笔
   - 可选形态硬闸（默认关，门槛写死）：高波弱开（vol_p≥0.9 且 a1<0）、
     异常低开（a1≤−8%）、或开盘已到板块涨停价 → 禁止新开/加仓（已持仓不清仓）
-  - 舆情标签始终读本地新闻库并写入明细；规则栏已下掉软先验闸（配置恒关），不改 fuse/rank
+  - 舆情标签始终读本地新闻库并写入明细；规则栏已下掉软先验闸（配置恒关），不改 fuse/rank 阈值
   - 已持仓且未过入场、缺 y_oo_fuse、或 hard_reject → 清仓（T+1 可卖部分；形态闸不清仓）
     缺分不能假装过门槛续持；高阈过线可续持；无「持」动作
   - y_oo_fuse > fuse_strong → lot_strong_amount，否则 lot_base_amount（缺省 2 万 / 1 万）
-    同一比较：过强档改看 oo_rank_strong_max（默认 100；≤0=关），不再用入场 oo_rank_max
+    同一比较：过强档改看 oo_tc_score_strong_min（rank 阈值，默认 0.3；None=关），不再用入场 oo_tc_score_min
     高阈过线时金额取 max(上述, lot_high_amount)
     股数 = 金额/价 向下取整到一手；不够一手则跳过
   - 单票持仓市值上限 = max(强档, 高阈若开) × 120%；买后将超过则跳过（防单票过重）
@@ -196,10 +196,7 @@ def _cfg_fuse_threshold(cfg: Optional[dict], key: str, default: float) -> float:
     return coerce_fuse_threshold(d.get(key), default)
 
 def oo_rank_max_from_cfg(cfg: Optional[dict]) -> Optional[int]:
-    """绝对名次闸：开则须 max(y_oo_rank, y_τc_rank) < max（UI 入场「rank · oo & τc」默认 10）。
-
-    None/≤0=关。两侧名次都缺不拦；仅一侧有则用该侧。
-    """
+    """旧绝对名次闸读盘（已退役，入场改看 ``oo_tc_score_min``）。保留供旧配置/对照。"""
     d = cfg if isinstance(cfg, dict) else {}
     if "oo_rank_max" not in d:
         return None
@@ -216,13 +213,84 @@ def oo_rank_max_from_cfg(cfg: Optional[dict]) -> Optional[int]:
 
 
 DEFAULT_OO_RANK_STRONG_MAX = 100
+DEFAULT_OO_TC_SCORE_MIN = 0.3
+DEFAULT_OO_TC_SCORE_STRONG_MIN = 0.3
+DEFAULT_OO_TC_SCORE_HIGH_MIN = 0.3
+
+
+def _coerce_oo_tc_score_min(
+    raw: Any,
+    *,
+    default: Optional[float],
+    missing_default: Optional[float],
+) -> Optional[float]:
+    """rank 阈值（oo_rank / τc_rank）：None/空=关；缺键用 missing_default；有限数裁到 [-5, 5]。"""
+    if raw is _SCORE_KEY_MISSING:
+        return missing_default
+    if raw in (None, False):
+        return None
+    if isinstance(raw, str):
+        s = raw.strip()
+        if s == "" or s.lower() in {"null", "none", "nan", "undefined"}:
+            return None
+        raw = s
+    try:
+        v = float(raw)
+    except (TypeError, ValueError):
+        return default
+    if v != v or v in (float("inf"), float("-inf")):
+        return default
+    return max(-5.0, min(5.0, float(v)))
+
+
+_SCORE_KEY_MISSING = object()
+
+
+def oo_tc_score_min_from_cfg(cfg: Optional[dict]) -> Optional[float]:
+    """入场 rank 阈值：须 oo_rank 与 τc_rank 相对分均 ≥ 阈值（不是 y_oo / y_τc；UI 默认 0.3）。
+
+    缺键=0.3；显式 None/空=关。读 ``y_oo_rank_score`` / ``y_tc_rank_score``。
+    """
+    d = cfg if isinstance(cfg, dict) else {}
+    if "oo_tc_score_min" not in d:
+        return DEFAULT_OO_TC_SCORE_MIN
+    return _coerce_oo_tc_score_min(
+        d.get("oo_tc_score_min"),
+        default=DEFAULT_OO_TC_SCORE_MIN,
+        missing_default=DEFAULT_OO_TC_SCORE_MIN,
+    )
+
+
+def oo_tc_score_strong_min_from_cfg(cfg: Optional[dict]) -> Optional[float]:
+    """强档 rank 阈值（oo_rank / τc_rank，不是 y_oo / y_τc）。缺键=0.3；显式 None/空=关。"""
+    d = cfg if isinstance(cfg, dict) else {}
+    if "oo_tc_score_strong_min" not in d:
+        return DEFAULT_OO_TC_SCORE_STRONG_MIN
+    return _coerce_oo_tc_score_min(
+        d.get("oo_tc_score_strong_min"),
+        default=DEFAULT_OO_TC_SCORE_STRONG_MIN,
+        missing_default=DEFAULT_OO_TC_SCORE_STRONG_MIN,
+    )
+
+
+def oo_tc_score_high_min_from_cfg(cfg: Optional[dict]) -> Optional[float]:
+    """高阈 rank 阈值（oo_rank / τc_rank，不是 y_oo / y_τc）。缺键且高阈开着=0.3；显式 None/空=关。"""
+    d = cfg if isinstance(cfg, dict) else {}
+    if "oo_tc_score_high_min" not in d:
+        return (
+            DEFAULT_OO_TC_SCORE_HIGH_MIN
+            if fuse_high_from_cfg(d) is not None
+            else None
+        )
+    return _coerce_oo_tc_score_min(
+        d.get("oo_tc_score_high_min"),
+        default=DEFAULT_OO_TC_SCORE_HIGH_MIN,
+        missing_default=DEFAULT_OO_TC_SCORE_HIGH_MIN,
+    )
 
 
 def oo_rank_strong_max_from_cfg(cfg: Optional[dict]) -> Optional[int]:
-    """强档名次闸：fuse 过强档后须 max(y_oo_rank, y_τc_rank) < max。
-
-    缺键=100。None/≤0=关。两侧名次都缺不拦；仅一侧有则用该侧。
-    """
+    """旧强档名次闸读盘（已退役）。缺键=100；None/≤0=关。"""
     d = cfg if isinstance(cfg, dict) else {}
     if "oo_rank_strong_max" not in d:
         return DEFAULT_OO_RANK_STRONG_MAX
@@ -239,10 +307,7 @@ def oo_rank_strong_max_from_cfg(cfg: Optional[dict]) -> Optional[int]:
 
 
 def oo_rank_top_frac_from_cfg(cfg: Optional[dict]) -> Optional[float]:
-    """相对名次闸：开则须 max(y_oo_rank, y_τc_rank) < n·frac（旧 API；UI 已改绝对名次）。
-
-    None/≤0=关。仅读显式 ``oo_rank_top_frac``；不再把 ``oo_rank_max`` 迁成 0.5。
-    """
+    """旧相对名次闸读盘（已退役）。None/≤0=关。"""
     d = cfg if isinstance(cfg, dict) else {}
     if "oo_rank_top_frac" not in d:
         return None
@@ -309,7 +374,7 @@ def high_gate_pass(
     *,
     rs: Optional[float],
 ) -> bool:
-    """高阈旁路是否过线：fuse>fuse_high，且可选 rank。关则 False。"""
+    """高阈旁路是否过线：fuse>fuse_high，且可选 oo_rank/τc_rank rank 阈值。关则 False。"""
     high = fuse_high_from_cfg(cfg)
     if high is None:
         return False
@@ -323,8 +388,8 @@ def high_gate_pass(
         return False
     if score <= float(high):
         return False
-    mx = oo_rank_high_max_from_cfg(cfg)
-    if mx is not None and _oo_rank_abs_skip(item, mx) is not None:
+    thr = oo_tc_score_high_min_from_cfg(cfg)
+    if thr is not None and _oo_tc_score_skip(item, thr) is not None:
         return False
     return True
 
@@ -414,8 +479,68 @@ def _fuse_strong_met(rs: Optional[float], cfg: Optional[dict]) -> bool:
     return score > float(strong)
 
 
+def _rank_score_from_item(
+    item: Optional[dict],
+) -> Tuple[Optional[float], Optional[float]]:
+    """读 oo_rank / τc_rank 相对分（``y_oo_rank_score`` / ``y_tc_rank_score``；不是 y_oo / y_τc）。"""
+    oo = None
+    tc = None
+    if isinstance(item, dict):
+        raw_oo = item.get("y_oo_rank_score")
+        raw_tc = item.get("y_tc_rank_score")
+        try:
+            if raw_oo not in (None, ""):
+                oo = float(raw_oo)
+                if oo != oo or oo in (float("inf"), float("-inf")):
+                    oo = None
+        except (TypeError, ValueError):
+            oo = None
+        try:
+            if raw_tc not in (None, ""):
+                tc = float(raw_tc)
+                if tc != tc or tc in (float("inf"), float("-inf")):
+                    tc = None
+        except (TypeError, ValueError):
+            tc = None
+    return oo, tc
+
+
+def _oo_tc_score_skip(item: Optional[dict], thr: Optional[float]) -> Optional[str]:
+    """rank 阈值：oo_rank 与 τc_rank 相对分均须 ≥ thr（不是 y_oo / y_τc）。thr 空不拦；两侧都缺不拦。"""
+    if thr is None:
+        return None
+    try:
+        thr_f = float(thr)
+    except (TypeError, ValueError):
+        return None
+    if thr_f != thr_f or thr_f in (float("inf"), float("-inf")):
+        return None
+    oo, tc = _rank_score_from_item(item)
+    if oo is None and tc is None:
+        return None
+    parts: List[str] = []
+    bad = False
+    if oo is None:
+        parts.append("oo_rank=缺")
+        bad = True
+    else:
+        parts.append(f"oo_rank={oo:.4f}")
+        if float(oo) < thr_f:
+            bad = True
+    if tc is None:
+        parts.append("τc_rank=缺")
+        bad = True
+    else:
+        parts.append(f"τc_rank={tc:.4f}")
+        if float(tc) < thr_f:
+            bad = True
+    if bad:
+        return f"{' '.join(parts)} 须均≥{thr_f:g} 未过入场"
+    return None
+
+
 def _oo_rank_abs_skip(item: Optional[dict], mx: Optional[int]) -> Optional[str]:
-    """绝对名次闸：max(oo_rank, τc_rank) ≥ mx 则拦。mx 空或两侧名次都缺不拦。"""
+    """旧绝对名次闸（已退役；保留给单测/对照）。"""
     if mx is None:
         return None
     rank, _n, label = _entry_rank_from_item(item)
@@ -427,24 +552,8 @@ def _oo_rank_abs_skip(item: Optional[dict], mx: Optional[int]) -> Optional[str]:
 
 
 def _oo_rank_enter_skip(item: Optional[dict], cfg: Optional[dict]) -> Optional[str]:
-    """未过强档的名次闸：优先绝对 ``oo_rank_max``，否则相对 ``oo_rank_top_frac``。
-
-    绝对/相对均看 ``max(oo_rank, τc_rank)``；两侧都缺不拦。
-    """
-    mx = oo_rank_max_from_cfg(cfg)
-    if mx is not None:
-        return _oo_rank_abs_skip(item, mx)
-    frac = oo_rank_top_frac_from_cfg(cfg)
-    if frac is None:
-        return None
-    rank, n_pool, label = _entry_rank_from_item(item)
-    if rank is None or n_pool is None or n_pool <= 0:
-        return None
-    thresh = float(n_pool) * float(frac)
-    if float(rank) >= thresh:
-        pct = int(round(float(frac) * 100.0))
-        return f"{label}/{n_pool}≥top{pct}% 未过入场"
-    return None
+    """入场 rank 阈值：``oo_tc_score_min``（oo_rank / τc_rank，默认 0.3）。旧名次闸不再参与。"""
+    return _oo_tc_score_skip(item, oo_tc_score_min_from_cfg(cfg))
 
 
 def _corridor_enter_skip_reason(
@@ -491,7 +600,7 @@ def _corridor_enter_skip_reason(
             if morph_skip is not None:
                 return morph_skip
     if _fuse_strong_met(rs, cfg_d):
-        return _oo_rank_abs_skip(item, oo_rank_strong_max_from_cfg(cfg_d))
+        return _oo_tc_score_skip(item, oo_tc_score_strong_min_from_cfg(cfg_d))
     return _oo_rank_enter_skip(item, cfg_d)
 
 
@@ -504,10 +613,10 @@ def rank_lot_enter_skip_reason(
 ) -> Optional[str]:
     """入场：y_oo_fuse ≥ fuse_enter；可选 y_oo>0 / y_τc>0。
 
-    ``y_oo_gt0`` / ``y_τc_gt0`` 开则对应 ŷ 须 >0。缺分不拦。
-    未过强档时可选 ``oo_rank_max``（须 max(y_oo_rank, y_τc_rank) < max）或旧键 ``oo_rank_top_frac``。
-    y_oo_fuse > fuse_strong 时改看 ``oo_rank_strong_max``（缺键默认 100；≤0=关）。
-    高阈旁路：主通路未过时，若 ``fuse_high>0`` 且 fuse>高阈、rank 过线则放行；
+    ``y_oo_gt0`` / ``y_τc_gt0`` 开则对应 ŷ 须 >0（与 rank 阈值无关）。缺分不拦。
+    未过强档时可选 ``oo_tc_score_min``（须 oo_rank / τc_rank 相对分均 ≥ 阈值，默认 0.3；不是 y_oo / y_τc）。
+    y_oo_fuse > fuse_strong 时改看 ``oo_tc_score_strong_min``（缺键默认 0.3；None=关）。
+    高阈旁路：主通路未过时，若 ``fuse_high>0`` 且 fuse>高阈、rank 阈值过线则放行；
     **不**绕过形态闸。
     ``apply_morph_gate=False``：已持仓清仓判定用——形态闸只拦新开/加，不清仓。
     """
@@ -551,6 +660,14 @@ def _display_enter_skip_reason(
         # 原始过线、先验后不过：表里仍写原始 fuse，不写假不等式。
         return f"fuse={raw_pct:.3f}% 未过入场"
     if "oo_rank" in text or "τc_rank" in text:
+        oo, tc = _rank_score_from_item(item)
+        if oo is not None or tc is not None:
+            bits = []
+            if oo is not None:
+                bits.append(f"oo_rank={oo:.4f}")
+            if tc is not None:
+                bits.append(f"τc_rank={tc:.4f}")
+            return f"{' '.join(bits)} 未过入场"
         _rank, _n, label = _entry_rank_from_item(item)
         if label:
             return f"{label} 未过入场"
@@ -731,10 +848,9 @@ def get_rank_lot_cfg(
         "y_τc_gt0": bool(y_τc_gt0),
         "morph_gate_enabled": bool(pm.get("morph_gate_enabled")),
         "sentiment_gate_enabled": False,
-        "oo_rank_max": oo_rank_max_from_cfg(pm),
-        "oo_rank_strong_max": oo_rank_strong_max_from_cfg(pm),
-        "oo_rank_high_max": oo_rank_high_max_from_cfg(pm),
-        "oo_rank_top_frac": oo_rank_top_frac_from_cfg(pm),
+        "oo_tc_score_min": oo_tc_score_min_from_cfg(pm),
+        "oo_tc_score_strong_min": oo_tc_score_strong_min_from_cfg(pm),
+        "oo_tc_score_high_min": oo_tc_score_high_min_from_cfg(pm),
         "fill_clock": str(pm.get("fill_clock") or "09:30"),
         "live_fill_clock": str(pm.get("live_fill_clock") or "09:30"),
         "score_backend": str(pm.get("score_backend") or "ridge"),
@@ -890,7 +1006,7 @@ AUX_YHAT_KEYS = (
     "t90_realized",
     "y_τw",
     "y_tw",
-    # ŷ_oo_rank：当日截面 1..n 名次；不进 y_oo_fuse；过入场后作买序；未过强档看 oo_rank_max，过强档看 oo_rank_strong_max
+    # ŷ_oo_rank：当日截面 1..n 名次；不进 y_oo_fuse；过入场后买序看 y_oo_rank_score；rank 阈值读相对分
     "y_oo_rank",
     "y_oo_rank_hat",
     "predicted_score_oo_rank",
@@ -898,7 +1014,7 @@ AUX_YHAT_KEYS = (
     "y_oo_rank_n",
     "y_oo_rank_realized",
     "oo_rank_realized",
-    # ŷ_τc_rank：成交明细名次；不进 y_oo_fuse、不改买序；与 oo_rank 取 max 作入场/强档名次闸。
+    # ŷ_τc_rank：成交明细名次；不进 y_oo_fuse、不改买序；与 oo_rank 共用 rank 阈值（相对分，不是 y_oo / y_τc）
     "y_tc_rank",
     "y_tc_rank_hat",
     "predicted_score_tc_rank",
@@ -1639,7 +1755,7 @@ def plan_rank_lot_day(
             return ""
 
     def _rank_scaled_item(code: str, item: dict) -> dict:
-        """入场名次闸 / 买序用的有效名次；空 ×2，多 ×0.5。"""
+        """买序辅助名次（展示/旧对照）；入场已改看 oo_rank / τc_rank 相对分。空 ×2，多 ×0.5。"""
         prior = _sent_prior(code)
         if not prior:
             return item
@@ -1845,15 +1961,12 @@ def plan_rank_lot_day(
             continue
         if rs is None:
             continue
-        oo_rk, _ = _oo_rank_from_item(eff_item)
-        oo_key = oo_rk if isinstance(oo_rk, (int, float)) and oo_rk == oo_rk else None
-        if oo_key is not None and oo_key in (float("inf"), float("-inf")):
-            oo_key = None
-        cand.append((float(rs), item, rp, oo_key))
-    # 过门槛后买序：oo_rank 升序（1=最好）；缺 oo_rank 回退 y_oo_fuse 降序
+        oo_sc, _ = _rank_score_from_item(eff_item)
+        cand.append((float(rs), item, rp, oo_sc))
+    # 过门槛后买序：oo_rank_score 降序；缺相对分回退 y_oo_fuse 降序
     cand.sort(
         key=lambda t: (
-            float(t[3]) if t[3] is not None else 1e18,
+            -float(t[3]) if t[3] is not None else 1e18,
             -float(t[0]),
             str((t[1] or {}).get("stock_code") or "") if isinstance(t[1], dict) else "",
         )
@@ -2185,9 +2298,9 @@ def plan_rank_lot_day(
         "fuse_strong": fuse_strong,
         "y_oo_gt0": bool(y_oo_gt0),
         "y_τc_gt0": bool(y_τc_gt0),
-        "oo_rank_max": oo_rank_max_from_cfg(cfg),
-        "oo_rank_strong_max": oo_rank_strong_max_from_cfg(cfg),
-        "oo_rank_top_frac": oo_rank_top_frac_from_cfg(cfg),
+        "oo_tc_score_min": oo_tc_score_min_from_cfg(cfg),
+        "oo_tc_score_strong_min": oo_tc_score_strong_min_from_cfg(cfg),
+        "oo_tc_score_high_min": oo_tc_score_high_min_from_cfg(cfg),
         "cash_floor": cash_floor,
         "spend_floor": spend_floor,
         "min_cash_pct": min_cash_pct,
@@ -2220,6 +2333,9 @@ __all__ = [
     "DEFAULT_FUSE_STRONG",
     "DEFAULT_FUSE_HIGH",
     "DEFAULT_OO_RANK_HIGH_MAX",
+    "DEFAULT_OO_TC_SCORE_HIGH_MIN",
+    "DEFAULT_OO_TC_SCORE_MIN",
+    "DEFAULT_OO_TC_SCORE_STRONG_MIN",
     "LOT_AMOUNT_BASE",
     "LOT_AMOUNT_HIGH",
     "LOT_AMOUNT_MAX",
@@ -2247,6 +2363,9 @@ __all__ = [
     "oo_rank_max_from_cfg",
     "oo_rank_strong_max_from_cfg",
     "oo_rank_top_frac_from_cfg",
+    "oo_tc_score_high_min_from_cfg",
+    "oo_tc_score_min_from_cfg",
+    "oo_tc_score_strong_min_from_cfg",
     "y_oo_fuse_pct_of",
     "y_tau_of",
 ]

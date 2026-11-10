@@ -75,6 +75,9 @@ class QuantReplayMixin:
         y_τc_gt0: Optional[bool] = None,
         morph_gate_enabled: Optional[bool] = None,
         sentiment_gate_enabled: Optional[bool] = None,
+        oo_tc_score_min: Optional[float] = None,
+        oo_tc_score_strong_min: Optional[float] = None,
+        oo_tc_score_high_min: Optional[float] = None,
         oo_rank_max: Optional[int] = None,
         oo_rank_strong_max: Optional[int] = None,
         oo_rank_high_max: Optional[int] = None,
@@ -502,6 +505,9 @@ class QuantReplayMixin:
                     y_τc_gt0=y_τc_gt0_b,
                     morph_gate_enabled=morph_gate_b,
                     sentiment_gate_enabled=sentiment_gate_b,
+                    oo_tc_score_min=oo_tc_score_min,
+                    oo_tc_score_strong_min=oo_tc_score_strong_min,
+                    oo_tc_score_high_min=oo_tc_score_high_min,
                     oo_rank_max=oo_rank_max,
                     oo_rank_strong_max=oo_rank_strong_max,
                     oo_rank_high_max=oo_rank_high_max,
@@ -569,6 +575,9 @@ class QuantReplayMixin:
             "y_τc_gt0": y_τc_gt0_b,
             "morph_gate_enabled": morph_gate_b,
             "sentiment_gate_enabled": sentiment_gate_b,
+            "oo_tc_score_min": oo_tc_score_min,
+            "oo_tc_score_strong_min": oo_tc_score_strong_min,
+            "oo_tc_score_high_min": oo_tc_score_high_min,
             "oo_rank_max": oo_rank_max,
             "oo_rank_strong_max": oo_rank_strong_max,
             "oo_rank_high_max": oo_rank_high_max,
@@ -591,9 +600,9 @@ class QuantReplayMixin:
                 + (
                     f"；高阈{high * 100:g}%"
                     + (
-                        f"·rank<{int(oo_rank_high_max)}"
-                        if oo_rank_high_max is not None and int(oo_rank_high_max) > 0
-                        else "·rank100"
+                        f"·rank≥{float(oo_tc_score_high_min):g}"
+                        if oo_tc_score_high_min is not None
+                        else "·Rank闸关"
                     )
                     if high > 0
                     else ""
@@ -602,22 +611,14 @@ class QuantReplayMixin:
                 f"宇宙=观察池 {universe_n} 只"
                 + ("；日分价闸开" if gate_on else "；日分价闸关")
                 + (
-                    f"；oo_rank<{int(oo_rank_max)}（未过强档）"
-                    if oo_rank_max is not None and int(oo_rank_max) > 0
-                    else (
-                        f"；oo_rank<top{int(round(float(oo_rank_top_frac) * 100))}%（未过强档）"
-                        if oo_rank_top_frac is not None and float(oo_rank_top_frac) > 0
-                        else ""
-                    )
+                    f"；rank≥{float(oo_tc_score_min):g}（未过强档）"
+                    if oo_tc_score_min is not None
+                    else "；Rank 闸关"
                 )
                 + (
-                    f"；强档 rank<{int(oo_rank_strong_max)}"
-                    if oo_rank_strong_max is not None and int(oo_rank_strong_max) > 0
-                    else (
-                        "；强档 rank 关"
-                        if oo_rank_strong_max == 0
-                        else "；强档 rank<100"
-                    )
+                    f"；强档 rank≥{float(oo_tc_score_strong_min):g}"
+                    if oo_tc_score_strong_min is not None
+                    else "；强档 Rank 闸关"
                 )
                 + "；ŷ头=Ridge"
                 + f"，开加不按纸面 max_positions={max_positions} 截断）；"

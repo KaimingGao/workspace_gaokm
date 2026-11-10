@@ -80,12 +80,6 @@
         <input type="hidden" id="quant-benchmark-code" value="pool" />
         <button type="button" id="quant-portfolio-run" class="dialog-btn">跑回测</button>
       </div>
-      <p
-        id="replay-follow-align"
-        class="dashboard-meta quant-meta replay-follow-align"
-        hidden
-        aria-live="polite"
-      ></p>
     </header>
     <div class="replay-overview-band" id="replay-section-overview">
       <div class="dashboard-kpi-row quant-pro-overview-kpis replay-kpi-row" id="replay-kpi-row" aria-label="调仓回测 KPI">
@@ -152,81 +146,81 @@
                 <section class="follow-path-matrix-panel" data-panel="rank" aria-labelledby="pm-panel-rank">
                   <header class="follow-path-matrix-panel-head">
                     <h4 id="pm-panel-rank" class="follow-path-matrix-panel-title">FUSE 门槛</h4>
-                    <p class="follow-path-matrix-panel-note">过入场才开/加 · 过强档改金额和 rank · 高阈旁路（阈值0=关）</p>
+                    <p class="follow-path-matrix-panel-note">过入场才开/加 · 过强档改金额和 rank 阈值 · 高阈旁路（fuse 阈值 0=关）</p>
                   </header>
                   <div class="follow-path-matrix-body follow-path-matrix-body--row3">
                     <div
                       class="follow-path-matrix-box follow-path-matrix-box--pair follow-path-matrix-box--entry"
-                      title="过入场阈值才建仓/加仓，买右侧金额（按成交价换算整手；不够一手则跳过）。未过门槛的已持仓清仓。未过强档时 rank 另须 max(oo_rank, τc_rank)&lt;该值（默认 10；≤0=关；两侧都缺不拦；过强档改看强档 rank）。阈值默认 0.1%；金额默认 1 万。保存规则同步到交易执行自动调仓。"
+                      title="过 fuse 入场阈值才建仓/加仓，买右侧金额（按成交价换算整手；不够一手则跳过）。未过门槛的已持仓清仓。未过强档时另须 oo_rank 与 τc_rank 均过本格 rank 阈值（默认 0.3；空=关；两侧都缺不拦；不是 y_oo / y_τc；过强档改看强档 rank 阈值）。fuse 阈值默认 0.1%；金额默认 1 万。买序按 oo_rank 分。保存规则同步到交易执行自动调仓。"
                     >
                       <span class="follow-path-matrix-box-text">
                         <span class="follow-path-matrix-box-title">入场</span>
                       </span>
                       <div class="follow-path-matrix-box-pair">
                         <label class="follow-path-matrix-box-slot">
-                          <span class="follow-path-matrix-box-slot-label">阈值%</span>
-                          <input type="number" name="pm_fuse_enter" min="0" max="10" step="0.01" value="0.1" aria-label="入场阈值" />
+                          <span class="follow-path-matrix-box-slot-label">fuse 阈值%</span>
+                          <input type="number" name="pm_fuse_enter" min="0" max="10" step="0.01" value="0.1" aria-label="入场 fuse 阈值" />
+                        </label>
+                        <label
+                          class="follow-path-matrix-box-slot"
+                          title="限制 oo_rank 与 τc_rank（不是 y_oo / y_τc）：两头相对分均须 ≥ 本格阈值。默认 0.3；空=关。两侧都缺不拦。fuse 过强档改看强档 rank 阈值。未过则已持仓清仓。须已启用对应研究/执行套。"
+                        >
+                          <span class="follow-path-matrix-box-slot-label">rank 阈值</span>
+                          <input type="number" name="pm_oo_tc_score_min" min="-5" max="5" step="0.01" value="0.3" aria-label="入场 rank 阈值（oo_rank 与 τc_rank）" />
                         </label>
                         <label class="follow-path-matrix-box-slot">
                           <span class="follow-path-matrix-box-slot-label">金额</span>
                           <input type="number" name="pm_lot_base_amount" min="1000" max="1000000" step="1000" value="10000" aria-label="入场金额" />
                         </label>
-                        <label
-                          class="follow-path-matrix-box-slot"
-                          title="未过强档时入场另须 max(ŷ_oo_rank, ŷ_τc_rank) &lt; 此值（1=相对分最高）。默认 10；≤0=关。两侧都缺不拦；仅一侧有则用该侧。fuse 过强档改看强档 rank。未过则已持仓清仓。须已启用对应研究/执行套。"
-                        >
-                          <span class="follow-path-matrix-box-slot-label">rank</span>
-                          <input type="number" name="pm_oo_rank_max" min="0" max="500" step="1" value="10" aria-label="oo_rank 与 τc_rank 入场名次" />
-                        </label>
                       </div>
                     </div>
                     <div
                       class="follow-path-matrix-box follow-path-matrix-box--pair"
-                      title="过强阈值买右侧强档金额，并改看强档 rank（默认 100）。否则买入场金额、看入场 rank。金额按成交价换算整手；不够一手则跳过；单票市值不超过强档×120%（高阈开启且金额更高时跟 max(强,高)×120%）。阈值默认 0.1%；金额不少于入场，默认 2 万。保存规则同步到交易执行自动调仓。"
+                      title="过强档 fuse 阈值买右侧强档金额，并改看强档 rank 阈值（默认 0.3；限制 oo_rank / τc_rank，不是 y_oo / y_τc）。否则买入场金额、看入场 rank 阈值。金额按成交价换算整手；不够一手则跳过；单票市值不超过强档×120%（高阈开启且金额更高时跟 max(强,高)×120%）。fuse 阈值默认 0.1%；金额不少于入场，默认 2 万。保存规则同步到交易执行自动调仓。"
                     >
                       <span class="follow-path-matrix-box-text">
                         <span class="follow-path-matrix-box-title">强档</span>
                       </span>
                       <div class="follow-path-matrix-box-pair">
                         <label class="follow-path-matrix-box-slot">
-                          <span class="follow-path-matrix-box-slot-label">阈值%</span>
-                          <input type="number" name="pm_fuse_strong" min="0" max="10" step="0.01" value="0.1" aria-label="强阈值" />
+                          <span class="follow-path-matrix-box-slot-label">fuse 阈值%</span>
+                          <input type="number" name="pm_fuse_strong" min="0" max="10" step="0.01" value="0.1" aria-label="强档 fuse 阈值" />
+                        </label>
+                        <label
+                          class="follow-path-matrix-box-slot"
+                          title="fuse 过强档后：oo_rank 与 τc_rank 相对分均须 ≥ 本格阈值（不是 y_oo / y_τc）。默认 0.3；空=关。两侧都缺不拦。未过则已持仓清仓。"
+                        >
+                          <span class="follow-path-matrix-box-slot-label">rank 阈值</span>
+                          <input type="number" name="pm_oo_tc_score_strong_min" min="-5" max="5" step="0.01" value="0.3" aria-label="强档 rank 阈值（oo_rank 与 τc_rank）" />
                         </label>
                         <label class="follow-path-matrix-box-slot">
                           <span class="follow-path-matrix-box-slot-label">金额</span>
                           <input type="number" name="pm_lot_strong_amount" min="1000" max="1000000" step="1000" value="20000" aria-label="强档金额" />
                         </label>
-                        <label
-                          class="follow-path-matrix-box-slot"
-                          title="fuse 过强档后另须 max(ŷ_oo_rank, ŷ_τc_rank) &lt; 此值。默认 100；≤0=关。两侧都缺不拦；仅一侧有则用该侧。未过则已持仓清仓。"
-                        >
-                          <span class="follow-path-matrix-box-slot-label">rank</span>
-                          <input type="number" name="pm_oo_rank_strong_max" min="0" max="500" step="1" value="100" aria-label="强档 oo_rank 与 τc_rank 名次" />
-                        </label>
                       </div>
                     </div>
                     <div
                       class="follow-path-matrix-box follow-path-matrix-box--pair"
-                      title="高阈：与入场/强档并列的旁路。fuse 过本格阈值且 max(oo_rank, τc_rank)&lt;本格 rank 时，用本格金额开/加（已因入场/强档买过不叠第二笔）。不绕过形态闸。阈值 0=关。默认 1.0% / 10 万 / rank 100。保存规则同步到交易执行自动调仓。"
+                      title="高阈：与入场/强档并列的旁路。fuse 过本格阈值且 oo_rank / τc_rank 过本格 rank 阈值时，用本格金额开/加（已因入场/强档买过不叠第二笔）。不绕过形态闸。fuse 阈值 0=关。默认 1.0% / 10 万 / rank 0.3。保存规则同步到交易执行自动调仓。"
                     >
                       <span class="follow-path-matrix-box-text">
                         <span class="follow-path-matrix-box-title">高阈</span>
                       </span>
                       <div class="follow-path-matrix-box-pair">
                         <label class="follow-path-matrix-box-slot">
-                          <span class="follow-path-matrix-box-slot-label">阈值%</span>
-                          <input type="number" name="pm_fuse_high" min="0" max="10" step="0.01" value="1" aria-label="高阈阈值" />
+                          <span class="follow-path-matrix-box-slot-label">fuse 阈值%</span>
+                          <input type="number" name="pm_fuse_high" min="0" max="10" step="0.01" value="1" aria-label="高阈 fuse 阈值" />
+                        </label>
+                        <label
+                          class="follow-path-matrix-box-slot"
+                          title="高阈旁路：oo_rank 与 τc_rank 相对分均须 ≥ 本格阈值（不是 y_oo / y_τc）。默认 0.3；空=关（只看 fuse）。两侧都缺不拦。"
+                        >
+                          <span class="follow-path-matrix-box-slot-label">rank 阈值</span>
+                          <input type="number" name="pm_oo_tc_score_high_min" min="-5" max="5" step="0.01" value="0.3" aria-label="高阈 rank 阈值（oo_rank 与 τc_rank）" />
                         </label>
                         <label class="follow-path-matrix-box-slot">
                           <span class="follow-path-matrix-box-slot-label">金额</span>
                           <input type="number" name="pm_lot_high_amount" min="1000" max="1000000" step="1000" value="100000" aria-label="高阈金额" />
-                        </label>
-                        <label
-                          class="follow-path-matrix-box-slot"
-                          title="高阈旁路另须 max(ŷ_oo_rank, ŷ_τc_rank) &lt; 此值。默认 100；≤0=关（只看 fuse）。两侧都缺不拦；仅一侧有则用该侧。"
-                        >
-                          <span class="follow-path-matrix-box-slot-label">rank</span>
-                          <input type="number" name="pm_oo_rank_high_max" min="0" max="500" step="1" value="100" aria-label="高阈 oo_rank 与 τc_rank 名次" />
                         </label>
                       </div>
                     </div>

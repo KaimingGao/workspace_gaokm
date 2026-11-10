@@ -3,7 +3,7 @@
 [← 文档索引](../README.md) · 调仓产品见 [rebalance-logic.md](../rebalance-logic.md) · L1/L2 见 [feature-lake-daycube.md](./feature-lake-daycube.md) · 宇宙键见 [daycube-universe-key.md](./daycube-universe-key.md)
 
 > 状态：**现行**（2026-11-09 · PIT 收敛已收口）拟合 / 回测 / live **只读会话日 L1/L2**；缺 open 立方 → `materialize_required` → `ensure_session_open_l2`（行情临时 → 日线终态）。§1 保留早盘事故根因备忘。  
-> 范围：live 开盘窗矩阵调仓打分与下单闸 · 开盘 PIT provenance · Follow↔Replay 对账提示  
+> 范围：live 开盘窗矩阵调仓打分与下单闸 · 开盘 PIT provenance  
 > 不覆盖：模型重训、实盘 OMS
 
 ---
@@ -123,7 +123,7 @@
 
 ## 11. 落地顺序（已完成）
 
-已全部落地：消费只读会话日 L2 · `ensure_session_open_l2` 临时→终态 · tip / Follow↔Replay 对账 · 单测（覆盖 / 闸 / provenance / refuse snap-to-open）。
+已全部落地：消费只读会话日 L2 · `ensure_session_open_l2` 临时→终态 · tip provenance · 单测（覆盖 / 闸 / refuse snap-to-open）。
 
 ---
 
@@ -142,7 +142,6 @@
 | 截面 z / DayCube | `feature_standardize.cross_section_zscore_matrix`；`day_cube._compute_mu_sigma` |
 | 观察池键 / 行情批量 | `coverage.read_cube_codes`；`quote_api.StockAPI.batch_query` · `QUOTE_MEM_TTL_SECONDS=60` / `QUOTE_EMPTY_OPEN_TTL_SECONDS=5`；开盘截面前 `invalidate_codes` + 缺今开重拉 |
 | 回测开盘日（对照）/ tip | `lake_replay.score_open_day_entries` · `clip_replay_score_dates`；`score_tooltip.js` · `formatEodAsOfHint`（provenance） |
-| Follow↔Replay 对齐 | `execution_ui.js`（`__quantlabLiveAlign`）· `domain_backtest.js` · `replay_panel.html` `#replay-follow-align` |
 | 拒 snap-to-open | `watching_matrix` 显式分钟钟缺 L2 → `materialize_required`（不降级 open） |
 
 ---
@@ -155,8 +154,9 @@
 
 ## 14. 状态
 
-- **现行**：消费只读会话日 L2；`ensure_session_open_l2` 唯一写手调度（行情临时 → 日线终态）；warmup 禁 provisional/legacy 假健康；tip / 账本透传 provenance；Follow↔Replay 钟权对齐警告；显式分钟钟拒 snap-to-open。单测：`tests/test_pit_session.py` · `test_open_pit_score.py` · `ConsumerCoverageTest` · JS guards。
+- **现行**：消费只读会话日 L2；`ensure_session_open_l2` 唯一写手调度（行情临时 → 日线终态）；warmup 禁 provisional/legacy 假健康；tip / 账本透传 provenance；显式分钟钟拒 snap-to-open。单测：`tests/test_pit_session.py` · `test_open_pit_score.py` · `ConsumerCoverageTest` · JS guards。
 - **2026-11-06**：持仓盯市空今开 60s 缓存 → open-pit 前 `invalidate_codes`（`TestOpenPitQuoteCacheBust`）。
 - **2026-11-09**：`live_rank_snapshot` 绑 `universe_fp`；`refresh_live_open_ranks` 只认会话日立方；删消费侧 fallback / `score_open_pit_pool`；Web `do_session_open_l2` 自动补齐。
-- **2026-11-09（PIT 收敛）**：`pit_session.py` · provenance meta · tip 改标 · 成员漂移闸 · Follow↔Replay align · refuse snap-to-open。
+- **2026-11-09（PIT 收敛）**：`pit_session.py` · provenance meta · tip 改标 · 成员漂移闸 · refuse snap-to-open。
+- **2026-11-09（下掉）**：回测页 Follow↔Replay 钟权对账横幅（回测/live 钟本就分立，提示噪音大于收益）。
 - **未开（可选）**：成交表「成交时 provisional vs 当前 final」对照列——账本已透传 phase，UI 列另开。

@@ -34,14 +34,12 @@ DEFAULT_PATH_MATRIX: Dict[str, Any] = {
     "residual_w_oc": 0.5,
     "y_oo_gt0": False,
     "y_τc_gt0": False,
-    # None/≤0=关；正整数=未过强档须 max(y_oo_rank, y_τc_rank) < max（UI 入场「rank · oo & τc」默认 10）
-    "oo_rank_max": None,
-    # 缺键=100；≤0/None=关。fuse 过强档后改看这个名次
-    "oo_rank_strong_max": 100,
-    # 高阈名次；缺键且高阈开着=100；≤0=关
-    "oo_rank_high_max": 100,
-    # 旧相对比例闸；UI 已改绝对名次，API 仍认
-    "oo_rank_top_frac": None,
+    # rank 阈值：oo_rank / τc_rank 相对分均 ≥ 阈值（不是 y_oo / y_τc）；缺键=0.3；显式 null=关
+    "oo_tc_score_min": 0.3,
+    # 强档 rank 阈值（仍限 oo_rank / τc_rank）；缺键=0.3；显式 null=关
+    "oo_tc_score_strong_min": 0.3,
+    # 高阈 rank 阈值（仍限 oo_rank / τc_rank）；缺键且高阈开着=0.3；显式 null=关
+    "oo_tc_score_high_min": 0.3,
     # 历史回测成交钟（/replay）；不驱动 live 自动调仓。
     "fill_clock": "09:30",
     # Live 自动调仓 / 手动预演窗口起点；止于 10:00。与回测 fill_clock 分立。
@@ -162,25 +160,20 @@ def get_path_matrix_cfg(
         from core.paper.rebalance.rank_lots import (
             fuse_high_from_cfg,
             lot_high_amount_from_cfg,
-            oo_rank_high_max_from_cfg,
-            oo_rank_max_from_cfg,
-            oo_rank_strong_max_from_cfg,
-            oo_rank_top_frac_from_cfg,
+            oo_tc_score_high_min_from_cfg,
+            oo_tc_score_min_from_cfg,
+            oo_tc_score_strong_min_from_cfg,
         )
 
         # 关闸须能清掉已存值：优先读 raw（含 null）
-        if isinstance(raw, dict) and "oo_rank_max" in raw:
-            out["oo_rank_max"] = oo_rank_max_from_cfg(raw)
+        if isinstance(raw, dict) and "oo_tc_score_min" in raw:
+            out["oo_tc_score_min"] = oo_tc_score_min_from_cfg(raw)
         else:
-            out["oo_rank_max"] = oo_rank_max_from_cfg(out)
-        if isinstance(raw, dict) and "oo_rank_strong_max" in raw:
-            out["oo_rank_strong_max"] = oo_rank_strong_max_from_cfg(raw)
+            out["oo_tc_score_min"] = oo_tc_score_min_from_cfg(out)
+        if isinstance(raw, dict) and "oo_tc_score_strong_min" in raw:
+            out["oo_tc_score_strong_min"] = oo_tc_score_strong_min_from_cfg(raw)
         else:
-            out["oo_rank_strong_max"] = oo_rank_strong_max_from_cfg(out)
-        if isinstance(raw, dict) and "oo_rank_top_frac" in raw:
-            out["oo_rank_top_frac"] = oo_rank_top_frac_from_cfg(raw)
-        else:
-            out["oo_rank_top_frac"] = oo_rank_top_frac_from_cfg(out)
+            out["oo_tc_score_strong_min"] = oo_tc_score_strong_min_from_cfg(out)
         if isinstance(raw, dict) and "fuse_high" in raw:
             high = fuse_high_from_cfg(raw)
             # 显式 0/空 = 关；缺键走默认 1%
@@ -188,25 +181,39 @@ def get_path_matrix_cfg(
         else:
             high = fuse_high_from_cfg(out)
             out["fuse_high"] = float(high) if high is not None else 0.01
-        high_rank_src = (
-            raw if isinstance(raw, dict) and "oo_rank_high_max" in raw else out
+        high_score_key_in_raw = (
+            isinstance(raw, dict) and "oo_tc_score_high_min" in raw
         )
-        out["oo_rank_high_max"] = oo_rank_high_max_from_cfg(
-            {**high_rank_src, "fuse_high": out["fuse_high"]}
+        high_score_src = raw if high_score_key_in_raw else out
+        out["oo_tc_score_high_min"] = oo_tc_score_high_min_from_cfg(
+            {**high_score_src, "fuse_high": out["fuse_high"]}
         )
-        if out["oo_rank_high_max"] is None and out["fuse_high"] > 0:
-            out["oo_rank_high_max"] = 100
+        # 仅缺键补默认；显式 null=关，不可再填回 0.3（否则 UI 空值保存不住）
+        if (
+            not high_score_key_in_raw
+            and out["oo_tc_score_high_min"] is None
+            and out["fuse_high"] > 0
+        ):
+            out["oo_tc_score_high_min"] = 0.3
         out["lot_high_amount"] = lot_high_amount_from_cfg(
             raw if isinstance(raw, dict) and "lot_high_amount" in raw else out
         )
     except Exception:  # noqa: BLE001
-        logger.debug("oo_rank / high gate coerce failed", exc_info=True)
-        out["oo_rank_max"] = None
-        out["oo_rank_strong_max"] = 100
-        out["oo_rank_top_frac"] = None
+        logger.debug("oo_tc_score / high gate coerce failed", exc_info=True)
+        out["oo_tc_score_min"] = 0.3
+        out["oo_tc_score_strong_min"] = 0.3
+        out["oo_tc_score_high_min"] = 0.3
         out["fuse_high"] = 0.01
-        out["oo_rank_high_max"] = 100
         out["lot_high_amount"] = 100_000.0
+
+    # 旧绝对名次闸已退役：读盘丢掉，勿再进生效配置
+    for _dead_rank in (
+        "oo_rank_max",
+        "oo_rank_strong_max",
+        "oo_rank_high_max",
+        "oo_rank_top_frac",
+    ):
+        out.pop(_dead_rank, None)
 
     enter = _pick_fuse_threshold(raw, out, "fuse_enter", 0.001)
     strong = _pick_fuse_threshold(raw, out, "fuse_strong", 0.001)

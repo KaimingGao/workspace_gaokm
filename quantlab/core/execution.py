@@ -161,10 +161,9 @@ DEFAULT_REBALANCE_TIMING: Dict[str, Any] = {
         "fusion_w_oc": 0.4,
         "y_oo_gt0": False,
         "y_τc_gt0": False,
-        "oo_rank_max": None,
-        "oo_rank_strong_max": 100,
-        "oo_rank_high_max": 100,
-        "oo_rank_top_frac": None,
+        "oo_tc_score_min": 0.3,
+        "oo_tc_score_strong_min": 0.3,
+        "oo_tc_score_high_min": 0.3,
         "fill_clock": "09:30",
         "live_fill_clock": "09:30",
         "lot_base_amount": 10000.0,
@@ -212,6 +211,76 @@ def _merge_dict(base: dict, overlay: Optional[dict]) -> dict:
         else:
             out[k] = deepcopy(v)
     return out
+
+
+# rank 阈值（oo_rank / τc_rank 相对分；不是 y_oo / y_τc）。显式 null=关，须能盖掉默认 0.3。
+_RANK_SCORE_GATE_KEYS = (
+    "oo_tc_score_min",
+    "oo_tc_score_strong_min",
+    "oo_tc_score_high_min",
+)
+
+
+_RETIRED_ABS_RANK_KEYS = (
+    "oo_rank_max",
+    "oo_rank_strong_max",
+    "oo_rank_high_max",
+    "oo_rank_top_frac",
+)
+
+
+def _apply_explicit_rank_score_nulls(timing: dict, overlay: Optional[dict]) -> dict:
+    """``_merge_dict`` 会跳过 None；rank 阈值显式 null 须写回，否则 UI 保存关闸又变回 0.3。"""
+    if not isinstance(timing, dict) or not isinstance(overlay, dict):
+        return timing
+    # path_matrix 旧镜像可能脏；以 rank_lots 为准
+    src: Dict[str, Any] = {}
+    pm = overlay.get("path_matrix")
+    rl = overlay.get("rank_lots")
+    if isinstance(pm, dict):
+        src.update(pm)
+    if isinstance(rl, dict):
+        src.update(rl)
+    if not src:
+        return timing
+    touched = [k for k in _RANK_SCORE_GATE_KEYS if k in src]
+    if not touched:
+        return timing
+    for dest_key in ("rank_lots", "path_matrix"):
+        dest = timing.get(dest_key)
+        if not isinstance(dest, dict):
+            continue
+        for k in touched:
+            dest[k] = src.get(k)
+    return timing
+
+
+def _sync_rank_lots_mirrors(timing: dict) -> dict:
+    """rank_lots / path_matrix 镜像对齐，并剔除已退役绝对名次闸键。"""
+    if not isinstance(timing, dict):
+        return timing
+    rl = timing.get("rank_lots")
+    pm = timing.get("path_matrix")
+    base: Dict[str, Any] = {}
+    if isinstance(pm, dict):
+        base.update(pm)
+    if isinstance(rl, dict):
+        base.update(rl)
+    if not base and not isinstance(rl, dict) and not isinstance(pm, dict):
+        return timing
+    for k in _RETIRED_ABS_RANK_KEYS:
+        base.pop(k, None)
+    # 保证两侧同对象内容
+    mirrored = dict(base)
+    timing["rank_lots"] = mirrored
+    timing["path_matrix"] = dict(mirrored)
+    return timing
+
+
+def _merge_rebalance_timing(base: dict, overlay: Optional[dict]) -> dict:
+    out = _merge_dict(base, overlay)
+    out = _apply_explicit_rank_score_nulls(out, overlay)
+    return _sync_rank_lots_mirrors(out)
 
 
 def default_execution_spec() -> Dict[str, Any]:
@@ -407,7 +476,7 @@ def resolve_effective_execution(
     timing = deepcopy(DEFAULT_REBALANCE_TIMING)
     spec_timing = strategy_exe.get("rebalance_timing")
     if isinstance(spec_timing, dict):
-        timing = _merge_dict(timing, spec_timing)
+        timing = _merge_rebalance_timing(timing, spec_timing)
     if isinstance(paper_rules, dict):
         if paper_rules.get("execution_mode"):
             timing["execution_mode"] = paper_rules.get("execution_mode")
@@ -417,13 +486,13 @@ def resolve_effective_execution(
                 timing["execution_mode"] = paper_exe.get("execution_mode")
             rt = paper_exe.get("rebalance_timing")
             if isinstance(rt, dict):
-                timing = _merge_dict(timing, rt)
+                timing = _merge_rebalance_timing(timing, rt)
     if isinstance(request_override, dict):
         if request_override.get("execution_mode"):
             timing["execution_mode"] = request_override.get("execution_mode")
         req_t = request_override.get("rebalance_timing")
         if isinstance(req_t, dict):
-            timing = _merge_dict(timing, req_t)
+            timing = _merge_rebalance_timing(timing, req_t)
     mode = str(timing.get("execution_mode") or "next_open").strip().lower()
     if mode not in ("next_open", "close"):
         mode = "next_open"
@@ -809,13 +878,10 @@ def validate_execution_patch(raw: Any) -> Tuple[bool, Dict[str, Any], List[str]]
                     # get_path_matrix_cfg 已 coerce 闸开关
                     "y_oo_gt0": bool(pm.get("y_oo_gt0")),
                     "y_τc_gt0": bool(pm.get("y_τc_gt0")),
-                    # None/≤0=关；正整数=未过强档须 max(y_oo_rank, y_τc_rank) < max（UI 入场 rank）。须进白名单。
-                    "oo_rank_max": pm.get("oo_rank_max"),
-                    # 过强档后的名次；缺键默认 100；≤0/None=关
-                    "oo_rank_strong_max": pm.get("oo_rank_strong_max"),
-                    "oo_rank_high_max": pm.get("oo_rank_high_max"),
-                    # 旧相对比例闸；与绝对闸并存时优先 max
-                    "oo_rank_top_frac": pm.get("oo_rank_top_frac"),
+                    # rank 阈值：oo_rank / τc_rank 相对分（不是 y_oo / y_τc）；缺键默认 0.3；显式 null=关。
+                    "oo_tc_score_min": pm.get("oo_tc_score_min"),
+                    "oo_tc_score_strong_min": pm.get("oo_tc_score_strong_min"),
+                    "oo_tc_score_high_min": pm.get("oo_tc_score_high_min"),
                     "fill_clock": str(pm.get("fill_clock") or "09:30"),
                     "live_fill_clock": str(pm.get("live_fill_clock") or "09:30"),
                     "score_backend": str(pm.get("score_backend") or "ridge"),
@@ -833,12 +899,17 @@ def validate_execution_patch(raw: Any) -> Tuple[bool, Dict[str, Any], List[str]]
                 lots["mode"] = "rank_lots"
                 if "enabled" in pm_in:
                     lots["enabled"] = full["enabled"]
-                # 写绝对闸时清掉相对闸，避免旧 0.5 残留抢语义
-                if "oo_rank_max" in pm_in:
-                    lots["oo_rank_max"] = full.get("oo_rank_max")
-                    lots["oo_rank_top_frac"] = None
+                if "oo_tc_score_min" in pm_in:
+                    lots["oo_tc_score_min"] = full.get("oo_tc_score_min")
+                if "oo_tc_score_strong_min" in pm_in:
+                    lots["oo_tc_score_strong_min"] = full.get("oo_tc_score_strong_min")
+                if "oo_tc_score_high_min" in pm_in:
+                    lots["oo_tc_score_high_min"] = full.get("oo_tc_score_high_min")
+                # 旧绝对名次闸已退役：补丁里若仍带则丢弃，不落盘
+                for _dead in _RETIRED_ABS_RANK_KEYS:
+                    lots.pop(_dead, None)
                 timing_out["rank_lots"] = lots
-                timing_out["path_matrix"] = lots
+                timing_out["path_matrix"] = dict(lots)
             except Exception as e:  # noqa: BLE001
                 errors.append(f"rank_lots 校验失败: {e}")
                 return False, {}, errors
@@ -898,9 +969,13 @@ def apply_execution_patch_to_paper(
             from core.paper.rebalance.path_matrix import DEFAULT_PATH_MATRIX
 
             keep = set(DEFAULT_PATH_MATRIX)
-            prev_pm = {k: v for k, v in prev_pm.items() if k in keep}
+            prev_pm = {
+                k: v
+                for k, v in prev_pm.items()
+                if k in keep and k not in _RETIRED_ABS_RANK_KEYS
+            }
             rt["rank_lots"] = prev_pm
-            rt["path_matrix"] = prev_pm
+            rt["path_matrix"] = dict(prev_pm)
         for k, v in timing_patch.items():
             if k in ("path_matrix", "rank_lots") or v is None:
                 continue

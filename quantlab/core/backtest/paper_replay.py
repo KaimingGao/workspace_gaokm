@@ -189,6 +189,9 @@ def backtest_paper_replay(
     y_τc_gt0: Optional[bool] = None,
     morph_gate_enabled: Optional[bool] = None,
     sentiment_gate_enabled: Optional[bool] = None,
+    oo_tc_score_min: Optional[float] = 0.3,
+    oo_tc_score_strong_min: Optional[float] = 0.3,
+    oo_tc_score_high_min: Optional[float] = 0.3,
     oo_rank_max: Optional[int] = None,
     oo_rank_strong_max: Optional[int] = None,
     oo_rank_high_max: Optional[int] = None,
@@ -202,10 +205,11 @@ def backtest_paper_replay(
     """策略调仓历史回测：ŷ_oo 09:30 开盘；ŷ_τc 随成交钟前缀重算（09:30=开盘 Z），按调仓钟 5m 价成交。
 
     ``score_backend`` 恒为 ridge（影子树头已下线）；传入 tree 会被忽略。
-    ŷ_oo_rank 有模型时按当日截面编成 1..n 名次透传到成交行；过入场后买序按 oo_rank。
+    ŷ_oo_rank 有模型时按当日截面编成 1..n 名次透传到成交行；过入场后买序按 oo_rank_score。
     ``tradable_codes`` 给定时：主头与排序头截面 z 仍用整池；ŷ 与名次只写这份名单（分档内）。
     排序头 ``train_universe``（``tier_a`` / ``tier``，或旧 ``zscore_universe=tier_a``）只影响拟合损失，打分不再缩 z。
-    ``oo_rank_max`` 开则未过强档时另须 max(y_oo_rank, y_τc_rank) < max（两侧都缺不拦）；否则可读旧 ``oo_rank_top_frac``。y_oo_fuse > fuse_strong 时改看 ``oo_rank_strong_max``（缺省 100；0=关）。
+    ``oo_tc_score_min`` 开则未过强档时另须 oo_rank / τc_rank 相对分均 ≥ 阈值（不是 y_oo / y_τc；缺省 0.3；None=关）。
+    y_oo_fuse > fuse_strong 时改看 ``oo_tc_score_strong_min``（缺省 0.3；None=关）。
     """
     from core.research.holdout import (
         current_scoring_model_role,
@@ -243,6 +247,9 @@ def backtest_paper_replay(
         oo_rank_max_from_cfg,
         oo_rank_strong_max_from_cfg,
         oo_rank_top_frac_from_cfg,
+        oo_tc_score_high_min_from_cfg,
+        oo_tc_score_min_from_cfg,
+        oo_tc_score_strong_min_from_cfg,
         plan_rank_lot_day,
     )
     from core.paper.rebalance.watching_matrix import _apply_matrix_trades
@@ -517,18 +524,28 @@ def backtest_paper_replay(
         ),
         # 规则栏已下掉舆情软先验；回测恒关
         "sentiment_gate_enabled": False,
+        "oo_tc_score_min": oo_tc_score_min_from_cfg(
+            {"oo_tc_score_min": oo_tc_score_min}
+        ),
+        "oo_tc_score_strong_min": oo_tc_score_strong_min_from_cfg(
+            {"oo_tc_score_strong_min": oo_tc_score_strong_min}
+        ),
+        "oo_tc_score_high_min": oo_tc_score_high_min_from_cfg(
+            {
+                "oo_tc_score_high_min": oo_tc_score_high_min,
+                "fuse_high": high_n,
+            }
+        ),
         "oo_rank_max": oo_rank_max_from_cfg(
             {"oo_rank_max": oo_rank_max} if oo_rank_max is not None else {}
         ),
         "oo_rank_strong_max": oo_rank_strong_max_from_cfg(
             {"oo_rank_strong_max": oo_rank_strong_max}
             if oo_rank_strong_max is not None
-            else {}
+            else {"oo_rank_strong_max": None}
         ),
         "oo_rank_high_max": (
-            int(oo_rank_high_max)
-            if oo_rank_high_max is not None
-            else (100 if high_n > 0 else None)
+            int(oo_rank_high_max) if oo_rank_high_max is not None else None
         ),
         "oo_rank_top_frac": oo_rank_top_frac_from_cfg(
             {"oo_rank_top_frac": oo_rank_top_frac}
@@ -559,6 +576,9 @@ def backtest_paper_replay(
     rl_cfg["y_τc_gt0"] = replay_lots["y_τc_gt0"]
     rl_cfg["morph_gate_enabled"] = bool(replay_lots["morph_gate_enabled"])
     rl_cfg["sentiment_gate_enabled"] = bool(replay_lots["sentiment_gate_enabled"])
+    rl_cfg["oo_tc_score_min"] = replay_lots.get("oo_tc_score_min")
+    rl_cfg["oo_tc_score_strong_min"] = replay_lots.get("oo_tc_score_strong_min")
+    rl_cfg["oo_tc_score_high_min"] = replay_lots.get("oo_tc_score_high_min")
     rl_cfg["oo_rank_max"] = replay_lots.get("oo_rank_max")
     rl_cfg["oo_rank_strong_max"] = replay_lots.get("oo_rank_strong_max")
     rl_cfg["oo_rank_high_max"] = replay_lots.get("oo_rank_high_max")
@@ -1206,6 +1226,9 @@ def backtest_paper_replay(
                 if bool(rl_cfg.get("morph_gate_enabled"))
                 else None
             ),
+            "oo_tc_score_min": rl_cfg.get("oo_tc_score_min"),
+            "oo_tc_score_strong_min": rl_cfg.get("oo_tc_score_strong_min"),
+            "oo_tc_score_high_min": rl_cfg.get("oo_tc_score_high_min"),
             "oo_rank_max": rl_cfg.get("oo_rank_max"),
             "oo_rank_strong_max": rl_cfg.get("oo_rank_strong_max"),
             "oo_rank_high_max": rl_cfg.get("oo_rank_high_max"),

@@ -423,21 +423,27 @@ function _replayGateBits(data) {
   const enter = p.fuse_enter != null ? p.fuse_enter : req.fuse_enter;
   const enterPct = _fmtGatePct(enter);
   if (enterPct) bits.push(`fuse≥${enterPct}%`);
-  const rank = p.oo_rank_max != null ? p.oo_rank_max : req.oo_rank_max;
-  if (rank != null && Number(rank) > 0) bits.push(`rank<${Math.round(Number(rank))}`);
-  const strongRank =
-    p.oo_rank_strong_max != null ? p.oo_rank_strong_max : req.oo_rank_strong_max;
-  if (strongRank != null && Number(strongRank) > 0) {
-    bits.push(`强rank<${Math.round(Number(strongRank))}`);
+  const scMin = p.oo_tc_score_min != null ? p.oo_tc_score_min : req.oo_tc_score_min;
+  if (scMin != null && Number.isFinite(Number(scMin))) {
+    bits.push(`rank≥${Number(scMin)}`);
+  }
+  const scStrong =
+    p.oo_tc_score_strong_min != null
+      ? p.oo_tc_score_strong_min
+      : req.oo_tc_score_strong_min;
+  if (scStrong != null && Number.isFinite(Number(scStrong))) {
+    bits.push(`强rank≥${Number(scStrong)}`);
   }
   const high = p.fuse_high != null ? p.fuse_high : req.fuse_high;
   const highPct = _fmtGatePct(high);
   if (highPct) {
-    const highRank =
-      p.oo_rank_high_max != null ? p.oo_rank_high_max : req.oo_rank_high_max;
+    const highSc =
+      p.oo_tc_score_high_min != null
+        ? p.oo_tc_score_high_min
+        : req.oo_tc_score_high_min;
     bits.push(
-      highRank != null && Number(highRank) > 0
-        ? `高阈≥${highPct}%·rank<${Math.round(Number(highRank))}`
+      highSc != null && Number.isFinite(Number(highSc))
+        ? `高阈≥${highPct}%·rank≥${Number(highSc)}`
         : `高阈≥${highPct}%`
     );
   }
