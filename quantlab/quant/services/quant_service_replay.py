@@ -433,6 +433,8 @@ class QuantReplayMixin:
             if morph_gate_enabled is None
             else bool(coerce_cfg_bool(morph_gate_enabled, False))
         )
+        # 旧绝对名次闸已退役：接受入参以免旧客户端炸，不进 request / 引擎
+        _ = (oo_rank_max, oo_rank_strong_max, oo_rank_high_max, oo_rank_top_frac)
         # 规则栏已下掉舆情软先验；回测恒关
         sentiment_gate_b = False
         minute_span = min(max(int(effective_lookback or 30) + 20, 15), 120)
@@ -508,10 +510,6 @@ class QuantReplayMixin:
                     oo_tc_score_min=oo_tc_score_min,
                     oo_tc_score_strong_min=oo_tc_score_strong_min,
                     oo_tc_score_high_min=oo_tc_score_high_min,
-                    oo_rank_max=oo_rank_max,
-                    oo_rank_strong_max=oo_rank_strong_max,
-                    oo_rank_high_max=oo_rank_high_max,
-                    oo_rank_top_frac=oo_rank_top_frac,
                     fill_clock=clock,
                     minute_bars_by_code=minute_bars,
                     lot_base_amount=lot_base_n,
@@ -578,10 +576,6 @@ class QuantReplayMixin:
             "oo_tc_score_min": oo_tc_score_min,
             "oo_tc_score_strong_min": oo_tc_score_strong_min,
             "oo_tc_score_high_min": oo_tc_score_high_min,
-            "oo_rank_max": oo_rank_max,
-            "oo_rank_strong_max": oo_rank_strong_max,
-            "oo_rank_high_max": oo_rank_high_max,
-            "oo_rank_top_frac": oo_rank_top_frac,
             "fill_clock": clock,
             "lot_base_amount": lot_base_n,
             "lot_strong_amount": lot_strong_n,
@@ -926,7 +920,7 @@ class QuantReplayMixin:
 
     def fit_return_score_model(self, **kwargs: Any) -> Dict[str, Any]:
         from core.research.materialize.consumer import MaterializeRequired, materialized_consumer
-        from core.research.oo_ridge import fit_oo_ridge as fit_watching_return_model
+        from core.research.oo_model import fit_oo_model as fit_watching_return_model
 
         with materialized_consumer():
             try:
@@ -952,12 +946,12 @@ class QuantReplayMixin:
     def promote_return_score_model(
         self, note: str = "", persist_role: str = "live"
     ) -> Dict[str, Any]:
-        from core.research.oo_ridge import persist_oo_model
+        from core.research.oo_model import persist_oo_model
 
         return persist_oo_model(note=note, role=persist_role)
 
     def return_score_model_status(self) -> Dict[str, Any]:
-        from core.research.oo_ridge import oo_model_status
+        from core.research.oo_model import oo_model_status
 
         return oo_model_status()
 

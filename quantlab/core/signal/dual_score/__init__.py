@@ -6,7 +6,7 @@
 ŷ_oo / ŷ_τc 进 y_oo_fuse。
 y_oo_fuse τc：w·((ŷ_oo+1)/(1+rot)−1) + w·ŷ_τc
            旧 OC 标签的行也读 y_τc（写入前已对齐到 price(τ)→close）
-residual   R̂_τ = remaining；表列 y_τc 保持 Ridge 原值
+residual   R̂_τ = remaining；表列 y_τc 保持模型原值（LightGBM）
 
 规范见 docs/quant.md · ŷ 全链路。
 

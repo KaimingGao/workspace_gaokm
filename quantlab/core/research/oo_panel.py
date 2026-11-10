@@ -1,7 +1,7 @@
 """ŷ_oo 训练面板：y = open[T+h]/open[T]−1；特征 = 注册子因子 + raw_* / raw_aoo_*。
 
 决策在 T 开盘（PIT 窗不含当日收盘）。与 ``tau_panel`` 并列；
-矩阵堆叠见 ``oo_ridge_compact.assemble_oo_panels``。
+矩阵堆叠见 ``oo_model_compact.assemble_oo_panels``。
 """
 
 from __future__ import annotations

@@ -61,6 +61,12 @@ class TestWeightOosGate(unittest.TestCase):
             "z_stds": {},
             "feature_zscore": True,
         }
+        captured = {}
+
+        def _capture_bt(stock_bars, **kwargs):
+            captured.update(kwargs)
+            return fake_bt(stock_bars, **kwargs)
+
         with patch(
             "core.research.portfolio_bars.load_portfolio_stock_bars",
             side_effect=fake_load,
@@ -69,7 +75,7 @@ class TestWeightOosGate(unittest.TestCase):
             return_value={"watchlist": ["a", "b", "c"]},
         ), patch(
             "core.backtest.topk_probe.run_oos_topk_curve",
-            side_effect=fake_bt,
+            side_effect=_capture_bt,
         ):
             out = evaluate_research_oos(
                 codes=["a", "b", "c"],
@@ -83,6 +89,8 @@ class TestWeightOosGate(unittest.TestCase):
         self.assertEqual(out["baseline_rank_mode"], "flat_zero")
         self.assertEqual(out["research_rank_mode"], "predicted_score")
         self.assertIn("平坦 0%", OOS_PRODUCT_SEMANTICS)
+        self.assertIs(captured.get("return_model"), model)
+        self.assertTrue(captured.get("freeze_return_model"))
 
     def test_gate_reuses_preloaded_stock_bars(self):
         """上游传入 bars 时不再二次 load_portfolio_stock_bars。"""
@@ -205,6 +213,62 @@ class TestWeightOosGate(unittest.TestCase):
         )
         self.assertTrue(allowed["passed"])
         self.assertEqual(allowed["reason"], "oos_not_worse_is_gap")
+
+    def test_weight_suggest_oos_decoupled_from_yhat(self):
+        from core.signal.weight_oos_gate import (
+            YHAT_WEIGHTS_DECOUPLED,
+            evaluate_weight_suggestion_oos,
+        )
+        from core.signal.weight_suggest import format_weight_config_diff
+
+        out = evaluate_weight_suggestion_oos(
+            {"momentum": 0.5},
+            {"momentum": 0.6},
+            codes=["a", "b", "c"],
+            lookback=60,
+        )
+        self.assertTrue(out.get("skipped"))
+        self.assertTrue(out.get("ok"))
+        self.assertTrue(out.get("passed"))
+        self.assertEqual(out.get("reason"), YHAT_WEIGHTS_DECOUPLED)
+        diff = format_weight_config_diff(
+            {
+                "success": True,
+                "current_weights": {"momentum": 0.5},
+                "suggested_weights": {"momentum": 0.6},
+                "deltas": {},
+                "oos_gate": out,
+                "promote_ready": True,
+            }
+        )
+        self.assertTrue(diff.get("promote_ready"))
+        self.assertIn("LightGBM", diff.get("apply_note") or "")
+
+
+class TestScoreViewLgbPayload(unittest.TestCase):
+    def test_active_return_model_payload_keeps_lgb_meta(self):
+        from core.research.oo_lgb import OoLightgbmScorer
+        from core.signal.score_view import active_return_model_payload
+
+        scorer = OoLightgbmScorer(
+            {
+                "schema": "oo_lgb_v1",
+                "solver": "lightgbm",
+                "feature_names": ["momentum"],
+                "feature_importance": [{"key": "momentum", "gain": 3.0}],
+                "booster_b64": "xx",
+                "coefficients": {},
+            },
+            model_role="live",
+        )
+        pay = active_return_model_payload(
+            global_model=scorer, return_model_source="global"
+        )
+        self.assertEqual(pay.get("feature_names"), ["momentum"])
+        self.assertTrue(pay.get("has_booster"))
+        self.assertEqual(pay.get("backend"), "lightgbm")
+        self.assertNotIn("booster_b64", pay)
+
 
 if __name__ == "__main__":
     unittest.main()

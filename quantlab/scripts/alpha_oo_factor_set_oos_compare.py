@@ -24,7 +24,7 @@ from core.research.holdout import (
     calendar_dates_from_stock_bars,
     resolve_ridge_split,
 )
-from core.research.oo_ridge_compact import (
+from core.research.oo_model_compact import (
     assemble_oo_panels,
     fit_oo_ridge_matrix,
     predict_oo_matrix,
@@ -40,7 +40,7 @@ from core.signal.factors.alpha_oo import (
     is_alpha_oo_raw_key,
 )
 from core.signal.factors.z_oo import is_z_oo_key
-from core.research.oo_ridge import _oo_ic, _oo_sign_hit
+from core.research.oo_model import _oo_ic, _oo_sign_hit
 
 
 def _parse_args() -> argparse.Namespace:

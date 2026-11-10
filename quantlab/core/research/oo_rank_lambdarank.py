@@ -41,7 +41,7 @@ TASK = "oo_rank"
 DEFAULT_MIN_NAMES = 8
 DEFAULT_TOPK_TRACK = 10
 DEFAULT_NDCG_K = 10
-# 与 /replay 默认 oo_rank_max / oo_rank_strong_max 对齐（名次闸：rank < N）
+# 历史：曾与 /replay 绝对名次闸对齐；入场已改看 oo_tc_score_* 相对分
 DEFAULT_GATE_N = 10
 DEFAULT_GATE_STRONG_N = 100
 # Gate 日度聚合：至少几天、winsor 两端各裁比例（抑制单日极端）
@@ -2050,7 +2050,7 @@ def _fit_ridge_baseline(
         day_s = str(day.get("date") or "")[:10]
         date_parts.extend([day_s] * len(ys))
     if blocks:
-        from core.research.oo_ridge_compact import fit_oo_ridge_matrix
+        from core.research.oo_model_compact import fit_oo_ridge_matrix
 
         x = np.vstack(blocks)
         del blocks

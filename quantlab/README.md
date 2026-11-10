@@ -77,7 +77,7 @@
 | 能力 | 落点 |
 |------|------|
 | 信号 / 倾向 | `core/signal` 打分；`core/advise` + `core/stance` 给出 `stance_label`（只吃 ŷ） |
-| 研究台 ŷ | ŷ_oo / ŷ_τc；窗头 ŷ_τ30…90 **同窗双训 LightGBM + Ridge**（Holdout AUC 择优）；做 T 用 ŷ_τw |
+| 研究台 ŷ | ŷ_oo / ŷ_τc **LightGBM**；窗头 ŷ_τ30…90 **同窗双训 LightGBM + Ridge**（Holdout AUC 择优）；做 T 用 ŷ_τw |
 | 物化特征（L1/L2） | 日线/分钟 **Feature Lake + DayCube**；拟合与回测只读，缺覆盖返回 `materialize_required` |
 | 回测 / 模拟 | `/replay` 调仓 · 做 T；`/follow` 假钱账本、出处标记、成本模型 |
 | 观察 | `/watching` 名单 + 现价 / 涨跌 + 舆情；建仓进模拟账户 |

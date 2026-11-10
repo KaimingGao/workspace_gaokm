@@ -81,7 +81,7 @@ _SLOT_STALE_POLICY: Dict[str, Dict[str, Any]] = {
         "stuck_start_sec": 5400.0,
         "label": "ŷ_τ90 拟合",
     },
-    "tau-ridge": {
+    "tau-lgb": {
         "stale_sec": 5400.0,
         "stuck_start_sec": 5400.0,
         # 拉日线阶段 current 常为 0；进度靠 message/心跳，勿按零进展误杀
@@ -417,8 +417,8 @@ class JobProgress:
                             "error_code": result.get("error_code"),
                             "hint": result.get("hint"),
                         }
-                    elif slot_name.endswith("-ridge") or slot_name == "tau-ridge":
-                        # ŷ_* Ridge/Tree 大报告：勿裁成调仓 stub
+                    elif slot_name.endswith("-ridge") or slot_name == "tau-lgb":
+                        # ŷ_* 大报告：勿裁成调仓 stub
                         oos = (
                             result.get("oos")
                             if isinstance(result.get("oos"), dict)
@@ -875,7 +875,7 @@ class JobRegistry:
             "t60-ridge",
             "t75-ridge",
             "t90-ridge",
-            "tau-ridge",
+            "tau-lgb",
             "t0-backtest",
             "portfolio-backtest",
             "materialize-l1l2",
@@ -901,7 +901,7 @@ try:
         T60_RIDGE_JOB_PATH,
         T75_RIDGE_JOB_PATH,
         T90_RIDGE_JOB_PATH,
-        TAU_RIDGE_JOB_PATH,
+        TAU_LGB_JOB_PATH,
         T0_BACKTEST_JOB_PATH,
         PORTFOLIO_BACKTEST_JOB_PATH,
         ROLL_GATE_JOB_PATH,
@@ -926,7 +926,7 @@ try:
     t60_ridge_job = job_registry.slot("t60-ridge", persist_path=T60_RIDGE_JOB_PATH)
     t75_ridge_job = job_registry.slot("t75-ridge", persist_path=T75_RIDGE_JOB_PATH)
     t90_ridge_job = job_registry.slot("t90-ridge", persist_path=T90_RIDGE_JOB_PATH)
-    tau_ridge_job = job_registry.slot("tau-ridge", persist_path=TAU_RIDGE_JOB_PATH)
+    tau_lgb_job = job_registry.slot("tau-lgb", persist_path=TAU_LGB_JOB_PATH)
     t0_backtest_job = job_registry.slot("t0-backtest", persist_path=T0_BACKTEST_JOB_PATH)
     portfolio_backtest_job = job_registry.slot(
         "portfolio-backtest", persist_path=PORTFOLIO_BACKTEST_JOB_PATH
@@ -944,7 +944,7 @@ except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流
     t60_ridge_job = job_registry.slot("t60-ridge")
     t75_ridge_job = job_registry.slot("t75-ridge")
     t90_ridge_job = job_registry.slot("t90-ridge")
-    tau_ridge_job = job_registry.slot("tau-ridge")
+    tau_lgb_job = job_registry.slot("tau-lgb")
     t0_backtest_job = job_registry.slot("t0-backtest")
     portfolio_backtest_job = job_registry.slot("portfolio-backtest")
     roll_gate_job = job_registry.slot("roll-gate")

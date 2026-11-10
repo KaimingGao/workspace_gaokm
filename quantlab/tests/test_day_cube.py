@@ -348,7 +348,7 @@ class TestDayCube(unittest.TestCase):
         }
         # 无模型时仍应走完单票路径（不因 len<2 提前 return）
         with patch(
-            "core.signal.cross_section_rescore._rescore_oo_ridge"
+            "core.signal.cross_section_rescore._rescore_oo_lgb"
         ) as oo, patch(
             "core.signal.cross_section_rescore._rescore_tau"
         ) as tau, patch(
@@ -363,7 +363,7 @@ class TestDayCube(unittest.TestCase):
         hz.assert_called_once()
         # 无 cube 时单票应直接跳过
         with patch(
-            "core.signal.cross_section_rescore._rescore_oo_ridge"
+            "core.signal.cross_section_rescore._rescore_oo_lgb"
         ) as oo2:
             rescore_fitted_cross_section([item], score_codes={"000001"}, day_cube=None)
         oo2.assert_not_called()

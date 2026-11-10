@@ -10,14 +10,30 @@ import {
 /** Quant domain: suggest */
 export function installSuggest(q) {
   const { on, els, state, ctx, escapeHtml, apiFetch, setQuantMeta, setBusyText } = q;
-  const { readHorizonDays, readRidgeLambda, readWatchingLimit, readHoldoutTradingDays, readFitLookbackDays, readCrossSectionFitParams, ensureFactorMeta, rememberFactorMeta, factorMetaByName, factorMetaByLabel, factorIcWeightMergedHtml, parseOosGateReason, fmtEmptyCell, fmtOlsCell } = q;
+  const {
+    readHorizonDays,
+    readRidgeLambda,
+    readWatchingLimit,
+    readHoldoutTradingDays,
+    readFitLookbackDays,
+    readCrossSectionFitParams,
+    ensureFactorMeta,
+    rememberFactorMeta,
+    factorMetaByName,
+    factorMetaByLabel,
+    factorIcWeightMergedHtml,
+    parseOosGateReason,
+    isYhatWeightsDecoupled,
+    fmtEmptyCell,
+    fmtOlsCell,
+  } = q;
   const { researchGridHtml, metricCell, metricClass, fmtPct } = q;
-
 
   function weightSuggestStatusHtml(suggest) {
     return buildWeightSuggestStatusHtml(suggest, {
       escapeHtml,
       parseOosGateReason,
+      isYhatWeightsDecoupled,
     });
   }
 
@@ -74,14 +90,20 @@ export function installSuggest(q) {
     if (els.quantMeta) {
       const keepBusy = els.quantMeta.classList.contains("is-busy");
       const gate = (suggest && suggest.oos_gate) || {};
-      const gateTag =
-        suggest && suggest.promote_ready
-          ? " · OOS✓"
-          : gate.ok && !gate.passed
-            ? " · OOS✗"
-            : gate.skipped
-              ? " · OOS—"
-              : "";
+      const decoupled =
+        typeof isYhatWeightsDecoupled === "function"
+          ? isYhatWeightsDecoupled(gate)
+          : String(gate.reason || "") === "yhat_weights_decoupled";
+      let gateTag = "";
+      if (suggest && suggest.promote_ready) {
+        gateTag = decoupled ? " · 可合并" : " · OOS✓";
+      } else if (gate.ok && !gate.passed) {
+        gateTag = " · OOS✗";
+      } else if (decoupled) {
+        gateTag = " · 权重解耦";
+      } else if (gate.skipped) {
+        gateTag = " · OOS—";
+      }
       setQuantMeta(
         `${exp.stock_code || ""} · horizon ${exp.horizon_days} · IC ${icCount}/${
           exp.panel ? exp.panel.factor_count : "—"
@@ -290,11 +312,18 @@ export function installSuggest(q) {
       state.quantLastWeightDiff = sug.config_diff || null;
       const nOk = rows.filter((r) => r.ic != null).length;
       const gate = sug.oos_gate || {};
-      const gateTag = sug.promote_ready
-        ? " · OOS✓"
-        : gate.ok && !gate.passed
-          ? " · OOS✗"
-          : " · OOS—";
+      const decoupled =
+        typeof isYhatWeightsDecoupled === "function"
+          ? isYhatWeightsDecoupled(gate)
+          : String(gate.reason || "") === "yhat_weights_decoupled";
+      let gateTag = " · OOS—";
+      if (sug.promote_ready) {
+        gateTag = decoupled ? " · 可合并" : " · OOS✓";
+      } else if (gate.ok && !gate.passed) {
+        gateTag = " · OOS✗";
+      } else if (decoupled) {
+        gateTag = " · 权重解耦";
+      }
       const icMsg =
         `截面 IC · ${nOk}/${rows.length} · 只读${gateTag}` +
         (sug.ols_used ? " · 含 OLS 回退" : "");
@@ -339,13 +368,14 @@ export function installSuggest(q) {
     };
   }
 
-  function paintOoLikeRidge(data, extra = {}) {
+  function paintOoFitStatus(data, extra = {}) {
     q.paintRidgeEnableStatus(els.quantOlsSummary, ooRidgeStatusPayload(data), {
       omitTauEndBit: true,
-      idleMessage: "拟合后看系数 · 再启用研究/执行",
+      idleMessage: "拟合后看 gain · 再启用研究/执行",
       ...extra,
     });
   }
+  const paintOoLikeRidge = paintOoFitStatus;
 
   function _setOoPromoteEnabled(draftExists) {
     for (const id of [
@@ -368,20 +398,30 @@ export function installSuggest(q) {
             if (resultEl) resultEl.innerHTML = "";
           };
     const draftOk = !!(data.draft && data.draft.success);
-    const ols = data.ols || {};
     state.lastReturnModelFit = data;
     syncOverviewOo(data.oos || {});
     /* 与 ŷ_τc 一致：成功路径只刷系数表，不另挂 fingerprint 摘要块 */
     clearResult();
     if (paintCoef) {
+      const lgbRm =
+        data.backends &&
+        data.backends.lightgbm &&
+        (data.backends.lightgbm.return_model || data.backends.lightgbm);
+      const fi =
+        (data.model && data.model.feature_importance) ||
+        (lgbRm && lgbRm.feature_importance) ||
+        null;
       const rm = {
         ...(data.model || {}),
-        r_squared: ols.r_squared != null ? ols.r_squared : (data.model || {}).r_squared,
-        ridge_lambda:
-          ols.ridge_lambda != null ? ols.ridge_lambda : (data.model || {}).ridge_lambda,
         sample_count: data.sample_count ?? (data.model || {}).sample_count,
+        backend: "lightgbm",
+        recommended_backend: "lightgbm",
+        feature_importance: Array.isArray(fi) ? fi : (data.model || {}).feature_importance,
       };
-      await paintCoef(rm, { oos: data.oos || {} });
+      await paintCoef(rm, {
+        oos: data.oos || {},
+        feature_importance: Array.isArray(fi) ? fi : undefined,
+      });
     }
     _setOoPromoteEnabled(draftOk);
   }
@@ -392,10 +432,14 @@ export function installSuggest(q) {
       fromStatus &&
       typeof fromStatus === "object" &&
       (fromStatus.cs_ic != null ||
+        fromStatus.cs_rank_ic != null ||
+        fromStatus.cs_icir != null ||
         fromStatus.ic != null ||
         fromStatus.sign_hit != null ||
         fromStatus.sign_hit_rate != null ||
-        fromStatus.n_test != null)
+        fromStatus.n_test != null ||
+        fromStatus.n_train != null ||
+        fromStatus.holdout_trading_days != null)
     ) {
       return fromStatus;
     }
@@ -456,12 +500,62 @@ export function installSuggest(q) {
       paintOoLikeRidge(data, extra);
       if (justFittedOnce && clearResult) clearResult();
       if (paintCoef) {
-        const rm = justFittedOnce
+        let rm = justFittedOnce
           ? lastFit.model ||
             (lastFit.return_model ? lastFit.return_model : null) ||
             data.return_model
           : data.return_model || null;
-        await paintCoef(rm, { oos });
+        // 状态刷新也要 stamp LightGBM，否则空 β 被当 Ridge 表
+        if (rm && typeof rm === "object") {
+          const be = String(rm.backend || rm.solver || data.backend || "").toLowerCase();
+          const boosterOk =
+            !!rm.booster_b64 ||
+            !!(
+              rm.booster &&
+              typeof rm.booster === "object" &&
+              (rm.booster.payload_b64 || rm.booster.format)
+            );
+          const coefObj =
+            rm.coefficients && typeof rm.coefficients === "object"
+              ? rm.coefficients
+              : {};
+          const namesOnlyLgb =
+            Array.isArray(rm.feature_names) &&
+            rm.feature_names.length > 0 &&
+            !Object.keys(coefObj).length;
+          const looksLgb =
+            be === "lightgbm" ||
+            be === "lgb" ||
+            String(rm.schema || "").includes("lgb") ||
+            boosterOk ||
+            namesOnlyLgb;
+          if (looksLgb) {
+            const lgbBe =
+              data.backends &&
+              data.backends.lightgbm &&
+              (data.backends.lightgbm.return_model || data.backends.lightgbm);
+            const fi =
+              rm.feature_importance ||
+              (data.return_model && data.return_model.feature_importance) ||
+              (lgbBe && lgbBe.feature_importance) ||
+              (lastFit.model && lastFit.model.feature_importance) ||
+              null;
+            rm = {
+              ...rm,
+              backend: "lightgbm",
+              solver: rm.solver || "lightgbm",
+              feature_importance: Array.isArray(fi) ? fi : rm.feature_importance,
+            };
+            await paintCoef(rm, {
+              oos,
+              feature_importance: Array.isArray(fi) ? fi : undefined,
+            });
+          } else {
+            await paintCoef(rm, { oos });
+          }
+        } else {
+          await paintCoef(rm, { oos });
+        }
       }
       return data;
     } catch (err) {
@@ -487,7 +581,7 @@ export function installSuggest(q) {
     };
     const tick = () => {
       const s = Math.max(0, Math.round((Date.now() - t0) / 1000));
-      const msg = `ŷ_oo… ${q.fmtRidgeFitSec(s)} · ${q.ridgeFitBusyHint(s)}`;
+      const msg = `ŷ_oo LightGBM… ${q.fmtRidgeFitSec(s)} · ${q.ridgeFitBusyHint(s)}`;
       // 状态只写 ŷ_oo 卡头，不刷页顶 #quant-meta（与 ŷ_τc 等头一致）
       paintOoStatus({
         state: "busy",
@@ -509,7 +603,6 @@ export function installSuggest(q) {
             typeof readFitLookbackDays === "function" ? readFitLookbackDays("oo") : 600,
           horizon_days: 1,
           watching_limit: readWatchingLimit(),
-          ridge_lambda: 1.0,
           save_draft: true,
           holdout_trading_days:
             typeof readHoldoutTradingDays === "function" ? readHoldoutTradingDays("oo") : 20,

@@ -187,10 +187,11 @@ def apply_tau_score_fields(
     signal_item["predicted_score_rem"] = y_tau
     signal_item["score_rem"] = y_tau
     if y_tau is not None:
-        from core.signal.yhat_windows import Y_TC_SOURCE_RIDGE, write_y_τc
+        from core.signal.yhat_windows import Y_TC_SOURCE_LIGHTGBM, write_y_τc
 
         write_y_τc(signal_item, y_tau)
-        signal_item["y_τc_source"] = Y_TC_SOURCE_RIDGE
+        signal_item["y_τc_source"] = Y_TC_SOURCE_LIGHTGBM
+        # 历史字段名；现网镜像 ŷ_τc（LightGBM），非 Ridge β
         signal_item["y_τc_ridge"] = y_tau
         signal_item.pop("y_τc_tree", None)
         signal_item["y_spec_τc"] = {
@@ -242,7 +243,7 @@ def apply_tau_score_fields(
     prior_terms = signal_item.get("formula_terms_tau")
     if explain_row:
         try:
-            from core.research.tc_ridge import explain_tau_prediction
+            from core.research.tc_model import explain_tau_prediction
 
             formula_terms_tau = explain_tau_prediction(
                 explain_row, model_doc=rem_model_doc
@@ -718,7 +719,7 @@ def attach_dual_score_pit(
     rem_yhat = None
     try:
         from core.research.feature_standardize import is_cross_section_zscore
-        from core.research.tc_ridge import predict_tau_from_features
+        from core.research.tc_model import predict_tau_from_features
 
         cs_tau = bool(
             rem_model_doc is not None and is_cross_section_zscore(rem_model_doc)
@@ -885,7 +886,7 @@ def format_tau_formula_string(expl: Optional[Dict[str, Any]]) -> str:
 def _tau_active_feature_names() -> Optional[set]:
     """当前 τ 模型入模名。加载失败返回 None（调用方保持旧的「小包键都要重拆」）。"""
     try:
-        from core.research.tc_ridge import load_tau_model
+        from core.research.tc_model import load_tau_model
         from core.signal.factors.sum_identity import filter_predict_active_names
 
         doc = load_tau_model() or {}
@@ -1090,7 +1091,7 @@ def ensure_formula_terms_tau(item: Optional[dict]) -> Optional[Dict[str, Any]]:
         pass
     if feats:
         try:
-            from core.research.tc_ridge import explain_tau_prediction
+            from core.research.tc_model import explain_tau_prediction
 
             row = tau_explain_feats_row(item, feats)
             # 截面模型组不出 z 行时 row 为空。对空行 explain 会把缺特征填成 z=0，
@@ -1124,7 +1125,7 @@ def tau_explain_feats_row(
         return dict(saved_z)
     try:
         from core.research.feature_standardize import is_cross_section_zscore
-        from core.research.tc_ridge import load_tau_model
+        from core.research.tc_model import load_tau_model
 
         doc = load_tau_model()
         if not is_cross_section_zscore(doc):
@@ -1163,18 +1164,26 @@ _tau_explain_row = tau_explain_feats_row
 
 
 def rem_factor_coefficients_public() -> Dict[str, float]:
-    """τ Ridge β 快照（tip「τ 因子系数」）。"""
+    """τ 因子权重快照（tip）：只读 LightGBM gain；无 gain 则空（不回退 Ridge β）。"""
     try:
         from core.yhat.model_load import load_tau_model
 
         doc = load_tau_model() or {}
-        coefs = (doc.get("return_model") or {}).get("coefficients") or {}
+        rm = doc.get("return_model") or {}
         out: Dict[str, float] = {}
-        for k, v in coefs.items():
-            if v is None:
+        fi = rm.get("feature_importance")
+        if not isinstance(fi, list):
+            return out
+        for row in fi:
+            if not isinstance(row, dict):
+                continue
+            # tc_lgb 写 key；个别路径写 name/feature
+            name = row.get("key") or row.get("name") or row.get("feature")
+            gain = row.get("gain")
+            if name is None or gain is None:
                 continue
             try:
-                out[str(k)] = float(v)
+                out[str(name)] = float(gain)
             except (TypeError, ValueError):
                 continue
         return out

@@ -528,7 +528,7 @@ class T30RidgeFitTests(unittest.TestCase):
 
     def test_t30_z_drops_oc_path_shape(self):
         from core.research.horizon_ridge import _horizon_ridge_config
-        from core.research.tc_ridge_compact import TAU_HORIZON_DROP_OC_SHAPE
+        from core.research.tc_model_compact import TAU_HORIZON_DROP_OC_SHAPE
 
         T30_Z_FEATURES = _horizon_ridge_config("t30")["z_features"]
 

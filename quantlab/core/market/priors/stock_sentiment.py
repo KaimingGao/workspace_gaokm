@@ -4,7 +4,7 @@
 调仓规则栏已下掉舆情软先验闸；本模块只做徽章，与 fuse/rank 无关。
 
 契约：
-  ŷ = ReturnScoreModel(...)     ← 唯一生产排序轴
+  ŷ = ŷ_oo LightGBM（load_scoring_return_model）← 唯一生产排序轴
   S = score_headlines(...)      ← 本模块：参考徽章；不改 fuse/rank
 """
 

@@ -330,6 +330,20 @@ function formatEodAsOfHint(raw) {
   return anom ? `${base} · ${anom}` : base;
 }
 
+/** ŷ_oo tip：LightGBM pred_contrib（正式唯一后端）。 */
+function eodModelHint(raw) {
+  const expl =
+    (raw && (raw.formula_terms || raw.score_formula_terms)) || null;
+  const be = String((expl && expl.backend) || "").toLowerCase();
+  const role = String(
+    (expl && (expl.model_role || expl.score_model_role)) || ""
+  ).toLowerCase();
+  if (be === "lambdarank" || role === "lambdarank") {
+    return "LambdaRank · pred_contrib";
+  }
+  return "LightGBM · pred_contrib";
+}
+
 /** ŷ_oo：表列 score · 含因子组成。 */
 export function formatScoreHero(raw) {
   const heuristic =
@@ -376,7 +390,7 @@ export function formatScoreHero(raw) {
     `<div class="score-hero-label">ŷ_oo · 隔夜主轴</div>` +
     `<div class="score-hero-value ${signCls(y)}">${escapeText(yTxt)}</div>` +
     `</div>` +
-    `<div class="score-hero-hint">ŷ = α + Σ β·z（百分点） · ${escapeText(
+    `<div class="score-hero-hint">${escapeText(eodModelHint(raw))} · ${escapeText(
       formatEodAsOfHint(raw)
     )} · 买入门槛` +
     `</div>` +
@@ -440,7 +454,9 @@ function formatCompactEodTip(raw) {
     `<div class="score-hero-label">y_oo</div>` +
     `<div class="score-hero-value ${signCls(y)}">${escapeText(val)}</div>` +
     `</div>` +
-    `<div class="score-hero-hint">ŷ_oo · ${escapeText(formatEodAsOfHint(raw))} · ${suiteBit}α+Σβ·z</div>` +
+    `<div class="score-hero-hint">ŷ_oo · ${escapeText(formatEodAsOfHint(raw))} · ${suiteBit}${escapeText(
+      eodModelHint(raw)
+    )}</div>` +
     gate +
     `</div>`
   );
@@ -511,12 +527,19 @@ function formatCompactTauTip(raw) {
     Number.isFinite(totRaw) &&
     Math.abs(totRaw - Number(fit)) > 0.02;
   const hint = !hasTerms && (yTo != null || rot != null)
-    ? `τ=${escapeText(tau)} · 本槽未跑 τc Ridge · ŷ_oc反推=(1+开盘→τ)(1+ŷ_τc)−1`
+    ? `τ=${escapeText(tau)} · 本槽未跑 τc LightGBM · ŷ_oc反推=(1+开盘→τ)(1+ŷ_τc)−1`
     : formulaMismatch
       ? `ŷ_τc · τ=${escapeText(tau)} · ${escapeText(
           String(ySpec)
         )} · 组成合计 ${escapeText(`${fmtSigned(totRaw, 3)}%`)} 与表列不一致`
-      : `ŷ_τc · τ=${escapeText(tau)} · ${escapeText(String(ySpec))} · α+Σβ·z`;
+      : `ŷ_τc · τ=${escapeText(tau)} · ${escapeText(String(ySpec))} · ${
+          explTau &&
+          ["lightgbm", "lgb"].includes(
+            String(explTau.backend || "").toLowerCase()
+          )
+            ? "LightGBM · pred_contrib"
+            : "α+Σβ·z"
+        }`;
   return (
     `<div class="score-layer score-layer-eod">` +
     `<div class="score-layer-head">` +
@@ -575,7 +598,7 @@ function hasT75FormulaTerms(raw) {
   );
 }
 
-/** y_τc 列 tip：表列=Ridge 模型预估 price→close；remaining(ŷ_τc) 仅未 clip 对照。 */
+/** y_τc 列 tip：表列=LightGBM 预估 price→close；remaining(ŷ_τc) 仅未 clip 对照。 */
 function formatCompactRTip(raw) {
   const fit = resolveYτcScore(raw);
   const fitTxt = fit == null ? "—" : `${fmtSigned(fit, 3)}%`;
@@ -595,9 +618,10 @@ function formatCompactRTip(raw) {
       : yOc != null && rot != null
         ? remainingAtTauPct(yOc, rot)
         : null;
-  const ridgeRaw = raw && (raw.y_τc_ridge ?? raw.y_r ?? raw.y_r_hat ?? raw.predicted_score_r);
-  const ridge =
-    ridgeRaw != null && Number.isFinite(Number(ridgeRaw)) ? Number(ridgeRaw) : null;
+  // y_τc_ridge：历史字段名，现网存的是 ŷ_τc（LightGBM）镜像
+  const altRaw = raw && (raw.y_τc_ridge ?? raw.y_r ?? raw.y_r_hat ?? raw.predicted_score_r);
+  const alt =
+    altRaw != null && Number.isFinite(Number(altRaw)) ? Number(altRaw) : null;
   const ySpec =
     (raw && raw.y_spec_τc && raw.y_spec_τc.formula) ||
     (raw && raw.y_spec_r && raw.y_spec_r.formula) ||
@@ -611,15 +635,15 @@ function formatCompactRTip(raw) {
         )}%</span></div>`
     );
   } else if (
-    ridge != null &&
+    alt != null &&
     fit != null &&
-    Number.isFinite(ridge) &&
-    Math.abs(ridge - fit) > 1e-3
+    Number.isFinite(alt) &&
+    Math.abs(alt - fit) > 1e-3
   ) {
     rows.push(
-      `<div class="score-layer-row"><span>Ridge 对照</span>` +
-        `<span class="num ${signCls(ridge)}">${escapeText(
-          fmtSigned(ridge, 3)
+      `<div class="score-layer-row"><span>模型对照</span>` +
+        `<span class="num ${signCls(alt)}">${escapeText(
+          fmtSigned(alt, 3)
         )}%</span></div>`
     );
   }
@@ -669,13 +693,17 @@ function formatCompactRTip(raw) {
       );
     }
   }
+  const explR = raw && (raw.formula_terms_r || raw.score_formula_terms_r);
+  const explBe = String((explR && explR.backend) || "").toLowerCase();
+  const isLgb = ["lightgbm", "lgb"].includes(explBe) || hasTerms;
+  const modelBit = isLgb ? "LightGBM · pred_contrib" : "模型预估";
   const hint = hasTerms
-    ? `τ=${escapeText(tau)} · ${escapeText(String(ySpec))} · Ridge 模型预估 price→close`
+    ? `τ=${escapeText(tau)} · ${escapeText(String(ySpec))} · ${modelBit}`
     : `τ=${escapeText(tau)} · ${escapeText(String(ySpec))} · 与 ŷ_τc 同因子 · 模型预估`;
   return (
     `<div class="score-layer score-layer-r">` +
     `<div class="score-layer-head">` +
-    `<div class="score-hero-label">ŷ_τc · Ridge</div>` +
+    `<div class="score-hero-label">ŷ_τc · LightGBM</div>` +
     `<div class="score-hero-value ${signCls(fit)}">${escapeText(fitTxt)}</div>` +
     `</div>` +
     `<div class="score-hero-hint">${hint}</div>` +
@@ -1373,9 +1401,20 @@ export function formatFormulaTermsSection(raw, opts = {}) {
   const key = opts.key || "eod";
   if (key === "hl") return ""; // path-ridge / hl tip retired
   const expl = formulaExpl(raw, key);
-  const treeTable = String((expl && expl.model_role) || "").toLowerCase() === "tree";
+  const explBe = String((expl && expl.backend) || "").toLowerCase();
   if (!expl || typeof expl !== "object") return "";
   const termsAll = Array.isArray(expl.terms) ? expl.terms : [];
+  // 项上已挂 gain%（与 oo_rank tip 同）→ 按树表画，即使 backend/model_role 被 slim 丢掉
+  const hasTermGain = termsAll.some(
+    (t) => t && t.gain != null && Number.isFinite(Number(t.gain))
+  );
+  // model_role=tree / backend=lightgbm|lgb|lambdarank；或项上已有 gain
+  const treeTable =
+    String((expl && expl.model_role) || "").toLowerCase() === "tree" ||
+    explBe === "lightgbm" ||
+    explBe === "lgb" ||
+    explBe === "lambdarank" ||
+    hasTermGain;
   // Ridge：缺特征 z≈0 → β·z=0，可隐藏。LambdaRank/tree：缺特征仍可能有非零
   // pred_contrib（ŷ_τc_rank 的 theme_day/gap_atr），必须留在表里，否则组成不全。
   const keepMissingTree =
@@ -1383,7 +1422,9 @@ export function formatFormulaTermsSection(raw, opts = {}) {
     key === "tc_rank" ||
     key === "oo_rank" ||
     key === "rank" ||
-    String((expl && expl.backend) || "").toLowerCase() === "lambdarank";
+    explBe === "lambdarank" ||
+    explBe === "lightgbm" ||
+    explBe === "lgb";
   let terms = termsAll.filter((t) => {
     if (!t) return false;
     if (keepMissingTree) return true;
@@ -1435,12 +1476,18 @@ export function formatFormulaTermsSection(raw, opts = {}) {
             ? "合计相对分"
             : "合计 ŷ_oo";
 
-  // oo_rank / ŷ_τ* LightGBM：落盘 gain 已是百分数（1.46 = 1.46%）
+  // oo_rank / ŷ_oo / ŷ_τc LightGBM：落盘 gain 已是百分数（1.46 = 1.46%）
+  // 与 oo_rank 同：树表且项上有 gain → 出 gain% 列（含 τc）
   const showGain =
-    (isOoRank || (treeTable && isHorizonProb)) &&
-    terms.some(
-      (t) => t && t.gain != null && Number.isFinite(Number(t.gain))
-    );
+    (isOoRank ||
+      (treeTable &&
+        (isHorizonProb ||
+          key === "eod" ||
+          key === "oo" ||
+          key === "tau" ||
+          key === "r" ||
+          hasTermGain))) &&
+    hasTermGain;
 
   // 落盘 gain 已是百分数（1.46 = 1.46%）。再按 ≤1.5 当份额会把 1.x% 显示成 100%+。
   const shown3 = (v) => {
@@ -1504,10 +1551,14 @@ export function formatFormulaTermsSection(raw, opts = {}) {
     ? showGain
       ? isHorizonProb
         ? "gain% = 全模型分裂增益份额（与枢纽因子表同数）；本表按本票 |贡献| Top24，增益高但本票贡献小的因子可不在表内。偏置 + 各因子贡献 = 合计，与表列 p_up 同口径。"
-        : "gain% = 全模型分裂增益份额（与枢纽因子表同数）；本表按本票 |贡献| Top24，增益高但本票贡献小的因子可不在表内。偏置 + 各因子贡献 = 合计相对分。"
+        : isOoRank
+          ? "gain% = 全模型分裂增益份额（与枢纽因子表同数）；本表按本票 |贡献| Top24，增益高但本票贡献小的因子可不在表内。偏置 + 各因子贡献 = 合计相对分。"
+          : key === "tau" || key === "r"
+            ? "gain% = 全模型分裂增益份额（与枢纽因子表同数）；本表按本票 |贡献| Top24，增益高但本票贡献小的因子可不在表内。偏置 + 各因子贡献 = 合计，与表列 ŷ_τc 同口径。"
+            : "gain% = 全模型分裂增益份额（与枢纽因子表同数）；本表按本票 |贡献| Top24，增益高但本票贡献小的因子可不在表内。偏置 + 各因子贡献 = 合计，与表列 ŷ_oo 同口径。"
       : "偏置 + 各因子贡献 = 合计，与表列分数同口径。表内只列贡献最大的因子。"
     : key === "r"
-      ? "β×z = 贡献；合计=Ridge 拟合原值（T收/τ价）。研究/执行两槽同一份 Holdout 前训 β（版本前后）；回测默认研究套，live 用执行套。"
+      ? "β×z = 贡献；合计=Ridge 拟合原值（T收/τ价）。研究/执行两槽同一份 Holdout 前训模型（版本前后）；回测默认研究套，live 用执行套。"
       : isHorizonProb
         ? "β×z = logit 贡献（与研究枢纽「logit 标准化斜率」同口径）；合计 logit 后 p_up=sigmoid(·)=P(窗收益>0)。做 T 默认执行槽；须「启用研究」再「启用执行」晋级后 live 才用新 β。缺特征按均值填（z=0）不占表。"
         : showRest
@@ -1996,7 +2047,7 @@ export function formatTailAnomalySection(raw) {
   );
 }
 
-/** 仅系数表（无分项拆解时回退）。opts.key=tau → ŷ_τc β。 */
+/** 仅系数/增益表（无分项拆解时回退）。opts.key=tau → ŷ_τc gain。 */
 export function formatFactorWeightsSection(raw, opts = {}) {
   const key = opts.key || "eod";
   if (key === "tau") {
@@ -2025,7 +2076,7 @@ export function formatFactorWeightsSection(raw, opts = {}) {
       .join("");
     return (
       `<div class="score-factors-section">` +
-      `<div class="score-section-title">ŷ_τc 因子系数 β</div>` +
+      `<div class="score-section-title">ŷ_τc 因子 gain</div>` +
       `<table class="score-factor-weights"><tbody>${rows}</tbody></table>` +
       `</div>`
     );
@@ -2390,8 +2441,8 @@ export function createScoreTooltipController() {
     if (!cell) return "fuse";
     const tip = String(cell.dataset.scoreTip || "").trim().toLowerCase();
     if (tip === "eod") return "eod";
-    if (tip === "tau" || tip === "rem") return "tau";
-    if (tip === "r" || tip === "τc" || tip === "tc" || tip === "pc") return "r";
+    if (tip === "tau" || tip === "rem" || tip === "τc" || tip === "tc") return "tau";
+    if (tip === "r" || tip === "pc") return "r";
     if (tip === "t30" || tip === "τ30" || tip === "yt30") return "t30";
     if (tip === "t45" || tip === "τ45" || tip === "yt45") return "t45";
     if (tip === "t60" || tip === "τ60" || tip === "yt60") return "t60";
@@ -2567,7 +2618,7 @@ export function createScoreTooltipController() {
         termsHtml ||
           `<div class="score-formula-section">` +
             `<div class="score-section-title">ŷ_τc_rank 组成</div>` +
-            `<div class="score-formula-caption">无因子拆解（旧回测未落盘）。重跑回测后悬停可见 Ridge β·z 或 LambdaRank pred_contrib。与 oo_rank 取 max 作入场闸。</div>` +
+            `<div class="score-formula-caption">无因子拆解（旧回测未落盘）。重跑回测后悬停可见 LightGBM / LambdaRank pred_contrib。与 oo_rank 取 max 作入场闸。</div>` +
             `</div>`,
       ].filter(Boolean);
       showCompactScoreTip(cell, parts.join(""), { sticky });
@@ -2581,7 +2632,7 @@ export function createScoreTooltipController() {
         termsHtml ||
           `<div class="score-formula-section">` +
             `<div class="score-section-title">ŷ_oo_rank 组成</div>` +
-            `<div class="score-formula-caption">无因子拆解（旧回测未落盘）。重跑回测后悬停可见 Ridge β·z 或 LambdaRank pred_contrib。</div>` +
+            `<div class="score-formula-caption">无因子拆解（旧回测未落盘）。重跑回测后悬停可见 LightGBM / LambdaRank pred_contrib。</div>` +
             `</div>`,
       ].filter(Boolean);
       showCompactScoreTip(cell, parts.join(""), { sticky });

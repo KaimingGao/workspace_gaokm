@@ -419,11 +419,11 @@ def factor_label(name: str) -> str:
                 return str(lab)
         except Exception:  # noqa: BLE001 — best-effort
             pass
-    # ŷ_τ* Z canon：z_τh_gap_pct → 跳空 %（与 tc_ridge / 分钟标签表同源）
+    # ŷ_τ* Z canon：z_τh_gap_pct → 跳空 %（与 tc_model / 分钟标签表同源）
     if key.startswith("z_τh_"):
         try:
             from core.signal.factors.z_th import to_legacy_key
-            from core.research.tc_ridge import _TAU_FEAT_LABELS
+            from core.research.tc_model import _TAU_FEAT_LABELS
             from core.signal.minute_tau_feats import MINUTE_TAU_FEAT_LABELS
 
             leg = to_legacy_key(key)
@@ -436,10 +436,10 @@ def factor_label(name: str) -> str:
                 return str(lab)
         except Exception:  # noqa: BLE001 — best-effort
             pass
-    # ŷ_τc Z canon：z_τc_gap_pct → 跳空 %（与 tc_ridge 标签表同源）
+    # ŷ_τc Z canon：z_τc_gap_pct → 跳空 %（与 tc_model 标签表同源）
     if key.startswith("z_τc_"):
         try:
-            from core.research.tc_ridge import _TAU_FEAT_LABELS
+            from core.research.tc_model import _TAU_FEAT_LABELS
 
             lab = _TAU_FEAT_LABELS.get(key)
             if lab:

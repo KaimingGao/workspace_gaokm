@@ -137,11 +137,17 @@ def _attach_ridge_role_flags(
     live_path: str,
     *,
     live_present: Optional[bool] = None,
+    fallback_live_path: Optional[str] = None,
+    accept_research: Optional[Any] = None,
 ) -> Dict[str, Any]:
-    """给 Ridge GET/POST 打上执行套 / 研究套是否已落盘及各自拟合时间标识。"""
+    """给 ŷ_* GET/POST 打上执行套 / 研究套是否已落盘及各自拟合时间标识。"""
     from core.research.holdout import research_model_path, research_sidecar_flags
 
-    flags = research_sidecar_flags(live_path)
+    flags = research_sidecar_flags(
+        live_path,
+        fallback_live_path=fallback_live_path,
+        accept=accept_research,
+    )
     out["research_exists"] = bool(flags.get("research_exists"))
     out["research_path"] = flags.get("research_path")
     research_path = str(flags.get("research_path") or research_model_path(live_path) or "")
@@ -150,16 +156,28 @@ def _attach_ridge_role_flags(
     out["research_promoted_at"] = flags.get("research_promoted_at")
     if live_present is None:
         live_present = bool(live_path and os.path.isfile(live_path))
+        if not live_present and fallback_live_path:
+            live_present = bool(os.path.isfile(fallback_live_path))
     out["live_model_present"] = bool(live_present)
-    live_fit = _peek_model_stamp(live_path) if live_present else None
+    live_fit = _peek_model_stamp(live_path) if live_path and os.path.isfile(live_path) else None
+    if not live_fit and fallback_live_path and os.path.isfile(fallback_live_path):
+        live_fit = _peek_model_stamp(fallback_live_path)
     out["live_fitted_at"] = live_fit
-    out["live_promoted_at"] = (
-        _peek_json_key(live_path, "promoted_at") if live_present else None
+    live_promoted = (
+        _peek_json_key(live_path, "promoted_at")
+        if live_path and os.path.isfile(live_path)
+        else None
     )
+    if not live_promoted and fallback_live_path and os.path.isfile(fallback_live_path):
+        live_promoted = _peek_json_key(fallback_live_path, "promoted_at")
+    out["live_promoted_at"] = live_promoted
     fitted = out.get("fitted_at")
     if not fitted:
         last_path = _last_report_path_from_live(live_path)
         fitted = _peek_model_stamp(last_path) or _file_mtime_iso(last_path)
+        if not fitted and fallback_live_path:
+            fb_last = _last_report_path_from_live(fallback_live_path)
+            fitted = _peek_model_stamp(fb_last) or _file_mtime_iso(fb_last)
     if fitted:
         out["fitted_at"] = fitted
     return out
@@ -736,14 +754,13 @@ class QuantFactorMixin:
         out["watching_limit"] = watching_limit
         return out
 
-    @records_experiment("tc_ridge")
+    @records_experiment("tc_lgb")
     @consume_materialized
-    def run_tau_ridge_experiment(
+    def run_tau_lgb_experiment(
         self,
         *,
         lookback: int = 120,
         watching_limit: int = MODEL_FIT_MAX_SIZE,
-        ridge_lambda: float = 1.0,
         gap_trigger_pct: float = 2.0,
         theme_boost: float = 1.5,
         persist: bool = False,
@@ -756,8 +773,9 @@ class QuantFactorMixin:
         cross_section_zscore: bool = True,
         progress_cb: Optional[Any] = None,
         job_alive_cb: Optional[Any] = None,
+        **_ignored: Any,
     ) -> Dict[str, Any]:
-        """R0：观察池 ŷ_τ 头 Ridge；可选 persist live 模型。
+        """观察池 ŷ_τc LightGBM；可选 persist live 模型（``tau_lgb_model*.json``）。
 
         默认用满观察池。``tau_end_hm`` 优先（09:30…11:00；09:30=0 前缀 open→close）；
         否则 ``tau_hm`` / ``dual_score.enable_minute_tau``（开则训至 11:00 网格）。
@@ -766,12 +784,14 @@ class QuantFactorMixin:
         """
         from core.research.portfolio_bars import load_portfolio_stock_bars
         from core.signal.dual_score import get_dual_score_cfg
-        from core.research.tc_ridge import (
-            fit_tau_ridge_report,
+        from core.research.tc_model import (
+            _usable_tau_lgb_doc,
+            fit_tau_model_report,
             load_tau_last_report,
             load_tau_model,
             persist_tau_model,
             save_tau_last_report,
+            tau_model_legacy_path,
             tau_model_path,
             tau_promote_gate,
         )
@@ -784,7 +804,7 @@ class QuantFactorMixin:
             try:
                 return bool(job_alive_cb())
             except Exception:  # noqa: BLE001
-                logger.debug("tau_ridge job_alive_cb failed", exc_info=True)
+                logger.debug("tau_lgb job_alive_cb failed", exc_info=True)
                 return True
 
         def _prog(cur: int, tot: int, msg: str) -> None:
@@ -803,7 +823,7 @@ class QuantFactorMixin:
             return {
                 "success": False,
                 "error": resolved.get("error") or "拟合宇宙解析失败",
-                "task": "tc_ridge",
+                "task": "tc_lgb",
                 "universe_source": resolved.get("source"),
             }
         codes = list(resolved.get("codes") or [])
@@ -812,8 +832,8 @@ class QuantFactorMixin:
         if len(codes) < 2:
             return {
                 "success": False,
-                "error": "研究池至少 2 只才可跑 ŷ_τ Ridge",
-                "task": "tc_ridge",
+                "error": "研究池至少 2 只才可跑 ŷ_τc LightGBM",
+                "task": "tc_lgb",
             }
 
         if persist:
@@ -831,8 +851,16 @@ class QuantFactorMixin:
                 out["promote_gate"] = saved.get("promote_gate") or tau_promote_gate(last)
                 if saved.get("promoted_at"):
                     out["promoted_at"] = saved["promoted_at"]
+                # 晋级失败时勿把草稿 success 冒充整包成功
+                if not saved.get("success"):
+                    out["success"] = False
+                    out["error"] = saved.get("error") or "启用失败"
                 return _attach_ridge_role_flags(
-                    out, tau_model_path(), live_present=bool(load_tau_model())
+                    out,
+                    tau_model_path(),
+                    live_present=bool(load_tau_model()),
+                    fallback_live_path=tau_model_legacy_path(),
+                    accept_research=_usable_tau_lgb_doc,
                 )
 
         ds = get_dual_score_cfg()
@@ -847,7 +875,7 @@ class QuantFactorMixin:
             return {
                 "success": False,
                 "error": prefix["error"],
-                "task": "tc_ridge",
+                "task": "tc_lgb",
             }
         use_minute = bool(prefix.get("use_minute"))
         tau_key = str(prefix.get("tau_hm") or "open")
@@ -869,9 +897,8 @@ class QuantFactorMixin:
                 continue
             stock_bars.append({"code": str(code), "bars": bars})
         _prog(0, max(1, len(stock_bars)), f"ŷ_τc 组面板 0/{len(stock_bars)}")
-        report = fit_tau_ridge_report(
+        report = fit_tau_model_report(
             stock_bars,
-            ridge_lambda=ridge_lambda,
             gap_trigger_pct=gap_trigger_pct,
             theme_boost=theme_boost,
             tau_hm=tau_key,
@@ -913,7 +940,11 @@ class QuantFactorMixin:
             report["orphaned"] = True
             report["persisted"] = {"success": False, "skipped": True, "orphaned": True}
             return _attach_ridge_role_flags(
-                report, tau_model_path(), live_present=bool(load_tau_model())
+                report,
+                tau_model_path(),
+                live_present=bool(load_tau_model()),
+                fallback_live_path=tau_model_legacy_path(),
+            accept_research=_usable_tau_lgb_doc,
             )
         if report.get("success"):
             save_tau_last_report(report)
@@ -922,7 +953,7 @@ class QuantFactorMixin:
         if persist and report.get("success"):
             saved = persist_tau_model(
                 report,
-                note=note or "api tau-ridge persist",
+                note=note or "api tc-lgb persist",
                 force=bool(force_promote),
                 role=persist_role,
             )
@@ -937,16 +968,19 @@ class QuantFactorMixin:
             if report.get("success") and not report.get("promote_gate"):
                 report["promote_gate"] = tau_promote_gate(report)
         _attach_ridge_role_flags(
-            report, tau_model_path(), live_present=bool(load_tau_model())
+            report,
+            tau_model_path(),
+            live_present=bool(load_tau_model()),
+            fallback_live_path=tau_model_legacy_path(),
+            accept_research=_usable_tau_lgb_doc,
         )
         return report
 
-    def start_tau_ridge_job(
+    def start_tau_lgb_job(
         self,
         *,
         lookback: int = 120,
         watching_limit: int = MODEL_FIT_MAX_SIZE,
-        ridge_lambda: float = 1.0,
         gap_trigger_pct: float = 2.0,
         theme_boost: float = 1.5,
         note: str = "",
@@ -957,13 +991,12 @@ class QuantFactorMixin:
         cross_section_zscore: bool = True,
         **_ignored: Any,
     ) -> Dict[str, Any]:
-        """后台 ŷ_τc 拟合；轮询 ``GET /api/jobs/tau-ridge``。不写盘。"""
-        from core.job_progress import tau_ridge_job
+        """后台 ŷ_τc 拟合；轮询 ``GET /api/jobs/tau-lgb``。不写盘。"""
+        from core.job_progress import tau_lgb_job
 
         kwargs = dict(
             lookback=lookback,
             watching_limit=watching_limit,
-            ridge_lambda=ridge_lambda,
             gap_trigger_pct=gap_trigger_pct,
             theme_boost=theme_boost,
             persist=False,
@@ -975,21 +1008,24 @@ class QuantFactorMixin:
             cross_section_zscore=bool(cross_section_zscore),
         )
         return _start_ridge_fit_job(
-            slot=tau_ridge_job,
-            kind="tau_ridge",
+            slot=tau_lgb_job,
+            kind="tau_lgb",
             message="ŷ_τc 拟合中…",
             watching_limit=int(watching_limit or WATCHING_MAX_SIZE),
-            worker_fn=lambda progress_cb=None, job_alive_cb=None: self.run_tau_ridge_experiment(
+            worker_fn=lambda progress_cb=None, job_alive_cb=None: self.run_tau_lgb_experiment(
                 **kwargs,
                 progress_cb=progress_cb,
                 job_alive_cb=job_alive_cb,
             ),
         )
 
-    def get_tau_ridge_model(self) -> Dict[str, Any]:
-        from core.research.tc_ridge import (
+
+    def get_tau_lgb_model(self) -> Dict[str, Any]:
+        from core.research.tc_model import (
+            _usable_tau_lgb_doc,
             load_tau_last_report,
             load_tau_model,
+            tau_model_legacy_path,
             tau_model_path,
             tau_promote_gate,
         )
@@ -1003,10 +1039,12 @@ class QuantFactorMixin:
                     "exists": False,
                     "path": tau_model_path(),
                     "last_report_exists": False,
-                    "note": "尚无 ŷ_τ 模型；POST /api/quant/tau-ridge persist=true",
+                    "note": "尚无 ŷ_τc 模型；POST /api/quant/tc-lgb persist=true",
                 },
                 tau_model_path(),
                 live_present=False,
+                fallback_live_path=tau_model_legacy_path(),
+            accept_research=_usable_tau_lgb_doc,
             )
 
         _doc, use_last = _select_ridge_desk_doc(live, last)
@@ -1027,7 +1065,11 @@ class QuantFactorMixin:
                 }
             )
             return _attach_ridge_role_flags(
-                out, tau_model_path(), live_present=bool(live)
+                out,
+                tau_model_path(),
+                live_present=bool(live),
+                fallback_live_path=tau_model_legacy_path(),
+            accept_research=_usable_tau_lgb_doc,
             )
 
         if not live:
@@ -1036,7 +1078,7 @@ class QuantFactorMixin:
                 "exists": False,
                 "path": tau_model_path(),
                 "last_report_exists": bool(last),
-                "note": "尚无 ŷ_τ 模型；POST /api/quant/tau-ridge persist=true",
+                "note": "尚无 ŷ_τc 模型；POST /api/quant/tc-lgb persist=true",
             }
             if last:
                 out["last_report"] = last
@@ -1048,6 +1090,8 @@ class QuantFactorMixin:
                 out,
                 tau_model_path(),
                 live_present=False,
+                fallback_live_path=tau_model_legacy_path(),
+            accept_research=_usable_tau_lgb_doc,
             )
 
         return _attach_ridge_role_flags(
@@ -1066,6 +1110,8 @@ class QuantFactorMixin:
             },
             tau_model_path(),
             live_present=True,
+            fallback_live_path=tau_model_legacy_path(),
+            accept_research=_usable_tau_lgb_doc,
         )
 
     @records_experiment("oo_rank")
@@ -1733,7 +1779,7 @@ class QuantFactorMixin:
             enrich_horizon_raw_panels,
             horizon_panel_keep_names,
         )
-        from core.research.tc_ridge_compact import (
+        from core.research.tc_model_compact import (
             TAU_PANEL_POOL_BATCH,
             build_tau_panels_from_bars,
         )
@@ -3217,21 +3263,26 @@ class QuantFactorMixin:
         run_oos_gate = bool(kwargs.get("run_oos_gate", True))
         oos_gate: Optional[Dict[str, Any]] = None
         if run_oos_gate and suggestion.get("success"):
-            from core.signal.weight_oos_gate import evaluate_weight_suggestion_oos
+            from core.signal.weight_oos_gate import (
+                YHAT_WEIGHTS_DECOUPLED,
+                evaluate_weight_suggestion_oos,
+            )
 
             oos_gate = evaluate_weight_suggestion_oos(
                 suggestion.get("current_weights") or {},
                 suggestion.get("suggested_weights") or {},
-                lookback=min(lookback, 90),
-                top_k=int(kwargs.get("oos_top_k") or 3),
-                horizon_days=horizon_days,
-                watching_limit=min(watching_limit, 10),
                 oos_tol_pp=float(kwargs.get("oos_tol_pp") or 1.0),
             )
             suggestion["oos_gate"] = oos_gate
-            suggestion["promote_ready"] = bool(
-                oos_gate.get("ok") and oos_gate.get("passed") and not oos_gate.get("skipped")
-            )
+            # weights 与 ŷ_oo LightGBM 正交：解耦跳过时允许人审 promote（仍受健康拦截）
+            if str(oos_gate.get("reason") or "") == YHAT_WEIGHTS_DECOUPLED:
+                suggestion["promote_ready"] = True
+            else:
+                suggestion["promote_ready"] = bool(
+                    oos_gate.get("ok")
+                    and oos_gate.get("passed")
+                    and not oos_gate.get("skipped")
+                )
         else:
             suggestion["oos_gate"] = {
                 "ok": False,

@@ -228,6 +228,23 @@ _RETIRED_ABS_RANK_KEYS = (
     "oo_rank_top_frac",
 )
 
+# 旧绝对 ŷ 入场阈值 / 符号闸别名（已退役；入场改看 fuse + y_oo_gt0 / y_τc_gt0）
+_RETIRED_ENTER_KEYS = (
+    "y_oo_enter",
+    "y_oo_enter_alt",
+    "y_oc_enter",
+    "y_oc_enter_alt",
+    "y_hl_enter",
+    "y_hl_enter_alt",
+    "y_hl_enabled",
+    "y_hl_gt0",
+    "y_oc_gt0",
+    "y_enter_enabled",
+    "y_enter_alt_enabled",
+    "y_oo_oc_enter",
+    "y_oo_oc_enabled",
+)
+
 
 def _apply_explicit_rank_score_nulls(timing: dict, overlay: Optional[dict]) -> dict:
     """``_merge_dict`` 会跳过 None；rank 阈值显式 null 须写回，否则 UI 保存关闸又变回 0.3。"""
@@ -269,6 +286,8 @@ def _sync_rank_lots_mirrors(timing: dict) -> dict:
     if not base and not isinstance(rl, dict) and not isinstance(pm, dict):
         return timing
     for k in _RETIRED_ABS_RANK_KEYS:
+        base.pop(k, None)
+    for k in _RETIRED_ENTER_KEYS:
         base.pop(k, None)
     # 保证两侧同对象内容
     mirrored = dict(base)
@@ -905,8 +924,8 @@ def validate_execution_patch(raw: Any) -> Tuple[bool, Dict[str, Any], List[str]]
                     lots["oo_tc_score_strong_min"] = full.get("oo_tc_score_strong_min")
                 if "oo_tc_score_high_min" in pm_in:
                     lots["oo_tc_score_high_min"] = full.get("oo_tc_score_high_min")
-                # 旧绝对名次闸已退役：补丁里若仍带则丢弃，不落盘
-                for _dead in _RETIRED_ABS_RANK_KEYS:
+                # 旧绝对名次闸 / 旧 ŷ 入场键已退役：补丁里若仍带则丢弃，不落盘
+                for _dead in (*_RETIRED_ABS_RANK_KEYS, *_RETIRED_ENTER_KEYS):
                     lots.pop(_dead, None)
                 timing_out["rank_lots"] = lots
                 timing_out["path_matrix"] = dict(lots)
@@ -969,10 +988,11 @@ def apply_execution_patch_to_paper(
             from core.paper.rebalance.path_matrix import DEFAULT_PATH_MATRIX
 
             keep = set(DEFAULT_PATH_MATRIX)
+            retired = set(_RETIRED_ABS_RANK_KEYS) | set(_RETIRED_ENTER_KEYS)
             prev_pm = {
                 k: v
                 for k, v in prev_pm.items()
-                if k in keep and k not in _RETIRED_ABS_RANK_KEYS
+                if k in keep and k not in retired
             }
             rt["rank_lots"] = prev_pm
             rt["path_matrix"] = dict(prev_pm)

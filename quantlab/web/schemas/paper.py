@@ -68,7 +68,7 @@ class T0BacktestRequest(BaseModel):
     lookback: int = Field(default=10, ge=5, le=500)
     score_model_role: str = Field(
         default="research",
-        description="回测模型：research=研究槽（Holdout 前训 β，默认）；live=执行槽（由研究槽晋级的同一份 β）。",
+        description="回测模型：research=研究槽（Holdout 前训，默认）；live=执行槽（由研究槽晋级的同一份模型）。",
         max_length=16,
     )
     initial_shares: float = Field(default=1000, ge=100, le=100000)

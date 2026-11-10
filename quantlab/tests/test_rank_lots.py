@@ -181,17 +181,21 @@ class TestPlanRankLotDay(unittest.TestCase):
         scored = [
             {
                 "stock_code": "600000",
-                "stock_name": "ridge高",
+                "stock_name": "fuse高分低",
                 "y_oo_fuse": 5.0,
                 "y_on": 0.0,
                 "y_oo_rank": 2,
+                "y_oo_rank_score": 0.2,
+                "y_tc_rank_score": 0.5,
             },
             {
                 "stock_code": "600001",
-                "stock_name": "rank高",
+                "stock_name": "rank分高",
                 "y_oo_fuse": 1.2,
                 "y_on": 0.0,
                 "y_oo_rank": 1,
+                "y_oo_rank_score": 0.9,
+                "y_tc_rank_score": 0.5,
             },
         ]
         out = plan_rank_lot_day(
@@ -199,10 +203,17 @@ class TestPlanRankLotDay(unittest.TestCase):
             holdings=[],
             cash=1_000_000,
             prices={"600000": 10.0, "600001": 10.0},
-            cfg=_cfg(fuse_enter=0.01, cash_floor=0.0),
+            # 关相对分闸，只验买序；否则缺 τc 分会被拦
+            cfg=_cfg(
+                fuse_enter=0.01,
+                cash_floor=0.0,
+                oo_tc_score_min=None,
+                oo_tc_score_strong_min=None,
+                oo_tc_score_high_min=None,
+            ),
         )
         codes = [t["stock_code"] for t in out["buys"]]
-        # 过门槛后按 oo_rank 升序：名次 1 先于名次 2（即使 fuse 更低）
+        # 过门槛后按 y_oo_rank_score 降序（不是绝对名次）
         self.assertEqual(codes[0], "600001")
         by = {t["stock_code"]: t for t in out["buys"]}
         self.assertEqual(int(by["600001"]["y_oo_rank"]), 1)
@@ -1481,7 +1492,8 @@ class TestGetRankLotCfg(unittest.TestCase):
         cfg = get_rank_lot_cfg({"rules": {"max_positions": 20}})
         self.assertEqual(cfg["top_k"], WATCHING_MAX_SIZE)
         self.assertAlmostEqual(float(cfg["holdings_mv_cap"]), 150_000.0)
-        self.assertAlmostEqual(float(cfg["stock_mv_cap"]), 24_000.0)
+        # 默认高阈开着：单票帽 = max(强档2万, 高阈10万)×120% = 12 万
+        self.assertAlmostEqual(float(cfg["stock_mv_cap"]), 120_000.0)
 
     def test_live_ignores_stored_cash_floor(self):
         from core.paper.rebalance.rank_lots import get_rank_lot_cfg
@@ -1824,6 +1836,60 @@ class TestEnterGates(unittest.TestCase):
         # 阈值 0 = 关
         off = dict(high_cfg, fuse_high=0)
         self.assertIsNotNone(rank_lot_enter_skip_reason(item, off, rs=0.012))
+
+    def test_fuse_high_does_not_bypass_y_oo_gt0(self):
+        from core.paper.rebalance.rank_lots import (
+            high_gate_pass,
+            rank_lot_enter_skip_reason,
+        )
+
+        # 西安奕材类：fuse 过高阈，但 y_oo≤0 且勾了 y_oo>0 → 仍拦
+        item = self._item(
+            predicted_score=-0.283,
+            y_τc=3.56,
+            y_oo_rank_score=0.38,
+            y_tc_rank_score=0.36,
+        )
+        cfg = self._cfg(
+            fuse_enter=0.001,
+            fuse_strong=0.002,
+            fuse_high=0.012,
+            oo_tc_score_high_min=0.3,
+            y_oo_gt0=True,
+            y_τc_gt0=True,
+        )
+        self.assertTrue(high_gate_pass(item, cfg, rs=0.01254))
+        skip = rank_lot_enter_skip_reason(item, cfg, rs=0.01254)
+        self.assertIsNotNone(skip)
+        self.assertIn("y_oo", skip or "")
+        # 符号闸关：高阈仍可救 rank/金额旁路
+        cfg_off = dict(cfg, y_oo_gt0=False, y_τc_gt0=False)
+        self.assertIsNone(rank_lot_enter_skip_reason(item, cfg_off, rs=0.01254))
+
+    def test_fuse_high_does_not_bypass_y_τc_gt0(self):
+        from core.paper.rebalance.rank_lots import (
+            high_gate_pass,
+            rank_lot_enter_skip_reason,
+        )
+
+        item = self._item(
+            predicted_score=1.2,
+            y_τc=-0.05,
+            y_oo_rank_score=0.4,
+            y_tc_rank_score=0.4,
+        )
+        cfg = self._cfg(
+            fuse_enter=0.001,
+            fuse_high=0.01,
+            oo_tc_score_high_min=0.3,
+            y_oo_gt0=False,
+            y_τc_gt0=True,
+        )
+        self.assertTrue(high_gate_pass(item, cfg, rs=0.015))
+        skip = rank_lot_enter_skip_reason(item, cfg, rs=0.015)
+        self.assertIsNotNone(skip)
+        self.assertIn("y_τc", skip or "")
+
 
     def test_fuse_strong_uses_strong_score_gate(self):
         from core.paper.rebalance.rank_lots import rank_lot_enter_skip_reason

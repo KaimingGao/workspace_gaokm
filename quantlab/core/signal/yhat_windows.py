@@ -27,7 +27,10 @@ FORMULA_TC_REMAINING = "remaining(open→close)=(1+ŷ)/(1+open→τ)−1"
 FORMULA_OO_FUSE = "w_oo·((ŷ_oo+1)/(1+rot)−1) + w_τc·ŷ_τc"
 FORMULA_RESIDUAL = "ŷ_τc = close[T]/price[τ]−1"
 Y_TC_SOURCE_REMAINING = "remaining_oc"
+Y_TC_SOURCE_LIGHTGBM = "lightgbm"
+# 旧簿 / 测试兼容：曾写 "ridge" 表示模型 ŷ_τc（非 remaining）
 Y_TC_SOURCE_RIDGE = "ridge"
+Y_TC_SOURCE_MODEL = Y_TC_SOURCE_LIGHTGBM
 
 
 def _f(x: Any) -> Optional[float]:
@@ -267,7 +270,7 @@ def stamp_remaining_y_τc(dest: Dict[str, Any]) -> Optional[float]:
     if ridge is not None:
         dest["y_τc_ridge"] = float(ridge)
         write_y_τc(dest, ridge)
-        dest["y_τc_source"] = Y_TC_SOURCE_RIDGE
+        dest["y_τc_source"] = Y_TC_SOURCE_LIGHTGBM
         dest["y_spec_τc"] = {"formula": FORMULA_TC, "unit": "pct"}
     return ridge
 
@@ -652,6 +655,8 @@ __all__ = [
     "FORMULA_OO_FUSE",
     "FORMULA_RESIDUAL",
     "Y_TC_SOURCE_REMAINING",
+    "Y_TC_SOURCE_LIGHTGBM",
+    "Y_TC_SOURCE_MODEL",
     "Y_TC_SOURCE_RIDGE",
     "compound_pct",
     "forward_oo_pct",

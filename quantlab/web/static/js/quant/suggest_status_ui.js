@@ -84,6 +84,7 @@ export function factorWeightSuggestCellTip(name, row, suggest, sourceTipMap) {
 export function weightSuggestStatusHtml(suggest, deps) {
   const esc = (deps && deps.escapeHtml) || escapeHtml;
   const parseOosGateReason = deps && deps.parseOosGateReason;
+  const isYhatWeightsDecoupled = deps && deps.isYhatWeightsDecoupled;
   if (!suggest || !suggest.success) return "";
   const lines = (suggest.rationale || []).slice(0, 4);
   const gate = suggest.oos_gate || {};
@@ -92,7 +93,16 @@ export function weightSuggestStatusHtml(suggest, deps) {
       ? ` data-oos-gate="${esc(JSON.stringify(gate))}"`
       : "";
   let gateLine = "";
-  if (gate.skipped) {
+  const decoupled =
+    typeof isYhatWeightsDecoupled === "function"
+      ? isYhatWeightsDecoupled(gate)
+      : String(gate.reason || "") === "yhat_weights_decoupled";
+  if (decoupled) {
+    const ready = suggest.promote_ready ? "可人审合并" : "暂不可 promote";
+    gateLine = `<span class="sub has-oos-tip"${gateAttr}>权重门禁：与 ŷ 解耦（${esc(
+      parseOosGateReason(gate)
+    )}）· ${esc(ready)}</span>`;
+  } else if (gate.skipped) {
     gateLine = `<span class="sub has-oos-tip"${gateAttr}>OOS 门禁：已跳过（${esc(
       parseOosGateReason(gate)
     )}）· promote_ready=否</span>`;

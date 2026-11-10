@@ -1,7 +1,7 @@
-"""ŷ_τc Ridge：面板拼装与矩阵拟合（对齐 ``oo_ridge_compact``）。
+"""ŷ_τc 面板拼装与矩阵拟合（正式后端 LightGBM；对齐 ``oo_model_compact``）。
 
-报告包装 / Holdout OOS / 落盘启用见 ``tc_ridge``。
-底层 ``collect_tau_compact`` / ``fit_keepall_ridge_matrix`` 在 ``panel_matrix``。
+报告包装 / Holdout OOS / 落盘启用见 ``tc_model``。
+底层 ``collect_tau_compact`` 在 ``panel_matrix``；拟合走 ``tc_lgb.fit_tc_lgb_matrix``。
 """
 
 from __future__ import annotations
@@ -43,9 +43,9 @@ def feature_get(row: Optional[Dict[str, Any]], name: str) -> Any:
 
     return _z_th_feature_get(row, name)
 
-# open_gap ≡ gap_pct，只拟合其一，避免 Ridge 双计
+# open_gap ≡ gap_pct，只拟合其一，避免双计
 TAU_FIT_DROP_ALIASES = Z_TC_FIT_DROP_ALIASES
-# ŷ_τ*（Ridge/Tree 同 X）不吃 OC 路径形状的裸名 / z_τh_*：HL/回撤/振幅在 30–90m
+# ŷ_τ*（同 X）不吃 OC 路径形状的裸名 / z_τh_*：HL/回撤/振幅在 30–90m
 # 前瞻上共线对冲，易把 ŷ 压到训练均值。面板仍可算这些键，入模时剔除。
 # 五头另收同一小段 z_τc 路径列和 raw_atc 5/20 日滚动，见 T30_EXTRA_FIT_FEATURES。
 TAU_HORIZON_TREE_SHAPE_FEATURES = (
@@ -88,14 +88,6 @@ def _stack_panels(
         dates_all.extend(p.get("dates") or [])
         metas_all.extend(p.get("metas") or [])
     return xs_all, ys_all, dates_all, metas_all
-
-
-def _subset(xs, ys, metas, idxs):
-    return (
-        [xs[i] for i in idxs],
-        [ys[i] for i in idxs],
-        [metas[i] for i in idxs],
-    )
 
 
 def _predict_rows(
@@ -180,26 +172,6 @@ def _predict_rows(
             "τ CS predict refused: collapsed batch far from intercept "
             "(need day cross-section z before predict)"
         )
-    return out
-
-
-def _matrix_rows_to_dicts(
-    X: np.ndarray,
-    names: Sequence[str],
-) -> List[dict]:
-    out: List[dict] = []
-    arr = np.asarray(X, dtype=np.float64)
-    if arr.ndim != 2:
-        return out
-    for i in range(int(arr.shape[0])):
-        row: Dict[str, Any] = {}
-        for j, name in enumerate(names):
-            if j >= arr.shape[1]:
-                break
-            v = float(arr[i, j])
-            if v == v:  # finite
-                row[str(name)] = v
-        out.append(row)
     return out
 
 
@@ -491,7 +463,7 @@ def build_tau_panels_from_bars(
 
 
 
-def fit_tau_ridge_matrices(
+def fit_tau_model_matrices(
     stock_bars: Sequence[Dict[str, Any]],
     *,
     ridge_lambda: float = 1.0,
@@ -505,10 +477,12 @@ def fit_tau_ridge_matrices(
     cross_section_zscore: bool = True,
     progress_cb: Optional[Any] = None,
 ) -> Dict[str, Any]:
-    """拼面板 + Holdout 前训 Ridge（单套 β）。不含 OOS 报告包装。
+    """拼面板 + Holdout 前训 LightGBM。不含 OOS 报告包装。
 
+    ``ridge_lambda`` 保留形参兼容 API，不参与拟合。
     拟合固定日截面 Z；``cross_section_zscore=False`` 已下线。
     """
+    del ridge_lambda  # ŷ_τc 已切 LightGBM
     from core.research.feature_standardize import reject_global_zscore
 
     err_cs = reject_global_zscore(cross_section_zscore)
@@ -524,11 +498,10 @@ def fit_tau_ridge_matrices(
     from core.research.panel_matrix import (
         collect_tau_compact,
         fill_rates_from_matrix,
-        fit_keepall_ridge_matrix,
         named_columns,
-        predict_ridge_matrix,
         raw_atc_finite,
     )
+    from core.research.tc_lgb import fit_tc_lgb_matrix, predict_tc_lgb_matrix
 
     def _prog(cur: int, tot: int, msg: str) -> None:
         if not callable(progress_cb):
@@ -536,7 +509,7 @@ def fit_tau_ridge_matrices(
         try:
             progress_cb(int(cur), int(tot), str(msg or ""))
         except Exception:  # noqa: BLE001
-            logger.debug("fit_tau_ridge_matrices progress_cb failed", exc_info=True)
+            logger.debug("fit_tau_model_matrices progress_cb failed", exc_info=True)
 
     panel_stats: Dict[str, Any] = {}
     X, col_names, ys, dates, metas, n_stocks = collect_tau_compact(
@@ -611,47 +584,51 @@ def fit_tau_ridge_matrices(
     X_fit, feat_names = named_columns(X, col_names, feat_names)
     del X
 
-    row_tr = np.asarray(train_idx, dtype=np.int64)
-    row_te = np.asarray(test_idx, dtype=np.int64)
-    y_tr = np.asarray(ys_tr, dtype=np.float64)
-    dates_tr = [dates_use[i] for i in train_idx]
-    dates_te = [dates_use[i] for i in test_idx]
     use_cs = True
-    _prog(max(1, n_stocks), max(1, n_stocks), "ŷ_τc Ridge 拟合…")
-    fit = fit_keepall_ridge_matrix(
-        X_fit[row_tr],
-        y_tr,
+    clk = "open" if not use_minute else tau_key
+    _prog(max(1, n_stocks), max(1, n_stocks), "ŷ_τc LightGBM 拟合…")
+    blob, lgb_rep = fit_tc_lgb_matrix(
+        X_fit,
+        np.asarray(ys_use, dtype=np.float64),
         feat_names,
-        ridge_lambda=ridge_lambda,
+        row_idx=train_idx,
+        min_samples=24,
+        row_dates=dates_use,
         sample_weights=theme_w_tr,
-        row_dates=dates_tr,
         cross_section_zscore=True,
+        clock=clk,
     )
-    if not fit.get("success"):
-        fit = {
-            "success": True,
-            "intercept": 0.0,
-            "coefficients": {},
-            "active_features": [],
-            "zscore_means": {},
-            "zscore_stds": {},
-            "note": "Z 方差不足，ŷ_τ 用训练均值",
+    if blob is None:
+        return {
+            "success": False,
+            "error": (lgb_rep or {}).get("error") or "LightGBM 拟合失败",
+            "sample_count": len(ys_use),
+            "stock_count": n_stocks,
+            "tau": tau_key,
+            "tau_grid": grid,
+            "minute_attached": minute_attached,
+            "report": lgb_rep,
         }
 
     preds_te = (
-        predict_ridge_matrix(
-            fit,
-            X_fit[row_te],
+        predict_tc_lgb_matrix(
+            blob,
+            X_fit,
             feat_names,
-            row_dates=dates_te,
+            test_idx,
+            row_dates=dates_use,
+            clock=clk,
         )
         if len(test_idx)
         else []
     )
 
     del X_fit
-    model = dict(fit)
+    model = dict(blob)
     model["model_role"] = "research"
+    model["backend"] = "lightgbm"
+    model["solver"] = "lightgbm"
+    model["tau"] = tau_key
 
     return {
         "success": True,

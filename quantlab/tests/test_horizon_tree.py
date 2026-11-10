@@ -156,14 +156,14 @@ class TestHorizonTree(unittest.TestCase):
             "terms": [{"key": "gap_pct", "contrib": 0.4}],
         }
         with horizon_prob_backend_context("tree"), patch(
-            "core.research.tc_ridge.predict_tau_from_features",
+            "core.research.tc_model.predict_tau_from_features",
             return_value=0.55,
         ), patch(
-            "core.research.tc_ridge.explain_tau_prediction",
+            "core.research.tc_model.explain_tau_prediction",
             return_value=ridge_expl,
         ):
             _refresh_tau_oc_from_feats(item, hm="09:40", trade_date="2026-09-18")
-        self.assertEqual(item.get("y_τc_source"), "ridge")
+        self.assertEqual(item.get("y_τc_source"), "lightgbm")
         self.assertNotIn("y_τc_tree", item)
         self.assertEqual(item["formula_terms_tau"].get("model_role"), "ridge")
 

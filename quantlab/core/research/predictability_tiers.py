@@ -1,17 +1,16 @@
 """滚动可预测性票档：Holdout 前 60 个交易日的猜涨 lift 定档。
 
-定档模型只拟合这 60 日之前（交界再空 1 日），不覆盖研究套。交易打分仍用研究套。
-定档 lift = 当场拟合的 oo / oo_rank / τc / τc_rank 有样本头等权（猜涨精度 − 上涨日比例）。
-- 收益头 oo / τc：内存 **Ridge**；说涨 = 预估 > ε（默认 0.05pp）
-- 排序头 oo_rank / τc_rank：内存 **LambdaRank**（稠密名次；truncation / z±3 / 强 L2 鲁棒默认）；说涨 = 预估高于当日截面中位数
+定档窗交界再空 1 日。交易打分仍用研究套。
+定档 lift = oo / oo_rank / τc / τc_rank 有样本头等权（猜涨精度 − 上涨日比例）。
+- 收益头 **oo** / **τc**：只读落盘 **LightGBM**（研究套优先，缺则执行套）；说涨 = 预估 > ε（默认 0.05pp）
+- 排序头 oo_rank / τc_rank：内存 **LambdaRank**；说涨 = 预估高于当日截面中位数
 - Score = 有样本头 lift 等权。收益大小不进分数。oo_rank 硬失败；其余头软跳过
 - 单头说涨少于 8 次的不计入该头。没有分数 → C
 - 有分数者按 Score 降序取 top ``a_count``→A，接着 ``b_count``→B，其余→C（默认 100 / 300）
 - 表内：四头 lift + Lift_Score；档标题只留 Holdout Lift_Score 均值
 - 档内 KPI「平均收益率」= Holdout 整段等权买持（close；无模型）
 
-交易打分仍用已落盘研究套。定档模型只在内存里，不覆盖研究套或执行套。
-面板拉 lookback 全窗（有研究套优先 Feature Lake 按日打分）。
+面板拉 lookback 全窗（有 ŷ_oo 包优先 Feature Lake 按日打分）。
 
 默认池 = 观察池；可选 research_universe（其它 pool 名，含已废弃的 ledger，等同 watching）。
 
@@ -1116,9 +1115,10 @@ def _lift_from_panels(
     *,
     eval_dates: Sequence[str] = (),
     progress_phase: str = "",
-    backend: str = "ridge",
+    backend: str = "lightgbm",
+    head: str = "oo",
 ) -> Dict[str, Any]:
-    """定档 lift：``backend=ridge`` 收益头；``lambdarank`` 排序头（仅 cs 说涨有意义）。"""
+    """定档 lift：``lightgbm``=落盘 ŷ_oo / ŷ_τc（默认）；``ridge``=兼容旧内存 Ridge；``lambdarank``=排序头。"""
     from core.research.oo_rank_lambdarank import _is_ridge_linear
 
     fit_set = {str(d)[:10] for d in fit_dates}
@@ -1134,15 +1134,77 @@ def _lift_from_panels(
         d for d in panels if str(d.get("date") or "")[:10] in eval_set
     ]
     backend_n = str(backend or "ridge").strip().lower()
-    if backend_n not in {"ridge", "lambdarank"}:
+    if backend_n not in {"ridge", "lambdarank", "lightgbm", "lgb"}:
         return {"ok": False, "error": f"unsupported tier backend={backend}"}
+    if backend_n == "lgb":
+        backend_n = "lightgbm"
+    head_n = str(head or "oo").strip().lower()
+    if head_n in {"tau", "y_τc", "ŷ_τc", "tc"}:
+        head_n = "tc"
+    else:
+        head_n = "oo"
     if progress_phase:
-        hint = (
-            "LambdaRank · 只在内存，不写研究套"
-            if backend_n == "lambdarank"
-            else "Ridge · 只在内存，不写研究套"
-        )
+        if backend_n == "lambdarank":
+            hint = "LambdaRank · 只在内存，不写研究套"
+        elif backend_n == "lightgbm":
+            hint = (
+                "LightGBM ŷ_τc · 只读落盘，不写研究套"
+                if head_n == "tc"
+                else "LightGBM ŷ_oo · 只读落盘，不写研究套"
+            )
+        else:
+            hint = "Ridge · 只在内存，不写研究套"
         set_tier_progress(progress_phase, hint)
+    if backend_n == "lightgbm":
+        if len(tier_days) < 1:
+            return {"ok": False, "error": f"定档面板不足（定档 {len(tier_days)} 日）"}
+        if head_n == "tc":
+            scorer, meta = _load_tier_tc_lgb_model()
+            miss = "无 LightGBM ŷ_τc"
+            predict_days = _predict_tc_lgb_days
+        else:
+            scorer, meta = _load_tier_oo_lgb_model()
+            miss = "无 LightGBM ŷ_oo"
+            predict_days = _predict_oo_lgb_days
+        if scorer is None:
+            return {
+                "ok": False,
+                "error": str(
+                    (meta or {}).get("error")
+                    or (meta or {}).get("reason")
+                    or miss
+                ),
+                "model_meta": meta,
+            }
+        model = scorer.to_dict() if hasattr(scorer, "to_dict") else {}
+        if not isinstance(model, dict):
+            return {"ok": False, "error": f"LightGBM {'ŷ_τc' if head_n == 'tc' else 'ŷ_oo'} 包无效"}
+        scored = predict_days(model, tier_days)
+        holdout_scored = predict_days(model, eval_days) if eval_days else []
+        by_abs = up_precision_lift_by_code(scored, call_mode="abs")
+        holdout_abs = (
+            up_precision_lift_by_code(holdout_scored, call_mode="abs")
+            if holdout_scored
+            else {}
+        )
+        by_cs = up_precision_lift_by_code(scored, call_mode="cs")
+        holdout_cs = (
+            up_precision_lift_by_code(holdout_scored, call_mode="cs")
+            if holdout_scored
+            else {}
+        )
+        return {
+            "ok": True,
+            "by_code": by_cs,
+            "by_code_abs": by_abs,
+            "by_code_cs": by_cs,
+            "holdout_by_code": holdout_cs,
+            "holdout_by_code_abs": holdout_abs,
+            "holdout_by_code_cs": holdout_cs,
+            "model": model,
+            "backend": "lightgbm",
+            "model_meta": meta,
+        }
     if len(fit_days) < 8 or len(tier_days) < 1:
         return {
             "ok": False,
@@ -1161,7 +1223,7 @@ def _lift_from_panels(
             "error": (report or {}).get("error") if isinstance(report, dict) else "定档模型拟合失败",
         }
     scored = _predict_rank_days(model, tier_days)
-    holdout_scored: List[Tuple[str, List[Tuple[str, Any, Any]]]] = []
+    holdout_scored = []
     if eval_days:
         holdout_scored = _predict_rank_days(model, eval_days)
     by_cs = up_precision_lift_by_code(scored, call_mode="cs")
@@ -1172,8 +1234,8 @@ def _lift_from_panels(
     )
     # LambdaRank 相对分无收益量纲；abs>ε 说涨无意义，不产出 by_code_abs
     if backend_n == "lambdarank" or not _is_ridge_linear(model):
-        by_abs: Dict[str, Any] = {}
-        holdout_abs: Dict[str, Any] = {}
+        by_abs = {}
+        holdout_abs = {}
     else:
         by_abs = up_precision_lift_by_code(scored, call_mode="abs")
         holdout_abs = (
@@ -1200,12 +1262,12 @@ def _build_oo_return_day_panels(
     *,
     horizon_days: int = 1,
 ) -> List[Dict[str, Any]]:
-    """研究套口径 oo 特征日截面（FAMILY_OO / assemble 路径），供内存 oo Ridge 定档。"""
+    """研究套口径 oo 特征日截面（FAMILY_OO / assemble 路径），供落盘 LightGBM ŷ_oo 定档打分。"""
     import numpy as np
 
     from core.research.materialize.coverage import enforce_consumer_coverage
     from core.research.oo_rank_panel import group_day_matrices
-    from core.research.oo_ridge_compact import (
+    from core.research.oo_model_compact import (
         _oo_stock_job,
         _stack_blocks,
     )
@@ -1278,10 +1340,9 @@ def collect_tier_lift(
     eval_dates: Sequence[str] = (),
     horizon_days: int = 1,
 ) -> Dict[str, Any]:
-    """定档窗之前当场拟合 oo_rank / oo / τc_rank / τc，给定档窗打猜涨 lift。
+    """定档窗猜涨 lift：oo/τc=落盘 LightGBM；oo_rank/τc_rank=内存 LambdaRank。
 
-    排序头 = 内存 LambdaRank；收益头 = 内存 Ridge。同一模型再打 Holdout，只供标题。
-    不落盘、不覆盖研究套。oo_rank 失败则整次失败；其余头失败软跳过并写 note。
+    不覆盖研究套。oo_rank 失败则整次失败；其余头失败软跳过并写 note。
     排序头面板走 ``build_rank_day_panels``；开盘 τc / τc_rank 共建一次。
     """
     if sum(1 for c, bars in (stock_bars or {}).items() if str(c or "").strip() and bars) < 2:
@@ -1316,12 +1377,12 @@ def collect_tier_lift(
     if not oo_rank.get("ok"):
         return oo_rank
 
-    # 收益头 oo：独立 Ridge 面板（abs 说涨）。LambdaRank 分无收益量纲，禁止回退。
+    # 收益头 oo：落盘 LightGBM ŷ_oo（abs 说涨）。勿用内存 Ridge / LambdaRank 回退。
     oo_map: Dict[str, Dict[str, Any]] = {}
     oo_pack: Dict[str, Any] = {}
     oo_note = ""
     oo_holdout: Dict[str, Dict[str, Any]] = {}
-    set_tier_progress("准备 oo", "Ridge · 只在内存，不写研究套")
+    set_tier_progress("准备 oo", "LightGBM ŷ_oo · 只读落盘")
     try:
         oo_panels = _build_oo_return_day_panels(
             _snapshot_bar_items(stock_bars), horizon_days=horizon_i
@@ -1331,8 +1392,8 @@ def collect_tier_lift(
             fit_dates,
             tier_dates,
             eval_dates=eval_dates,
-            progress_phase="拟合 oo",
-            backend="ridge",
+            progress_phase="打分 oo",
+            backend="lightgbm",
         )
         if oo_pack.get("ok"):
             oo_map = oo_pack.get("by_code_abs") or {}
@@ -1343,14 +1404,14 @@ def collect_tier_lift(
         logger.info("tier oo lift skipped: %s", exc)
         oo_note = f"oo 未入定档：{exc}"
 
-    # τc_rank = LambdaRank+cs；τc = Ridge+abs。开盘钟同指纹，共建一次面板。
+    # τc_rank = LambdaRank+cs；τc = 落盘 LightGBM+abs。开盘钟同指纹，共建一次面板。
     tc_rank_map: Dict[str, Dict[str, Any]] = {}
     tc_map: Dict[str, Dict[str, Any]] = {}
     tc_rank_note = ""
     tc_note = ""
     tc_holdout_rank: Dict[str, Dict[str, Any]] = {}
     tc_holdout_abs: Dict[str, Dict[str, Any]] = {}
-    set_tier_progress("准备 τc / τc_rank", "开盘钟共建面板 · 只在内存")
+    set_tier_progress("准备 τc / τc_rank", "开盘钟共建面板 · τc 只读落盘")
     tau_days: List[Dict[str, Any]] = []
     try:
         tau_days = build_rank_day_panels(
@@ -1391,8 +1452,9 @@ def collect_tier_lift(
                 fit_dates,
                 tier_dates,
                 eval_dates=eval_dates,
-                progress_phase="拟合 τc",
-                backend="ridge",
+                progress_phase="打分 τc",
+                backend="lightgbm",
+                head="tc",
             )
             if tc_pack.get("ok"):
                 tc_map = tc_pack.get("by_code_abs") or {}
@@ -1438,7 +1500,9 @@ def collect_tier_lift(
         "used_tc": bool(tc_map),
         "used_tau": bool(tc_rank_map) or bool(tc_map),
         "rank_backend": "lambdarank",
-        "return_backend": "ridge",
+        "return_backend": "lightgbm",
+        "oo_backend": "lightgbm",
+        "tc_backend": "lightgbm",
         "call_modes": {
             "oo": "abs",
             "oo_rank": "cs",
@@ -1612,28 +1676,258 @@ def _resolve_pool_codes(
 
 
 def _load_research_oo_model() -> Tuple[Optional[Any], Dict[str, Any]]:
-    """只读研究套 ŷ_oo；不回落执行套/草稿（避免 Holdout 泄漏进 β）。"""
+    """只读研究套 ŷ_oo LightGBM；不回落执行套/草稿。"""
     from core.paths import RETURN_SCORE_MODEL_RESEARCH_PATH
-    from core.signal.return_score import ReturnScoreModel
-    from core.research.oo_ridge import load_return_model_payload
+    from core.research.oo_model import (
+        _hydrate_oo_scorer,
+        _model_blob_for_load,
+        load_return_model_payload,
+    )
 
     path = RETURN_SCORE_MODEL_RESEARCH_PATH
     raw = load_return_model_payload(path)
     if not raw:
         return None, {"ok": False, "reason": "no_research_model", "path": path}
-    model = ReturnScoreModel.from_dict(raw.get("model") or raw)
+    blob = _model_blob_for_load("research", raw, prefer_research=True)
+    model = _hydrate_oo_scorer(blob, suite="research")
     if model is None:
         return None, {"ok": False, "reason": "invalid_research_model", "path": path}
     return model, {
         "ok": True,
         "role": raw.get("role") or "research",
         "path": path,
+        "backend": str(
+            raw.get("backend")
+            or raw.get("recommended_backend")
+            or getattr(model, "solver", "")
+            or ""
+        ),
         "saved_at": raw.get("saved_at") or raw.get("promoted_at"),
         "meta": raw.get("meta") or {},
         "lookback": (raw.get("meta") or {}).get("lookback"),
         "horizon_days": (raw.get("meta") or {}).get("horizon_days")
         or getattr(model, "horizon_days", None),
     }
+
+
+def _load_tier_oo_lgb_model() -> Tuple[Optional[Any], Dict[str, Any]]:
+    """分档 ŷ_oo：研究套 LightGBM，缺则执行套；拒旧 Ridge / 草稿。"""
+    from core.paths import (
+        RETURN_SCORE_MODEL_ACTIVE_PATH,
+        RETURN_SCORE_MODEL_RESEARCH_PATH,
+    )
+    from core.research.oo_lgb import is_oo_lightgbm_scorer
+    from core.research.oo_model import (
+        _hydrate_oo_scorer,
+        _model_blob_for_load,
+        load_return_model_payload,
+    )
+
+    last_non_lgb: Optional[Dict[str, Any]] = None
+    for role, path, prefer_research in (
+        ("research", RETURN_SCORE_MODEL_RESEARCH_PATH, True),
+        ("active", RETURN_SCORE_MODEL_ACTIVE_PATH, False),
+    ):
+        raw = load_return_model_payload(path)
+        if not raw:
+            continue
+        blob = _model_blob_for_load(role, raw, prefer_research=prefer_research)
+        model = _hydrate_oo_scorer(blob, suite=role)
+        if model is None:
+            continue
+        if is_oo_lightgbm_scorer(model):
+            return model, {
+                "ok": True,
+                "role": role,
+                "path": path,
+                "backend": "lightgbm",
+                "saved_at": raw.get("saved_at") or raw.get("promoted_at"),
+                "meta": raw.get("meta") or {},
+                "lookback": (raw.get("meta") or {}).get("lookback"),
+                "horizon_days": (raw.get("meta") or {}).get("horizon_days")
+                or getattr(model, "horizon_days", None),
+            }
+        last_non_lgb = {
+            "ok": False,
+            "reason": "oo_not_lightgbm",
+            "role": role,
+            "path": path,
+            "backend": str(
+                raw.get("backend")
+                or raw.get("recommended_backend")
+                or getattr(model, "solver", "")
+                or ""
+            ),
+        }
+    if last_non_lgb is not None:
+        return None, last_non_lgb
+    return None, {
+        "ok": False,
+        "reason": "no_oo_lgb",
+        "error": "无 LightGBM ŷ_oo（请先拟合并启用研究）",
+    }
+
+
+def _predict_oo_lgb_days(
+    model_blob: Dict[str, Any],
+    days: Sequence[Dict[str, Any]],
+) -> List[Tuple[str, List[Tuple[str, Any, Any]]]]:
+    """日截面面板 → LightGBM ŷ_oo（CS-z + booster）。"""
+    from core.research.oo_lgb import (
+        OoLightgbmScorer,
+        is_oo_lightgbm_blob,
+        oo_model_feature_names,
+        predict_oo_lgb_on_cs_z,
+    )
+    from core.research.oo_rank_lambdarank import _z_day_cross_section, label_floats
+
+    out: List[Tuple[str, List[Tuple[str, Any, Any]]]] = []
+    if not is_oo_lightgbm_blob(model_blob):
+        return out
+    scorer = OoLightgbmScorer.from_dict(model_blob)
+    if scorer is None:
+        return out
+    feat_names = oo_model_feature_names(scorer)
+    if not feat_names:
+        return out
+    for day in days or []:
+        if not isinstance(day, dict):
+            continue
+        codes = [str(c) for c in (day.get("codes") or [])]
+        ys = label_floats(day.get("ys"))
+        n = max(len(codes), len(ys))
+        rows: List[Tuple[str, Any, Any]] = []
+        z = _z_day_cross_section(day, feat_names)
+        preds: List[Optional[float]] = [None] * n
+        if z is not None and int(getattr(z, "shape", (0,))[0] or 0) == n:
+            arr = predict_oo_lgb_on_cs_z(scorer, z, feat_names)
+            if arr is not None and int(getattr(arr, "shape", (0,))[0] or 0) == n:
+                for i in range(n):
+                    try:
+                        v = float(arr[i])
+                    except (TypeError, ValueError):
+                        preds[i] = None
+                        continue
+                    preds[i] = v if math.isfinite(v) else None
+        for i in range(n):
+            code = codes[i] if i < len(codes) else ""
+            y = ys[i] if i < len(ys) else float("nan")
+            rows.append((code, preds[i] if i < len(preds) else None, y))
+        out.append((str(day.get("date") or "")[:10], rows))
+    return out
+
+
+def _load_tier_tc_lgb_model() -> Tuple[Optional[Any], Dict[str, Any]]:
+    """分档 ŷ_τc：研究套 LightGBM，缺则执行套；拒旧 Ridge；可读旧盘名。"""
+    from core.research.holdout import research_model_path
+    from core.research.tc_lgb import TcLightgbmScorer, is_tc_lightgbm_blob
+    from core.research.tc_model import (
+        _load_json_model,
+        tau_model_legacy_path,
+        tau_model_path,
+    )
+
+    last_non_lgb: Optional[Dict[str, Any]] = None
+    live_new = tau_model_path()
+    live_old = tau_model_legacy_path()
+    for role, path in (
+        ("research", research_model_path(live_new)),
+        ("research", research_model_path(live_old)),
+        ("active", live_new),
+        ("active", live_old),
+    ):
+        raw = _load_json_model(path)
+        if not isinstance(raw, dict):
+            continue
+        rm = raw.get("return_model") if isinstance(raw.get("return_model"), dict) else raw
+        if not is_tc_lightgbm_blob(rm):
+            last_non_lgb = {
+                "ok": False,
+                "reason": "tc_not_lightgbm",
+                "role": role,
+                "path": path,
+                "backend": str(
+                    raw.get("backend")
+                    or (rm or {}).get("backend")
+                    or (rm or {}).get("solver")
+                    or ""
+                ),
+            }
+            continue
+        scorer = TcLightgbmScorer(
+            dict(rm),
+            model_role=str(raw.get("model_role") or rm.get("model_role") or role),
+        )
+        return scorer, {
+            "ok": True,
+            "role": role,
+            "path": path,
+            "backend": "lightgbm",
+            "saved_at": raw.get("saved_at") or raw.get("promoted_at"),
+            "meta": raw.get("meta") or {},
+        }
+    if last_non_lgb is not None:
+        return None, last_non_lgb
+    return None, {
+        "ok": False,
+        "reason": "no_tc_lgb",
+        "error": "无 LightGBM ŷ_τc（请先拟合并启用研究）",
+    }
+
+
+def _predict_tc_lgb_days(
+    model_blob: Dict[str, Any],
+    days: Sequence[Dict[str, Any]],
+) -> List[Tuple[str, List[Tuple[str, Any, Any]]]]:
+    """日截面面板 → LightGBM ŷ_τc（CS-z + booster）。"""
+    from core.research.oo_rank_lambdarank import _z_day_cross_section, label_floats
+    from core.research.tc_lgb import (
+        TcLightgbmScorer,
+        is_tc_lightgbm_blob,
+        predict_tc_lgb_on_cs_z,
+        tc_model_feature_names,
+    )
+
+    out: List[Tuple[str, List[Tuple[str, Any, Any]]]] = []
+    blob = model_blob
+    if isinstance(blob, dict) and "return_model" in blob and not is_tc_lightgbm_blob(blob):
+        inner = blob.get("return_model")
+        if isinstance(inner, dict):
+            blob = inner
+    if not is_tc_lightgbm_blob(blob):
+        return out
+    scorer = TcLightgbmScorer.from_dict(blob)
+    if scorer is None:
+        return out
+    feat_names = tc_model_feature_names(scorer)
+    if not feat_names:
+        return out
+    packed = scorer.to_dict()
+    for day in days or []:
+        if not isinstance(day, dict):
+            continue
+        codes = [str(c) for c in (day.get("codes") or [])]
+        ys = label_floats(day.get("ys"))
+        n = max(len(codes), len(ys))
+        rows: List[Tuple[str, Any, Any]] = []
+        z = _z_day_cross_section(day, feat_names)
+        preds: List[Optional[float]] = [None] * n
+        if z is not None and int(getattr(z, "shape", (0,))[0] or 0) == n:
+            arr = predict_tc_lgb_on_cs_z(packed, z, feat_names)
+            if arr is not None and int(getattr(arr, "shape", (0,))[0] or 0) == n:
+                for i in range(n):
+                    try:
+                        v = float(arr[i])
+                    except (TypeError, ValueError):
+                        preds[i] = None
+                        continue
+                    preds[i] = v if math.isfinite(v) else None
+        for i in range(n):
+            code = codes[i] if i < len(codes) else ""
+            y = ys[i] if i < len(ys) else float("nan")
+            rows.append((code, preds[i] if i < len(preds) else None, y))
+        out.append((str(day.get("date") or "")[:10], rows))
+    return out
 
 
 def _absorb_holdout_row(
@@ -1816,7 +2110,11 @@ def _oo_predictions(
 
     for row in raws:
         stamp_z_oo_aliases(row)
-    names = [str(k) for k in (getattr(model, "coefficients", None) or {})]
+    from core.research.oo_lgb import oo_model_feature_names
+
+    names = oo_model_feature_names(model)
+    if not names:
+        return [None] * len(raws)
     groups = [str(d or "")[:10] for d in dates]
     if len(groups) != len(raws):
         groups = [""] * len(raws)
@@ -1834,18 +2132,18 @@ def _tau_predictions(
         cross_section_zscore_dicts,
         is_cross_section_zscore,
     )
-    from core.research.tc_ridge import predict_tau_from_features
+    from core.research.tc_model import predict_tau_from_features
 
     raws = [dict(r) if isinstance(r, dict) else {} for r in rows]
     if not raws:
         return []
     if not is_cross_section_zscore(model_doc):
         return [predict_tau_from_features(row, model_doc=model_doc) for row in raws]
+    from core.research.tc_lgb import tc_model_feature_names
     from core.signal.factors.z_tc import stamp_z_tc_aliases
 
     rm = model_doc.get("return_model") if isinstance(model_doc, dict) else {}
-    coefs = (rm or {}).get("coefficients") if isinstance(rm, dict) else {}
-    names = [str(k) for k, v in (coefs or {}).items() if v is not None]
+    names = tc_model_feature_names(rm if isinstance(rm, dict) else model_doc)
     for row in raws:
         stamp_z_tc_aliases(row)
     groups = [str(d or "")[:10] for d in dates]
@@ -1856,9 +2154,10 @@ def _tau_predictions(
 
 
 def _load_research_tau_model() -> Tuple[Optional[Dict[str, Any]], Dict[str, Any]]:
-    """研究套 ŷ_τc；缺则 (None, meta)。"""
+    """研究套 ŷ_τc LightGBM；拒旧 Ridge；缺则 (None, meta)。"""
     try:
-        from core.research.tc_ridge import load_tau_model
+        from core.research.tc_lgb import is_tc_lightgbm_blob
+        from core.research.tc_model import load_tau_model
     except Exception as exc:  # noqa: BLE001
         return None, {"ok": False, "reason": "import_failed", "error": str(exc)}
     try:
@@ -1868,10 +2167,19 @@ def _load_research_tau_model() -> Tuple[Optional[Dict[str, Any]], Dict[str, Any]
         return None, {"ok": False, "reason": "load_failed", "error": str(exc)}
     if not isinstance(doc, dict) or not isinstance(doc.get("return_model"), dict):
         return None, {"ok": False, "reason": "no_tau_research_model"}
+    rm = doc.get("return_model") or {}
+    if not (is_tc_lightgbm_blob(rm) or is_tc_lightgbm_blob(doc)):
+        return None, {
+            "ok": False,
+            "reason": "tc_not_lightgbm",
+            "error": "研究套 ŷ_τc 非 LightGBM（请重新拟合）",
+            "path": "tau_lgb_model_research.json",
+        }
     return doc, {
         "ok": True,
         "source": "tau_research_model",
-        "path": "tau_ridge_model_research.json",
+        "path": "tau_lgb_model_research.json",
+        "backend": "lightgbm",
         "saved_at": doc.get("saved_at") or doc.get("promoted_at"),
     }
 
@@ -1894,7 +2202,7 @@ def _score_tau_holdout_into_acc(
     if doc is None:
         return {**meta, "n_rows": 0}
     try:
-        from core.research.tc_ridge_compact import build_tau_panels_from_bars
+        from core.research.tc_model_compact import build_tau_panels_from_bars
     except Exception as exc:  # noqa: BLE001
         return {"ok": False, "reason": "import_failed", "error": str(exc), "n_rows": 0}
 
@@ -2212,10 +2520,10 @@ def accumulate_holdout_oos_by_code(
     tier_window_days: int = DEFAULT_TIER_WINDOW_DAYS,
     embargo_days: int = DEFAULT_TIER_EMBARGO_DAYS,
 ) -> Dict[str, Any]:
-    """用研究套 ŷ_oo（缺则 Holdout 前现训）按票聚合。
+    """用落盘 LightGBM ŷ_oo（研究套优先，缺则执行套）按票聚合。
 
     命中 / F1 只记 **定档窗**（展示）；ŷ/实现成对记 **Holdout 整段**（供标题测试指标）。
-    面板拉 lookback 全窗；有研究套且 Feature Lake 覆盖够时按日流式打分。
+    面板拉 lookback 全窗；Feature Lake 覆盖够时按日流式打分。无 LGB 包则失败（不再内存 Ridge）。
 
     返回 ``ok`` / ``acc`` / ``tier_dates`` / ``split_meta`` 等。
     """
@@ -2227,7 +2535,6 @@ def accumulate_holdout_oos_by_code(
     )
     from core.research.oo_panel import collect_oo_panel
     from core.research.portfolio_bars import load_portfolio_stock_bars
-    from core.signal.return_score import fit_return_model_from_panel
     from core.watching.store import WATCHING_MAX_SIZE
 
     use_codes = [str(c).strip() for c in (codes or []) if str(c).strip()]
@@ -2243,22 +2550,37 @@ def accumulate_holdout_oos_by_code(
 
     model_meta: Dict[str, Any] = {}
     research_model = None
-    model_source = "oo_pre_holdout_refit"
-    set_tier_progress("读取研究套", "不改研究套 ŷ_oo / ŷ_τc")
+    model_source = "oo_lgb_missing"
+    set_tier_progress("读取 ŷ_oo LightGBM", "研究套优先 · 不改落盘")
     if use_research_model:
-        research_model, model_meta = _load_research_oo_model()
+        research_model, model_meta = _load_tier_oo_lgb_model()
         if research_model is not None:
-            model_source = "oo_research_model"
+            model_source = (
+                "oo_research_model"
+                if str(model_meta.get("role") or "") == "research"
+                else "oo_active_model"
+            )
             try:
                 mh = int(getattr(research_model, "horizon_days", 0) or 0)
             except (TypeError, ValueError):
                 mh = 0
             if mh > 0 and mh != hz:
                 logger.info(
-                    "predictability_tiers: research ŷ_oo horizon=%s vs panel=%s",
+                    "predictability_tiers: ŷ_oo LightGBM horizon=%s vs panel=%s",
                     mh,
                     hz,
                 )
+        else:
+            return {
+                "ok": False,
+                "error": str(
+                    (model_meta or {}).get("error")
+                    or "无 LightGBM ŷ_oo（请先拟合并启用研究）"
+                ),
+                "model_meta": model_meta,
+                "acc": {},
+                "tier_dates": [],
+            }
 
     set_tier_progress("读取日线", "不改研究套 ŷ_oo / ŷ_τc")
     stock_bars, failures, _fund = load_portfolio_stock_bars(
@@ -2329,7 +2651,7 @@ def accumulate_holdout_oos_by_code(
     panel_mode = "lookback_full"
     scored_via_lake = False
 
-    set_tier_progress("打分 ŷ_oo", "研究套，只读")
+    set_tier_progress("打分 ŷ_oo", "LightGBM，只读")
     if research_model is not None:
         try:
             from core.research.lake_bridge import FAMILY_OO
@@ -2482,143 +2804,15 @@ def accumulate_holdout_oos_by_code(
                 "split_meta": split_meta,
             }
     else:
-        def _panel_one(code: str, bars: List[dict]) -> Tuple[str, list, list, list]:
-            xs, ys, dates = collect_oo_panel(
-                bars,
-                horizon_days=hz,
-                stock_code=code,
-                pit_fundamentals=False,
-            )
-            return code, xs, ys, dates
-
-        all_xs: List[Dict[str, Any]] = []
-        all_ys: List[float] = []
-        all_dates: List[str] = []
-        all_codes: List[str] = []
-        panels: List[Tuple[str, list, list, list]] = []
-        if workers == 1:
-            panels = [_panel_one(c, b) for c, b in items]
-        else:
-            with ThreadPoolExecutor(max_workers=workers) as pool:
-                futs = [pool.submit(_panel_one, c, b) for c, b in items]
-                for fut in as_completed(futs):
-                    panels.append(fut.result())
-            order = {c: i for i, (c, _) in enumerate(items)}
-            panels.sort(key=lambda t: order.get(t[0], 0))
-        for code, xs, ys, dates in panels:
-            all_xs.extend(xs)
-            all_ys.extend(ys)
-            all_dates.extend(dates)
-            all_codes.extend([code] * len(dates))
-        del panels
-        if len(all_ys) < 8:
-            return {
-                "ok": False,
-                "error": f"面板样本不足（{len(all_ys)}）",
-                "acc": {},
-                "tier_dates": [],
-                "lookback": panel_lb,
-                "lookback_requested": lookback_req,
-            }
-        train_idx, test_idx, split_meta = resolve_ridge_split(
-            all_dates,
-            holdout_trading_days=h_req,
-            label_horizon_days=hz,
-            calendar_dates=cal,
-        )
-        if not test_idx or not train_idx:
-            return {
-                "ok": False,
-                "error": "Holdout 切不出训练/测试窗",
-                "split_meta": split_meta,
-                "acc": {},
-                "tier_dates": [],
-                "lookback": panel_lb,
-                "lookback_requested": lookback_req,
-            }
-        train_days_meta = [str(d)[:10] for d in (split_meta.get("train_days") or [])]
-        test_days_meta = [str(d)[:10] for d in (split_meta.get("test_days") or [])]
-        split = build_lookback_holdout_split(
-            train_days_meta,
-            test_days_meta,
-            holdout_n=h_req,
-            tier_window_days=tier_window_days,
-            embargo_days=embargo_days,
-        )
-        if not split.get("ok"):
-            return {
-                "ok": False,
-                "error": split.get("error") or "训练/Holdout 切分失败",
-                "holdout_split": split,
-                "split_meta": split_meta,
-                "acc": {},
-                "tier_dates": [],
-                "lookback": panel_lb,
-                "lookback_requested": lookback_req,
-            }
-        tier_set = set(split.get("tier_dates") or [])
-        metric_set = set(split.get("eval_dates") or split.get("test_days") or [])
-        xs_tr = [all_xs[i] for i in train_idx]
-        ys_tr = [all_ys[i] for i in train_idx]
-        as_of = None
-        for bars in stock_bars.values():
-            if bars:
-                as_of = str(bars[-1].get("date") or "") or None
-                break
-        research_model, research_report = fit_return_model_from_panel(
-            xs_tr,
-            ys_tr,
-            horizon_days=hz,
-            ridge_lambda=float(
-                ridge_lambda if ridge_lambda is not None else DEFAULT_RIDGE_LAMBDA
-            ),
-            fitted_as_of=as_of,
-            min_samples=24,
-        )
-        del xs_tr, ys_tr
-        if research_model is None:
-            return {
-                "ok": False,
-                "error": (research_report or {}).get("error")
-                or "Holdout 前训练失败（且无研究套 ŷ_oo）",
-                "report": research_report,
-                "split_meta": split_meta,
-                "acc": {},
-                "tier_dates": [],
-                "model_meta": model_meta,
-                "lookback": panel_lb,
-                "lookback_requested": lookback_req,
-            }
-        model_source = "oo_pre_holdout_refit"
-        model_meta = {
-            "ok": True,
-            "role": "refit_train",
-            "path": None,
-            "fallback_from": model_meta.get("reason")
-            if isinstance(model_meta, dict)
-            else None,
+        return {
+            "ok": False,
+            "error": "分档须启用 LightGBM ŷ_oo（已取消内存 Ridge 回退）",
+            "model_meta": model_meta,
+            "acc": {},
+            "tier_dates": [],
+            "lookback": panel_lb,
+            "lookback_requested": lookback_req,
         }
-        n_train = len(train_idx)
-        score_idx = list(train_idx) + list(test_idx)
-        n_test = len(score_idx)
-        preds = _oo_predictions(
-            research_model,
-            [all_xs[i] if isinstance(all_xs[i], dict) else {} for i in score_idx],
-            [all_dates[i] for i in score_idx],
-        )
-        for i, pred in zip(score_idx, preds):
-            _absorb_holdout_row(
-                acc,
-                code=all_codes[i],
-                date=all_dates[i],
-                pred=pred,
-                y=all_ys[i],
-                tier_set=tier_set,
-                metric_set=metric_set,
-                yhat_eps=yhat_eps,
-            )
-        del all_xs, all_ys, all_dates, all_codes, preds
-        panel_mode = "refit_lookback"
 
     # ŷ_τc：优先 Feature Lake；否则 bars 面板
     set_tier_progress("打分 ŷ_τc", "研究套，只读")
@@ -2699,9 +2893,7 @@ def accumulate_holdout_oos_by_code(
         "lookback": panel_lb,
         "lookback_requested": lookback_req,
         "panel_mode": panel_mode,
-        "ridge_lambda": float(
-            ridge_lambda if ridge_lambda is not None else DEFAULT_RIDGE_LAMBDA
-        ),
+        # ŷ_oo 已是落盘 LightGBM；ridge_lambda 形参仅兼容旧调用，不再写入结果
         "source": model_source,
         "model_meta": model_meta,
         "tau_meta": tau_meta,
@@ -3267,9 +3459,11 @@ def _emit_predictability_tiers(
     lookback_req = int(packed.get("lookback_requested") or lookback or panel_lb)
     panel_mode = str(packed.get("panel_mode") or "")
     src_note = (
-        "研究套 ŷ_oo"
+        "研究套 LightGBM ŷ_oo"
         if model_source == "oo_research_model"
-        else "Holdout 前现训 ŷ_oo（无研究套）"
+        else "执行套 LightGBM ŷ_oo"
+        if model_source == "oo_active_model"
+        else "LightGBM ŷ_oo"
     )
     heads_used = ["oo_rank"]
     if lift_meta.get("used_oo"):
@@ -3323,7 +3517,9 @@ def _emit_predictability_tiers(
             "used_tc": bool(lift_meta.get("used_tc")),
             "used_tau": bool(lift_meta.get("used_tau")),
             "rank_backend": str(lift_meta.get("rank_backend") or "lambdarank"),
-            "return_backend": str(lift_meta.get("return_backend") or "ridge"),
+            "return_backend": str(lift_meta.get("return_backend") or "lightgbm"),
+            "oo_backend": str(lift_meta.get("oo_backend") or "lightgbm"),
+            "tc_backend": str(lift_meta.get("tc_backend") or "lightgbm"),
             "oo_note": str(lift_meta.get("oo_note") or ""),
             "tc_rank_note": str(lift_meta.get("tc_rank_note") or ""),
             "tc_note": str(lift_meta.get("tc_note") or ""),
@@ -3384,7 +3580,7 @@ def _emit_predictability_tiers(
             f" · 面板 {panel_lb} 日"
             f"；{score_note}；说涨至少 {DEFAULT_TIER_MIN_DAYS} 次才入队"
             f"；lift = 说涨精度 − 上涨日比例；有样本头等权"
-            f"（排序头 LambdaRank cs · 收益头 Ridge abs）"
+            f"（排序头 LambdaRank cs · oo LightGBM abs · τc LightGBM abs）"
             f"；按 lift 降序 top {n_a}→A、接着 {n_b}→B、其余→C"
             "；表内：四头 lift / Lift_Score；档标题 Holdout Lift_Score"
             "；落盘 last；live 档位跟随历史回测「分档」勾选；回测天数用独立 lookback。"

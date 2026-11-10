@@ -79,15 +79,15 @@ class TestHoldoutSplit(unittest.TestCase):
 
     def test_research_model_path(self):
         self.assertEqual(
-            research_model_path("/x/tau_ridge_model.json"),
-            "/x/tau_ridge_model_research.json",
+            research_model_path("/x/tau_lgb_model.json"),
+            "/x/tau_lgb_model_research.json",
         )
 
     def test_research_sidecar_flags(self):
         import json
 
         with tempfile.TemporaryDirectory() as tmp:
-            live_path = os.path.join(tmp, "tau_ridge_model.json")
+            live_path = os.path.join(tmp, "tau_lgb_model.json")
             empty = research_sidecar_flags(live_path)
             self.assertFalse(empty["research_exists"])
             self.assertTrue(str(empty["research_path"]).endswith("_research.json"))
@@ -245,7 +245,7 @@ class TestHoldoutSplit(unittest.TestCase):
             select_fit_return_model({"return_model": {"feature_names": ["a"]}})
         )
         with tempfile.TemporaryDirectory() as tmp:
-            live_path = os.path.join(tmp, "tau_ridge_model.json")
+            live_path = os.path.join(tmp, "tau_lgb_model.json")
             doc, err = require_research_suite(live_path)
             self.assertIsNone(doc)
             self.assertFalse(err.get("success"))
@@ -289,14 +289,19 @@ class TestHoldoutSplit(unittest.TestCase):
 
 class TestTauRoleLoad(unittest.TestCase):
     def test_load_tau_research_does_not_fallback_to_live(self):
-        from core.research import tc_ridge as tr
+        from core.research import tc_model as tr
 
+        # 须像 LightGBM 包（load_tau_model 拒旧 Ridge）
         live_doc = {
             "success": True,
-            "return_model": {"coefficients": {"gap_pct": 1.0}, "intercept": 0.1},
+            "return_model": {
+                "feature_names": ["gap_pct"],
+                "booster_b64": "dGVzdA==",
+                "backend": "lightgbm",
+            },
         }
         with tempfile.TemporaryDirectory() as tmp:
-            live_path = os.path.join(tmp, "tau_ridge_model.json")
+            live_path = os.path.join(tmp, "tau_lgb_model.json")
             with open(live_path, "w", encoding="utf-8") as f:
                 import json
 

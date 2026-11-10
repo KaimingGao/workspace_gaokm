@@ -126,8 +126,8 @@ def main() -> int:
     )
 
     from core.research.holdout import MODEL_ROLE_RESEARCH
-    from core.research.oo_ridge import load_return_model
-    from core.research.tc_ridge import load_tau_model
+    from core.research.oo_model import load_return_model
+    from core.research.tc_model import load_tau_model
     from core.research.oo_rank_lambdarank import (
         _predict_oo_rank_matrix,
         load_oo_rank_model,

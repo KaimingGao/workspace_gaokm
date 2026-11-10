@@ -1222,7 +1222,7 @@ class TestMinuteTauPack(unittest.TestCase):
         self.assertLessEqual(pack_early["t_hi_frac"], 1.0)
 
     def test_tau_z_excludes_shape_keys(self):
-        from core.research.tc_ridge import TAU_Z_FEATURES
+        from core.research.tc_model import TAU_Z_FEATURES
         from core.signal.minute_tau_feats import MINUTE_TAU_SHAPE_KEYS
 
         for k in MINUTE_TAU_SHAPE_KEYS:
@@ -1364,9 +1364,9 @@ class TestMinuteTauPack(unittest.TestCase):
                 "y_spec": {"formula": "close[T]/open[T]-1"},
             },
         ), patch(
-            "core.research.tc_ridge.load_tau_model", return_value=None
+            "core.research.tc_model.load_tau_model", return_value=None
         ), patch(
-            "core.research.tc_ridge.predict_tau_from_features", return_value=0.12
+            "core.research.tc_model.predict_tau_from_features", return_value=0.12
         ) as pred:
             attach_dual_score_pit(
                 item,
@@ -1426,9 +1426,9 @@ class TestMinuteTauPack(unittest.TestCase):
         ), patch(
             "core.signal.session_pit.shanghai_now", return_value=now
         ), patch(
-            "core.research.tc_ridge.load_tau_model", return_value=None
+            "core.research.tc_model.load_tau_model", return_value=None
         ), patch(
-            "core.research.tc_ridge.predict_tau_from_features", return_value=0.12
+            "core.research.tc_model.predict_tau_from_features", return_value=0.12
         ):
             attach_dual_score_pit(
                 item,
@@ -1473,9 +1473,9 @@ class TestMinuteTauPack(unittest.TestCase):
                 "y_spec": {"formula": "close[T]/open[T]-1"},
             },
         ), patch(
-            "core.research.tc_ridge.load_tau_model", return_value=None
+            "core.research.tc_model.load_tau_model", return_value=None
         ), patch(
-            "core.research.tc_ridge.predict_tau_from_features", return_value=0.12
+            "core.research.tc_model.predict_tau_from_features", return_value=0.12
         ) as pred:
             attach_dual_score_pit(
                 item,
@@ -1542,9 +1542,9 @@ class TestMinuteTauPack(unittest.TestCase):
                 "y_spec": {"formula": "close[T]/open[T]-1"},
             },
         ), patch(
-            "core.research.tc_ridge.load_tau_model", return_value=None
+            "core.research.tc_model.load_tau_model", return_value=None
         ), patch(
-            "core.research.tc_ridge.predict_tau_from_features", return_value=0.12
+            "core.research.tc_model.predict_tau_from_features", return_value=0.12
         ) as pred:
             attach_dual_score_pit(
                 item,
@@ -1584,9 +1584,9 @@ class TestMinuteTauPack(unittest.TestCase):
                 "y_spec": {"formula": "close[T]/open[T]-1"},
             },
         ), patch(
-            "core.research.tc_ridge.load_tau_model", return_value=None
+            "core.research.tc_model.load_tau_model", return_value=None
         ), patch(
-            "core.research.tc_ridge.predict_tau_from_features", return_value=0.12
+            "core.research.tc_model.predict_tau_from_features", return_value=0.12
         ) as pred:
             attach_dual_score_pit(
                 item,
@@ -1649,9 +1649,9 @@ class TestMinuteTauPack(unittest.TestCase):
                 "y_spec": {"formula": "close[T]/open[T]-1"},
             },
         ), patch(
-            "core.research.tc_ridge.load_tau_model", return_value=None
+            "core.research.tc_model.load_tau_model", return_value=None
         ), patch(
-            "core.research.tc_ridge.predict_tau_from_features", return_value=0.12
+            "core.research.tc_model.predict_tau_from_features", return_value=0.12
         ), patch(
             "core.signal.minute_tau_feats.resolve_sector_ret_to_tau",
             side_effect=_fake_resolve,

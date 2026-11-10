@@ -44,7 +44,7 @@ def active_return_model_payload(
     global_model: Any = None,
     return_model_source: Optional[str] = None,
 ) -> Dict[str, Any]:
-    """给前端悬浮注释用的精简模型快照。"""
+    """给前端悬浮注释用的精简模型快照（含 ŷ_oo LightGBM gain / 列名）。"""
     src = str(return_model_source or "")
     chosen = None
     if src.startswith("cluster") and group_model is not None:
@@ -59,12 +59,49 @@ def active_return_model_payload(
         d = chosen.to_dict() if hasattr(chosen, "to_dict") else dict(chosen)
     except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
         return {}
+    if not isinstance(d, dict):
+        return {}
     coefs = dict(d.get("coefficients") or {})
     coefs.pop("intercept", None)
-    return {
+    z_means = d.get("z_means") if isinstance(d.get("z_means"), dict) else {}
+    z_stds = d.get("z_stds") if isinstance(d.get("z_stds"), dict) else {}
+    out: Dict[str, Any] = {
         "intercept": d.get("intercept"),
         "coefficients": coefs,
-        "z_means": d.get("z_means") or {},
-        "z_stds": d.get("z_stds") or {},
+        "z_means": z_means or {},
+        "z_stds": z_stds or {},
         "feature_zscore": d.get("feature_zscore", True),
     }
+    # CS-z LGB：训练窗矩在 impute_*，勿塞进 z_means 冒充截面 μ/σ
+    if isinstance(d.get("impute_means"), dict) and d["impute_means"]:
+        out["impute_means"] = dict(d["impute_means"])
+    if isinstance(d.get("impute_stds"), dict) and d["impute_stds"]:
+        out["impute_stds"] = dict(d["impute_stds"])
+    solver = str(d.get("solver") or getattr(chosen, "solver", "") or "").strip()
+    backend = str(d.get("backend") or "").strip()
+    if not backend and solver:
+        backend = solver
+    if solver:
+        out["solver"] = solver
+    if backend:
+        out["backend"] = backend
+    schema = d.get("schema")
+    if schema:
+        out["schema"] = schema
+    names = d.get("feature_names")
+    if isinstance(names, list) and names:
+        out["feature_names"] = list(names)
+    fi = d.get("feature_importance")
+    if isinstance(fi, list) and fi:
+        out["feature_importance"] = list(fi)
+    # 勿塞整段 booster_b64；只戳有树
+    if d.get("booster_b64") or (
+        isinstance(d.get("booster"), dict) and d["booster"].get("payload_b64")
+    ):
+        out["has_booster"] = True
+    role = str(d.get("model_role") or getattr(chosen, "model_role", "") or "").strip()
+    if role:
+        out["model_role"] = role
+    if d.get("zscore_scope"):
+        out["zscore_scope"] = d.get("zscore_scope")
+    return out

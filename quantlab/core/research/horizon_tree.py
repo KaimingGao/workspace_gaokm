@@ -227,10 +227,21 @@ def _row_matrix(
     z_stds: Optional[Dict[str, float]] = None,
 ) -> np.ndarray:
     from core.research.horizon_lgb import _apply_feature_z, _design_matrix
+    from core.signal.factors.z_tc import feature_get as z_tc_feature_get
     from core.signal.factors.z_th import feature_get as z_th_feature_get
 
     src = features or {}
-    row = {k: z_th_feature_get(src, k) for k in feature_names}
+
+    def _get(name: str) -> Any:
+        key = str(name or "")
+        # ŷ_τc / raw_atc_*：优先 z_tc 别名；其余（ŷ_τ* / ŷ_oo tip）走 z_th
+        if key.startswith("z_τc_") or key.startswith("raw_atc_"):
+            v = z_tc_feature_get(src, key)
+            if v is not None and v != "":
+                return v
+        return z_th_feature_get(src, key)
+
+    row = {k: _get(k) for k in feature_names}
     means = np.asarray(
         [float(impute_means.get(str(n)) or 0.0) for n in feature_names],
         dtype=np.float64,
@@ -288,6 +299,16 @@ def resolve_tree_engine(return_model: Optional[Dict[str, Any]]) -> Optional[str]
     return None
 
 
+def _tree_impute_means(rm: Dict[str, Any]) -> Dict[str, float]:
+    """截面模型缺特征填 z=0；旧全局 z 模型仍用训练列均值。"""
+    from core.research.feature_standardize import is_cross_section_zscore
+
+    if is_cross_section_zscore(rm):
+        return {}
+    means = rm.get("impute_means") if isinstance(rm.get("impute_means"), dict) else {}
+    return means if isinstance(means, dict) else {}
+
+
 def predict_tree_raw(
     features: Optional[Dict[str, Any]],
     return_model: Optional[Dict[str, Any]],
@@ -299,7 +320,7 @@ def predict_tree_raw(
     names = [str(n) for n in (rm.get("feature_names") or []) if n]
     if not names:
         return None
-    means = rm.get("impute_means") if isinstance(rm.get("impute_means"), dict) else {}
+    means = _tree_impute_means(rm)
     z_means, z_stds = _stored_feature_z(rm)
     try:
         x = _row_matrix(features or {}, names, means, z_means=z_means, z_stds=z_stds)
@@ -429,12 +450,15 @@ def explain_tree_return(
 
     LightGBM 用 pred_contrib；有 ``feature_importance`` 时挂 gain% 便于 tip 回溯。
     """
+    from core.research.feature_standardize import is_cross_section_zscore
+
     rm = _return_model_doc(return_model)
     names = [str(n) for n in (rm.get("feature_names") or []) if n]
     if not names:
         return None
-    means = rm.get("impute_means") if isinstance(rm.get("impute_means"), dict) else {}
+    means = _tree_impute_means(rm)
     z_means, z_stds = _stored_feature_z(rm)
+    cs_z = is_cross_section_zscore(rm)
     try:
         x = _row_matrix(features or {}, names, means, z_means=z_means, z_stds=z_stds)
     except Exception:  # noqa: BLE001
@@ -478,7 +502,7 @@ def explain_tree_return(
             "contrib": round(c, 6),
         }
         if imputed:
-            term["note"] = "均值填"
+            term["note"] = "z=0 填" if cs_z else "均值填"
         terms.append(term)
     y_hat = predict_tree_return(features, rm)
     if y_hat is not None and abs(float(total) - float(y_hat)) < 1e-3:
@@ -486,12 +510,19 @@ def explain_tree_return(
     terms.sort(key=lambda t: -abs(float(t.get("contrib") or 0.0)))
     terms = terms[:24]
     _stamp_gain_on_terms(terms, rm, return_model)
-    return {
+    out: Dict[str, Any] = {
         "intercept": round(bias, 6),
         "terms": terms,
         "total": round(float(total), 6),
         "model_role": "tree",
     }
+    if eng == "lightgbm":
+        out["backend"] = "lightgbm"
+    if str(rm.get("head_kind") or "").strip():
+        out["head_kind"] = str(rm.get("head_kind"))
+    elif str(rm.get("kind") or "").strip() == "return":
+        out["head_kind"] = "return"
+    return out
 
 
 def tree_tip_formula(
@@ -732,7 +763,7 @@ def fit_horizon_tree_report(
 
     from core.research.horizon_compact import compact_subset
     from core.research.horizon_ridge import prepare_horizon_compact
-    from core.research.tc_ridge import _theme_counts
+    from core.research.tc_model import _theme_counts
     from core.signal.factors.z_th import Z_TH_FIT_DROP_ALIASES
     from core.research.horizon_lgb import (
         DEFAULT_LEARNING_RATE,

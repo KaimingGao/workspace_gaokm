@@ -98,7 +98,7 @@ def rescore_fitted_cross_section(
         return list(items)
     if len(rows) < 2 and not _day_cube_usable(day_cube):
         return list(items)
-    _rescore_oo_ridge(rows, score_codes=score_codes, day_cube=day_cube)
+    _rescore_oo_lgb(rows, score_codes=score_codes, day_cube=day_cube)
     _rescore_tau(rows, score_codes=score_codes, day_cube=day_cube)
     _rescore_horizons(rows, score_codes=score_codes, day_cube=day_cube)
     return list(items)
@@ -150,20 +150,21 @@ def _active_names(model: Optional[dict]) -> List[str]:
     return filter_predict_active_names(raw, coefs)
 
 
-def _rescore_oo_ridge(
+def _rescore_oo_lgb(
     items: List[dict],
     *,
     score_codes: Optional[Collection[str]] = None,
     day_cube: Any = None,
 ) -> None:
+    """截面重打 ŷ_oo（LightGBM）。"""
     try:
         from core.research.feature_standardize import is_cross_section_zscore
-        from core.research.oo_ridge import load_scoring_return_model
+        from core.research.oo_model import load_scoring_return_model
         from core.signal.return_score import apply_predicted_scores
     except Exception:  # noqa: BLE001
-        logger.debug("oo ridge rescore import failed", exc_info=True)
+        logger.debug("oo lgb rescore import failed", exc_info=True)
         return
-    # 须跟打分上下文：研究回测不能写死 prefer_active 盖掉 Holdout β
+    # 须跟打分上下文：研究回测不能写死 prefer_active
     model, _meta = load_scoring_return_model()
     if model is None or not is_cross_section_zscore(model):
         return
@@ -228,15 +229,15 @@ def _rescore_tau(
             is_cross_section_zscore,
             normalize_score_codes,
         )
-        from core.research.tc_ridge import load_tau_model, predict_tau_from_features
+        from core.research.tc_model import load_tau_model, predict_tau_from_features
         from core.signal.dual_score.tau import apply_tau_score_fields
     except Exception:  # noqa: BLE001
         logger.debug("tau rescore import failed", exc_info=True)
         return
-    ridge_doc = load_tau_model()
-    if not is_cross_section_zscore(ridge_doc):
+    tau_doc = load_tau_model()
+    if not is_cross_section_zscore(tau_doc):
         return
-    rm = ridge_doc.get("return_model") if isinstance(ridge_doc, dict) else {}
+    rm = tau_doc.get("return_model") if isinstance(tau_doc, dict) else {}
     names = _active_names(rm if isinstance(rm, dict) else {})
     if not names:
         names = list(raws[0].keys())
@@ -259,7 +260,7 @@ def _rescore_tau(
             yhats.append(None)
             continue
         try:
-            yhat = predict_tau_from_features(z_row, model_doc=ridge_doc)
+            yhat = predict_tau_from_features(z_row, model_doc=tau_doc)
         except Exception as exc:  # noqa: BLE001
             logger.exception("tau rescore predict failed")
             raise RuntimeError(f"tau 截面 rescore predict 失败: {exc}") from exc
@@ -273,7 +274,7 @@ def _rescore_tau(
             # tip 与 predict 同吃截面 z，避免 raw×β 把 YKLEN 等小尺度列挤出组成表
             explain_feats=z_row,
             as_of_tau=item.get("as_of_tau"),
-            rem_model_doc=ridge_doc,
+            rem_model_doc=tau_doc,
             fuse_intraday=fuse,
         )
     from core.signal.factors.sum_identity import cs_batch_preds_look_collapsed

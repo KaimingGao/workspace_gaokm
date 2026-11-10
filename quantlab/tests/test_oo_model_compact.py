@@ -32,7 +32,7 @@ class TestOoRidgeCompact(unittest.TestCase):
 
     def test_matrix_matches_dict_panel(self) -> None:
         from core.research.factor_ols_fit import fit_factor_ols_from_panel
-        from core.research.oo_ridge_compact import (
+        from core.research.oo_model_compact import (
             OoPanelMatrix,
             fit_oo_ridge_matrix,
             predict_oo_matrix,
@@ -175,7 +175,7 @@ class TestOoRidgeCompact(unittest.TestCase):
         self.assertEqual(len(dropped), 1)
 
     def test_parallel_blocks_match_serial(self) -> None:
-        from core.research.oo_ridge_compact import assemble_oo_panels
+        from core.research.oo_model_compact import assemble_oo_panels
 
         def bars_for(seed: int, n: int = 80):
             rng = np.random.default_rng(seed)
@@ -210,7 +210,7 @@ class TestOoRidgeCompact(unittest.TestCase):
         import os
         from unittest.mock import patch
 
-        from core.research.oo_ridge_compact import _resolve_workers
+        from core.research.oo_model_compact import _resolve_workers
 
         with patch.dict(os.environ, {"OO_RIDGE_WORKERS": "4"}):
             self.assertEqual(_resolve_workers(300, None), 4)
@@ -219,7 +219,7 @@ class TestOoRidgeCompact(unittest.TestCase):
         self.assertEqual(_resolve_workers(1, 2), 1)
 
     def test_stack_aligns_extra_column_and_skips_empty(self) -> None:
-        from core.research.oo_ridge_compact import OoPanelMatrix, _stack_blocks
+        from core.research.oo_model_compact import OoPanelMatrix, _stack_blocks
 
         base = OoPanelMatrix().names
         extra = base + ["raw_aoo_EXTRA_TEST"]
@@ -243,7 +243,7 @@ class TestOoRidgeCompact(unittest.TestCase):
         self.assertEqual(float(x[2, -1]), 7.0)
 
     def test_row_idx_matches_sliced_matrix(self) -> None:
-        from core.research.oo_ridge_compact import fit_oo_ridge_matrix
+        from core.research.oo_model_compact import fit_oo_ridge_matrix
 
         rng = np.random.default_rng(0)
         n = 80
@@ -265,7 +265,7 @@ class TestOoRidgeCompact(unittest.TestCase):
         self.assertEqual(via_idx["sample_count"], via_slice["sample_count"])
 
     def test_stock_job_error_names_the_code(self) -> None:
-        from core.research.oo_ridge_compact import _oo_stock_job
+        from core.research.oo_model_compact import _oo_stock_job
 
         with self.assertRaises(RuntimeError) as ctx:
             _oo_stock_job(("600000", [], "bad-horizon", True))
@@ -273,7 +273,7 @@ class TestOoRidgeCompact(unittest.TestCase):
 
     def test_stock_job_accepts_legacy_3tuple(self) -> None:
         """父进程旧 3 元组 + 子进程新代码时不应 unpack 炸。"""
-        from core.research.oo_ridge_compact import _oo_stock_job
+        from core.research.oo_model_compact import _oo_stock_job
 
         x, y, names, dates = _oo_stock_job(("600000", [], 1))
         self.assertEqual(int(x.shape[0]), 0)
@@ -283,7 +283,7 @@ class TestOoRidgeCompact(unittest.TestCase):
 
 class TestOoFiniteLabels(unittest.TestCase):
     def test_ic_and_sign_hit_drop_nan_labels(self) -> None:
-        from core.research.oo_ridge import _oo_ic, _oo_sign_hit
+        from core.research.oo_model import _oo_ic, _oo_sign_hit
         from core.research.oos_finite import as_float, finite_xy, n_label_nan
 
         preds = [0.2, -0.4, 0.8, -0.3, 0.6, 1.1]

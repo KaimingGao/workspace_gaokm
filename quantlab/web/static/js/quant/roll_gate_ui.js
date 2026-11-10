@@ -115,17 +115,24 @@ export function installRollGateUi(q) {
         step: 5,
       };
     }
-    if (/拟合|fit|lambdarank|ridge/i.test(msg)) {
+    if (/拟合|fit|lambdarank|ridge|lightgbm|lgb/i.test(msg)) {
       let label = "拟合";
       let step = 1;
-      if (/OO\s*Ridge|oo\s*ridge/i.test(msg)) {
-        label = "拟合 oo Ridge";
+      if (/OO\s*LightGBM|oo\s*lightgbm|OO\s*LGB|oo\s*lgb/i.test(msg)) {
+        label = "拟合 oo LightGBM";
+        step = 1;
+      } else if (/OO\s*Ridge|oo\s*ridge/i.test(msg)) {
+        label = "拟合 oo LightGBM";
         step = 1;
       } else if (/OO\s*Lambda|oo\s*lambda/i.test(msg)) {
         label = "拟合 oo LambdaRank";
         step = 2;
-      } else if (/τc\s*Ridge|tc\s*ridge/i.test(msg)) {
-        label = "拟合 τc Ridge";
+      } else if (
+        /τc\s*LightGBM|tc\s*lightgbm|τc\s*LGB|tc\s*lgb|τc\s*Ridge|tc\s*ridge/i.test(
+          msg
+        )
+      ) {
+        label = "拟合 τc LightGBM";
         step = 3;
       } else if (/τc\s*Lambda|tc\s*lambda/i.test(msg)) {
         label = "拟合 τc LambdaRank";

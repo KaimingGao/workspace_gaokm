@@ -21,7 +21,7 @@ from core.research.tau_panel import (
     T60_LAG_FEAT_LABELS,
     theme_sample_weights,
 )
-from core.research.tc_ridge import (
+from core.research.tc_model import (
     _ic,
     _oos_by_tau,
     _oos_by_theme,

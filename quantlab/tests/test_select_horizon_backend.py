@@ -409,7 +409,7 @@ class HorizonDualFitTests(unittest.TestCase):
     def test_stream_panel_attach_breadth_false(self):
         """逐票 attach_breadth=False 再 finalize，与整池建板样本数一致。"""
         from core.research.horizon_ridge import enrich_horizon_raw_panels
-        from core.research.tc_ridge_compact import build_tau_panels_from_bars
+        from core.research.tc_model_compact import build_tau_panels_from_bars
 
         stock_bars = [
             _stock("A", 10.0),
@@ -484,7 +484,7 @@ class HorizonDualFitTests(unittest.TestCase):
         self.assertFalse(any("price_tau45" in m for m in metas))
 
     def test_parallel_workers_match_serial_for_label_heads(self):
-        from core.research.tc_ridge_compact import build_tau_panels_from_bars
+        from core.research.tc_model_compact import build_tau_panels_from_bars
 
         def _fresh():
             return [

@@ -1188,7 +1188,7 @@ class TestOpenDayYhat(unittest.TestCase):
             "sector_gap_breadth": 0.33,
             "ref_by_code": {"600519": 0.5},
         }
-        with patch("core.research.tc_ridge.load_tau_model", return_value=rem_doc):
+        with patch("core.research.tc_model.load_tau_model", return_value=rem_doc):
             out = _attach_open_yhat_heads(
                 entries,
                 quotes={"600519": quote},

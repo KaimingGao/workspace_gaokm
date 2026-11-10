@@ -30,7 +30,7 @@ class ZTcAliasTests(unittest.TestCase):
         self.assertEqual(conflict["gap_pct"], 1.0)
 
     def test_predict_rows_accepts_legacy_or_canon(self):
-        from core.research.tc_ridge import _predict_rows
+        from core.research.tc_model import _predict_rows
 
         fit = {
             "coefficients": {"z_τc_gap_pct": 2.0, "z_τc_theme_day": -1.0},

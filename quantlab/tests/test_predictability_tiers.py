@@ -25,7 +25,7 @@ class TestPredictabilityTiers(unittest.TestCase):
             intercept=0.0, coefficients={"momentum": 1.0}, feature_zscore=False
         )
         with patch(
-            "core.research.predictability_tiers._load_research_oo_model",
+            "core.research.predictability_tiers._load_tier_oo_lgb_model",
             return_value=(research, {"ok": True, "path": "/tmp/r.json"}),
         ), patch(
             "core.research.portfolio_bars.load_portfolio_stock_bars",
@@ -78,7 +78,7 @@ class TestPredictabilityTiers(unittest.TestCase):
             )
 
         with patch(
-            "core.research.predictability_tiers._load_research_oo_model",
+            "core.research.predictability_tiers._load_tier_oo_lgb_model",
             return_value=(research, {"ok": True}),
         ), patch(
             "core.research.predictability_tiers._lake_coverage_ok",
@@ -145,7 +145,7 @@ class TestPredictabilityTiers(unittest.TestCase):
             return ({str(c): list(bars) for c in codes}, [], {})
 
         with patch(
-            "core.research.predictability_tiers._load_research_oo_model",
+            "core.research.predictability_tiers._load_tier_oo_lgb_model",
             return_value=(research, {"ok": True}),
         ), patch(
             "core.research.predictability_tiers._lake_coverage_ok",
@@ -568,7 +568,7 @@ class TestPredictabilityTiers(unittest.TestCase):
         self.assertEqual(done.get("phase"), "")
 
     def test_lift_from_panels_rank_backend_skips_abs(self):
-        """排序头 LambdaRank 不产出 abs lift；收益头 Ridge 才有 by_code_abs。"""
+        """排序头 LambdaRank 不产出 abs lift；收益头（Ridge/LightGBM）才有 by_code_abs。"""
         from unittest import mock
 
         from core.research import predictability_tiers as pt
@@ -878,7 +878,7 @@ class TestPredictabilityTiers(unittest.TestCase):
             return 1
 
         with patch(
-            "core.research.predictability_tiers._load_research_oo_model",
+            "core.research.predictability_tiers._load_tier_oo_lgb_model",
             return_value=(research, {"ok": True}),
         ), patch(
             "core.research.predictability_tiers._lake_coverage_ok",
@@ -1331,7 +1331,7 @@ class TestPredictabilityTiers(unittest.TestCase):
             "meta": {"lookback": 120},
         }
         with patch(
-            "core.research.oo_ridge.load_return_model_payload",
+            "core.research.oo_model.load_return_model_payload",
             return_value=research,
         ):
             model, meta = _load_research_oo_model()
@@ -1341,12 +1341,157 @@ class TestPredictabilityTiers(unittest.TestCase):
         self.assertAlmostEqual(float(model.predict({"momentum": 1.0})), 0.3)
 
         with patch(
-            "core.research.oo_ridge.load_return_model_payload",
+            "core.research.oo_model.load_return_model_payload",
             return_value=None,
         ):
             model2, meta2 = _load_research_oo_model()
         self.assertIsNone(model2)
         self.assertFalse(meta2.get("ok"))
+
+    def test_load_research_oo_model_hydrates_lightgbm(self):
+        from core.research.oo_lgb import SCHEMA_OO_LGB, OoLightgbmScorer
+        from core.research.predictability_tiers import _load_research_oo_model
+
+        research = {
+            "role": "research",
+            "backend": "lightgbm",
+            "model": {
+                "feature_names": ["z_oo_momentum"],
+                "booster": {"format": "lightgbm_string", "payload_b64": "YQ=="},
+                "schema": SCHEMA_OO_LGB,
+                "zscore_scope": "cross_section",
+                "solver": "lightgbm",
+            },
+            "meta": {"lookback": 200},
+        }
+        with patch(
+            "core.research.oo_model.load_return_model_payload",
+            return_value=research,
+        ):
+            model, meta = _load_research_oo_model()
+        self.assertIsInstance(model, OoLightgbmScorer)
+        self.assertTrue(meta.get("ok"))
+        self.assertEqual(meta.get("backend"), "lightgbm")
+        self.assertEqual(meta.get("lookback"), 200)
+
+    def test_load_tier_oo_lgb_prefers_research_then_active(self):
+        from core.research.oo_lgb import SCHEMA_OO_LGB, OoLightgbmScorer
+        from core.research.predictability_tiers import _load_tier_oo_lgb_model
+
+        lgb_model = {
+            "feature_names": ["z_oo_momentum"],
+            "booster": {"format": "lightgbm_string", "payload_b64": "YQ=="},
+            "schema": SCHEMA_OO_LGB,
+            "zscore_scope": "cross_section",
+            "solver": "lightgbm",
+        }
+        active = {"role": "live", "backend": "lightgbm", "model": lgb_model, "meta": {}}
+        ridge = {
+            "role": "research",
+            "backend": "ridge",
+            "model": {"coefficients": {"momentum": 0.2}, "intercept": 0.0},
+            "meta": {},
+        }
+
+        def _payload(path):
+            p = str(path or "")
+            if "research" in p:
+                return ridge
+            if "active" in p or "live" in p:
+                return active
+            return None
+
+        with patch(
+            "core.research.oo_model.load_return_model_payload",
+            side_effect=_payload,
+        ):
+            model, meta = _load_tier_oo_lgb_model()
+        self.assertIsInstance(model, OoLightgbmScorer)
+        self.assertEqual(meta.get("role"), "active")
+        self.assertEqual(meta.get("backend"), "lightgbm")
+
+    def test_lift_from_panels_lightgbm_uses_abs(self):
+        from core.research import predictability_tiers as pt
+
+        # abs 说涨需 ≥8 次；定档窗给 10 日且 ŷ>ε、y>0
+        days = [
+            {
+                "date": f"2024-02-{d:02d}",
+                "codes": ["A", "B"],
+                "ys": [1.0, 1.0],
+                "names": ["f1"],
+                "X": [[1.0], [0.5]],
+            }
+            for d in range(1, 21)
+        ]
+        fit_dates = [f"2024-02-{d:02d}" for d in range(1, 9)]
+        tier_dates = [f"2024-02-{d:02d}" for d in range(9, 19)]
+
+        def fake_pred(_blob, day_list):
+            out = []
+            for day in day_list:
+                rows = [
+                    (c, 0.2, float(y))
+                    for c, y in zip(day.get("codes") or [], day.get("ys") or [])
+                ]
+                out.append((str(day.get("date") or "")[:10], rows))
+            return out
+
+        with patch.object(
+            pt,
+            "_load_tier_oo_lgb_model",
+            return_value=(
+                type("M", (), {"to_dict": lambda self: {"schema": "oo_lgb_v1"}})(),
+                {"ok": True, "role": "research", "backend": "lightgbm"},
+            ),
+        ), patch.object(pt, "_predict_oo_lgb_days", side_effect=fake_pred):
+            pack = pt._lift_from_panels(
+                days, fit_dates, tier_dates, backend="lightgbm"
+            )
+        self.assertTrue(pack.get("ok"), pack)
+        self.assertEqual(pack.get("backend"), "lightgbm")
+        self.assertIn("A", pack.get("by_code_abs") or {})
+
+    def test_lift_from_panels_tc_lightgbm_uses_abs(self):
+        from core.research import predictability_tiers as pt
+
+        days = [
+            {
+                "date": f"2024-02-{d:02d}",
+                "codes": ["A", "B"],
+                "ys": [1.0, 1.0],
+                "names": ["f1"],
+                "X": [[1.0], [0.5]],
+            }
+            for d in range(1, 21)
+        ]
+        fit_dates = [f"2024-02-{d:02d}" for d in range(1, 9)]
+        tier_dates = [f"2024-02-{d:02d}" for d in range(9, 19)]
+
+        def fake_pred(_blob, day_list):
+            out = []
+            for day in day_list:
+                rows = [
+                    (c, 0.2, float(y))
+                    for c, y in zip(day.get("codes") or [], day.get("ys") or [])
+                ]
+                out.append((str(day.get("date") or "")[:10], rows))
+            return out
+
+        with patch.object(
+            pt,
+            "_load_tier_tc_lgb_model",
+            return_value=(
+                type("M", (), {"to_dict": lambda self: {"schema": "tau_lgb_v1"}})(),
+                {"ok": True, "role": "research", "backend": "lightgbm"},
+            ),
+        ), patch.object(pt, "_predict_tc_lgb_days", side_effect=fake_pred):
+            pack = pt._lift_from_panels(
+                days, fit_dates, tier_dates, backend="lightgbm", head="tc"
+            )
+        self.assertTrue(pack.get("ok"), pack)
+        self.assertEqual(pack.get("backend"), "lightgbm")
+        self.assertIn("A", pack.get("by_code_abs") or {})
 
     def test_build_tiers_defaults_to_watching(self):
         from core.research.predictability_tiers import build_predictability_tiers

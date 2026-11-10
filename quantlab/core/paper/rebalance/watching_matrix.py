@@ -1392,25 +1392,17 @@ def _cube_tip_explains(
     return out
 
 
-def _attach_cube_formula(
+def _attach_cube_lgb_formula(
     items: Sequence[dict],
     codes: Sequence[str],
     Z: Any,
     names: Sequence[str],
-    coefficients: Dict[str, Any],
-    intercept: float,
-    active: Sequence[str],
-    pred: Any,
+    model: Any,
     fields: Sequence[str],
     score_codes: Optional[Collection[str]],
     explain_codes: Optional[Collection[str]],
-    *,
-    score_model_role: str = "",
-    total_key: str = "",
-    pin_keys: Optional[Sequence[str]] = None,
-    stamp_item_role: bool = False,
 ) -> None:
-    """把立方点积的因子拆解写到出分行。``explain_codes`` 给定时只拆这些票。"""
+    """LightGBM：按立方已 z 行组 dict → ``explain_prediction``。"""
     allow = None
     if score_codes is not None:
         allow = {str(c or "").strip() for c in score_codes if str(c or "").strip()}
@@ -1418,7 +1410,11 @@ def _attach_cube_formula(
     if explain_codes is not None:
         explain = {str(c or "").strip() for c in explain_codes if str(c or "").strip()}
     index = {str(c or "").strip(): i for i, c in enumerate(codes)}
-    row_ids: List[int] = []
+    feat_names = [str(n) for n in (getattr(model, "feature_names", None) or [])]
+    if not feat_names:
+        return
+    name_j = {str(n): i for i, n in enumerate(names)}
+    role = str(getattr(model, "model_role", "") or "").strip().lower()
     for it in items:
         code = str(it.get("stock_code") or "").strip()
         if allow is not None and code not in allow:
@@ -1428,40 +1424,31 @@ def _attach_cube_formula(
         i = index.get(code)
         if i is None:
             continue
-        row_ids.append(i)
-    if not row_ids:
-        return
-    explains = _cube_tip_explains(
-        Z,
-        names,
-        coefficients,
-        intercept,
-        active,
-        pred,
-        row_ids=row_ids,
-        score_model_role=score_model_role,
-        total_key=total_key,
-        pin_keys=pin_keys,
-    )
-    if not explains:
-        return
-    role = str(score_model_role or "").strip().lower()
-    for it in items:
-        code = str(it.get("stock_code") or "").strip()
-        if allow is not None and code not in allow:
+        row: Dict[str, float] = {}
+        for fn in feat_names:
+            j = name_j.get(fn)
+            if j is None:
+                continue
+            try:
+                v = float(Z[i, j])
+            except Exception:  # noqa: BLE001
+                continue
+            if v == v:
+                row[fn] = v
+        if not row:
             continue
-        if explain is not None and code not in explain:
+        try:
+            expl = model.explain_prediction(row)
+        except Exception:  # noqa: BLE001
+            expl = None
+        if not isinstance(expl, dict):
             continue
-        i = index.get(code)
-        if i is None:
-            continue
-        expl = explains.get(i)
-        if not expl:
-            continue
+        if role in {"research", "live"}:
+            expl = dict(expl)
+            expl["score_model_role"] = role
+            it["score_model_role"] = role
         for key in fields:
             it[key] = expl
-        if stamp_item_role and role in {"research", "live"}:
-            it["score_model_role"] = role
 
 
 def _write_head(items: Sequence[dict], codes: Sequence[str], pred: Any, fields: Sequence[str], score_codes: Optional[Collection[str]]) -> None:
@@ -1532,17 +1519,27 @@ def _stamp_cube_head_scores(
             raise RuntimeError(f"{head} 截面出分拒绝：批 ŷ 塌缩远离 intercept")
 
     try:
-        from core.research.oo_ridge import load_scoring_return_model
+        from core.research.oo_lgb import (
+            is_oo_lightgbm_scorer,
+            predict_oo_lgb_on_cs_z,
+        )
+        from core.research.oo_model import load_scoring_return_model
 
         model, _meta = load_scoring_return_model()
     except Exception:  # noqa: BLE001
         logger.debug("cube oo model load failed", exc_info=True)
         model = None
-    if model is not None and getattr(model, "coefficients", None):
-        active = filter_predict_active_names(model.coefficients.keys(), model.coefficients)
-        pred = _dot_head(Z, names, model.coefficients, float(model.intercept or 0.0), active)
-        if pred is not None:
-            _refuse("oo", pred, float(model.intercept or 0.0))
+        is_oo_lightgbm_scorer = None  # type: ignore[assignment]
+        predict_oo_lgb_on_cs_z = None  # type: ignore[assignment]
+    if model is not None and callable(is_oo_lightgbm_scorer) and is_oo_lightgbm_scorer(model):
+        pred_arr = (
+            predict_oo_lgb_on_cs_z(model, Z, names)
+            if callable(predict_oo_lgb_on_cs_z)
+            else None
+        )
+        if pred_arr is not None:
+            pred = [float(v) for v in list(pred_arr)]
+            _refuse("oo", [p for p in pred if p == p], 0.0)
             _write_head(
                 items,
                 codes,
@@ -1551,40 +1548,49 @@ def _stamp_cube_head_scores(
                 score_codes,
             )
             try:
-                _attach_cube_formula(
+                _attach_cube_lgb_formula(
                     items,
                     codes,
                     Z,
                     names,
-                    model.coefficients,
-                    float(model.intercept or 0.0),
-                    active,
-                    pred,
+                    model,
                     ("score_formula_terms", "formula_terms"),
                     score_codes,
                     explain_codes,
-                    score_model_role=str(getattr(model, "model_role", "") or ""),
-                    stamp_item_role=True,
                 )
-            except Exception:  # noqa: BLE001 — 组成失败不挡 ŷ
-                logger.debug("cube oo formula terms skipped", exc_info=True)
-
+            except Exception:  # noqa: BLE001
+                logger.debug("cube oo lgb formula terms skipped", exc_info=True)
     try:
-        from core.research.tc_ridge import load_tau_model
+        from core.research.tc_lgb import (
+            TcLightgbmScorer,
+            is_tc_lightgbm_blob,
+            predict_tc_lgb_on_cs_z,
+        )
+        from core.research.tc_model import load_tau_model
 
         doc = load_tau_model() or {}
         rm = doc.get("return_model") if isinstance(doc, dict) else {}
+        if not isinstance(rm, dict):
+            rm = {}
+        tau_role = str(
+            (doc.get("model_role") if isinstance(doc, dict) else "")
+            or rm.get("model_role")
+            or ""
+        )
+        tc_scorer = None
+        if is_tc_lightgbm_blob(rm) or is_tc_lightgbm_blob(doc):
+            blob = rm if is_tc_lightgbm_blob(rm) else doc
+            tc_scorer = TcLightgbmScorer(blob, model_role=tau_role)
     except Exception:  # noqa: BLE001
         logger.debug("cube tau model load failed", exc_info=True)
         rm = {}
-    if isinstance(rm, dict) and rm.get("coefficients"):
-        active = filter_predict_active_names(
-            rm.get("active_features") or rm["coefficients"].keys(),
-            rm["coefficients"],
-        )
-        pred = _dot_head(Z, names, rm["coefficients"], float(rm.get("intercept") or 0.0), active)
-        if pred is not None:
-            _refuse("tau", pred, float(rm.get("intercept") or 0.0))
+        tc_scorer = None
+        tau_role = ""
+    if tc_scorer is not None:
+        pred_arr = predict_tc_lgb_on_cs_z(tc_scorer.to_dict(), Z, names)
+        if pred_arr is not None:
+            pred = [float(v) for v in list(pred_arr)]
+            _refuse("tau", [p for p in pred if p == p], 0.0)
             _write_head(
                 items,
                 codes,
@@ -1593,30 +1599,18 @@ def _stamp_cube_head_scores(
                 score_codes,
             )
             try:
-                tau_role = str(
-                    (doc.get("model_role") if isinstance(doc, dict) else "")
-                    or rm.get("model_role")
-                    or ""
-                )
-                _attach_cube_formula(
+                _attach_cube_lgb_formula(
                     items,
                     codes,
                     Z,
                     names,
-                    rm["coefficients"],
-                    float(rm.get("intercept") or 0.0),
-                    active,
-                    pred,
+                    tc_scorer,
                     ("formula_terms_tau", "score_formula_terms_tau"),
                     score_codes,
                     explain_codes,
-                    score_model_role=tau_role,
-                    total_key="y_τc",
-                    pin_keys=_TAU_TIP_PIN,
                 )
-            except Exception:  # noqa: BLE001 — 组成失败不挡 ŷ
-                logger.debug("cube tau formula terms skipped", exc_info=True)
-
+            except Exception:  # noqa: BLE001
+                logger.debug("cube tau lgb formula terms skipped", exc_info=True)
     try:
         from core.research.feature_standardize import is_cross_section_zscore
         from core.research.horizon_ridge import _doc_backend, load_ridge_model, write_y_hat
@@ -2489,6 +2483,7 @@ def simulate_watching_matrix_preview(
 
     rl_cfg = get_rank_lot_cfg(paper, top_k=top_k)
     k = int(rl_cfg["top_k"])
+    # 遗留枚举名 ridge=「非影子树」；与 ŷ_oo 算法无关（生产仍 load_scoring_return_model → LightGBM）
     score_backend = "ridge"
     _backend_ctx = None
     try:

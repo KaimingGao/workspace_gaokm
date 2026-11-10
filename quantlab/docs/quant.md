@@ -19,7 +19,7 @@
 ├─────────────────────────────────────────────────────────┤
 │  量化主轴（core/signal · backtest · paper · research）   │
 │  score_bars → sub_scores / hard_reject                   │
-│  ReturnScoreModel → predicted_score（ŷ 真源）            │
+│  ŷ_oo LightGBM → predicted_score（选股真源）             │
 │  compute_buy_stance → 买/观望/试探（规则唯一结论）         │
 │  paper_replay / rank_lots · paper 账本 · store 日线缓存  │
 └─────────────────────────────────────────────────────────┘
@@ -55,25 +55,26 @@ live 信号、`backtest`、模拟账本共用 `score_bars()`（`core/signal/scor
 
 **不是**：买入 guarantee；LLM 可改写数字；单票绝对真理（截面看 **相对排序**）。硬拒绝条件与因子加权见 `data/signal_config.json` / `core/signal/factors/*`。
 
-#### 选股真源：线性回归因子系数
+#### 选股真源：ŷ_oo LightGBM
 
-**人工预定的规则分退出；全面拥抱数据驱动的回归模型。** 现阶段用 **线性回归（OLS / 可选 Ridge）**；线性系数 β 即 **可正可负的系数权重**。
+**人工预定的规则分退出；全面拥抱数据驱动的回归模型。** 生产主轴 **ŷ_oo = LightGBM**（`OoLightgbmScorer`）；副轴 **ŷ_τc = LightGBM**（`TcLightgbmScorer`）。
 
 ```text
 score_bars → sub_scores（特征）
-ŷ = α + Σ βᵢ · zᵢ     # ReturnScoreModel → predicted_score = 选股真源
+ŷ_oo = LightGBM(z)     # OoLightgbmScorer → predicted_score = 选股真源
+ŷ_τc = LightGBM(z)   # τc LightGBM（fuse 副轴）
 ```
 
 训练 / 打分 / 回测 / 纸面口径见 **[§ predicted_score（ŷ）全链路](#predictedscoreŷ全链路)**。
 
 | 层级 | 现在是什么 | 不是什么 |
 |------|------------|----------|
-| **score** | 组/全局 `ReturnScoreModel` 的 ŷ（`predicted_score`） | 人工 `weights` 加权的规则综合分 |
-| **因子系数 β** | z 上 ŷ% 斜率，**可正可负** | 和为 1 的非负混合权 |
+| **score** | 全局 ŷ_oo LightGBM（`predicted_score`） | 人工 `weights` 加权的规则综合分 |
+| **gain%** | LightGBM 分裂增益份额（因子表 / tip） | 和为 1 的非负混合权 |
 | **stance** | 仍基于分数阈值 / 策略层 | 分类器直接输出「买/卖」 |
-| **promote** | 人审冻结 `return_model`；**不**自动写 `signal_config.weights` | 静默 overwrite 生产配置 |
+| **promote** | 人审冻结 booster 包；**不**自动写 `signal_config.weights` | 静默 overwrite 生产配置；旧 Ridge 草稿拒晋级 |
 
-`score_bars` 只算因子与 `sub_scores`（ŷ 输入）及硬门禁；无模型时主字段 `score` 为空。复杂模型须 eval 证明增量后人审。演进：`线性回归 ŷ → GBDT blend → 序列模型`。
+`score_bars` 只算因子与 `sub_scores`（ŷ 输入）及硬门禁；无模型时主字段 `score` 为空。复杂模型须 eval 证明增量后人审。
 
 #### 工业常见因子分类（对照本仓库）
 
@@ -106,7 +107,7 @@ score_bars → sub_scores（特征）
 | 样本 (code, date) | 日线 bar / watching 截面 |
 | 特征 X | `sub_scores` · `z_oo_*` · `raw_aoo_*` 等 |
 | 标签 y | `open[T+1]/open[T]-1`（ŷ_oo）；τ→close（ŷ_τc） |
-| 模型 f | `ReturnScoreModel` / Ridge · LambdaRank · τ 头 |
+| 模型 f | ŷ_oo LightGBM · ŷ_τc LightGBM · LambdaRank · τ* |
 | 评估 | IC / IR · OOS · paper_replay · 纸面净值 |
 | 决策层 | `hard_reject` · `compute_buy_stance` · rank_lots 闸 |
 
@@ -137,7 +138,7 @@ score_bars → sub_scores（特征）
 | 纸面 / 调仓 | `core/paper/` · `core/paper/rebalance/` |
 | 做 T | `core/t0/` |
 | 回测 | `core/backtest/paper_replay.py` · `engine.py` |
-| ŷ 头训练 | `oo_ridge_compact` · `tc_ridge` · `oo_rank_*` · `horizon_*` |
+| ŷ 头训练 | `oo_lgb`（ŷ_oo）· `tc_lgb` · `oo_rank_*` · `horizon_*` |
 | 报告导出预览 | `quant/services/quant_report_export.py` |
 | 规则 / LLM 解读 | `quant/services/quant_interpret.py` — `offline: true` → `source=rule_based` |
 | 日更 / 运维 | `core/platform/schedule_jobs.py` · [quant-ops.md](quant-ops.md) |
@@ -246,7 +247,7 @@ preset（`advisor` / `quant` / `quant_paper` / `full`）、cron / launchd、报�
 
 | 角色 | 现网 | 不是 |
 |------|------|------|
-| 主字段 `predicted_score` / 入池地板 | **ŷ_oo**（组 β）；`scoring.min_predicted_score` | `rank.min_score=55`（启发式遗留，不进 ŷ 买入门） |
+| 主字段 `predicted_score` / 入池地板 | **ŷ_oo**（LightGBM）；`scoring.min_predicted_score` | `rank.min_score=55`（启发式遗留，不进 ŷ 买入门） |
 | 盘中簿排序 `ŷ_trade` | `dual_score` blend：现网 **`w_oo=0, w_tau=1`** → 缺口∘ŷ_τ；收盘 `eod_next` 回到 ŷ_oo | 与调仓 rank_lots 不是同一套权 |
 | 调仓 / 纸面 y_oo_fuse（UI fuse） | `fusion_w_oo` / `fusion_w_oc`（回测表单默认 0.6 / 0.4；live Follow 单条滑条，改启动时间建议 0.9/0.1 或 0.1/0.9） | `dual_score.w_*` |
 
@@ -273,7 +274,7 @@ y_{\mathrm{oo}} = \bigl(\mathrm{open}[t+h] / \mathrm{open}[t] - 1\bigr) \times 1
 | \(h\) | `horizon_days`（前瞻，交易日数；现网 1） |
 | \(y_{\mathrm{oo}}\) | 从 T 开到 T+h 开的简单收益（百分点） |
 
-实现：`core/research/oo_panel.py`（矩阵堆叠 `oo_ridge_compact`）· `build_y_spec`（`formula: open[T+1]/open[T]-1`）。今收不进 X。
+实现：`core/research/oo_panel.py`（矩阵 `oo_model_compact`）· `oo_lgb`（回归 LightGBM）· `build_y_spec`（`formula: open[T+1]/open[T]-1`）。今收不进 X。
 
 **不是**「决策日当天的涨跌幅」\(\mathrm{close}[t]/\mathrm{close}[t-1]-1\)，也不是 close→close。
 
@@ -307,7 +308,7 @@ y_{\mathrm{oo}} = \bigl(\mathrm{open}[t+h] / \mathrm{open}[t] - 1\bigr) \times 1
 | **ŷ_τc** | `y_τc` | **alpha_τc** \(= \) `z_τc_*` \(_{\le\tau} \cup\) `raw_atc_*` | \(\mathrm{close}[T]/\mathrm{price}[\tau]-1\) | 调仓 y_oo_fuse 的 τc 项；τ=open 时等于 close/open−1；Z 裸名别名，raw 为 τ 锚 `raw_atc_*` |
 
 ```text
-ŷ_oo      = f(z_oo_* ∪ raw_aoo_*; β)                         # 全量 raw_aoo；标签 open[T+1]/open[T]−1
+ŷ_oo      = f(z_oo_* ∪ raw_aoo_*; LightGBM)                 # 全量 raw_aoo；标签 open[T+1]/open[T]−1
 ŷ_τc      = h(alpha_τc; ρ)  # alpha_τc=z_τc_*∪raw_atc_*；标签 close[T]/price[τ]−1
 y_oo_fuse = fusion_w_oo·((ŷ_oo+1)/(1+rot)−1) + fusion_w_oc·ŷ_τc  # 某一 τ 的 fuse；rot=price(τ)/open−1
 # τ=开盘时 rot=0，简化为 fusion_w_oo·ŷ_oo + fusion_w_oc·ŷ_τc；基准 τ→open[T+1]；默认 0.6/0.4
@@ -340,7 +341,7 @@ y_oo_fuse = fusion_w_oo·((ŷ_oo+1)/(1+rot)−1) + fusion_w_oc·ŷ_τc  # 某一
 |------|------|------|
 | **正交加权（现网）** | 候选 := ŷ_oo≥floor；排序 := ŷ_trade=w·ŷ_oo+w·(缺口∘ŷ_τ)；另过 τ 闸 | **`fusion_mode=blend`** |
 | P0 Z 齐套 | 刷簿池截面 + tip 合并 `features_tau`；启用后轻量刷簿；`features_tau_fill` | **已落地** |
-| P0 alpha_τc | ŷ_τc 特征包 **alpha_τc := z_τc_* ∪ raw_atc_***（产品固定完整包，无开关；拟合列 `z_τc_*`+`raw_atc_*`，Z 裸名别名，报告挂 `feature_pack`；schema `tau_ridge_v15`） | **已落地** |
+| P0 alpha_τc | ŷ_τc 特征包 **alpha_τc := z_τc_* ∪ raw_atc_***（产品固定完整包，无开关；拟合列 `z_τc_*`+`raw_atc_*`，Z 裸名别名，报告挂 `feature_pack`；schema `tau_lgb_v1`） | **已落地** |
 | P0 alpha_τh | ŷ_τ30…90 特征包 **alpha_τh := z_τh_* ∪ raw_ath_***（轻量 GAP/YK + 短窗/会话升格 + 本头 `H_*`；schema `t{N}_ridge_v4`；live `score_policy` 注入） | **已落地** |
 | P0 rem 满池 / 主题分层 OOS | `watching_limit` 默认 36；`oos.by_theme` | **已落地** |
 | P1 分钟 τ | 研究轨 `enable_minute_tau` + `tau_hm`；`sector_ret_to_tau`；默认仍关 | **接线已落地**（人审开开关后训） |
@@ -350,7 +351,7 @@ y_oo_fuse = fusion_w_oo·((ŷ_oo+1)/(1+rot)−1) + fusion_w_oc·ŷ_τc  # 某一
 | F3 以后 | 盘中窗以 ŷ_τ 为主 | 未做 |
 | P3 决策 bandit | 只学闸/听谁，不进 score | 未做 |
 
-**研究枢纽 UI（信息架构）**：主路径「ŷ_oo → IC 时序 → ŷ_τc → 交易执行」；IC 时序嵌在 ŷ_oo 卡内；ŷ_τc 为次级 CTA；数据中心 / 交易执行表列 y_oo / y_τc / fuse（y_oo_fuse）。训练：`POST /api/quant/tc-ridge`（`/tau-ridge` 同入口）→ `tau_ridge_model.json`。
+**研究枢纽 UI（信息架构）**：主路径「ŷ_oo → IC 时序 → ŷ_τc → 交易执行」；IC 时序嵌在 ŷ_oo 卡内；ŷ_τc 为次级 CTA；数据中心 / 交易执行表列 y_oo / y_τc / fuse（y_oo_fuse）。训练：`POST /api/quant/tc-lgb`→ `tau_lgb_model.json`。
 
 建模、训练面板、OOS 与字段细节见 [§2.5](#25-双层-predictedscoreŷoo-ŷτ)；盘中落地见 [§ Live 出分与旁路](#live-出分与旁路)。
 
@@ -360,8 +361,8 @@ y_oo_fuse = fusion_w_oo·((ŷ_oo+1)/(1+rot)−1) + fusion_w_oc·ŷ_τc  # 某一
 
 | 符号 | 定义（% 口径 ×100 同下） | 锚点 | 现网字段 / 状态 |
 |------|---------------------------|------|-----------------|
-| **\(y_{\mathrm{oo}}(t)\)** | \(\mathrm{open}[t+1]/\mathrm{open}[t]-1\) | 今开→明开；**决策 = t 开盘**（X≤t−1+今开） | `predicted_score` / `y_oo` · **已落地**（`oo_panel` · `oo_ridge_compact`；旧别名 `predicted_score_eod`） |
-| **\(y_\tau(t)\)** | \(\mathrm{close}[t]/\mathrm{open}[t]-1\) | 今开→今收；**决策 = τ** | `predicted_score_tau` · **已落地**（`tau_panel` · `tc_ridge_compact` · `tau_ridge`） |
+| **\(y_{\mathrm{oo}}(t)\)** | \(\mathrm{open}[t+1]/\mathrm{open}[t]-1\) | 今开→明开；**决策 = t 开盘**（X≤t−1+今开） | `predicted_score` / `y_oo` · **已落地**（`oo_panel` · `oo_lgb`；旧别名 `predicted_score_eod`） |
+| **\(y_\tau(t)\)** | \(\mathrm{close}[t]/\mathrm{open}[t]-1\) | 今开→今收；**决策 = τ** | `predicted_score_tau` · **已落地**（`tau_panel` · `tc_model_compact` · `tau_lgb`） |
 
 **open 锚周期（几何乘法，非加法）**
 
@@ -419,7 +420,7 @@ open(t) ──y_τ(t)──► close(t) ──隔夜──► open(t+1)
 
 ## 3. 训练链（现行）
 
-日线 / 分钟面板由 `bars_*` / `minute_*` 增量物化（见 [bars-update-plan](internal/bars-update-plan.md)）；ŷ 头按 [§2.5](#25-双层-predictedscoreŷoo-ŷτ) 分标签独立训练：ŷ_oo（`oo_ridge_compact` / `factor_ols`）、ŷ_τc（`tc_ridge_compact`）、ŷ_τ30…90（Ridge / LightGBM）。
+日线 / 分钟面板由 `bars_*` / `minute_*` 增量物化（见 [bars-update-plan](internal/bars-update-plan.md)）；ŷ 头按 [§2.5](#25-双层-predictedscoreŷoo-ŷτ) 分标签独立训练：ŷ_oo（`oo_lgb` LightGBM）、ŷ_τc（`tc_lgb` / `tc_model_compact`）、ŷ_τ30…90（Ridge / LightGBM）。
 
 产物落 `data/live/*_model.json`；OOS 与样本指纹过闸后**人工启用**，现网分研究套 / 执行套两槽（详见 §4）。
 
@@ -442,12 +443,12 @@ open(t) ──y_τ(t)──► close(t) ──隔夜──► open(t+1)
 
 配置门：`scoring.rank_mode=predicted_score` · `min_predicted_score`。
 
-**拟合控件（ŷ_oo / ŷ_τc Ridge · ŷ_oo_rank / ŷ_τc_rank 单头 LambdaRank · ŷ_τ30…90 双训）**：卡头训练窗 / Holdout；**日截面 Z 恒开**（UI 无勾选）。只训 Holdout 前一套；**启用研究**=草稿→研究槽；**启用执行**=研究槽→执行槽（晋级）。
+**拟合控件（ŷ_oo / ŷ_τc LightGBM · ŷ_oo_rank / ŷ_τc_rank 单头 LambdaRank · ŷ_τ30…90 双训）**：卡头训练窗 / Holdout；**日截面 Z 恒开**（UI 无勾选）。只训 Holdout 前一套；**启用研究**=草稿→研究槽；**启用执行**=研究槽→执行槽（晋级）。旧 Ridge 草稿拒晋级，须重训 LightGBM。
 - **日截面 Z**（产品固定开）：入模特征按决策日截面 μ/σ。API `cross_section_zscore=false`（训练窗全局 μ/σ）已下线；缺省/true。物化层：**L1 Feature Lake**（按股×日 raw）+ **L2 DayCube**（按日 μ/σ / gap breadth，键含 `universe_hash`）；拟合写穿、回测/调仓/T0 复用。开关见 `QUANTLAB_FEATURE_LAKE` / `QUANTLAB_DAY_CUBE` / `QUANTLAB_BATCH_SCORE`。旧全局 μ/σ 落盘包推理仍可读，主路径 miss 时须重拟合。
 
-**调仓回测 ŷ 头仅 Ridge**；Horizon τ30…90 已并入主卡双训（见 §4.3d）。
+**调仓回测 ŷ_oo / ŷ_τc=LightGBM**；Horizon τ30…90 已并入主卡双训（见 §4.3d）。
 
-**观察池分档**（概览下「观察池分档」区；工具栏 **Holdout** 默认 **60**，与 ŷ_oo 拟合 Holdout 独立，不回写自上次报告）：评测窗为 Holdout 前段，与 Holdout、与拟合窗交界各空 **1 个交易日**。定档模型只拟合评测窗之前，不覆盖研究套；交易打分仍用研究套。当场拟合：**排序头 oo_rank / τc_rank** = 内存 **LambdaRank**（稠密截面名次）；**收益头 oo / τc** = 内存 **Ridge**（各自独立拟合，排序分无收益量纲，禁止用 LambdaRank 回退 abs 说涨）。收益头说涨 = 预估 > 0.05pp；排序头说涨 = 预估高于当日截面中位数。猜涨精度 = 说涨日里标签真正上涨的比例。lift = 猜涨精度 − 该票定档窗上涨日比例；有样本头等权。收益大小不进分数。单头说涨少于 **8 次**不计入该头；oo_rank 失败则整次失败，其余头软跳过；都没有则归 C。按 lift 降序取 **top A 数量→A**、**接着 B 数量→B**、其余→C。默认 A=100、B=300。表内：四头 lift + Lift_Score；档标题只留 Holdout Lift_Score 均值；KPI 平均收益率看 Holdout 等权买持。落盘 `predictability_tiers_last.json`（协议 `tier60_quad_uplift_holdout_eval`）；`/replay` 勾选同步 live 闸。回测/live 校验协议、Holdout N、评测末日新鲜度与池指纹；旧协议报告会被拒绝，须重跑分档。
+**观察池分档**（概览下「观察池分档」区；工具栏 **Holdout** 默认 **60**，与 ŷ_oo 拟合 Holdout 独立，不回写自上次报告）：评测窗为 Holdout 前段，与 Holdout、与拟合窗交界各空 **1 个交易日**。定档模型只拟合评测窗之前，不覆盖研究套；交易打分仍用研究套。当场：**排序头 oo_rank / τc_rank** = 内存 **LambdaRank**；**收益头 oo / τc** = 落盘 **LightGBM**（研究套优先，缺则执行套；排序分无收益量纲，禁止用 LambdaRank 回退 abs 说涨）。收益头说涨 = 预估 > 0.05pp；排序头说涨 = 预估高于当日截面中位数。猜涨精度 = 说涨日里标签真正上涨的比例。lift = 猜涨精度 − 该票定档窗上涨日比例；有样本头等权。收益大小不进分数。单头说涨少于 **8 次**不计入该头；oo_rank 失败则整次失败，其余头软跳过；都没有则归 C。按 lift 降序取 **top A 数量→A**、**接着 B 数量→B**、其余→C。默认 A=100、B=300。表内：四头 lift + Lift_Score；档标题只留 Holdout Lift_Score 均值；KPI 平均收益率看 Holdout 等权买持。落盘 `predictability_tiers_last.json`（协议 `tier60_quad_uplift_holdout_eval`）；`/replay` 勾选同步 live 闸。回测/live 校验协议、Holdout N、评测末日新鲜度与池指纹；旧协议报告会被拒绝，须重跑分档。
 
 ### 4.2 τ 打分链（层 2 · 残差头挂载）
 
@@ -460,7 +461,7 @@ score_stock(code) 续——
   → yclose_loc / tau_lag1 / tau_ma5：昨 K 位置 + PIT 真实开→收滞后（开盘可得；近3日动量 / 昨振幅改吃 raw_atc_MOM3_C / YRANGE_PCT）
   → feats = {gap_pct, …} ∪ {z_τc_gap_pct, …} ∪ raw_atc_*  # α_τc = z_τc_* ∪ raw_atc_*；Z 裸名与 canon 双写
   → enable_minute_tau：≤τ 分钟小包（默认 10:30）+ 板块开→τ 截面 sector_ret_to_tau
-  → tau_yhat = predict_tau_from_features(feats)           # tau_ridge 模型预测 ŷ_τ
+  → tau_yhat = predict_tau_from_features(feats)           # tau_lgb 模型预测 ŷ_τ
   → ep = build_event_prior_from_quote(…)                  # 事件先验（soft hold / warn）
   → apply_tau_score_fields(signal_item, tau_yhat, gap_pct, feats, ep, …)
 ```
@@ -535,7 +536,7 @@ score_stock(code) 续——
 
 ```text
 【训练层】
-  tau_ridge           → tau_model    (γ)         → promote → tau_ridge_model.json  # 旧 rem_ridge_* 可读+双写
+  tau_lgb             → tau_model    (γ)         → promote → tau_lgb_model.json  # 旧 tau_ridge_model* 可读
 
   【Live 打分层】
   score_stock(code)
@@ -585,7 +586,7 @@ score_stock(code) 续——
 
 **日线加载**：观察池日 K 经 `load_portfolio_stock_bars` **单连接批量**读 `bars.db`（可 `max_bars` 截尾）；勿用多线程并发扫同一库。进度拆成「读本地日线 → 日线已就绪 → 过滤宇宙 → 准备成交参数」。剔 ST 只用观察池已存名（`watchlist_names`），**不**逐只 `get_quote`；缺名则保留。
 
-**开盘日打分缓存**（`data/cache/replay_scores/`，schema **v8**）：按观察池**代码集合** + 研究/执行套模型**内容**指纹分目录（含 oo_rank / tc_rank，故 `zscore_universe` / `tier_codes` 变更会换 `run_key`），每日 `_score_open_day` 另存该日开盘信息集指纹（昨收窗**全量** bar 屑 + **今开**；开跑预计算、顺序回测滑动窗）。缓存行含 **ŷ、oo_rank / τc_rank，以及 ŷ_oo / ŷ_τc / oo_rank / τc_rank 因子组成**（09:30 命中整包复用；勿在命中后再单独重挂 τc_rank）。v7 只写了 τc_rank、v6 只有名次，不读。**命中不重写**；miss 或指纹变了才 `save_day`。改 fuse / 手数 / 本金 / 融合权重、或日线 tip 多一天再跑，历史日可复用；换模型内容、换观察池名单、改某日窗内任意 K、改 `max_window`、改分档可打分集则 miss / 新 `run_key`。`fill_clock≠09:30` 时走 `refresh_tau_heads_after_prefix`（前缀 ŷ_τc + 重挂 τc_rank，z 缩可交易；不进缓存）。`QUANTLAB_REPLAY_SCORE_CACHE=0` 关闭。写入新 `run_key` 时自动裁剪：同 schema 默认保留最近 20 个目录（`QUANTLAB_REPLAY_SCORE_CACHE_KEEP`，`0`=不裁剪），并删除更旧 schema（如 `v5/`）。
+**开盘日打分缓存**（`data/cache/replay_scores/`，schema **v8**）：按观察池**代码集合** + 研究/执行套模型**内容**指纹分目录（含 oo_rank / tc_rank，故 `zscore_universe` / `tier_codes` 变更会换 `run_key`），每日 `_score_open_day` 另存该日开盘信息集指纹（昨收窗**全量** bar 屑 + **今开**；开跑预计算、顺序回测滑动窗）。缓存行含 **ŷ、oo_rank / τc_rank**；小名单另可带 ŷ/rank **因子组成**（全池批量打分跳过 pred_contrib，成交/续持 tip 在 plan 后懒补，不依赖缓存里有组成）。09:30 命中整包复用；勿在命中后再单独重挂 τc_rank。v7 只写了 τc_rank、v6 只有名次，不读。**命中不重写**；miss 或指纹变了才 `save_day`。改 fuse / 手数 / 本金 / 融合权重、或日线 tip 多一天再跑，历史日可复用；换模型内容、换观察池名单、改某日窗内任意 K、改 `max_window`、改分档可打分集则 miss / 新 `run_key`。`fill_clock≠09:30` 时走 `refresh_tau_heads_after_prefix`（前缀 ŷ_τc + 重挂 τc_rank，z 缩可交易；不进缓存）。`QUANTLAB_REPLAY_SCORE_CACHE=0` 关闭。写入新 `run_key` 时自动裁剪：同 schema 默认保留最近 20 个目录（`QUANTLAB_REPLAY_SCORE_CACHE_KEEP`，`0`=不裁剪），并删除更旧 schema（如 `v5/`）。
 
 **一日分数包三态**（禁止第三处偷偷 `apply_*`）：
 
@@ -601,10 +602,10 @@ score_stock(code) 续——
 |--|--|--|
 | 选股排序键 | **y_oo_fuse**（UI fuse）= `fusion_w_oo·((ŷ_oo+1)/(1+rot)−1) + fusion_w_oc·ŷ_τc`。rot=该 τ 相对开盘的涨跌；τ=开盘时 rot=0 | 同左 |
 | 宇宙 | 主头与排序头：**整观察池**进截面 z；排序头损失亦整池。分档打开时 ŷ/名次只写允许档，档外不开仓（现金用完即止） | 同左。另加持仓市值上限（默认 15 万）；开加不按 `max_positions` 截断 |
-| 模型 | 默认**研究套**（Holdout 前训 β）；表单「模型」可选**执行**对照 live 槽版本。所选槽缺失时该头不挂分，**不**静默换另一槽（ŷ_oo 研究档可回落草稿预览，仍不读执行套） | 执行套（研究槽晋级）；缺执行套不回落研究套 |
+| 模型 | 默认**研究套**（Holdout 前训）；表单「模型」可选**执行**对照 live 槽版本。所选槽缺失时该头不挂分，**不**静默换另一槽（ŷ_oo 研究档可回落草稿预览，仍不读执行套） | 执行套（研究槽晋级）；缺执行套不回落研究套 |
 | 金额 | 表单入场/强档/高阈金额；不够一手则跳过；单票≤max(强档, 高阈若开)×120%；保存规则写入交易执行 | 已保存 `lot_base_amount` / `lot_strong_amount` / `lot_high_amount`（缺省 1 万 / 2 万 / 10 万）；同上单票上限 |
 | 成交 | 开盘 rank_lots；T+1；本金默认 **20 万**（表单可改，不留地板）；**成交钟**默认 09:30（可选至 10:00）。**09:30 用日 K 开盘、不读 5m**（本地首根标 09:35）；09:35–10:00 才加载分钟线。缺该钟：买入跳过、清仓回退其后～10:00 再回退日开盘；「日分价闸」要窗内分钟才生效（09:30 跳过加载后闸空跑；阈跟做 T） | 同规则，账本为 `paper.json`；live 另受 15 万市值帽；现价；**不**套日分价闸 |
-| 成交明细 | 列序股数 / 开盘价 / 收盘价 / 成交价 / 收益率（卖出总额/买入总额−1；未卖完含收盘市值）/ fuse 预估(真实)=open[T+1]/price(τ)−1 / y_oo / y_τc / **oo_rank**（ŷ_oo_rank 1..n）/ **τc_rank**（ŷ_τc_rank；与 oo_rank 取 max 作入场闸）。不挂 R_τ / y_τw / y_τ30 / y_τ60 / y_τ90。09:30 冷启动写 **ŷ_oo / ŷ_τc / oo_rank / τc_rank** 组成（Ridge β·z，排序头亦可为 LambdaRank pred_contrib）。逐日退路与 live 的 **y_τc tip** 仍用日截面 z 算 β·z（Top‑N）。**oo_rank / τc_rank tip**（LambdaRank）另列 **gain%**（模型 `coefficients` 份额，与研究枢纽同口径） | live 仍可透传对照头 |
+| 成交明细 | 列序股数 / 开盘价 / 收盘价 / 成交价 / 收益率（卖出总额/买入总额−1；未卖完含收盘市值）/ fuse 预估(真实)=open[T+1]/price(τ)−1 / y_oo / y_τc / **oo_rank**（ŷ_oo_rank 1..n）/ **τc_rank**（ŷ_τc_rank；与 oo_rank 取 max 作入场闸）。不挂 R_τ / y_τw / y_τ30 / y_τ60 / y_τ90。09:30 冷启动：小名单批量写 **ŷ_oo / ŷ_τc / oo_rank / τc_rank** 组成；全池/大名单只写分数，plan 后对成交/续持票懒补 tip（`stamp_trade_formula_tips`；ŷ_oo / ŷ_τc=LightGBM pred_contrib；排序头亦可为 LambdaRank）。跳过腿仍不挂。**y_oo / y_τc / oo_rank / τc_rank tip** 均列 **gain%**（与研究枢纽同口径） | live 仍可透传对照头 |
 
 回测合成 paper 必须写 `rebalance_timing.rank_lots`（`get_path_matrix_cfg` 优先该键）。只写旧键 `path_matrix` 时，其它 live 缺省（如持仓市值帽）会漏进合成账本。
 
@@ -679,7 +680,7 @@ flowchart TD
 
 | 环节 | 输入截止 | 输出 | 验证标签 |
 |------|----------|------|----------|
-| 训练 ŷ 头 | 面板日线（含 PIT） | ŷ 模型（Ridge） | 样本内 / OOS（研究） |
+| 训练 ŷ 头 | 面板日线（含 PIT） | ŷ_oo / ŷ_τc LightGBM 等 | 样本内 / OOS（研究） |
 | live 打分 | 决策日 \(t\) 因子 | ŷ% | —（预测） |
 | paper_replay | 历史各 \(t\) 开盘 | 组合曲线 / 分票贡献 / 成交账 | rank_lots 日收益 |
 | 纸面调仓 | 当日可得 ŷ（可补持仓分） | 持仓变动 | 事后用纸面归因 / 净值，非簿命中率 |
@@ -785,7 +786,7 @@ A 改进「估得准」；B 改进「做得对」。北极星乘积两者都要�
 | 打分（ŷ_oo） | **`core/signal_service.py`**（门面）· `core/signal/service.py` · `score_stock.py` · `cross_section_batch.py` |
 | **SignalService 收口** | **SS encapsulate + E1～E5**：信封/门禁 · tip/观察/Skill/脚本/研究 · `book_fields` · BookResult 拷贝戳章 · metrics→DQ/日更 · 买入 production ŷ 闸 · 框架锁 |
 | **双层 ŷ 契约 / 融合** | **`core/signal/dual_score/`**（F1 闸 · blend · 字段写入） |
-| **τ 头训练 / 预测** | **`core/research/tc_ridge.py`**（`fit_tau_ridge_report` · `predict_tau_from_features`）；模型文件 `tau_ridge_model.json`；`rem_*` 为兼容别名 |
+| **τ 头训练 / 预测** | **`core/research/tc_model.py`**（`fit_tau_model_report` · `predict_tau_from_features`）；模型文件 `tau_lgb_model.json`；旧 `tau_ridge_model*` 仅作路径兼容 |
 | **τ 打分挂载** | **`core/signal/score_stock.py` § R3/A1 段**（apply_tau_score_fields 调用） |
 | **F1 买入闸（纸面）** | **`core/paper/rebalance/`**（buy_passes_tau_gate 调用） |
 | **账本 / 复盘（双层）** | 历史 JSON 在 `data/reports/score_ledger/` |
@@ -793,7 +794,7 @@ A 改进「估得准」；B 改进「做得对」。北极星乘积两者都要�
 | TopK（研究探针，冻结） | 默认 `topk_oos_curve`；完整引擎 `legacy/topk_backtest`（`full_engine=True`）；产品回测走 paper_replay |
 | 配置 | `data/signal_config.json` → `scoring.horizon_days` / `dual_score` |
 | 日更 | `core/schedule_jobs.py` · [quant-ops.md](quant-ops.md) |
-| 测试 | `tests/test_dual_score.py` · `tests/test_rem_ridge.py`（覆盖 `tau_*` 与 `rem_*` 别名） |
+| 测试 | `tests/test_dual_score.py` · `tests/test_tc_model_fit.py`（覆盖 `tau_*` 与 `rem_*` 别名） |
 | 产品定位 | [design-spine.md](design-spine.md) · [quant.md · 入门概念](quant.md#量化入门概念) |
 | RL 边界 | [architecture.md · RL 视角](component/rl.md#强化学习视角rl-layer) |
 

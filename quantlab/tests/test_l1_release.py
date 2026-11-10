@@ -161,14 +161,14 @@ class ReleaseRowsTests(unittest.TestCase):
         )
 
     def test_oo_hit_skips_worker_and_thin_cubes(self) -> None:
-        from core.research.oo_ridge_compact import assemble_oo_panels
+        from core.research.oo_model_compact import assemble_oo_panels
 
         bars = _bars()
         self._write_oo("000001", bars)
         self._write_oo("000002", bars)
         stats: dict = {}
         with mock.patch(
-            "core.research.oo_ridge_compact._oo_stock_job",
+            "core.research.oo_model_compact._oo_stock_job",
             side_effect=AssertionError("meta hit should stay in the parent"),
         ) as job, mock.patch(
             "core.research.day_cube.cubes_from_stacked_panel",
@@ -196,7 +196,7 @@ class ReleaseRowsTests(unittest.TestCase):
         self.assertNotIn("2024-01-07", dates)
 
     def test_oo_release_does_not_stack_or_write_cubes(self) -> None:
-        from core.research.oo_ridge_compact import assemble_oo_panels
+        from core.research.oo_model_compact import assemble_oo_panels
 
         bars = _bars()
 
@@ -208,7 +208,7 @@ class ReleaseRowsTests(unittest.TestCase):
 
         stats: dict = {}
         with mock.patch(
-            "core.research.oo_ridge_compact._oo_stock_job", side_effect=_job
+            "core.research.oo_model_compact._oo_stock_job", side_effect=_job
         ), mock.patch(
             "core.research.day_cube.cubes_from_stacked_panel"
         ) as cubes:
@@ -372,7 +372,7 @@ class ReleaseRowsTests(unittest.TestCase):
         from core.research.feature_lake import load_stock_dates, read_stock_meta
         from core.research.lake_bridge import FAMILY_OO
         from core.research.materialize.consumer import materialize_writer
-        from core.research.oo_ridge_compact import _oo_stock_job
+        from core.research.oo_model_compact import _oo_stock_job
 
         lake_bars = _bars()
         self._write_oo("000001", lake_bars)
@@ -447,10 +447,10 @@ class ReleaseRowsTests(unittest.TestCase):
             "core.research.incremental_panel.try_slice_shorter_lookback",
             side_effect=_slice,
         ), mock.patch(
-            "core.research.oo_ridge_compact.OoPanelMatrix",
+            "core.research.oo_model_compact.OoPanelMatrix",
             side_effect=lambda **_k: _FakePanel(),
         ), mock.patch(
-            "core.research.oo_ridge_compact._fill_stock",
+            "core.research.oo_model_compact._fill_stock",
         ), mock.patch(
             "core.research.incremental_panel.try_incremental_merge",
             return_value=None,

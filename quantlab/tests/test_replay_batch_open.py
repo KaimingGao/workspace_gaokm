@@ -8,8 +8,10 @@ import unittest
 from unittest.mock import patch
 
 from core.backtest.replay_batch_open import (
+    _BATCH_LGB_EXPLAIN_MAX,
     _RankModel,
     _apply_formula_map,
+    _batch_lgb_explain,
     _overlay_open_tau,
     _rank_map,
     _ridge_pack,
@@ -17,8 +19,10 @@ from core.backtest.replay_batch_open import (
     _stamp_tc_rank_formula,
     clear_open_slice,
     cross_section_ridge,
+    merge_formula_tips_onto_legs,
     prepare_replay_features,
     score_open_day_from_slice,
+    stamp_trade_formula_tips,
 )
 from core.backtest.replay_scoring import _score_open_day
 from core.research.materialize.consumer import MaterializeRequired
@@ -159,7 +163,8 @@ class ReplayBatchOpenTests(unittest.TestCase):
         self.assertIs(items[0]["formula_terms"], items[0]["score_formula_terms"])
         self.assertNotIn("formula_terms", items[1])
 
-        _scores, tau_expls = _ridge_pack(
+        # τ 头拒旧 Ridge β（须走 LightGBM）；eod Ridge tip 已在上方覆盖。
+        tau_scores, tau_expls = _ridge_pack(
             ["A", "B"],
             rows,
             model,
@@ -168,8 +173,8 @@ class ReplayBatchOpenTests(unittest.TestCase):
             getter=lambda row, name: row.get(name),
             head="tau",
         )
-        self.assertEqual(tau_expls["B"].get("head"), "tau")
-        self.assertIn("y_τc", tau_expls["B"])
+        self.assertIsNone(tau_scores)
+        self.assertEqual(tau_expls, {})
 
     def test_oo_rank_formula_stamps_ridge_head(self) -> None:
         items = [{"stock_code": "A"}]
@@ -278,6 +283,215 @@ class ReplayBatchOpenTests(unittest.TestCase):
         out = backtest_paper_replay({})
         self.assertFalse(out.get("success"))
         self.assertIsNone(mod._HOLDER)
+
+    def test_batch_lgb_explain_gate(self) -> None:
+        self.assertFalse(_batch_lgb_explain(None))
+        self.assertTrue(_batch_lgb_explain({"A"}))
+        big = {str(i) for i in range(_BATCH_LGB_EXPLAIN_MAX + 1)}
+        self.assertFalse(_batch_lgb_explain(big))
+
+    def test_tc_lgb_suite_doc_scores_without_full_pool_tip(self) -> None:
+        """套件 JSON（return_model 嵌套）须走 LGB 批量头；大名单不写 tip。"""
+        blob = {
+            "feature_names": ["x"],
+            "booster": {"payload_b64": "dGVzdA=="},
+            "zscore_scope": "cross_section",
+            "schema": "tau_lgb_v1",
+            "coefficients": {},
+        }
+        suite = {
+            "success": True,
+            "schema": "tau_lgb_v1",
+            "return_model": blob,
+            "model_role": "research",
+        }
+        rows = [{"x": 1.0}, {"x": 3.0}]
+        allow = {str(i) for i in range(_BATCH_LGB_EXPLAIN_MAX + 5)}
+        allow |= {"A", "B"}
+        with patch(
+            "core.research.horizon_tree.load_lightgbm_booster", return_value=object()
+        ), patch(
+            "core.research.horizon_lgb._predict_lightgbm",
+            return_value=[0.11, 0.22],
+        ), patch(
+            "core.research.horizon_tree.explain_tree_return",
+            side_effect=AssertionError("large allow must skip tip"),
+        ):
+            scores, expls = _ridge_pack(
+                ["A", "B"],
+                rows,
+                suite,
+                allow,
+                impute_all_missing=True,
+                getter=lambda row, name: row.get(name),
+                head="tau",
+            )
+        self.assertEqual(scores.get("A"), 0.11)
+        self.assertEqual(scores.get("B"), 0.22)
+        self.assertEqual(expls, {})
+
+    def test_tc_lgb_small_allow_writes_tip(self) -> None:
+        blob = {
+            "feature_names": ["x"],
+            "booster": {"payload_b64": "dGVzdA=="},
+            "zscore_scope": "cross_section",
+            "schema": "tau_lgb_v1",
+        }
+        suite = {"return_model": blob, "zscore_scope": "cross_section"}
+        tip = {
+            "intercept": 0.0,
+            "terms": [{"key": "x", "contrib": 0.05}],
+            "total": 0.2,
+            "backend": "lightgbm",
+        }
+        with patch(
+            "core.research.horizon_tree.load_lightgbm_booster", return_value=object()
+        ), patch(
+            "core.research.horizon_lgb._predict_lightgbm",
+            return_value=[0.2],
+        ), patch(
+            "core.research.horizon_tree.explain_tree_return",
+            return_value=tip,
+        ):
+            scores, expls = _ridge_pack(
+                ["A"],
+                [{"x": 1.0}],
+                suite,
+                {"A"},
+                impute_all_missing=True,
+                getter=lambda row, name: row.get(name),
+                head="tau",
+            )
+        self.assertEqual(scores, {"A": 0.2})
+        self.assertIn("A", expls)
+        self.assertEqual(expls["A"].get("backend"), "lightgbm")
+
+    def test_is_tc_lightgbm_scorer_unwraps_suite(self) -> None:
+        from core.research.tc_lgb import is_tc_lightgbm_scorer
+
+        blob = {
+            "feature_names": ["x"],
+            "booster": {"payload_b64": "dGVzdA=="},
+        }
+        self.assertTrue(is_tc_lightgbm_scorer({"return_model": blob}))
+        self.assertFalse(is_tc_lightgbm_scorer({"return_model": {"coefficients": {"x": 1.0}}}))
+
+    def test_large_rank_scores_skip_formula_tip(self) -> None:
+        items = [{"stock_code": str(i)} for i in range(_BATCH_LGB_EXPLAIN_MAX + 2)]
+        codes = [str(i) for i in range(_BATCH_LGB_EXPLAIN_MAX + 2)]
+        z_rows = [{"z_oo_momentum": 0.1}] * len(codes)
+        hats = [0.1] * len(codes)
+        scores = {c: 0.1 for c in codes}
+        model = {
+            "backend": "lambdarank",
+            "solver": "lambdarank",
+            "booster_b64": "x",
+        }
+        rank = _RankModel(model, ["z_oo_momentum"], object())
+        with patch(
+            "core.research.oo_rank_lambdarank._explain_oo_rank_lambdarank_rows",
+            side_effect=AssertionError("must skip full-pool rank tip"),
+        ):
+            _stamp_oo_rank_formula(items, codes, z_rows, hats, rank, scores)
+        self.assertNotIn("formula_terms_oo_rank", items[0])
+
+    def test_large_allow_explain_codes_writes_tip(self) -> None:
+        """全池/大名单批量跳过 tip；explain_codes 懒补成交票。"""
+        blob = {
+            "feature_names": ["x"],
+            "booster": {"payload_b64": "dGVzdA=="},
+            "zscore_scope": "cross_section",
+            "schema": "tau_lgb_v1",
+        }
+        suite = {"return_model": blob, "zscore_scope": "cross_section"}
+        tip = {
+            "intercept": 0.0,
+            "terms": [{"key": "x", "contrib": 0.05}],
+            "total": 0.2,
+            "backend": "lightgbm",
+        }
+        allow = {str(i) for i in range(_BATCH_LGB_EXPLAIN_MAX + 5)}
+        allow |= {"A", "B"}
+        with patch(
+            "core.research.horizon_tree.load_lightgbm_booster", return_value=object()
+        ), patch(
+            "core.research.horizon_lgb._predict_lightgbm",
+            return_value=[0.11, 0.22],
+        ), patch(
+            "core.research.horizon_tree.explain_tree_return",
+            return_value=tip,
+        ):
+            scores, expls = _ridge_pack(
+                ["A", "B"],
+                [{"x": 1.0}, {"x": 3.0}],
+                suite,
+                allow,
+                impute_all_missing=True,
+                getter=lambda row, name: row.get(name),
+                head="tau",
+                explain_codes={"A"},
+            )
+        self.assertEqual(scores.get("A"), 0.11)
+        self.assertEqual(scores.get("B"), 0.22)
+        self.assertIn("A", expls)
+        self.assertNotIn("B", expls)
+        self.assertEqual(expls["A"].get("backend"), "lightgbm")
+
+    def test_rank_explain_codes_writes_tip(self) -> None:
+        items = [{"stock_code": str(i)} for i in range(_BATCH_LGB_EXPLAIN_MAX + 2)]
+        codes = [str(i) for i in range(_BATCH_LGB_EXPLAIN_MAX + 2)]
+        z_rows = [{"z_oo_momentum": 0.1}] * len(codes)
+        hats = [0.1] * len(codes)
+        scores = {c: 0.1 for c in codes}
+        model = {
+            "backend": "lambdarank",
+            "solver": "lambdarank",
+            "booster_b64": "x",
+        }
+        rank = _RankModel(model, ["z_oo_momentum"], object())
+        tip = {
+            "terms": [{"key": "z_oo_momentum", "contrib": 0.1}],
+            "total": 0.1,
+            "backend": "lambdarank",
+        }
+
+        def _expl(rows, model_doc, hats=None):
+            return [tip for _ in rows]
+
+        with patch(
+            "core.research.oo_rank_lambdarank._explain_oo_rank_lambdarank_rows",
+            side_effect=_expl,
+        ):
+            _stamp_oo_rank_formula(
+                items, codes, z_rows, hats, rank, scores, explain_codes={"0", "1"}
+            )
+        self.assertIn("formula_terms_oo_rank", items[0])
+        self.assertIn("formula_terms_oo_rank", items[1])
+        self.assertNotIn("formula_terms_oo_rank", items[2])
+
+    def test_merge_formula_tips_onto_legs(self) -> None:
+        scored = [
+            {
+                "stock_code": "A",
+                "formula_terms": {
+                    "terms": [{"key": "momentum", "contrib": 0.3}],
+                    "total": 0.3,
+                },
+                "score_formula_terms": {
+                    "terms": [{"key": "momentum", "contrib": 0.3}],
+                    "total": 0.3,
+                },
+            }
+        ]
+        legs = [{"stock_code": "A", "action": "open"}]
+        n = merge_formula_tips_onto_legs(legs, scored)
+        self.assertEqual(n, 1)
+        self.assertEqual(legs[0]["formula_terms"]["total"], 0.3)
+
+    def test_stamp_trade_formula_tips_noop_without_holder(self) -> None:
+        clear_open_slice()
+        items = [{"stock_code": "A", "y_oo": 0.1}]
+        self.assertEqual(stamp_trade_formula_tips("2026-10-29", {"A"}, items), 0)
 
 
 if __name__ == "__main__":

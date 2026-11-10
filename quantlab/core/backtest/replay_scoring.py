@@ -135,7 +135,7 @@ def _make_fill_batch_query(
 
 def _load_replay_global_model() -> Any:
     try:
-        from core.research.oo_ridge import load_scoring_return_model
+        from core.research.oo_model import load_scoring_return_model
 
         # 跟回测「模型」下拉：研究 → research（缺则 draft 预览）；执行 → active。不跨槽回落。
         model, meta = load_scoring_return_model()
@@ -149,18 +149,17 @@ def _load_replay_global_model() -> Any:
 def _required_factor_keys_from_return_models(
     global_model: Any = None,
 ) -> List[str]:
-    """与 score_stock / T0 同源：ŷ β 键并集，供 FS0 补算（含 raw_aoo_*）。
+    """与 score_stock / T0 同源：ŷ_oo 入模列并集，供 FS0 补算（含 raw_aoo_*）。
     """
+    from core.research.oo_lgb import oo_model_feature_names
+
     keys: List[str] = []
     seen = set()
     models: List[Any] = []
     if global_model is not None:
         models.append(global_model)
     for m in models:
-        coefs = getattr(m, "coefficients", None)
-        if not isinstance(coefs, dict):
-            continue
-        for k in coefs.keys():
+        for k in oo_model_feature_names(m):
             kk = str(k).strip()
             if kk and kk not in seen:
                 seen.add(kk)
@@ -226,7 +225,7 @@ def _attach_open_yhat_heads(
     rem_doc = tau_model_doc
     if rem_doc is None:
         try:
-            from core.research.tc_ridge import load_tau_model
+            from core.research.tc_model import load_tau_model
 
             rem_doc = load_tau_model()
         except Exception:  # noqa: BLE001

@@ -1,8 +1,8 @@
-"""ŷ_oo 观察池 Ridge：按只折进 float64 矩阵，避免整池 Python 字典常驻。
+"""观察池 oo 矩阵工具（float64 堆叠；供 ŷ_oo LightGBM / 分档打分面板 / 消融）。
 
-口径与观察池 Ridge 默认项对齐：Ridge（截距不惩罚）、趋势族 drop_redundant、
-完整行（剔除缺测过多的列和真常数）；特征 z 由 ``cross_section_zscore``
-选择日截面或训练窗全局 μ/σ。标签仍是百分点，不做 z-score。
+生产 ŷ_oo 拟合走 ``oo_lgb.fit_oo_lgb_matrix``；本模块提供面板装配与旧
+``fit_oo_ridge_matrix``（离线消融 / τc·排序对照复用；分档 oo 已改读落盘 LightGBM）。
+特征 z 由 ``cross_section_zscore`` 选日截面或训练窗全局 μ/σ。标签仍是百分点。
 """
 
 from __future__ import annotations

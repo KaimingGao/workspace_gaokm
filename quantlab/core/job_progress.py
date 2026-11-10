@@ -20,5 +20,5 @@ from core.platform.job_progress import (  # noqa: F401
     t60_ridge_job,
     t75_ridge_job,
     t90_ridge_job,
-    tau_ridge_job,
+    tau_lgb_job,
 )

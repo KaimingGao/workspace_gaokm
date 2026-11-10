@@ -1273,10 +1273,10 @@ class TestCubeHeadFormula(unittest.TestCase):
         }
         items = [{"stock_code": "600000"}, {"stock_code": "600001"}]
         with patch(
-            "core.research.oo_ridge.load_scoring_return_model",
+            "core.research.oo_model.load_scoring_return_model",
             return_value=(_Oo(), {}),
         ), patch(
-            "core.research.tc_ridge.load_tau_model",
+            "core.research.tc_model.load_tau_model",
             return_value=tau_doc,
         ), patch(
             "core.research.horizon_ridge.load_ridge_model",

@@ -110,11 +110,12 @@ class TestExperimentTracker(unittest.TestCase):
         }
         with open(os.path.join(legacy, f"{eid}.json"), "w", encoding="utf-8") as f:
             json.dump(rec, f)
-        listed = et.list_experiments("tc_ridge")
+        listed = et.list_experiments("tc_lgb")
         self.assertEqual(len(listed), 1)
-        self.assertEqual(listed[0]["model_type"], "tc_ridge")
+        self.assertEqual(listed[0]["model_type"], "tc_lgb")
         self.assertEqual(listed[0]["experiment_id"], eid)
         self.assertEqual(len(et.list_experiments("tau_ridge")), 1)
+        self.assertEqual(len(et.list_experiments("tc_ridge")), 1)
 
 if __name__ == "__main__":
     unittest.main()

@@ -1,19 +1,19 @@
-"""τ Ridge 拟合任务槽。"""
+"""τ→close（tau-lgb）拟合任务槽。"""
 
 from __future__ import annotations
 
 import unittest
 
-class TestTauRidgeJob(unittest.TestCase):
-    def test_start_tau_ridge_job_returns_background(self):
+class TestTauLgbJob(unittest.TestCase):
+    def test_start_tau_lgb_job_returns_background(self):
         import time
 
-        from core.job_progress import tau_ridge_job
+        from core.job_progress import tau_lgb_job
         from quant.services.quant_service_factors import QuantFactorMixin
 
         # 勿 force_fail 真实运行中的拟合槽（会冲掉 UI 进度）
-        if tau_ridge_job.is_running():
-            self.skipTest("tau_ridge_job already running")
+        if tau_lgb_job.is_running():
+            self.skipTest("tau_lgb_job already running")
         svc = QuantFactorMixin()
         started = {"n": 0, "kwargs": None}
 
@@ -23,18 +23,18 @@ class TestTauRidgeJob(unittest.TestCase):
             time.sleep(1.0)
             return {"success": True, "return_model": {"intercept": 0.0}}
 
-        svc.run_tau_ridge_experiment = _fake
+        svc.run_tau_lgb_experiment = _fake
         t0 = time.time()
-        out = svc.start_tau_ridge_job(watching_limit=2)
+        out = svc.start_tau_lgb_job(watching_limit=2)
         self.assertLess(time.time() - t0, 0.5)
         self.assertTrue(out.get("background"))
         self.assertTrue(out.get("success"))
         job_id = (out.get("job") or {}).get("id")
         self.assertTrue(job_id)
         deadline = time.time() + 6
-        while time.time() < deadline and tau_ridge_job.is_running():
+        while time.time() < deadline and tau_lgb_job.is_running():
             time.sleep(0.05)
-        snap = tau_ridge_job.get()
+        snap = tau_lgb_job.get()
         self.assertEqual(snap.get("status"), "done")
         self.assertEqual(started["n"], 1)
         self.assertEqual(snap.get("id"), job_id)
@@ -50,7 +50,7 @@ class TestTauRidgeJob(unittest.TestCase):
 
         svc = QuantFactorMixin()
         with patch(
-            "core.research.tc_ridge.save_tau_last_report"
+            "core.research.tc_model.save_tau_last_report"
         ) as save_last, patch(
             "core.research_universe.resolve_model_fit_codes",
             return_value={"ok": True, "codes": ["A", "B"], "source": "watching"},
@@ -69,10 +69,10 @@ class TestTauRidgeJob(unittest.TestCase):
                 "zero_prefix": True,
             },
         ), patch(
-            "core.research.tc_ridge.fit_tau_ridge_report",
-            return_value={"success": True, "task": "tc_ridge"},
+            "core.research.tc_model.fit_tau_model_report",
+            return_value={"success": True, "task": "tc_lgb"},
         ):
-            out = svc.run_tau_ridge_experiment(
+            out = svc.run_tau_lgb_experiment(
                 watching_limit=2,
                 job_alive_cb=lambda: False,
             )

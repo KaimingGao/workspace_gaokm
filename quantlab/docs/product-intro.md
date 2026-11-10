@@ -46,7 +46,7 @@
 选股采用 **多因子横截面打分 + 双预测头**。核心流程：观察池 → 会话日开盘 L2 出分（缺则 `ensure_session_open_l2` 物化）→ 调仓侧 **y_oo_fuse + y_oo_rank（rank_lots）**。
 
 - **因子库**：`core/signal/factors/`；元数据 `factors/meta/`。
-- **生产打分**：线性回归 / Ridge ŷ%（`ReturnScoreModel` · `factor_ols`）。
+- **生产打分**：ŷ_oo / ŷ_τc = LightGBM（`OoLightgbmScorer` / `oo_lgb` · `tc_lgb`）。
 - **双预测头**：`dual_score/` — ŷ_oo（入池地板 / fuse 成分）、ŷ_τc（fuse 的 τc 项）；买序看 **oo_rank**（缺则回退 fuse）。
 - **质量门禁**：`production_ok`；缺分 / hard_reject 不进生产开加。
 

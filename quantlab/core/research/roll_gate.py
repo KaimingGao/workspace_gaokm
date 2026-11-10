@@ -229,14 +229,14 @@ def _stack_days(
     return np.vstack(xs), np.asarray(ys, dtype=np.float64), names, dates
 
 
-def _fit_ridge(
+def _fit_tc_lgb(
     days: Sequence[dict],
     train_dates: Set[str],
     *,
-    ridge_lambda: float,
     fit_end: str,
 ) -> Optional[Any]:
-    from core.research.oo_ridge_compact import fit_oo_ridge_matrix
+    """ŷ_τc 收益头：内存 LightGBM（与生产同 backend；滚动闸不写盘）。"""
+    from core.research.tc_lgb import fit_tc_lgb_matrix
 
     use = [d for d in days if str(d.get("date") or "")[:10] in train_dates]
     if len(use) < 20:
@@ -244,11 +244,40 @@ def _fit_ridge(
     x, y, names, dates = _stack_days(use)
     if x.shape[0] < 80 or not names:
         return None
-    model, report = fit_oo_ridge_matrix(
+    model, report = fit_tc_lgb_matrix(
         x,
         y,
         names,
-        ridge_lambda=float(ridge_lambda),
+        min_samples=80,
+        fitted_as_of=fit_end,
+        row_dates=dates,
+        cross_section_zscore=True,
+        clock="open",
+    )
+    if model is None or not (isinstance(report, dict) and report.get("success")):
+        return None
+    return model
+
+
+def _fit_oo_lgb(
+    days: Sequence[dict],
+    train_dates: Set[str],
+    *,
+    fit_end: str,
+) -> Optional[Any]:
+    """ŷ_oo 收益头：内存 LightGBM（与生产同 backend）。"""
+    from core.research.oo_lgb import fit_oo_lgb_matrix
+
+    use = [d for d in days if str(d.get("date") or "")[:10] in train_dates]
+    if len(use) < 20:
+        return None
+    x, y, names, dates = _stack_days(use)
+    if x.shape[0] < 80 or not names:
+        return None
+    model, report = fit_oo_lgb_matrix(
+        x,
+        y,
+        names,
         horizon_days=1,
         min_samples=80,
         fitted_as_of=fit_end,
@@ -281,33 +310,6 @@ def _fit_rank_lambda(
     if not isinstance(fit, dict) or not fit.get("success"):
         return None
     return fit
-
-
-def _model_to_ridge_dict(model: Any) -> Optional[dict]:
-    if model is None:
-        return None
-    if isinstance(model, dict):
-        return model
-    coefs = getattr(model, "coefficients", None)
-    if not isinstance(coefs, dict) or not coefs:
-        return None
-    out = {
-        "coefficients": dict(coefs),
-        "intercept": float(getattr(model, "intercept", 0.0) or 0.0),
-        "feature_zscore": bool(getattr(model, "feature_zscore", True)),
-        "zscore_scope": str(getattr(model, "zscore_scope", "") or ""),
-        "z_means": dict(getattr(model, "z_means", None) or {}),
-        "z_stds": dict(getattr(model, "z_stds", None) or {}),
-        "solver": "ridge",
-    }
-    from core.research.feature_standardize import (
-        ZSCORE_SCOPE_CROSS_SECTION,
-        stamp_cross_section_zscore,
-    )
-
-    if out["zscore_scope"] == ZSCORE_SCOPE_CROSS_SECTION:
-        stamp_cross_section_zscore(out)
-    return out
 
 
 def _pick_gated_top_n(
@@ -453,9 +455,12 @@ def run_roll_gate(
 
     ``job_id`` 写入进度与 last，供 UI 区分「本轮」与上一轮落盘，避免运行中误读旧结果。
     """
-    from core.research.oo_rank_lambdarank import _predict_oo_rank_matrix, _predict_ridge_matrix
-    from core.research.oo_ridge_compact import predict_oo_matrix
+    from core.research.oo_lgb import predict_oo_lgb_matrix
+    from core.research.oo_rank_lambdarank import _predict_oo_rank_matrix
     from core.research.rank_day_panels import build_rank_day_panels
+    from core.research.tc_lgb import predict_tc_lgb_matrix
+
+    del ridge_lambda  # ŷ_τc 已切 LightGBM；形参保留兼容旧请求体
 
     lb = max(100, min(1000, int(lookback or DEFAULT_LOOKBACK)))
     hold_n = max(1, min(30, int(holdout or DEFAULT_HOLDOUT)))
@@ -564,11 +569,9 @@ def run_roll_gate(
         _emit(
             fi + 1,
             n_folds,
-            f"fold {fi + 1}/{n_folds} 拟合 oo Ridge fit_end={fit_end}…",
+            f"fold {fi + 1}/{n_folds} 拟合 oo LightGBM fit_end={fit_end}…",
         )
-        oo_m = _fit_ridge(
-            oo_days, train_dates, ridge_lambda=ridge_lambda, fit_end=fit_end
-        )
+        oo_m = _fit_oo_lgb(oo_days, train_dates, fit_end=fit_end)
         _emit(
             fi + 1,
             n_folds,
@@ -578,19 +581,16 @@ def run_roll_gate(
         _emit(
             fi + 1,
             n_folds,
-            f"fold {fi + 1}/{n_folds} 拟合 τc Ridge…",
+            f"fold {fi + 1}/{n_folds} 拟合 τc LightGBM…",
         )
-        tc_m = _fit_ridge(
-            tc_days, train_dates, ridge_lambda=ridge_lambda, fit_end=fit_end
-        )
+        tc_m = _fit_tc_lgb(tc_days, train_dates, fit_end=fit_end)
         _emit(
             fi + 1,
             n_folds,
             f"fold {fi + 1}/{n_folds} 拟合 τc LambdaRank…",
         )
         tc_rk = _fit_rank_lambda(tc_days, train_dates)
-        tau_fit = _model_to_ridge_dict(tc_m)
-        if oo_m is None or oo_rk is None or tau_fit is None or tc_rk is None:
+        if oo_m is None or oo_rk is None or tc_m is None or tc_rk is None:
             fold_rows.append(
                 {
                     "fold": fi + 1,
@@ -621,7 +621,7 @@ def run_roll_gate(
                 if n <= 0:
                     oo_day_rows.append({**base, "empty": True, "reason": "bad_day"})
                 else:
-                    y_preds = predict_oo_matrix(
+                    y_preds = predict_oo_lgb_matrix(
                         oo_m, xx, names, list(range(n)), row_dates=[date] * n
                     )
                     rk_preds = _predict_oo_rank_matrix(oo_rk, od)
@@ -638,17 +638,25 @@ def run_roll_gate(
             if td is None:
                 tc_day_rows.append({**base, "empty": True, "reason": "no_day"})
             else:
-                y_preds = _predict_ridge_matrix(tau_fit, td)
-                rk_preds = _predict_oo_rank_matrix(tc_rk, td)
-                pick = _pick_gated_top_n(
-                    td,
-                    y_preds=y_preds,
-                    rank_preds=rk_preds,
-                    y_min=y_min,
-                    rank_score_min=rank_score_min,
-                    top_n=top_n,
-                )
-                tc_day_rows.append({**base, **pick})
+                xx = td.get("X")
+                names = list(td.get("names") or [])
+                n = int(xx.shape[0]) if isinstance(xx, np.ndarray) else 0
+                if n <= 0:
+                    tc_day_rows.append({**base, "empty": True, "reason": "bad_day"})
+                else:
+                    y_preds = predict_tc_lgb_matrix(
+                        tc_m, xx, names, list(range(n)), row_dates=[date] * n
+                    )
+                    rk_preds = _predict_oo_rank_matrix(tc_rk, td)
+                    pick = _pick_gated_top_n(
+                        td,
+                        y_preds=y_preds,
+                        rank_preds=rk_preds,
+                        y_min=y_min,
+                        rank_score_min=rank_score_min,
+                        top_n=top_n,
+                    )
+                    tc_day_rows.append({**base, **pick})
 
         fold_pack = {
             "fold": fi + 1,

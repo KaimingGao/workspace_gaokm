@@ -60,7 +60,7 @@ def list_hz_l1_families() -> List[str]:
 
 
 def _matrix_rows_to_dicts(X: Any, names: Sequence[str]) -> List[dict]:
-    """``X`` 行 → dict（避免依赖 ``tc_ridge_compact`` 造成环引用）。"""
+    """``X`` 行 → dict（避免依赖 ``tc_model_compact`` 造成环引用）。"""
     out: List[dict] = []
     arr = np.asarray(X, dtype=np.float64)
     if arr.ndim != 2:

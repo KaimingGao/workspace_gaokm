@@ -126,8 +126,9 @@ class TestA2JobRuntime(unittest.TestCase):
         self.assertIn("t30-ridge", names)
         self.assertIn("t60-ridge", names)
         self.assertIn("t90-ridge", names)
-        self.assertIn("tau-ridge", names)
+        self.assertIn("tau-lgb", names)
         self.assertNotIn("tc-ridge", names)
+        self.assertNotIn("tc-lgb", names)
         self.assertIn("t0-backtest", names)
         self.assertIn("materialize-l1l2", names)
         # 满池 Ridge / 回测 / 物化：墙钟长，stuck_start 须够长（90min）以免误杀
@@ -135,7 +136,7 @@ class TestA2JobRuntime(unittest.TestCase):
             "t30-ridge",
             "t60-ridge",
             "t90-ridge",
-            "tau-ridge",
+            "tau-lgb",
             "t0-backtest",
             "materialize-l1l2",
         ):
@@ -146,7 +147,7 @@ class TestA2JobRuntime(unittest.TestCase):
             )
         mat_p = next(p for p in policies if p["slot"] == "materialize-l1l2")
         self.assertTrue(mat_p.get("allow_zero_progress"))
-        tau_p = next(p for p in policies if p["slot"] == "tau-ridge")
+        tau_p = next(p for p in policies if p["slot"] == "tau-lgb")
         self.assertTrue(tau_p.get("allow_zero_progress"))
         paper_p = next(p for p in policies if p["slot"] == "paper")
         self.assertTrue(paper_p.get("persisted"))

@@ -374,7 +374,7 @@ export function initQuant(ctx) {
    * ŷ_* 卡头状态：拟合时间 / 研究·执行启用时间（或未写盘）；
    * 有启用态 meta 时不再叠「研究+执行」等 chip（与 meta 重复）。
    * busy / error / 尚无 meta 时仍显示 chip。
-   * Ridge 头 OOS 在系数表 KPI；ŷ_oo_rank 在上方对照板。
+   * ŷ_oo / ŷ_τc LightGBM OOS 在系数表 KPI；ŷ_oo_rank 在上方对照板。
    */
   function renderRemStatus(el, opts = {}) {
     if (!el) return;
@@ -1489,8 +1489,8 @@ export function initQuant(ctx) {
   function syncTauPersistBtn(gate, { hasReport = true } = {}) {
     _tauPromoteGate = gate && typeof gate === "object" ? gate : null;
     syncRidgePersistPair(
-      "quant-tau-ridge-persist",
-      "quant-tau-ridge-persist-research",
+      "quant-tau-lgb-persist",
+      "quant-tau-lgb-persist-research",
       _tauPromoteGate,
       { hasReport }
     );
@@ -1765,7 +1765,7 @@ export function initQuant(ctx) {
   // 轻量预填 ŷ_τc KPI / 状态（不阻塞；概览用模型 OOS，不再被单日验收覆盖）
   void (async () => {
     try {
-      const res = await fetch("/api/quant/tc-ridge/model");
+      const res = await fetch("/api/quant/tc-lgb/model");
       const data = await res.json().catch(() => ({}));
       const sum = document.getElementById("quant-tau-summary");
       // 前缀滑条：按本组（ŷ_τc）最新拟合 tau_end_hm 恢复
@@ -2085,7 +2085,7 @@ export function initQuant(ctx) {
         ]);
       }
       if (els.quantMeta) {
-        setQuantMeta("全局 ŷ_oo · Ridge / OLS");
+        setQuantMeta("全局 ŷ_oo · LightGBM");
       }
       if (useDialog) els.quantDialog.showModal();
       // 运维/因子/桥接等后台拉取：不阻塞 tab 加载态
@@ -2482,10 +2482,10 @@ export function initQuant(ctx) {
     downloadJson(state.quantLastWeightDiff, "signal_config_weight_diff.json");
   });
 
-  async function runTauRidge({ persist = false, forcePromote = false, persistRole = "live" } = {}) {
+  async function runTauLgb({ persist = false, forcePromote = false, persistRole = "live" } = {}) {
     const sum = document.getElementById("quant-tau-summary");
-    const persistBtn = document.getElementById("quant-tau-ridge-persist");
-    const runBtn = document.getElementById("quant-tau-ridge-run");
+    const persistBtn = document.getElementById("quant-tau-lgb-persist");
+    const runBtn = document.getElementById("quant-tau-lgb-run");
     const roleLabel = persistRole === "research" ? "研究套" : "执行套";
     if (runBtn) runBtn.disabled = true;
     renderRemStatus(sum, {
@@ -2495,17 +2495,16 @@ export function initQuant(ctx) {
         ? forcePromote
           ? `强制写入上次拟合（${roleLabel}）…`
           : `写入上次拟合（${roleLabel}）…`
-        : "ŷ_τc Ridge + 时间 OOS…",
+        : "ŷ_τc LightGBM + 时间 OOS…",
       busy: true,
     });
     try {
-      const res = await fetch("/api/quant/tc-ridge", {
+      const res = await fetch("/api/quant/tc-lgb", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           lookback: readFitLookbackDays("tc"),
           watching_limit: readWatchingLimit(),
-          ridge_lambda: 1.0,
           holdout_trading_days: readHoldoutTradingDays("tc"),
           ...readCrossSectionFitParams("tc"),
           ...readTauEndFitParams("tc"),
@@ -2522,8 +2521,8 @@ export function initQuant(ctx) {
       const posted = await res.json().catch(() => ({}));
       const awaited = await awaitRidgeFitIfBackground(res, posted, {
         persist: !!persist,
-        jobName: "tau-ridge",
-        modelPath: "/api/quant/tc-ridge/model",
+        jobName: "tau-lgb",
+        modelPath: "/api/quant/tc-lgb/model",
         sumEl: sum,
         label: "ŷ_τc",
       });
@@ -2839,7 +2838,7 @@ export function initQuant(ctx) {
 
   async function pollRidgeJobUntilDone(jobName, { jobId, sumEl, label } = {}) {
     const pollStarted = Date.now();
-    // 观察池扩到 500～600 后，ŷ_τc 面板+Ridge 常超 40 分钟
+    // 观察池扩到 500～600 后，ŷ_τc 面板+LightGBM 常超 40 分钟
     const absoluteCapMs = 90 * 60 * 1000;
     let netFailStreak = 0;
     let sawOwnJob = false;
@@ -3914,10 +3913,10 @@ export function initQuant(ctx) {
     }
   });
 
-  on("quant-tau-ridge-run", "click", async (e) => {
+  on("quant-tau-lgb-run", "click", async (e) => {
     e.preventDefault();
     try {
-      await runTauRidge({ persist: false });
+      await runTauLgb({ persist: false });
     } catch (err) {
       const sum = document.getElementById("quant-tau-summary");
       renderRemStatus(sum, {
@@ -3929,16 +3928,16 @@ export function initQuant(ctx) {
     }
   });
 
-  on("quant-tau-ridge-persist", "click", onTauPersistClick);
-  on("quant-tau-ridge-persist-research", "click", onTauPersistClick);
+  on("quant-tau-lgb-persist", "click", onTauPersistClick);
+  on("quant-tau-lgb-persist-research", "click", onTauPersistClick);
   async function onTauPersistClick(e) {
     e.preventDefault();
     const persistRole = (e.currentTarget && e.currentTarget.dataset.persistRole) || "live";
     const gate = _tauPromoteGate;
     const target =
       persistRole === "research"
-        ? "ŷ_τc 研究套（报告→tau_ridge_model_research.json，供历史回测）"
-        : "ŷ_τc 执行套（研究槽晋级→tau_ridge_model.json；须先启用研究）";
+        ? "ŷ_τc 研究套（报告→tau_lgb_model_research.json，供历史回测）"
+        : "ŷ_τc 执行套（研究槽晋级→tau_lgb_model.json；须先启用研究）";
     let forcePromote = false;
     if (gate && gate.ok === false && persistRole === "research") {
       const blockers = (gate.blockers || []).join("；") || "未过 OOS 闸";
@@ -3960,7 +3959,7 @@ export function initQuant(ctx) {
       return;
     }
     try {
-      await runTauRidge({ persist: true, forcePromote, persistRole });
+      await runTauLgb({ persist: true, forcePromote, persistRole });
     } catch (err) {
       const sum = document.getElementById("quant-tau-summary");
       renderRemStatus(sum, {
@@ -4112,7 +4111,7 @@ export function initQuant(ctx) {
     }
   });
 
-  on("quant-tau-ridge-status", "click", async (e) => {
+  on("quant-tau-lgb-status", "click", async (e) => {
     e.preventDefault();
     const sum = document.getElementById("quant-tau-summary");
     renderRemStatus(sum, {
@@ -4122,7 +4121,7 @@ export function initQuant(ctx) {
       busy: true,
     });
     try {
-      const res = await fetch("/api/quant/tc-ridge/model");
+      const res = await fetch("/api/quant/tc-lgb/model");
       const data = await res.json().catch(() => ({}));
       if (!data.exists) {
         const painted = paintRidgeEnableStatus(sum, data, {

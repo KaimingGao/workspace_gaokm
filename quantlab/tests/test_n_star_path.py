@@ -84,7 +84,7 @@ class TestP1QualityGate(unittest.TestCase):
             "core.signal.score_stock.load_signal_config",
             return_value={"fundamentals": {"enabled": False}},
         ), patch(
-            "core.research.oo_ridge.load_return_model",
+            "core.research.oo_model.load_return_model",
             return_value=(None, {}),
         ):
             out = score_stock("600519", quote=quote, skip_fundamentals=True)

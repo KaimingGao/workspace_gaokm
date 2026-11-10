@@ -50,7 +50,7 @@ class ZThAliasTests(unittest.TestCase):
 
     def test_compact_feature_get_resolves_z_th(self):
         from core.research.horizon_prob import predict_p_up_rows
-        from core.research.tc_ridge_compact import feature_get as compact_get
+        from core.research.tc_model_compact import feature_get as compact_get
         from core.signal.factors.z_th import feature_get, to_z_th_key
 
         self.assertEqual(compact_get({"gap_pct": 1.2}, "z_τh_gap_pct"), 1.2)
@@ -77,15 +77,15 @@ class ZThAliasTests(unittest.TestCase):
         self.assertAlmostEqual(float(preds[0]), 0.880797, places=4)
 
     def test_oc_shape_drop_matches_compact(self):
-        """z_th 硬编码集合须与 tc_ridge_compact 同源（避免 research↔factors 环）。"""
-        from core.research.tc_ridge_compact import TAU_HORIZON_DROP_OC_SHAPE
+        """z_th 硬编码集合须与 tc_model_compact 同源（避免 research↔factors 环）。"""
+        from core.research.tc_model_compact import TAU_HORIZON_DROP_OC_SHAPE
         from core.signal.factors import z_th
 
         self.assertEqual(z_th._OC_SHAPE_DROP, TAU_HORIZON_DROP_OC_SHAPE)
 
     def test_horizon_fit_keys_are_z_th_union_ath(self):
         from core.research.horizon_ridge import _horizon_ridge_config
-        from core.research.tc_ridge_compact import TAU_HORIZON_DROP_OC_SHAPE
+        from core.research.tc_model_compact import TAU_HORIZON_DROP_OC_SHAPE
 
         for head in ("t30", "t45", "t60", "t75", "t90"):
             cfg = _horizon_ridge_config(head)

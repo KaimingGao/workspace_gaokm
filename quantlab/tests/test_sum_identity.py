@@ -155,7 +155,7 @@ class TestCollapseGuard(unittest.TestCase):
 
 class TestPredictRefusesRawSumIdentity(unittest.TestCase):
     def test_tau_predict_rows_returns_none(self):
-        from core.research.tc_ridge_compact import _predict_rows
+        from core.research.tc_model_compact import _predict_rows
 
         fit = {
             "intercept": 0.08,
@@ -191,7 +191,7 @@ class TestPredictRefusesRawSumIdentity(unittest.TestCase):
         self.assertAlmostEqual(float(out_z[0]), 0.08 + 1.0 * 1.0, places=5)
 
     def test_tau_predict_keeps_score_when_shares_not_in_model(self):
-        from core.research.tc_ridge_compact import _predict_rows
+        from core.research.tc_model_compact import _predict_rows
 
         fit = {
             "intercept": 0.08,
@@ -216,7 +216,7 @@ class TestPredictRefusesRawSumIdentity(unittest.TestCase):
         self.assertAlmostEqual(float(out[0]), 0.08 + 0.2 * 1.2 + 1.0 * 0.5, places=5)
 
     def test_tau_predict_rows_raises_on_collapsed_batch(self):
-        from core.research.tc_ridge_compact import _predict_rows
+        from core.research.tc_model_compact import _predict_rows
 
         fit = {
             "intercept": 0.08,

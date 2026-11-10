@@ -27,7 +27,7 @@ from core.research.holdout import (
     calendar_dates_from_stock_bars,
     resolve_ridge_split,
 )
-from core.research.oo_ridge_compact import (
+from core.research.oo_model_compact import (
     _oo_stock_job,
     _stack_blocks,
     fit_oo_ridge_matrix,
@@ -41,7 +41,7 @@ from core.research.panel_matrix import (
 )
 from core.research.portfolio_bars import load_portfolio_stock_bars
 from core.research.tau_panel import theme_sample_weights
-from core.research.tc_ridge import TAU_FIT_DROP_ALIASES, TAU_Z_FEATURES
+from core.research.tc_model import TAU_FIT_DROP_ALIASES, TAU_Z_FEATURES
 from core.research_universe import resolve_research_codes
 from core.signal.factors.alpha_oo import (
     ALPHA_OO_MIN_BARS,

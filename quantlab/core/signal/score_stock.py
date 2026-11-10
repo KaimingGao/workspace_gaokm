@@ -247,6 +247,8 @@ def score_stock(
     True=强制并分钟小包（观察池 / 持仓表；live 启动时间 >09:30）。
     ``defer_cs_predict=True``：只落特征（sub_scores / features_tau），
     不写 ŷ_oo / ŷ_τ；供 watching_matrix 先抽特征再 batch 截面 predict。
+    若启用套为截面 z（含 ŷ_oo LightGBM），即使未显式 defer 也会自动 defer，
+    禁止单票 raw→ŷ / tip 假出分。
 
     （分组已退役）主分仅用全局 return_model ŷ。
     """
@@ -610,17 +612,18 @@ def score_stock(
 
     weight_source = "global"
 
-    # 仅全局 return_model：保证 ŷ β 所需 sub_scores 齐套（FS0）
+    # 仅全局 return_model：保证 ŷ_oo 入模列所需 sub_scores 齐套（FS0）
     required_factor_keys: list = []
     global_model_pre = None
     try:
-        from core.research.oo_ridge import load_scoring_return_model
+        from core.research.oo_lgb import oo_model_feature_names
+        from core.research.oo_model import load_scoring_return_model
 
         global_model_pre, _meta = load_scoring_return_model()
         if global_model_pre is None:
             weight_source = "global_missing"
         else:
-            for k in (global_model_pre.coefficients or {}).keys():
+            for k in oo_model_feature_names(global_model_pre):
                 kk = str(k).strip()
                 if kk and kk not in required_factor_keys:
                     required_factor_keys.append(kk)
@@ -710,12 +713,13 @@ def score_stock(
         }
 
         if global_model is not None:
-            # 截面模型单票 predict 看不到同伴；defer 时留给 batch rescore
+            # 截面 z 单票看不到同伴：禁止 raw→ŷ / tip；留给 batch rescore
             from core.research.feature_standardize import is_cross_section_zscore
 
-            if defer_predict and is_cross_section_zscore(global_model):
+            if is_cross_section_zscore(global_model):
                 return_model_source = "deferred_cs"
                 active_model = global_model
+                defer_predict = True
             else:
                 score_global = global_model.predict(subs)
                 if score_global is not None:
@@ -759,49 +763,56 @@ def score_stock(
                 for k, v in (return_model_payload.get("coefficients") or {}).items()
                 if not is_removed_factor(k)
             }
-            score_formula_terms = active_model.explain_prediction(subs)
-            if score_formula_terms is None:
-                score_formula_terms = {
-                    "intercept": float(getattr(active_model, "intercept", 0.0) or 0.0),
-                    "total": float(predicted_score or 0.0),
-                    "terms": [],
-                }
-            terms = list(score_formula_terms.get("terms") or [])
-            # 规模缺市值：不进 sub_scores，公式里仍展示一项（贡献 0）便于对账
-            scored_factors = scored.get("factors") or {}
-            if (
-                "size" in factor_coefficients
-                and "size" not in (scored.get("sub_scores") or {})
-                and not any(str(t.get("key")) == "size" for t in terms)
-            ):
-                from core.signal.factors.meta.registry import factor_label
+            # CS-z：raw sub_scores 不能拆 tip（与 batch ŷ 错位）；等截面 rescore
+            from core.research.feature_standardize import is_cross_section_zscore
 
-                try:
-                    size_b = float(factor_coefficients.get("size") or 0.0)
-                except (TypeError, ValueError):
-                    size_b = 0.0
-                note = "缺市值·不进 ŷ"
-                if scored_factors.get("size_missing"):
+            if is_cross_section_zscore(active_model) or return_model_source == "deferred_cs":
+                score_formula_terms = None
+                score_formula = ""
+            else:
+                score_formula_terms = active_model.explain_prediction(subs)
+                if score_formula_terms is None:
+                    score_formula_terms = {
+                        "intercept": float(getattr(active_model, "intercept", 0.0) or 0.0),
+                        "total": float(predicted_score or 0.0),
+                        "terms": [],
+                    }
+                terms = list(score_formula_terms.get("terms") or [])
+                # 规模缺市值：不进 sub_scores，公式里仍展示一项（贡献 0）便于对账
+                scored_factors = scored.get("factors") or {}
+                if (
+                    "size" in factor_coefficients
+                    and "size" not in (scored.get("sub_scores") or {})
+                    and not any(str(t.get("key")) == "size" for t in terms)
+                ):
+                    from core.signal.factors.meta.registry import factor_label
+
+                    try:
+                        size_b = float(factor_coefficients.get("size") or 0.0)
+                    except (TypeError, ValueError):
+                        size_b = 0.0
                     note = "缺市值·不进 ŷ"
-                terms.append(
+                    if scored_factors.get("size_missing"):
+                        note = "缺市值·不进 ŷ"
+                    terms.append(
+                        {
+                            "key": "size",
+                            "label": factor_label("size"),
+                            "beta": round(size_b, 6),
+                            "z": 0.0,
+                            "contrib": 0.0,
+                            "gated": True,
+                            "note": note,
+                        }
+                    )
+                score_formula_terms = dict(score_formula_terms)
+                score_formula_terms["terms"] = terms
+                score_formula = build_score_formula(
                     {
-                        "key": "size",
-                        "label": factor_label("size"),
-                        "beta": round(size_b, 6),
-                        "z": 0.0,
-                        "contrib": 0.0,
-                        "gated": True,
-                        "note": note,
+                        "sub_scores": subs,
+                        "return_model": active_model,
                     }
                 )
-            score_formula_terms = dict(score_formula_terms)
-            score_formula_terms["terms"] = terms
-            score_formula = build_score_formula(
-                {
-                    "sub_scores": subs,
-                    "return_model": active_model,
-                }
-            )
         except Exception as e:
             logger.exception('unexpected error in score_stock')
             return_model_payload = None
@@ -892,7 +903,7 @@ def score_stock(
             compute_sector_gap_breadth_live,
             get_event_prior_cfg,
         )
-        from core.research.tc_ridge import load_tau_model, predict_tau_from_features
+        from core.research.tc_model import load_tau_model, predict_tau_from_features
         from core.signal.dual_score import apply_tau_score_fields
 
         gap_v = open_t_info.get("gap_pct")

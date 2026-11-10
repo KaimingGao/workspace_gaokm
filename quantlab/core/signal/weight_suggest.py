@@ -435,6 +435,8 @@ def format_weight_config_diff(suggestion: Dict[str, Any]) -> Dict[str, Any]:
         if abs(delta) >= 0.001:
             changes[key] = {"from": round(c, 3), "to": round(s, 3), "delta": delta}
 
+    from core.signal.weight_oos_gate import YHAT_WEIGHTS_DECOUPLED
+
     oos_gate = suggestion.get("oos_gate") or {}
     promote_ready = bool(suggestion.get("promote_ready"))
     factor_health = None
@@ -455,6 +457,11 @@ def format_weight_config_diff(suggestion: Dict[str, Any]) -> Dict[str, Any]:
             + "; ".join(factor_health.get("blockers") or [])
             + "。归零 proxy 权重后再 promote。"
         )
+    elif str(oos_gate.get("reason") or "") == YHAT_WEIGHTS_DECOUPLED:
+        apply_note = (
+            "ŷ_oo 为 LightGBM，weights 补丁不进打分；OOS ŷ 曲线不适用。"
+            "请看 IC/健康后人审合并；系统不会自动写盘。"
+        )
     elif oos_gate.get("skipped"):
         apply_note = "OOS 门禁已跳过；导出仅供对照，不建议直接 promote。"
     elif oos_gate and not oos_gate.get("passed"):
@@ -463,7 +470,7 @@ def format_weight_config_diff(suggestion: Dict[str, Any]) -> Dict[str, Any]:
             "不建议 promote，可继续研究或放宽后再试。"
         )
     elif promote_ready:
-        apply_note = "OOS 门禁已通过：仍须人审后手动合并；系统不会自动写盘。"
+        apply_note = "门禁已通过：仍须人审后手动合并；系统不会自动写盘。"
 
     return {
         "success": True,

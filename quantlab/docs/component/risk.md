@@ -177,7 +177,7 @@ Alpha 条目（选股择时）与 Risk 条目分开写，避免「一个大 if�
 **定位（现行契约）**：规则舆情 **S** 是与 `predicted_score`（ŷ）**正交的先验旁路**，不是可回测、可求 β 的数据驱动因子。
 
 ```text
-ŷ = ReturnScoreModel(价量 / 财务 / …)   ← 唯一生产排序轴
+ŷ_oo = LightGBM(价量 / 财务 / …)         ← 唯一生产排序轴
 S = score_headlines(当日标题)            ← 仅徽章 / 表列参考
 live 调仓 = rank_lots(y_oo_fuse)     ← 不进 ŷ；不再套舆情软先验闸
 ```

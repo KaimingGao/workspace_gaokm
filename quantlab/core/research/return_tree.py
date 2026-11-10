@@ -1,6 +1,7 @@
-"""调仓 ŷ_oo / ŷ_τc 打分后端（仅 Ridge）。
+"""遗留：调仓「影子树头」开关（已下线，恒 ridge）。
 
-影子树头已下线；``normalize_rebalance_score_backend`` 恒为 ``ridge``。
+ŷ_oo 生产路径是 ``oo_lgb`` LightGBM，与本 ContextVar 无关。
+``normalize_rebalance_score_backend`` 恒为 ``ridge``。
 Horizon τ30…90 正式路径为启用套包内 ``backend``（研究枢纽 AUC 择优）；
 ``horizon_prob_backend=tree`` 为遗留 API 开关。``finish_return_tree_persist`` 供树包落盘剥 booster。
 """

@@ -60,7 +60,7 @@ class ZOoAliasTests(unittest.TestCase):
         self.assertAlmostEqual(float(via_canon2), 3.0, places=5)
 
     def test_registered_ridge_names_are_canon(self):
-        from core.research.oo_ridge_compact import _registered_ridge_names
+        from core.research.oo_model_compact import _registered_ridge_names
 
         names = _registered_ridge_names()
         self.assertTrue(names)

@@ -427,15 +427,33 @@ function slimFormulaTerms(expl, maxTerms = 10) {
   const kept = [...nonPin.slice(0, budget), ...pinTerms].sort(
     (a, b) => Math.abs(Number(b?.contrib) || 0) - Math.abs(Number(a?.contrib) || 0)
   );
+  // 保留 gain%（与 oo_rank tip 同列）；勿只抄 β/z，否则 ŷ_oo LightGBM tip 退回 Ridge 表壳
+  const slimTerms = kept.map((t) => {
+    if (!t || typeof t !== "object") return t;
+    const row = {
+      key: t.key,
+      label: t.label,
+      z: t.z,
+      contrib: t.contrib,
+    };
+    if (t.beta != null) row.beta = t.beta;
+    if (t.gain != null && Number.isFinite(Number(t.gain))) {
+      row.gain = Number(t.gain);
+    }
+    if (t.gated) row.gated = true;
+    if (t.note) row.note = String(t.note).slice(0, 40);
+    return row;
+  });
   const out = {
     intercept: expl.intercept,
     total: expl.total,
     "y_τc": expl["y_τc"] != null ? expl["y_τc"] : null,
     y_tau_raw: expl.y_tau_raw != null ? expl.y_tau_raw : null,
-    terms: kept,
+    terms: slimTerms,
     head: expl.head,
     backend: expl.backend || null,
     model_role: expl.model_role || null,
+    score_model_role: expl.score_model_role || null,
     head_kind: expl.head_kind || null,
     p_up: expl.p_up != null ? expl.p_up : null,
     logit: expl.logit != null ? expl.logit : null,

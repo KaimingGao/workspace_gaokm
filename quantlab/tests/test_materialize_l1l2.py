@@ -949,7 +949,7 @@ class HorizonL1StitchTests(unittest.TestCase):
         import numpy as np
 
         from core.research.horizon_l1 import META_PX_KEYS, meta_price_matrix_from_rows
-        from core.research.tc_ridge_compact import _try_stitch_l1_tau_panel
+        from core.research.tc_model_compact import _try_stitch_l1_tau_panel
 
         X = np.array([[1.0, 2.0], [3.0, 4.0], [5.0, 6.0], [7.0, 8.0]], dtype=np.float64)
         y = np.array([0.1, 0.2, 0.3, 0.4], dtype=np.float64)
@@ -1787,7 +1787,7 @@ class HorizonL1StitchTests(unittest.TestCase):
         ), mock.patch(
             "core.store.load_minute_cache",
         ) as load_min, mock.patch(
-            "core.research.tc_ridge_compact.build_tau_panels_from_bars",
+            "core.research.tc_model_compact.build_tau_panels_from_bars",
         ) as build_panels:
             with self.assertRaises(MaterializeRequired) as ctx:
                 with materialized_consumer():
@@ -1899,7 +1899,7 @@ class HorizonL1StitchTests(unittest.TestCase):
             "core.store.load_minute_cache",
             return_value=([{"datetime": "2026-04-01 09:35"}], {}),
         ), mock.patch(
-            "core.research.tc_ridge_compact.build_tau_panels_from_bars",
+            "core.research.tc_model_compact.build_tau_panels_from_bars",
         ) as build_panels:
             with self.assertRaises(MaterializeRequired) as ctx:
                 with materialized_consumer():

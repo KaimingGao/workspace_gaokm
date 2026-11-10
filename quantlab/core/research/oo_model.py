@@ -1,7 +1,8 @@
-"""ŷ_oo Ridge：拟合 / 草稿 / 研究·执行套落盘（对齐 ``tc_ridge``）。
+"""ŷ_oo：回归 LightGBM 拟合 / 草稿 / 研究·执行套落盘。
 
-单票面板 ``oo_panel``；矩阵堆叠与拟合 ``oo_ridge_compact``；本模块负责落盘与人审启用。
-路径仍用 ``RETURN_SCORE_MODEL_*``（历史文件名）；对外另提供 ``oo_model_path`` 等别名。
+正式路径只训、只落盘、只打分 LightGBM（``oo_lgb``）；旧 Ridge 包不可加载打分 / 晋级。
+单票面板 ``oo_panel``；矩阵堆叠 ``oo_model_compact``；拟合 ``fit_oo_lgb_matrix``。
+路径仍用 ``RETURN_SCORE_MODEL_*``；对外另提供 ``oo_model_path`` 等别名。
 """
 
 from __future__ import annotations
@@ -11,7 +12,7 @@ import logging
 import math
 import os
 from datetime import datetime, timezone
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 from core.research.oos_finite import as_float, finite_pairs, finite_xy, n_label_nan
 
@@ -23,7 +24,7 @@ from core.paths import (
     RETURN_SCORE_MODEL_DRAFT_PATH,
     RETURN_SCORE_MODEL_RESEARCH_PATH,
 )
-from core.signal.return_score import ReturnScoreModel, clamp_rank_mode
+from core.signal.return_score import clamp_rank_mode
 
 logger = logging.getLogger(__name__)
 
@@ -73,8 +74,17 @@ def _as_model_dict(src: Any) -> Optional[Dict[str, Any]]:
     return None
 
 
+def _usable_oo_model_blob(cand: Any) -> bool:
+    """只认 LightGBM booster 包（旧 Ridge β 当缺）。"""
+    if not isinstance(cand, dict):
+        return False
+    from core.research.oo_lgb import is_oo_lightgbm_blob
+
+    return is_oo_lightgbm_blob(cand)
+
+
 def _draft_persist_view(raw: Dict[str, Any]) -> Dict[str, Any]:
-    """草稿 → 单份 β 视图（多键别名；取首个可用块并镜像到两键）。"""
+    """草稿 → 单份模型视图（LightGBM；取首个可用块并镜像到两键）。"""
     blob = None
     for key in (
         "return_model_research",
@@ -83,9 +93,7 @@ def _draft_persist_view(raw: Dict[str, Any]) -> Dict[str, Any]:
         "model",
     ):
         cand = raw.get(key)
-        if isinstance(cand, dict) and (
-            cand.get("coefficients") or cand.get("intercept") is not None
-        ):
+        if _usable_oo_model_blob(cand):
             blob = dict(cand)
             break
     return {
@@ -95,23 +103,36 @@ def _draft_persist_view(raw: Dict[str, Any]) -> Dict[str, Any]:
 
 
 def save_return_model_draft(
-    model: ReturnScoreModel,
+    model: Any,
     *,
     meta: Optional[Dict[str, Any]] = None,
     oos: Optional[Dict[str, Any]] = None,
     research_ols: Optional[Dict[str, Any]] = None,
+    backends: Optional[Dict[str, Any]] = None,
+    recommended_backend: Optional[str] = None,
 ) -> Dict[str, Any]:
-    """写入研究草稿 ``data/reports/last_return_score_model.json``。只落一份 Holdout 前训 β。"""
+    """写入研究草稿 ``data/reports/last_return_score_model.json``（ŷ_oo LightGBM）。"""
+    from core.research.oo_lgb import is_oo_lightgbm_blob
+
     _ensure_dirs()
-    blob = model.to_dict()
-    if isinstance(blob, dict):
-        blob = dict(blob)
-        blob.setdefault("model_role", "research")
-    payload = {
+    blob = _as_model_dict(model) if not isinstance(model, dict) else dict(model)
+    if not isinstance(blob, dict):
+        blob = {}
+    if not is_oo_lightgbm_blob(blob):
+        return {
+            "success": False,
+            "error": "ŷ_oo 已切换为 LightGBM；草稿须含 booster（旧 Ridge 不可落盘）",
+            "path": RETURN_SCORE_MODEL_DRAFT_PATH,
+        }
+    blob.setdefault("model_role", "research")
+    backend = str(recommended_backend or "lightgbm")
+    payload: Dict[str, Any] = {
         "version": 2,
         "kind": "return_score_model",
         "role": "draft",
-        "schema": "oo_ridge_v2",
+        "schema": "oo_lgb_v1",
+        "backend": backend,
+        "recommended_backend": backend,
         "fitted_at": _utc_now(),
         "saved_at": None,
         "model": dict(blob),
@@ -120,23 +141,25 @@ def save_return_model_draft(
         "return_model_research": dict(blob),
         "meta": dict(meta or {}),
         "oos": dict(oos or {}) if isinstance(oos, dict) else {},
-        "note": "研究草稿（Holdout 前训 β）；启用研究→回测；启用执行=研究槽晋级。",
+        "note": (
+            "研究草稿（ŷ_oo LightGBM；Holdout 前训）；启用研究→回测；启用执行=研究槽晋级。"
+        ),
     }
+    if isinstance(backends, dict) and backends:
+        payload["backends"] = dict(backends)
     if isinstance(research_ols, dict) and research_ols:
         payload["research_ols"] = dict(research_ols)
     payload["saved_at"] = payload["fitted_at"]
     atomic_write_json(RETURN_SCORE_MODEL_DRAFT_PATH, payload)
+    n_feats = len((blob or {}).get("feature_names") or [])
     return {
         "success": True,
         "path": RETURN_SCORE_MODEL_DRAFT_PATH,
         "role": "draft",
         "saved_at": payload["saved_at"],
-        "sample_count": int(
-            (blob or {}).get("sample_count")
-            or getattr(model, "sample_count", 0)
-            or 0
-        ),
-        "n_coefs": len((blob or {}).get("coefficients") or model.coefficients),
+        "backend": backend,
+        "sample_count": int((blob or {}).get("sample_count") or 0),
+        "n_features": n_feats,
     }
 
 
@@ -168,25 +191,44 @@ def _suite_role_for_load(role: str, raw: Dict[str, Any], *, prefer_research: boo
 def _model_blob_for_load(
     role: str, raw: Dict[str, Any], *, prefer_research: bool = False
 ) -> Optional[Dict[str, Any]]:
-    """选系数块：草稿/槽位均为同一份 Holdout 前训 β。"""
-    del role, prefer_research  # 单套 β；形参保留兼容调用方
+    """选模型块：草稿/槽位均为同一份 Holdout 前训（Ridge β 或 LightGBM）。"""
+    del role, prefer_research  # 单套；形参保留兼容调用方
     view = _draft_persist_view(raw)
     for blob in (
         view.get("return_model_research"),
         view.get("return_model"),
         raw.get("model"),
     ):
-        if isinstance(blob, dict) and (
-            blob.get("coefficients") or blob.get("intercept") is not None
-        ):
-            return blob
+        if _usable_oo_model_blob(blob):
+            return dict(blob)
     return raw if isinstance(raw, dict) else None
 
 
-def load_scoring_return_model() -> Tuple[Optional[ReturnScoreModel], Dict[str, Any]]:
+def _hydrate_oo_scorer(
+    blob: Optional[Dict[str, Any]], *, suite: str
+) -> Optional[Any]:
+    """LightGBM → OoLightgbmScorer；旧 Ridge 包拒绝加载（正式唯一后端）。"""
+    if not isinstance(blob, dict):
+        return None
+    from core.research.oo_lgb import OoLightgbmScorer, is_oo_lightgbm_blob
+
+    if not is_oo_lightgbm_blob(blob):
+        logger.warning(
+            "refuse non-LightGBM ŷ_oo blob suite=%s (Ridge scoring retired)",
+            suite,
+        )
+        return None
+    scorer = OoLightgbmScorer.from_dict(blob)
+    if scorer is not None:
+        scorer.model_role = suite
+    return scorer
+
+
+def load_scoring_return_model() -> Tuple[Optional[Any], Dict[str, Any]]:
     """按 ``current_scoring_model_role`` 加载 ŷ_oo（回测研究套 / live 执行套）。
 
     调仓截面重打、score_stock 等打分路径应走这里，勿写死 ``prefer_active=True``。
+    返回 ``OoLightgbmScorer``（无 LightGBM 包则 None）。
     """
     from core.research.holdout import MODEL_ROLE_RESEARCH, current_scoring_model_role
 
@@ -198,16 +240,15 @@ def load_return_model(
     *,
     prefer_active: bool = True,
     prefer_research: bool = False,
-) -> Tuple[Optional[ReturnScoreModel], Dict[str, Any]]:
-    """读全局 ŷ_oo 模型。
+) -> Tuple[Optional[Any], Dict[str, Any]]:
+    """读全局 ŷ_oo LightGBM 模型。
 
     - 默认（执行）：active → draft
     - ``prefer_research=True``（研究）：research → draft；**不**回落 active
-    - 各槽均为 Holdout 前训 β（版本槽不同）
+    - 旧 Ridge 包跳过（不 hydrate）
     """
     paths = []
     if prefer_research:
-        # 研究回测 / 研究打分：只用研究套；草稿作未启用研究时的预览。禁止静默换执行套。
         paths.append(("research", RETURN_SCORE_MODEL_RESEARCH_PATH))
         paths.append(("draft", RETURN_SCORE_MODEL_DRAFT_PATH))
     else:
@@ -226,15 +267,20 @@ def load_return_model(
         if not raw:
             continue
         blob = _model_blob_for_load(role, raw, prefer_research=prefer_research)
-        model = ReturnScoreModel.from_dict(blob)
+        suite = _suite_role_for_load(role, raw, prefer_research=prefer_research)
+        model = _hydrate_oo_scorer(blob, suite=suite)
         if model is None:
             continue
-        suite = _suite_role_for_load(role, raw, prefer_research=prefer_research)
-        model.model_role = suite
         return model, {
             "ok": True,
             "role": raw.get("role") or role,
             "model_role": suite,
+            "backend": str(
+                raw.get("backend")
+                or raw.get("recommended_backend")
+                or getattr(model, "solver", "")
+                or "lightgbm"
+            ),
             "path": path,
             "saved_at": raw.get("saved_at") or raw.get("promoted_at"),
             "meta": raw.get("meta") or {},
@@ -245,36 +291,22 @@ def load_return_model(
 def _guard_promote_coefs(
     model_blob: Dict[str, Any], *, note: str = ""
 ) -> Tuple[Optional[Dict[str, Any]], Optional[Dict[str, Any]]]:
-    """proxy 剔除 + 健康门。成功返回 (blob, None)；拦截返回 (None, error_dict)。"""
-    force = "force=1" in str(note or "") or "force:true" in str(note or "").lower()
-    out = dict(model_blob)
-    coefs_in = dict(out.get("coefficients") or {})
-    stripped_proxy: list = []
-    try:
-        from core.signal.factors.meta.health import (
-            guard_weights_for_promote,
-            strip_unsourced_coefficients,
-        )
+    """LightGBM：校验 booster / feature_names。旧 Ridge 拒晋级。"""
+    del note  # 旧 Ridge force=1 已下线
+    from core.research.oo_lgb import is_oo_lightgbm_blob
 
-        coefs, stripped_proxy = strip_unsourced_coefficients(coefs_in)
-        out["coefficients"] = coefs
-        for zkey in ("z_means", "z_stds", "zscore_means", "zscore_stds"):
-            zm = out.get(zkey)
-            if isinstance(zm, dict) and stripped_proxy:
-                for name in stripped_proxy:
-                    zm.pop(name, None)
-        guard = guard_weights_for_promote(coefs, force=force)
-        if guard.get("blocked"):
-            return None, {
-                "success": False,
-                "error": guard.get("error") or "factor_health_blocked",
-                "factor_health": guard.get("factor_health"),
-                "hint": "proxy 因子系数须为 0；确需放行在 note 写 force=1",
-            }
-    except Exception:  # noqa: BLE001
-        return dict(model_blob), None
-    if stripped_proxy:
-        out["_stripped_unsourced"] = list(stripped_proxy)
+    if not is_oo_lightgbm_blob(model_blob):
+        return None, {
+            "success": False,
+            "error": "ŷ_oo 已切换为 LightGBM；旧 Ridge 不可晋级，请重新拟合",
+        }
+    out = dict(model_blob)
+    names = out.get("feature_names") or []
+    if not isinstance(names, list) or not names:
+        return None, {
+            "success": False,
+            "error": "LightGBM 包缺少 feature_names",
+        }
     return out, None
 
 
@@ -285,7 +317,7 @@ def promote_return_model_draft(
 ) -> Dict[str, Any]:
     """启用研究 = 草稿→研究槽；启用执行 = 研究槽→执行槽（晋级）。
 
-    两槽同一份 Holdout 前训 β；禁止从草稿直接写执行槽。
+    两槽同一份 Holdout 前训 LightGBM；禁止从草稿直接写执行槽。
     """
     from core.research.holdout import (
         MODEL_ROLE_LIVE,
@@ -311,16 +343,17 @@ def promote_return_model_draft(
                 "live_path": RETURN_SCORE_MODEL_ACTIVE_PATH,
             }
         selected = select_fit_return_model(research_doc) or research_doc.get("model")
-        if not isinstance(selected, dict) or not (selected.get("coefficients") or {}):
+        from core.research.oo_lgb import is_oo_lightgbm_blob
+
+        if not is_oo_lightgbm_blob(selected):
             return {
                 "success": False,
-                "error": "研究套缺少可用 β；请重新拟合并启用研究",
+                "error": "ŷ_oo 已切换为 LightGBM；研究套须为 booster 包（旧 Ridge 不可晋级，请重新拟合）",
                 "research_path": RETURN_SCORE_MODEL_RESEARCH_PATH,
             }
         model_blob, blocked = _guard_promote_coefs(selected, note=note)
         if blocked:
             return blocked
-        stripped_proxy = list(model_blob.pop("_stripped_unsourced", []) or [])
         live_doc = stamp_live_suite_doc(
             research_doc,
             note=note
@@ -330,13 +363,27 @@ def promote_return_model_draft(
         live_doc["model_role"] = MODEL_ROLE_LIVE
         live_doc["model"] = dict(model_blob)
         live_doc["return_model"] = dict(model_blob)
+        be = str(
+            research_doc.get("backend")
+            or research_doc.get("recommended_backend")
+            or model_blob.get("backend")
+            or model_blob.get("solver")
+            or "lightgbm"
+        )
+        live_doc["backend"] = be
+        live_doc["recommended_backend"] = be
+        live_doc["schema"] = str(
+            model_blob.get("schema")
+            or research_doc.get("schema")
+            or "oo_lgb_v1"
+        )
+        if isinstance(research_doc.get("backends"), dict):
+            live_doc["backends"] = dict(research_doc["backends"])
         meta_out = dict(live_doc.get("meta") or {})
         meta_out["promote_note"] = str(note or "")
         meta_out["persist_role"] = MODEL_ROLE_LIVE
         meta_out["coef_source"] = "research_suite"
         meta_out["promoted_from"] = "research"
-        if stripped_proxy:
-            meta_out["stripped_unsourced"] = stripped_proxy
         live_doc["meta"] = meta_out
         atomic_write_json(RETURN_SCORE_MODEL_ACTIVE_PATH, live_doc)
         return {
@@ -354,16 +401,17 @@ def promote_return_model_draft(
     raw = load_return_model_payload(RETURN_SCORE_MODEL_DRAFT_PATH)
     view = _draft_persist_view(raw or {})
     selected = select_fit_return_model(view or {})
-    if not isinstance(selected, dict) or not (selected.get("coefficients") or {}):
+    from core.research.oo_lgb import is_oo_lightgbm_blob
+
+    if not is_oo_lightgbm_blob(selected):
         return {
             "success": False,
-            "error": "无可用草稿模型，请先拟合并保存草稿",
+            "error": "ŷ_oo 已切换为 LightGBM；无 booster 草稿（旧 Ridge 不可启用，请重新拟合）",
             "draft_path": RETURN_SCORE_MODEL_DRAFT_PATH,
         }
     model_blob, blocked = _guard_promote_coefs(selected, note=note)
     if blocked:
         return blocked
-    stripped_proxy = list(model_blob.pop("_stripped_unsourced", []) or [])
     promoted_at = _utc_now()
     meta_out = {
         **(raw.get("meta") or {}),
@@ -373,15 +421,24 @@ def promote_return_model_draft(
     }
     if isinstance(raw.get("research_ols"), dict):
         meta_out["research_ols"] = dict(raw.get("research_ols") or {})
-    if stripped_proxy:
-        meta_out["stripped_unsourced"] = list(stripped_proxy)
     fitted_at = raw.get("fitted_at") or raw.get("saved_at")
     model_blob = dict(model_blob)
     model_blob["model_role"] = MODEL_ROLE_RESEARCH
+    be = str(
+        raw.get("backend")
+        or raw.get("recommended_backend")
+        or model_blob.get("backend")
+        or model_blob.get("solver")
+        or "lightgbm"
+    )
     payload = {
         "version": int(raw.get("version") or 2),
         "kind": "return_score_model",
-        "schema": str(raw.get("schema") or "oo_ridge_v2"),
+        "schema": str(
+            model_blob.get("schema") or raw.get("schema") or "oo_lgb_v1"
+        ),
+        "backend": be,
+        "recommended_backend": be,
         "role": "research",
         "model_role": MODEL_ROLE_RESEARCH,
         "fitted_at": fitted_at,
@@ -392,8 +449,10 @@ def promote_return_model_draft(
         "return_model_research": dict(model_blob),
         "meta": meta_out,
         "oos": dict(raw.get("oos") or {}) if isinstance(raw.get("oos"), dict) else {},
-        "note": "研究套 ŷ_oo（Holdout 前训 β）；供历史回测；验证后可晋级执行套。",
+        "note": f"研究套 ŷ_oo（Holdout 前训；backend={be}）；供历史回测；验证后可晋级执行套。",
     }
+    if isinstance(raw.get("backends"), dict):
+        payload["backends"] = dict(raw["backends"])
     atomic_write_json(RETURN_SCORE_MODEL_RESEARCH_PATH, payload)
     return {
         "success": True,
@@ -408,7 +467,7 @@ def promote_return_model_draft(
 
 
 def _payload_oos(payload: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
-    """取有评测意义的 oos（至少含 ic / sign_hit / n_test 之一）。"""
+    """取有评测意义的 oos（含日频 IC / 命中 / n_test 等）。"""
     if not isinstance(payload, dict):
         return None
     candidates = []
@@ -420,9 +479,13 @@ def _payload_oos(payload: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
     for oos in candidates:
         if (
             oos.get("ic") is not None
+            or oos.get("cs_ic") is not None
+            or oos.get("cs_rank_ic") is not None
+            or oos.get("cs_icir") is not None
             or oos.get("sign_hit") is not None
             or oos.get("sign_hit_rate") is not None
             or oos.get("n_test") is not None
+            or oos.get("holdout_trading_days") is not None
         ):
             return dict(oos)
     return None
@@ -458,21 +521,23 @@ def return_model_status() -> Dict[str, Any]:
             or ""
         )
 
-    def _has_coefs(payload: Optional[Dict[str, Any]]) -> bool:
+    def _has_model(payload: Optional[Dict[str, Any]]) -> bool:
         if not isinstance(payload, dict):
             return False
-        model_blob = payload.get("model")
-        return isinstance(model_blob, dict) and bool(model_blob.get("coefficients"))
+        for key in ("model", "return_model", "return_model_research"):
+            if _usable_oo_model_blob(payload.get(key)):
+                return True
+        return False
 
-    # 研究枢纽系数表：
+    # 研究枢纽模型表：
     # 1. 草稿 saved_at 晚于任一启用套的 source → 画草稿（刚拟合、尚未启用）
     # 2. 否则画较新的启用套。研究槽来源草稿新于执行槽时画研究套
     #    （刚「启用研究」、执行仍是上一轮）；来源相同则画执行套（研究已晋级）
     display_role = None
     display_raw = None
-    draft_ts = _ts(draft) if _has_coefs(draft) else ""
-    active_src = _source_ts(active) if _has_coefs(active) else ""
-    research_src = _source_ts(research) if _has_coefs(research) else ""
+    draft_ts = _ts(draft) if _has_model(draft) else ""
+    active_src = _source_ts(active) if _has_model(active) else ""
+    research_src = _source_ts(research) if _has_model(research) else ""
     live_src = max(active_src, research_src)
     if draft_ts and (not live_src or draft_ts > live_src):
         display_role = "draft"
@@ -483,13 +548,13 @@ def return_model_status() -> Dict[str, Any]:
     elif active_src:
         display_role = "active"
         display_raw = active
-    elif _has_coefs(draft):
+    elif _has_model(draft):
         display_role = "draft"
         display_raw = draft
 
     return_model = None
     if display_raw:
-        # 草稿：系数表优先 Holdout 研究套 β（与因子 tip / τ 一致）；启用套仍读 model
+        # 草稿：因子表优先 Holdout 研究套（LightGBM gain）；启用套仍读 model
         view = _draft_persist_view(display_raw)
         if display_role == "draft" and isinstance(view.get("return_model_research"), dict):
             return_model = dict(view["return_model_research"])
@@ -498,18 +563,24 @@ def return_model_status() -> Dict[str, Any]:
         elif isinstance(view.get("return_model"), dict):
             return_model = dict(view["return_model"])
         if return_model is not None:
-            meta = (
-                display_raw.get("meta")
-                if isinstance(display_raw.get("meta"), dict)
-                else {}
-            )
-            if return_model.get("r_squared") is None and meta.get("r_squared") is not None:
-                return_model["r_squared"] = meta.get("r_squared")
-            if (
-                return_model.get("ridge_lambda") is None
-                and meta.get("ridge_lambda") is not None
-            ):
-                return_model["ridge_lambda"] = meta.get("ridge_lambda")
+            from core.research.oo_lgb import is_oo_lightgbm_blob
+
+            if not is_oo_lightgbm_blob(return_model):
+                return_model = None
+            else:
+                meta = (
+                    display_raw.get("meta")
+                    if isinstance(display_raw.get("meta"), dict)
+                    else {}
+                )
+                if (
+                    return_model.get("r_squared") is None
+                    and meta.get("r_squared") is not None
+                ):
+                    return_model["r_squared"] = meta.get("r_squared")
+                return_model.setdefault("backend", "lightgbm")
+                return_model.setdefault("solver", "lightgbm")
+                return_model.pop("ridge_lambda", None)
 
     # OOS：与系数表同源；草稿更新时用草稿评测
     draft_oos = _payload_oos(draft)
@@ -622,11 +693,45 @@ def _oo_sign_hit(preds: List[Optional[float]], ys: List[float]) -> Optional[floa
     return round(hits / n, 4)
 
 
+def _oo_side_oos(
+    preds_te: List[Optional[float]],
+    ys_te: List[Optional[float]],
+    *,
+    all_dates: Sequence[str],
+    test_idx: Sequence[int],
+    train_idx: Sequence[int],
+    split_meta: Dict[str, Any],
+    hold_n: int,
+    horizon_days: int,
+) -> Dict[str, Any]:
+    oos: Dict[str, Any] = {
+        "n_train": len(train_idx),
+        "n_test": len(test_idx),
+        "holdout_trading_days": split_meta.get("holdout_trading_days") or hold_n,
+        "fit_end": split_meta.get("fit_end"),
+        "eval_start": split_meta.get("eval_start"),
+        "label_horizon_days": int(horizon_days or 1),
+        "n_label_nan": n_label_nan(ys_te),
+    }
+    if ys_te:
+        oos["ic"] = _oo_ic(preds_te, ys_te)
+        oos["sign_hit"] = _oo_sign_hit(preds_te, ys_te)
+        oos["n_valid"] = sum(1 for p in preds_te if p is not None)
+        try:
+            from core.research.daily_cs_ic import attach_daily_cs_ic
+
+            metas_te = [{"date": str(all_dates[i])[:10]} for i in test_idx]
+            attach_daily_cs_ic(oos, preds_te, ys_te, metas_te)
+        except Exception:  # noqa: BLE001
+            logger.debug("oo attach_daily_cs_ic failed", exc_info=True)
+    return oos
+
+
 def fit_watching_return_model(
     *,
     codes: Optional[list] = None,
     lookback: int = 600,
-    horizon_days: int = 3,
+    horizon_days: int = 1,
     ridge_lambda: float = 0.0,
     watching_limit: int = 12,
     min_samples: int = 24,
@@ -634,26 +739,25 @@ def fit_watching_return_model(
     holdout_trading_days: int = 20,
     cross_section_zscore: bool = True,
 ) -> Dict[str, Any]:
-    """研究池堆叠面板拟合收益模型 + Holdout OOS，可选落草稿。
+    """研究池堆叠面板：只训回归 LightGBM + Holdout OOS，可选落草稿。
 
-    近 ``holdout_trading_days`` 个交易日只测；只训 Holdout 前一套 β。
+    近 ``holdout_trading_days`` 个交易日只测；只训 Holdout 前一套。
+    ``ridge_lambda`` 保留形参兼容 API，不参与拟合。
     拟合固定日截面 Z；``cross_section_zscore=False`` 已下线。
     """
+    del ridge_lambda  # ŷ_oo 已切 LightGBM；形参保留兼容旧请求体
     from core.research.feature_standardize import reject_global_zscore
     from core.research.holdout import (
         DEFAULT_HOLDOUT_TRADING_DAYS,
         attach_holdout_meta,
         resolve_ridge_split,
     )
+    from core.research.oo_lgb import fit_oo_lgb_matrix, predict_oo_lgb_matrix
 
     err_cs = reject_global_zscore(cross_section_zscore)
     if err_cs:
         return {"success": False, "error": err_cs}
-    from core.research.oo_ridge_compact import (
-        assemble_oo_panels,
-        fit_oo_ridge_matrix,
-        predict_oo_matrix,
-    )
+    from core.research.oo_model_compact import assemble_oo_panels
     from core.research.portfolio_bars import load_portfolio_stock_bars
     from core.research_universe import resolve_model_fit_codes
     from core.watching.store import MODEL_FIT_MAX_SIZE
@@ -709,18 +813,38 @@ def fit_watching_return_model(
         calendar_dates=sorted(cal_days),
     )
     ys_te = [as_float(y_mat[i]) for i in test_idx]
-    model, report = fit_oo_ridge_matrix(
-        x_mat,
-        y_mat,
-        feat_names,
-        row_idx=train_idx,
-        horizon_days=horizon_days,
-        ridge_lambda=ridge_lambda,
-        min_samples=min_samples,
-        fitted_as_of=as_of,
-        row_dates=all_dates,
-        cross_section_zscore=True,
-    )
+
+    try:
+        lgb_blob, lgb_report = fit_oo_lgb_matrix(
+            x_mat,
+            y_mat,
+            feat_names,
+            row_idx=train_idx,
+            horizon_days=horizon_days,
+            min_samples=min_samples,
+            fitted_as_of=as_of,
+            row_dates=all_dates,
+            cross_section_zscore=True,
+        )
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("oo lightgbm fit failed: %s", exc, exc_info=True)
+        return {
+            "success": False,
+            "error": str(exc) or "lightgbm_fit_failed",
+            "stock_count": len(codes_used),
+        }
+
+    if lgb_blob is None:
+        return {
+            "success": False,
+            "error": (lgb_report or {}).get("error") or "LightGBM 拟合失败",
+            "report": lgb_report,
+            "stock_count": len(codes_used),
+        }
+
+    lgb_blob = dict(lgb_blob)
+    lgb_blob["model_role"] = "research"
+    lgb_blob["backend"] = "lightgbm"
     oos: Dict[str, Any] = {
         "n_train": len(train_idx),
         "n_test": len(test_idx),
@@ -729,78 +853,75 @@ def fit_watching_return_model(
         "eval_start": split_meta.get("eval_start"),
         "label_horizon_days": int(horizon_days or 1),
         "n_label_nan": n_label_nan(ys_te),
+        "recommended_backend": "lightgbm",
     }
-    if model is not None and ys_te:
-        preds_te = predict_oo_matrix(
-            model,
+    if ys_te:
+        preds = predict_oo_lgb_matrix(
+            lgb_blob,
             x_mat,
             feat_names,
             test_idx,
             row_dates=all_dates,
         )
-        oos["ic"] = _oo_ic(preds_te, ys_te)
-        oos["sign_hit"] = _oo_sign_hit(preds_te, ys_te)
-        oos["n_valid"] = sum(1 for p in preds_te if p is not None)
-        try:
-            from core.research.daily_cs_ic import attach_daily_cs_ic
+        oos = _oo_side_oos(
+            preds,
+            ys_te,
+            all_dates=all_dates,
+            test_idx=test_idx,
+            train_idx=train_idx,
+            split_meta=split_meta,
+            hold_n=hold_n,
+            horizon_days=horizon_days,
+        )
+        oos["recommended_backend"] = "lightgbm"
 
-            metas_te = [{"date": str(all_dates[i])[:10]} for i in test_idx]
-            attach_daily_cs_ic(oos, preds_te, ys_te, metas_te)
-        except Exception:  # noqa: BLE001
-            logger.debug("oo attach_daily_cs_ic failed", exc_info=True)
-
-    if model is None:
-        return {
-            "success": False,
-            "error": (report or {}).get("error") or "拟合失败",
-            "report": report,
+    backends = {
+        "lightgbm": {
+            "return_model": dict(lgb_blob),
+            "return_model_research": dict(lgb_blob),
             "oos": oos,
-            "stock_count": len(codes_used),
         }
-
-    report = report if isinstance(report, dict) else {}
-    model_blob = model.to_dict()
-    if isinstance(model_blob, dict):
-        model_blob["model_role"] = "research"
-    # 多键别名同 β（API / 草稿兼容）
-    blob = dict(model_blob)
-
+    }
     out: Dict[str, Any] = {
         "success": True,
         "task": "fit_return_score_model",
         "promote_ready": False,
-        "model": blob,
-        "research_model": blob,
-        "return_model": blob,
-        "return_model_research": blob,
-        "sample_count": model.sample_count,
+        "backend": "lightgbm",
+        "recommended_backend": "lightgbm",
+        "backends": backends,
+        "model": lgb_blob,
+        "research_model": lgb_blob,
+        "return_model": lgb_blob,
+        "return_model_research": lgb_blob,
+        "sample_count": int(lgb_blob.get("sample_count") or 0),
         "stock_count": len(codes_used),
         "codes": codes_used,
         "failures": failures[:8],
         "oos": oos,
-        "ols": {
-            "r_squared": report.get("r_squared"),
-            "solver": report.get("solver"),
-            "ridge_lambda": report.get("ridge_lambda"),
-            "excluded_features": report.get("excluded_features"),
+        "lgb": {
+            "success": True,
+            "n_features": (lgb_report or {}).get("n_features"),
+            "sample_count": (lgb_report or {}).get("sample_count"),
+            "excluded_features": (lgb_report or {}).get("excluded_features"),
         },
-        "note": "已拟合 Holdout 前训 β + Holdout OOS；启用研究→回测；启用执行=研究槽晋级。",
+        "note": "已拟合 LightGBM（Holdout 前训）+ Holdout OOS；启用研究→回测；启用执行=研究槽晋级。",
     }
     out["cross_section_zscore"] = True
     attach_holdout_meta(out, split_meta)
     if save_draft:
         saved = save_return_model_draft(
-            model,
+            lgb_blob,
             meta={
                 "lookback": lookback,
                 "horizon_days": horizon_days,
                 "codes": codes_used,
-                "r_squared": report.get("r_squared"),
-                "ridge_lambda": ridge_lambda,
                 "holdout_trading_days": oos.get("holdout_trading_days"),
                 "cross_section_zscore": True,
+                "backend": "lightgbm",
             },
             oos=oos,
+            backends=backends,
+            recommended_backend="lightgbm",
         )
         out["draft"] = saved
     return out
@@ -810,4 +931,5 @@ def fit_watching_return_model(
 
 persist_oo_model = promote_return_model_draft
 oo_model_status = return_model_status
-fit_oo_ridge = fit_watching_return_model
+fit_oo_model = fit_watching_return_model
+fit_oo_lgb = fit_watching_return_model

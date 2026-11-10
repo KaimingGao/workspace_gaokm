@@ -23,10 +23,10 @@ class TestDocsGuards(unittest.TestCase):
 
     def test_quant_md_model_policy(self):
         text = self._read("docs", "quant.md")
-        self.assertIn("#### 选股真源：线性回归因子系数", text)
-        self.assertIn("ReturnScoreModel", text)
+        self.assertIn("#### 选股真源：ŷ_oo LightGBM", text)
+        self.assertIn("OoLightgbmScorer", text)
         self.assertIn("predicted_score", text)
-        self.assertIn("线性回归", text)
+        self.assertIn("ŷ_τc = LightGBM", text)
         self.assertIn("factor_ols", text)
 
     def test_quant_md_industrial_factors(self):

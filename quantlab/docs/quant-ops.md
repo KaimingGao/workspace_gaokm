@@ -242,7 +242,7 @@ Web 量化面板 **「信号配置（只读）」** 展示当前 `signal_config.
 | `GET /api/signal/config` | 完整元信息 + merged config |
 | `GET /api/signal/config/file` | 同上（Web 编辑器只读预览） |
 
-**不提供 PUT**：权重/阈值调整仍通过 IC/OOS 建议 → 导出 diff → 手动合并 `signal_config.json`。
+**不提供 PUT**：权重/阈值调整仍通过 IC 建议 → 导出 diff → 手动合并 `signal_config.json`（ŷ_oo 已切 LightGBM 后 weights 不进打分；无 TopK ŷ OOS 审批权重补丁）。
 
 ### Diff 预览（P20）
 

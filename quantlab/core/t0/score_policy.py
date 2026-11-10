@@ -113,7 +113,7 @@ def _slim_formula_terms(
 
     ``pin_keys``：对照关心的因子（如非流动性）即使贡献小也保留；
     在 ``limit`` 内用 pin 替换末位，**不追加**以免属性过长截断坏 JSON。
-    缺特征（z=0 / 贡献 0）不占表；合计仍是 Ridge 原值。
+    缺特征（z=0 / 贡献 0）不占表；合计仍是模型预测原值。
     """
     if not isinstance(expl, dict):
         return None
@@ -173,6 +173,11 @@ def _slim_formula_terms(
         out["p_up"] = _f(expl.get("p_up"))
     if expl.get("score_model_role") is not None:
         out["score_model_role"] = expl.get("score_model_role")
+    # tip：eodModelHint / treeTable 认 backend；勿在 slim 时丢掉
+    if expl.get("backend") is not None:
+        out["backend"] = expl.get("backend")
+    if expl.get("head_kind") is not None:
+        out["head_kind"] = expl.get("head_kind")
     for meta_k in (
         "y_eod",
         "y_tau",
@@ -335,7 +340,7 @@ def tip_fields_from_item(item: Optional[dict]) -> Dict[str, Any]:
     )
     if not r_terms or not (r_terms.get("terms") or r_terms.get("total") is not None):
         try:
-            from core.research.tc_ridge import explain_tau_prediction, load_tau_model
+            from core.research.tc_model import explain_tau_prediction, load_tau_model
 
             feats_r = item.get("features_tau") if isinstance(item.get("features_tau"), dict) else {}
             if not feats_r:
@@ -2476,7 +2481,7 @@ def _refresh_tau_oc_from_feats(
     expl_now = item.get("formula_terms_tau")
     src = "ridge"
     try:
-        from core.research.tc_ridge import explain_tau_prediction, predict_tau_from_features
+        from core.research.tc_model import explain_tau_prediction, predict_tau_from_features
 
         z_feats = _tau_feature_row_for_refresh(item, day) or feats
         yhat = predict_tau_from_features(z_feats)
@@ -2501,7 +2506,7 @@ def _refresh_tau_oc_from_feats(
         )
         stored = float(aligned) if aligned is not None else yv
         write_y_τc(item, stored)
-        item["y_τc_source"] = "ridge"
+        item["y_τc_source"] = "lightgbm"
         item["y_τc_ridge"] = stored
         item.pop("y_τc_tree", None)
         item["y_tau_raw"] = yv
@@ -2650,7 +2655,7 @@ def predict_tau_oc_from_prefix_minutes(
     if len(bars) < 1:
         return None
     try:
-        from core.research.tc_ridge import load_tau_model, predict_tau_from_features
+        from core.research.tc_model import load_tau_model, predict_tau_from_features
     except Exception:  # noqa: BLE001
         logger.debug("predict_tau_oc_from_prefix imports failed", exc_info=True)
         return None
@@ -3154,7 +3159,7 @@ def _scoring_models() -> Tuple[Any, Dict[str, Any], Any]:
         )
     tau = None
     try:
-        from core.research.tc_ridge import load_tau_model
+        from core.research.tc_model import load_tau_model
 
         tau = load_tau_model()
     except Exception:  # noqa: BLE001
@@ -3163,7 +3168,7 @@ def _scoring_models() -> Tuple[Any, Dict[str, Any], Any]:
     cluster: Dict[str, Any] = {}
     global_rm = None
     try:
-        from core.research.oo_ridge import load_scoring_return_model
+        from core.research.oo_model import load_scoring_return_model
 
         # 与调仓回测同口径：研究套上下文读 research，否则 active
         global_rm, _meta = load_scoring_return_model()
@@ -3579,7 +3584,7 @@ def _z_row_against_peers(
 def _predict_oo_from_row(item: dict, z_row: dict) -> None:
     try:
         from core.research.feature_standardize import is_cross_section_zscore
-        from core.research.oo_ridge import load_scoring_return_model
+        from core.research.oo_model import load_scoring_return_model
     except Exception:  # noqa: BLE001
         logger.debug("pool z oo model import failed", exc_info=True)
         return
@@ -3604,12 +3609,24 @@ def _predict_oo_from_row(item: dict, z_row: dict) -> None:
     if expl:
         item["score_formula_terms"] = expl
         item["formula_terms"] = expl
+        role = str(
+            getattr(model, "model_role", "")
+            or (expl.get("score_model_role") if isinstance(expl, dict) else "")
+            or ""
+        ).strip().lower()
+        if role in {"research", "live"}:
+            if isinstance(expl, dict):
+                expl = dict(expl)
+                expl["score_model_role"] = role
+                item["score_formula_terms"] = expl
+                item["formula_terms"] = expl
+            item["score_model_role"] = role
 
 
 def _predict_tau_from_row(item: dict, z_row: dict, raw_feats: dict) -> None:
     try:
         from core.research.feature_standardize import is_cross_section_zscore
-        from core.research.tc_ridge import load_tau_model, predict_tau_from_features
+        from core.research.tc_model import load_tau_model, predict_tau_from_features
         from core.signal.dual_score.tau import apply_tau_score_fields
     except Exception:  # noqa: BLE001
         logger.debug("pool z tau import failed", exc_info=True)
@@ -3780,16 +3797,18 @@ def _align_item_to_watching_pool_legacy(item: dict, peers: Sequence[dict]) -> No
     """旧手写 z+predict（仅回退）。"""
     code = str(item.get("stock_code") or "").strip()
     try:
-        from core.research.oo_ridge import load_scoring_return_model
-        from core.research.tc_ridge import load_tau_model
+        from core.research.oo_model import load_scoring_return_model
+        from core.research.tc_model import load_tau_model
         from core.signal.cross_section_rescore import _active_names
         from core.signal.factors.z_oo import stamp_z_oo_aliases
         from core.signal.factors.z_tc import stamp_z_tc_aliases
     except Exception:  # noqa: BLE001
         logger.debug("pool z legacy import failed", exc_info=True)
         return
+    from core.research.oo_lgb import oo_model_feature_names
+
     model, _meta = load_scoring_return_model()
-    oo_names = [str(k) for k in (getattr(model, "coefficients", None) or {})]
+    oo_names = oo_model_feature_names(model)
     if oo_names:
         oo_raw = dict(item.get("sub_scores") or {})
         z_oo = _z_row_against_peers(
@@ -3826,7 +3845,7 @@ def _tau_feature_row_for_refresh(item: dict, trade_date: str) -> Optional[dict]:
         return None
     try:
         from core.research.feature_standardize import cross_section_zscore_dicts
-        from core.research.tc_ridge import load_tau_model
+        from core.research.tc_model import load_tau_model
         from core.signal.cross_section_rescore import _active_names
         from core.signal.factors.z_tc import stamp_z_tc_aliases
     except Exception:  # noqa: BLE001
@@ -4546,9 +4565,11 @@ def compute_scores_from_bars(
     if not fund:
         fund = _t0_local_fundamentals(raw)
 
-    # 与 score_stock 同源：ŷ β 键即使启发式权≈0 / regime 禁用也必须算 sub_scores
+    # 与 score_stock 同源：ŷ_oo 入模列即使启发式权≈0 / regime 禁用也必须算 sub_scores
     required_factor_keys: List[str] = []
     try:
+        from core.research.oo_lgb import oo_model_feature_names
+
         eod_model_pre = None
         if isinstance(models, dict):
             eod_model_pre = models.get(raw)
@@ -4557,7 +4578,7 @@ def compute_scores_from_bars(
         for m in (eod_model_pre, default_rm):
             if m is None:
                 continue
-            for k in (getattr(m, "coefficients", None) or {}).keys():
+            for k in oo_model_feature_names(m):
                 kk = str(k).strip()
                 if kk and kk not in required_factor_keys:
                     required_factor_keys.append(kk)
@@ -4664,9 +4685,15 @@ def compute_scores_from_bars(
                 eod_model = default_rm
             if eod_model is not None:
                 if not item.get("score_formula_terms"):
-                    expl = eod_model.explain_prediction(item.get("sub_scores") or {})
-                    if expl:
-                        item["score_formula_terms"] = expl
+                    # CS-z / LightGBM：禁止 raw sub_scores 假拆 tip（与表列 ŷ 错位）
+                    from core.research.feature_standardize import is_cross_section_zscore
+
+                    if not is_cross_section_zscore(eod_model):
+                        expl = eod_model.explain_prediction(
+                            item.get("sub_scores") or {}
+                        )
+                        if expl:
+                            item["score_formula_terms"] = expl
                 if not item.get("factor_coefficients"):
                     coefs = dict(getattr(eod_model, "coefficients", None) or {})
                     coefs.pop("intercept", None)

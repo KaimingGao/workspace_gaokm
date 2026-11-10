@@ -76,28 +76,15 @@ def _fit_yhat_model_on_bars(
     end_index: int,
     horizon_days: int = 3,
 ) -> Any:
-    """在 bars[:end_index] 上拟合 ReturnScoreModel；失败返回 None。"""
-    from core.research.oo_panel import collect_oo_panel
-    from core.signal.return_score import fit_return_model_from_panel
-
-    if end_index < 40 or len(bars) < 40:
-        return None
-    train = bars[: max(40, int(end_index))]
+    """读启用套 ŷ_oo（LightGBM）；无模型则跳过（不再现场拟合旧 Ridge）。"""
+    del bars, end_index, horizon_days  # 签名保留兼容调用方
     try:
-        xs, ys, _dates = collect_oo_panel(
-            train,
-            horizon_days=horizon_days,
-            max_window=30,
-        )
-    except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+        from core.research.oo_model import load_scoring_return_model
+
+        model, _meta = load_scoring_return_model()
+        return model
+    except Exception:  # noqa: BLE001 — best-effort；不阻塞主流程
         return None
-    model, _rep = fit_return_model_from_panel(
-        xs,
-        ys,
-        horizon_days=horizon_days,
-        min_samples=24,
-    )
-    return model
 
 
 def _build_yhat_series(
@@ -205,7 +192,7 @@ def scan_yhat_wait_oos(
         )
         model_source = "fit_train"
     if use_model is None:
-        return {"success": False, "error": "无 ŷ 模型（组 β 缺失且 train 拟合失败）"}
+        return {"success": False, "error": "无 ŷ 模型（启用套缺失且 train 拟合失败）"}
 
     series = _build_yhat_series(bars, use_model, horizon_days=horizon_days)
     if len(series) < 20:
@@ -576,7 +563,7 @@ def suggest_stance_thresholds_from_watching_oos(
     global_model = None
     if predicted_scale:
         try:
-            from core.research.oo_ridge import load_return_model
+            from core.research.oo_model import load_return_model
 
             global_model, _ = load_return_model(prefer_active=True)
         except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程

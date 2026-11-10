@@ -17,7 +17,7 @@ from core.signal.minute_tau_feats import MINUTE_TAU_ALL_KEYS
 
 Z_TH_PREFIX = "z_τh_"
 
-# 与 tc_ridge_compact.TAU_HORIZON_DROP_OC_SHAPE 对齐（硬编码避免 research↔factors 环）
+# 与 tc_model_compact.TAU_HORIZON_DROP_OC_SHAPE 对齐（硬编码避免 research↔factors 环）
 _OC_SHAPE_DROP = frozenset(
     {
         "range_pct",

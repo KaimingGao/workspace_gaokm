@@ -140,7 +140,7 @@ class StampRemainingYtcTests(unittest.TestCase):
         self.assertAlmostEqual(got, 1.4, places=6)
         self.assertAlmostEqual(dest["y_τc"], 1.4, places=6)
         self.assertAlmostEqual(dest["y_τc_ridge"], 1.4, places=6)
-        self.assertEqual(dest["y_τc_source"], "ridge")
+        self.assertEqual(dest["y_τc_source"], "lightgbm")
         self.assertNotIn("r_hat", dest)
         self.assertAlmostEqual(dest["y_r"], 1.4, places=6)
 
@@ -158,7 +158,7 @@ class StampRemainingYtcTests(unittest.TestCase):
         }
         stamp_remaining_y_τc(dest)
         self.assertAlmostEqual(dest["y_τc"], 1.4, places=6)
-        self.assertEqual(dest["y_τc_source"], "ridge")
+        self.assertEqual(dest["y_τc_source"], "lightgbm")
         self.assertNotIn("r_hat", dest)
 
     def test_scores_from_item_keeps_ridge_and_stamps_remaining_as_r_hat(self):
@@ -175,7 +175,7 @@ class StampRemainingYtcTests(unittest.TestCase):
         )
         self.assertAlmostEqual(sc.get("y_τc"), 1.4, places=6)
         self.assertAlmostEqual(sc.get("y_τc_ridge"), 1.4, places=6)
-        self.assertEqual(sc.get("y_τc_source"), "ridge")
+        self.assertEqual(sc.get("y_τc_source"), "lightgbm")
         self.assertAlmostEqual(sc.get("r_hat"), 1.4, places=6)
         self.assertIsNone(sc.get("remaining_oc"))
         self.assertAlmostEqual(sc.get("y_r"), 1.4, places=6)
@@ -234,7 +234,7 @@ class StampPrimaryTests(unittest.TestCase):
         self.assertNotIn("predicted_score_oc", item)
         self.assertNotIn("y_tau_oc", item)
         self.assertAlmostEqual(item["predicted_score_τc"], 0.2, places=6)
-        self.assertEqual(item["y_τc_source"], "ridge")
+        self.assertEqual(item["y_τc_source"], "lightgbm")
 
     def test_pick_y_oo_fuse_prefers_primary(self):
         from core.signal.yhat_windows import pick_y_oo_fuse, write_y_oo_fuse

@@ -6,6 +6,12 @@ import { escapeHtml } from "../shared.js";
 export function createOlsUi(deps) {
   const esc = deps.escapeHtml || escapeHtml;
 
+  const YHAT_WEIGHTS_DECOUPLED = "yhat_weights_decoupled";
+
+  function isYhatWeightsDecoupled(gate) {
+    return String((gate && gate.reason) || "") === YHAT_WEIGHTS_DECOUPLED;
+  }
+
   function parseOosGateReason(gate) {
     const reasonRaw = String((gate && gate.reason) || "").trim();
     const reasonMap = {
@@ -17,6 +23,8 @@ export function createOlsUi(deps) {
       gate_disabled: "未跑 OOS 门禁",
       research_oos_failed: "研究臂自身 OOS 失败旗标",
       no_weight_suggest: "无组内建议权（遗留）",
+      [YHAT_WEIGHTS_DECOUPLED]:
+        "ŷ_oo 为 LightGBM，weights 补丁不进打分（门禁不适用）",
     };
     if (/^oos_worse_/.test(reasonRaw)) {
       return `研究臂差于基线超过容差（${reasonRaw.replace("oos_worse_", "")}）`;
@@ -53,6 +61,8 @@ export function createOlsUi(deps) {
     oosGateTipHtml,
     parseOosGateReason,
     oosGateStatusMeta,
+    isYhatWeightsDecoupled,
+    YHAT_WEIGHTS_DECOUPLED,
     buildClusterHealthHtml,
   };
 }

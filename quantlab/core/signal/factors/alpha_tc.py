@@ -5,7 +5,7 @@ PIT：``hist=≤T−1`` 完整日 + ``open_t`` + ≤τ 分钟前缀（可空）�
 单票可算；板块截面类不在此模块（留给面板 ``z_τc_*``）。
 
 与 alpha_oo 平行重写（不以 ``raw_aoo_*`` 复用）；滚动序列用收盘价 + price[τ] 占位。
-现网 ŷ_τc 特征包 **alpha_τc := z_τc_* ∪ raw_atc_***（见 ``tc_ridge``）。
+现网 ŷ_τc 特征包 **alpha_τc := z_τc_* ∪ raw_atc_***（见 ``tc_model``）。
 """
 
 from __future__ import annotations

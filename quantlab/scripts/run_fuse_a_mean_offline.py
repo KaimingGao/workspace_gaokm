@@ -154,7 +154,7 @@ def _load_pool(lookback: int, a_codes: Set[str]) -> List[dict]:
 
 def _score_oo_days(days: Sequence[dict], model: Any) -> Dict[str, Dict[str, Tuple[float, float]]]:
     import numpy as np
-    from core.research.oo_ridge_compact import predict_oo_matrix
+    from core.research.oo_model_compact import predict_oo_matrix
 
     out: Dict[str, Dict[str, Tuple[float, float]]] = {}
     for day in days:
@@ -231,8 +231,8 @@ def main() -> int:
     _log(f"融合权 w_oo={w_oo:.3f}  w_τc={w_tc:.3f}（开盘 rot=0）")
 
     from core.research.holdout import MODEL_ROLE_RESEARCH
-    from core.research.oo_ridge import load_return_model
-    from core.research.tc_ridge import load_tau_model
+    from core.research.oo_model import load_return_model
+    from core.research.tc_model import load_tau_model
     from core.signal.yhat_windows import fuse_pct
 
     oo_model, oo_info = load_return_model(prefer_research=True)
@@ -241,7 +241,7 @@ def main() -> int:
         return 1
     tau_doc = load_tau_model(role=MODEL_ROLE_RESEARCH)
     if not tau_doc or not isinstance(tau_doc.get("return_model"), dict):
-        _log("缺研究套 ŷ_τc（tau_ridge_model_research）")
+        _log("缺研究套 ŷ_τc（tau_lgb_model_research）")
         return 1
     tau_fit = dict(tau_doc["return_model"])
     _log(

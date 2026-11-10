@@ -129,6 +129,37 @@ def oos_label_ready(
     return exit_idx < n and exit_idx <= decision
 
 
+def _hydrate_oos_return_model(model: Any) -> Any:
+    """门禁/曲线用打分器：优先 ŷ_oo LightGBM；dict Ridge 仅兼容旧调用。"""
+    if model is None:
+        return None
+    if hasattr(model, "predict") and callable(getattr(model, "predict", None)):
+        try:
+            from core.research.oo_lgb import is_oo_lightgbm_scorer
+
+            if is_oo_lightgbm_scorer(model):
+                return model
+        except Exception:  # noqa: BLE001
+            pass
+        return model
+    if isinstance(model, dict):
+        try:
+            from core.research.oo_lgb import OoLightgbmScorer, is_oo_lightgbm_blob
+
+            if is_oo_lightgbm_blob(model):
+                return OoLightgbmScorer.from_dict(model)
+        except Exception:  # noqa: BLE001
+            logger.debug("hydrate oo lgb for oos curve failed", exc_info=True)
+        try:
+            from core.signal.return_score import ReturnScoreModel
+
+            return ReturnScoreModel.from_dict(model)
+        except Exception:  # noqa: BLE001
+            logger.debug("hydrate ridge dict for oos curve failed", exc_info=True)
+            return None
+    return None
+
+
 def run_oos_topk_curve(
     stock_bars: Dict[str, List[dict]],
     *,
@@ -142,12 +173,18 @@ def run_oos_topk_curve(
     allow_heuristic_baseline: bool = False,
     return_model_min_samples: int = 24,
     return_model_ridge_lambda: float = 0.0,
+    return_model: Optional[Any] = None,
+    freeze_return_model: bool = False,
     neutralize: Optional[bool] = False,
     progress_cb: Optional[Callable[..., Any]] = None,
     cancel_check: Optional[Callable[[], bool]] = None,
     **_ignored: Any,
 ) -> Dict[str, Any]:
     """OOS 门禁用轻量横截面 TopK 曲线。
+
+    注入 ``return_model``（正式 ŷ_oo LightGBM）即冻结打分器、不滚动拟 Ridge，
+    并按模型 ``feature_names`` 强制算齐入模因子。``freeze_return_model=True`` 且无有效
+    模型时直接失败。未注入时仍走面板 Ridge 滚动拟合（旧探针路径）。
 
     忽略完整回测的成本/涨跌停/权重模式等 kwargs（经 ``**_ignored`` 吞掉），
     保证 ``weight_oos_gate`` 共用 kwargs 可直接传入。
@@ -208,7 +245,23 @@ def run_oos_topk_curve(
     pending_signals: List[dict] = []
     train_xs: List[Dict[str, Optional[float]]] = []
     train_ys: List[float] = []
-    return_model = None
+    fixed_model = _hydrate_oos_return_model(return_model)
+    # 注入打分器则冻结（勿再滚动 Ridge 盖掉 LightGBM）；无模型才走旧探针拟合
+    freeze = fixed_model is not None
+    if bool(freeze_return_model) and fixed_model is None:
+        return {
+            "success": False,
+            "error": "freeze_return_model=True 但 return_model 无效/缺失",
+        }
+    return_model = fixed_model
+    required_factor_keys: Optional[List[str]] = None
+    if freeze and return_model is not None:
+        try:
+            from core.research.oo_lgb import oo_model_feature_names
+
+            required_factor_keys = oo_model_feature_names(return_model) or None
+        except Exception:  # noqa: BLE001
+            required_factor_keys = None
     rebalance_idx = 0
 
     i = min_history - 1
@@ -250,11 +303,12 @@ def run_oos_topk_curve(
                 quote=quote,
                 config=cfg,
                 fundamentals=None,
+                required_factor_keys=required_factor_keys,
             )
             if item:
                 entries.append(item)
 
-        if resolved_rank_mode == "predicted_score":
+        if resolved_rank_mode == "predicted_score" and not freeze:
             still_pending: List[dict] = []
             for p in pending_signals:
                 if not isinstance(p, dict):

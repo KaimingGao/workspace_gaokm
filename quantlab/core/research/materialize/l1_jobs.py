@@ -88,7 +88,7 @@ def _materialize_oo(
     stock_bars: Optional[Dict[str, List[dict]]] = None,
     failures: Optional[List[str]] = None,
 ) -> Dict[str, Any]:
-    from core.research.oo_ridge_compact import assemble_oo_panels
+    from core.research.oo_model_compact import assemble_oo_panels
 
     t0 = time.perf_counter()
     if stock_bars is None:

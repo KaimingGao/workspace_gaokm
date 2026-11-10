@@ -90,7 +90,7 @@ def _fit_oo_ridge(
     ridge_lambda: float,
     fit_end: str,
 ) -> Optional[Any]:
-    from core.research.oo_ridge_compact import fit_oo_ridge_matrix
+    from core.research.oo_model_compact import fit_oo_ridge_matrix
 
     use = [d for d in days if str(d.get("date") or "")[:10] in train_dates]
     if len(use) < 20:
@@ -190,7 +190,7 @@ def main() -> int:
         return 1
 
     from core.research.oo_rank_lambdarank import _predict_oo_rank_matrix
-    from core.research.oo_ridge_compact import predict_oo_matrix
+    from core.research.oo_model_compact import predict_oo_matrix
     from core.research.rank_day_panels import build_rank_day_panels
 
     t0 = time.time()

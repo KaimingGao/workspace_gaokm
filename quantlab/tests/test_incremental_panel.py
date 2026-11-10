@@ -760,7 +760,7 @@ class TestIncrementalPanel(unittest.TestCase):
         from core.research.feature_lake import load_stock_panel
         from core.research.lake_bridge import FAMILY_OO
         from core.research.materialize.consumer import materialize_writer
-        from core.research.oo_ridge_compact import _oo_stock_job
+        from core.research.oo_model_compact import _oo_stock_job
         from core.research.panel_fingerprint import bars_fingerprint, make_fingerprint
 
         bars = _bars(90, seed=3)

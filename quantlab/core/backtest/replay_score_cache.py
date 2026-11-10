@@ -7,8 +7,8 @@
 ``run_key`` 只含代码集合 + 模型套内容指纹 + 窗长（**不含**日线 tip），
 避免新交易日写入后整库失效；每日文件另存 ``inputs_fp``（该日开盘信息集：
 昨收窗全量 bar 屑 + 今开），加载时校验。schema 8：开盘行含
-ŷ_oo / ŷ_τc / oo_rank / τc_rank 四份因子组成。v7 只写了 τc_rank，
-v6 只有名次；命中后其余悬停仍空，故整库不读。
+ŷ / oo_rank / τc_rank；小名单可带四份因子组成，全池组成在 plan 后懒补。
+v7 只写了 τc_rank，v6 只有名次；命中后其余悬停仍空，故整库不读。
 模型文件按内容 hash（``mtime+size`` memo）；窗内任意一根变更都会 miss。
 开盘缓存含 oo_rank **与** τc_rank（09:30 命中整包复用；可交易集全缺
 τc_rank 才补挂）。``fill_clock≠09:30`` 走 ``refresh_tau_heads_after_prefix``
@@ -323,16 +323,19 @@ def model_suite_fingerprint(
 
     try:
         from core.research.holdout import research_model_path
-        from core.research.tc_ridge import tau_model_path
+        from core.research.tc_model import tau_model_legacy_path, tau_model_path
 
         live_tau = tau_model_path()
+        legacy_tau = tau_model_legacy_path()
         if role == "live":
-            paths.append(live_tau)
+            paths.extend([live_tau, legacy_tau])
         else:
             paths.extend(
                 [
                     research_model_path(live_tau),
+                    research_model_path(legacy_tau),
                     live_tau,
+                    legacy_tau,
                 ]
             )
     except Exception:  # noqa: BLE001

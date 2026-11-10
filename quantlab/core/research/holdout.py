@@ -13,7 +13,7 @@ from __future__ import annotations
 import os
 from contextlib import contextmanager
 from contextvars import ContextVar
-from typing import Any, Dict, Iterator, List, Mapping, Optional, Sequence, Tuple
+from typing import Any, Callable, Dict, Iterator, List, Mapping, Optional, Sequence, Tuple
 
 MODEL_ROLE_LIVE = "live"
 MODEL_ROLE_RESEARCH = "research"
@@ -57,7 +57,7 @@ def scoring_model_role_context(role: str) -> Iterator[None]:
 
 
 def research_model_path(live_path: str) -> str:
-    """``tau_ridge_model.json`` → ``tau_ridge_model_research.json``."""
+    """``tau_lgb_model.json`` → ``tau_lgb_model_research.json``."""
     root, ext = os.path.splitext(str(live_path or ""))
     if not root:
         return str(live_path or "")
@@ -112,15 +112,48 @@ def load_research_promoted_json(live_path: str) -> Optional[Dict[str, Any]]:
     return None
 
 
-def research_sidecar_flags(live_path: str) -> Dict[str, Any]:
-    """研究套 sidecar 是否已启用（不回退 live）。"""
+def research_sidecar_flags(
+    live_path: str,
+    *,
+    fallback_live_path: Optional[str] = None,
+    accept: Optional[Callable[[Dict[str, Any]], bool]] = None,
+) -> Dict[str, Any]:
+    """研究套 sidecar 是否已启用（不回退 live；可试 ``fallback_live_path`` 旧盘名）。
+
+    ``accept``：文档可用性闸（如 ŷ_τc 须 LightGBM）；不通过则当缺并继续试 fallback。
+    """
     path = research_model_path(live_path)
+
+    def _ok(doc: Optional[Dict[str, Any]]) -> bool:
+        if not isinstance(doc, dict):
+            return False
+        if accept is not None and not accept(doc):
+            return False
+        return True
+
     doc = load_research_promoted_json(live_path)
+    if _ok(doc):
+        return {
+            "research_exists": True,
+            "research_path": path,
+            "research_promoted_at": doc.get("promoted_at"),
+            "research_fitted_at": model_fit_id(doc),
+        }
+    if fallback_live_path:
+        fb_path = research_model_path(fallback_live_path)
+        fb_doc = load_research_promoted_json(fallback_live_path)
+        if _ok(fb_doc):
+            return {
+                "research_exists": True,
+                "research_path": fb_path,
+                "research_promoted_at": fb_doc.get("promoted_at"),
+                "research_fitted_at": model_fit_id(fb_doc),
+            }
     return {
-        "research_exists": bool(doc),
+        "research_exists": False,
         "research_path": path,
-        "research_promoted_at": (doc or {}).get("promoted_at") if doc else None,
-        "research_fitted_at": model_fit_id(doc) if doc else None,
+        "research_promoted_at": None,
+        "research_fitted_at": None,
     }
 
 
@@ -278,8 +311,16 @@ def select_fit_return_model(report: Mapping[str, Any]) -> Optional[Dict[str, Any
     return None
 
 
-def require_research_suite(live_path: str) -> Tuple[Optional[Dict[str, Any]], Dict[str, Any]]:
-    """启用执行前读取研究槽；缺则返回错误包。"""
+def require_research_suite(
+    live_path: str,
+    *,
+    fallback_live_path: Optional[str] = None,
+    accept: Optional[Callable[[Dict[str, Any]], bool]] = None,
+) -> Tuple[Optional[Dict[str, Any]], Dict[str, Any]]:
+    """启用执行前读取研究槽；缺则返回错误包。``fallback_live_path`` 试旧盘名。
+
+    ``accept``：不通过则当缺（继续 fallback），避免坏新盘挡住好旧盘。
+    """
     import json
 
     path = research_model_path(live_path)
@@ -292,10 +333,25 @@ def require_research_suite(live_path: str) -> Tuple[Optional[Dict[str, Any]], Di
                 doc = raw
         except Exception:
             doc = None
-    if isinstance(doc, dict) and (
-        isinstance(doc.get("return_model"), dict) or isinstance(doc.get("model"), dict)
-    ):
+
+    def _ok(cand: Optional[Dict[str, Any]]) -> bool:
+        if not isinstance(cand, dict):
+            return False
+        if not (
+            isinstance(cand.get("return_model"), dict)
+            or isinstance(cand.get("model"), dict)
+        ):
+            return False
+        if accept is not None and not accept(cand):
+            return False
+        return True
+
+    if _ok(doc):
         return doc, {}
+    if fallback_live_path:
+        return require_research_suite(
+            fallback_live_path, accept=accept
+        )
     return None, {
         "success": False,
         "error": "无研究套可晋级；请先「启用研究」并通过回测后再启用执行",
@@ -361,7 +417,7 @@ def select_persist_return_model(
     *,
     role: Optional[str] = None,
 ) -> Tuple[str, Optional[Dict[str, Any]]]:
-    """从拟合报告取唯一 Holdout 前训 β（研究/执行系数相同，仅槽位不同）。
+    """从拟合报告取唯一 Holdout 前训模型（研究/执行同源，仅槽位不同）。
 
     ``role`` 只决定返回的角色标签；β 始终是 Holdout 前训那一套。
     启用执行应走 ``require_research_suite``（研究槽→执行槽），勿用本函数从草稿直接上 live。

@@ -41,9 +41,9 @@ class TestWatchingInsights(unittest.TestCase):
             "core.watching.insights._spot_valuation_map",
             return_value={},
         ), patch(
-            "core.research.tc_ridge.load_tau_model", return_value=None
+            "core.research.tc_model.load_tau_model", return_value=None
         ), patch(
-            "core.research.tc_ridge.predict_tau_from_features", return_value=None
+            "core.research.tc_model.predict_tau_from_features", return_value=None
         ):
             out = build_watching_insights(
                 ["600519"],
@@ -228,9 +228,9 @@ class TestWatchingInsights(unittest.TestCase):
             "core.watching.insights._spot_valuation_map",
             return_value={},
         ), patch(
-            "core.research.tc_ridge.load_tau_model", return_value=None
+            "core.research.tc_model.load_tau_model", return_value=None
         ), patch(
-            "core.research.tc_ridge.predict_tau_from_features", return_value=None
+            "core.research.tc_model.predict_tau_from_features", return_value=None
         ):
             first = build_watching_insights(
                 ["600519"],
@@ -370,9 +370,9 @@ class TestWatchingInsights(unittest.TestCase):
             "core.watching.insights._spot_valuation_map",
             return_value={},
         ), patch(
-            "core.research.tc_ridge.load_tau_model", return_value=None
+            "core.research.tc_model.load_tau_model", return_value=None
         ), patch(
-            "core.research.tc_ridge.predict_tau_from_features", return_value=None
+            "core.research.tc_model.predict_tau_from_features", return_value=None
         ), patch(
             "core.data.facade.get_bars", return_value={"bars": []}
         ):

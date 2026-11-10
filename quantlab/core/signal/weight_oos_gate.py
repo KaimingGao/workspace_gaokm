@@ -10,9 +10,9 @@ from typing import Any, Dict, List, Optional
 
 # 产品语义（UI / API note 同源）
 OOS_PRODUCT_SEMANTICS = (
-    "产品语义：predicted_score（研究枢纽回归 ŷ）= 选股实现方案；"
+    "产品语义：predicted_score（研究/执行套 ŷ_oo LightGBM）= 选股实现方案；"
     "OOS 对照隐含基线为平坦 0%（已移除 heuristic 规则分臂）。"
-    "研究枢纽用于寻找更优 ŷ；过门≠自动 promote。"
+    "固定注入启用套打分器，不滚动拟 Ridge；过门≠自动 promote。"
 )
 
 # 合成基线：不跑第二套回测，只作 ΔOOS 对照零点
@@ -140,18 +140,16 @@ def _run_topk_predicted(
     *,
     top_k: int,
     horizon_days: int,
-    ridge_lambda: float = 0.0,
+    return_model: Optional[Any] = None,
     fundamentals_by_code: Optional[Dict[str, dict]] = None,
     min_predicted_score: Optional[float] = None,
     progress_cb: Optional[Any] = None,
     cancel_check: Optional[Any] = None,
     neutralize: Optional[bool] = None,
-    lite: bool = False,
 ) -> Dict[str, Any]:
-    """研究臂：注入组/全局 return_model → predicted_score 排序。"""
+    """研究臂：固定注入 return_model（ŷ_oo LightGBM）→ predicted_score 排序。"""
     from core.backtest.topk_probe import run_oos_topk_curve
 
-    _ = fundamentals_by_code, lite
     shared = _shared_oos_backtest_kwargs(
         top_k=top_k,
         horizon_days=horizon_days,
@@ -169,7 +167,8 @@ def _run_topk_predicted(
         min_score=0.0,
         rank_mode="predicted_score",
         min_predicted_score=floor,
-        return_model_ridge_lambda=float(ridge_lambda or 0.0),
+        return_model=return_model,
+        freeze_return_model=True,
         allow_heuristic_baseline=False,
         progress_cb=progress_cb,
         cancel_check=cancel_check,
@@ -306,14 +305,15 @@ def evaluate_research_oos(
 ) -> Dict[str, Any]:
     """ŷ 研究臂 Top-K OOS，相对平坦 0% 过门。
 
-    ``baseline_weights`` / ``min_score`` 已忽略（兼容旧调用方）。
+    ``baseline_weights`` / ``min_score`` / ``ridge_lambda`` 已忽略（兼容旧调用方；
+    打分器由 ``research_models_by_code`` 注入，冻结 LightGBM）。
     B5：``respect_regime`` 仅戳记约定（模型由上游拟合）。
     """
     from core.research.portfolio_bars import load_portfolio_stock_bars
     from core.signal.config import signal_config_overlay
     from core.watching.store import read_watching
 
-    _ = baseline_weights, min_score
+    _ = baseline_weights, min_score, ridge_lambda
 
     if codes:
         use_codes = [str(c).strip() for c in codes if str(c).strip()]
@@ -433,17 +433,18 @@ def evaluate_research_oos(
     )
     with signal_config_overlay(overlay):
         _emit("研究臂", 0, 1)
+        # 同池共用一份全局 ŷ（研究套 LightGBM）；不再按 code 分裂 / 滚动 Ridge
+        global_model = next(iter(models_eff.values()), None)
         res_bt = _run_topk_predicted(
             stock_bars,
             top_k=top_k_eff,
             horizon_days=horizon_days,
-            ridge_lambda=ridge_lambda,
+            return_model=global_model,
             fundamentals_by_code=fund_map or None,
             min_predicted_score=pred_floor,
             progress_cb=_arm_cb("研究臂"),
             cancel_check=cancel_check,
             neutralize=neut,
-            lite=bool(fast_gate),
         )
         if cancel_check:
             try:
@@ -485,49 +486,35 @@ def evaluate_research_oos(
     return out
 
 
+# 权重补丁与 ŷ_oo LightGBM 正交：weights 不进 predicted_score（入模靠 feature_names）
+YHAT_WEIGHTS_DECOUPLED = "yhat_weights_decoupled"
+
+
 def evaluate_weight_suggestion_oos(
-    current_weights: Dict[str, float],
-    suggested_weights: Dict[str, float],
-    *,
-    lookback: int = 90,
-    top_k: int = 3,
-    horizon_days: int = 3,
-    min_score: float = 55.0,
-    watching_limit: int = 10,
-    oos_tol_pp: float = 1.0,
-    codes: Optional[List[str]] = None,
-    min_names: int = 3,
-    research_models_by_code: Optional[Dict[str, Any]] = None,
-    ridge_lambda: float = 0.0,
-    respect_regime: bool = True,
+    current_weights: Optional[Dict[str, float]] = None,
+    suggested_weights: Optional[Dict[str, float]] = None,
+    **_ignored: Any,
 ) -> Dict[str, Any]:
-    """兼容入口：有研究模型则跑 ŷ vs 平坦 0%；否则跳过。"""
-    _ = suggested_weights
-    if research_models_by_code:
-        return evaluate_research_oos(
-            codes=codes,
-            research_models_by_code=research_models_by_code,
-            baseline_weights=current_weights,
-            lookback=lookback,
-            top_k=top_k,
-            horizon_days=horizon_days,
-            min_score=min_score,
-            watching_limit=watching_limit,
-            oos_tol_pp=oos_tol_pp,
-            min_names=min_names,
-            ridge_lambda=ridge_lambda,
-            respect_regime=respect_regime,
-        )
+    """权重建议门禁：ŷ_oo 已切 LightGBM 后不再用 TopK ŷ 曲线审批 weights 补丁。
+
+    ``signal_config.weights`` 不进入 predicted_score；请看 IC / 因子健康后人审合并。
+    若仍要验 ŷ 曲线，请走 ``evaluate_research_oos``（注入研究套 LightGBM）。
+    旧调用方 kwargs（lookback / ridge_lambda 等）一律忽略。
+    """
+    _ = current_weights, suggested_weights
+    tol = _ignored.get("oos_tol_pp", 1.0)
+    try:
+        tol_f = float(tol)
+    except (TypeError, ValueError):
+        tol_f = 1.0
     return {
-        "ok": False,
-        "passed": False,
+        "ok": True,
+        "passed": True,
         "skipped": True,
-        "reason": "no_return_model",
+        "reason": YHAT_WEIGHTS_DECOUPLED,
         "note": (
-            "OOS 为 predicted_score 相对平坦 0%；"
-            "未提供 return_model，跳过。"
-            + " "
-            + OOS_PRODUCT_SEMANTICS
+            "ŷ_oo 正式路径为 LightGBM；signal_config.weights 不进入 predicted_score，"
+            "TopK ŷ 曲线不能审批权重补丁。请依据 IC/健康后人审合并。"
         ),
-        "oos_tol_pp": float(oos_tol_pp),
+        "oos_tol_pp": tol_f,
     }

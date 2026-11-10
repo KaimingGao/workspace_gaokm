@@ -152,7 +152,7 @@ class TestT0HubScoreAlignment(unittest.TestCase):
         ft = sc.get("formula_terms_tau") or {}
         self.assertTrue(ft.get("terms") or ft.get("total") is not None)
         # 开盘→τ 仅当模型仍含该 β 时才进 tip；现网 open τ 头常已剔分钟键
-        from core.research.tc_ridge import load_tau_model
+        from core.research.tc_model import load_tau_model
 
         rm = (load_tau_model() or {}).get("return_model") or {}
         active = set(rm.get("active_features") or (rm.get("coefficients") or {}).keys())
@@ -204,9 +204,9 @@ class TestT0HubScoreAlignment(unittest.TestCase):
             ],
         }
         with patch(
-            "core.research.tc_ridge.predict_tau_from_features", return_value=2.203
+            "core.research.tc_model.predict_tau_from_features", return_value=2.203
         ), patch(
-            "core.research.tc_ridge.explain_tau_prediction", return_value=expl
+            "core.research.tc_model.explain_tau_prediction", return_value=expl
         ):
             _refresh_tau_oc_from_feats(
                 item, hm="09:40", trade_date="2026-09-18"

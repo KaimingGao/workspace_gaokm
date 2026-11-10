@@ -1,6 +1,6 @@
-"""ŷ_τc Ridge：Holdout OOS 报告 / 研究·执行套落盘（对齐 ``oo_ridge``）。
+"""ŷ_τc：Holdout OOS 报告 / 研究·执行套落盘（正式后端 LightGBM；对齐 ``oo_model``）。
 
-面板拼装与矩阵拟合见 ``tc_ridge_compact``（对齐 ``oo_ridge_compact``）。
+面板拼装与矩阵拟合见 ``tc_model_compact`` / ``tc_lgb``。
 
 **alpha_τc** := 开盘 Z（``TAU_Z_FEATURES`` = ``z_τc_*``，含 ≤τ 分钟键）∪ ``raw_atc_*``（alpha_tc）。
 现网固定完整 **alpha_τc**（z_τc_*∪raw_atc_*）。面板/live 仍写旧裸名 Z；``feature_get`` 双向别名。
@@ -8,6 +8,7 @@
 这就是调仓 fuse（y_oo_fuse）里的 ŷ_τc。打分写入 ``y_τc``（含时钟对齐）。
 供买入闸、fuse 的 τc 项、做 T 估 C_τ。与 ŷ_oo 独立，不改写 ``predicted_score``。
 ``raw_atc_*`` 锚 price[τ]；ŷ_oo 用开锚 ``z_oo_* ∪ raw_aoo_*`` 全量。
+旧 Ridge 包不可再打分 / 晋级（须重新拟合成 LightGBM）。
 """
 
 from __future__ import annotations
@@ -23,28 +24,39 @@ logger = logging.getLogger(__name__)
 
 from core.io_atomic import atomic_write_json
 from core.research.oos_finite import as_float, finite_pairs, finite_xy, n_label_nan
-from core.research.tau_panel import (
-    TAU_LAG_FEAT_LABELS,
-    T30_LAG_FEAT_LABELS,
-)
-from core.research.tc_ridge_compact import (
+from core.research.tau_panel import TAU_LAG_FEAT_LABELS
+from core.research.tc_model_compact import (
     TAU_FIT_DROP_ALIASES,
-    TAU_Z_FEATURES,
-    _predict_rows,
-    _stack_panels,
-    _subset,
+    TAU_Z_FEATURES,  # noqa: F401 — 兼容 tests/scripts 再导出
+    _predict_rows,  # noqa: F401 — 兼容 horizon_* 等从本模块再导出
+    _stack_panels,  # noqa: F401 — 兼容 tests 再导出
     build_tau_panels_from_bars,
-    feature_get,
-    fit_tau_ridge_matrices,
+    fit_tau_model_matrices,
 )
-from core.signal.factors.z_tc import (
-    Z_TC_LEGACY_KEYS,
-    z_tc_feat_labels,
-)
+from core.signal.factors.z_tc import z_tc_feat_labels
 from core.signal.minute_tau_feats import MINUTE_TAU_FEAT_LABELS
 
 # 报告/落盘元数据：特征包名（Z 列 = z_τc_* + raw_atc_*）
 ALPHA_TC_PACK_NOTE = "alpha_τc=z_τc_* ∪ raw_atc_*"
+
+# tip / registry 旧名；裸名 + z_τc_* 双向
+_TAU_OPEN_FEAT_LABELS: Dict[str, str] = {
+    "gap_pct": "跳空 %",
+    "open_gap": "开盘缺口",
+    "sector_gap_breadth": "同业缺口广度",
+    "theme_day": "主题日",
+    "gap_atr": "缺口 / ATR",
+    "gap_vs_sector": "行业相对缺口",
+    "yclose_loc": "昨收位置",
+    "mom3_pct": "近3日动量 %",
+}
+_TAU_FEAT_LABELS: Dict[str, str] = z_tc_feat_labels(
+    {
+        **_TAU_OPEN_FEAT_LABELS,
+        **dict(TAU_LAG_FEAT_LABELS),
+        **dict(MINUTE_TAU_FEAT_LABELS),
+    }
+)
 
 
 def alpha_tc_report_meta(*, n_alpha_tc_features: int = 0) -> Dict[str, Any]:
@@ -346,7 +358,7 @@ def _theme_trigger_sensitivity(
 
 
 
-def fit_tau_ridge_report(
+def fit_tau_model_report(
     stock_bars: Sequence[Dict[str, Any]],
     *,
     ridge_lambda: float = 1.0,
@@ -360,12 +372,13 @@ def fit_tau_ridge_report(
     cross_section_zscore: bool = True,
     progress_cb: Optional[Any] = None,
 ) -> Dict[str, Any]:
-    """池化拟合 ŷ_τ 头 Ridge + Holdout OOS。
+    """池化拟合 ŷ_τ 头 LightGBM + Holdout OOS。
 
     标签为 close[T]/price[τ]−1（τ→close）；分钟仅作 ≤τ 特征。开盘时 price[τ]=open。
-    ``tau_hm`` 非 open 时换信息集（前缀分钟路径）；``tau_grid`` 变长前缀共享 β。
-    默认近 ``holdout_trading_days`` 个交易日只测；**只训 Holdout 前一套 β**
+    ``tau_hm`` 非 open 时换信息集（前缀分钟路径）；``tau_grid`` 变长前缀共享模型。
+    默认近 ``holdout_trading_days`` 个交易日只测；**只训 Holdout 前一套**
     （启用研究/执行只是版本槽）。
+    ``ridge_lambda`` 保留形参兼容 API，不参与拟合。
     拟合固定日截面 Z；``cross_section_zscore=False`` 已下线。
     ``progress_cb(cur, tot, msg)``：可选，供 job 槽刷新。
     """
@@ -373,8 +386,8 @@ def fit_tau_ridge_report(
 
     err_cs = reject_global_zscore(cross_section_zscore)
     if err_cs:
-        return {"success": False, "error": err_cs, "task": "tc_ridge"}
-    packed = fit_tau_ridge_matrices(
+        return {"success": False, "error": err_cs, "task": "tc_lgb"}
+    packed = fit_tau_model_matrices(
         stock_bars,
         ridge_lambda=ridge_lambda,
         min_history=min_history,
@@ -391,7 +404,7 @@ def fit_tau_ridge_report(
         return {
             "success": False,
             "error": packed.get("error") or "拟合失败",
-            "task": "tc_ridge",
+            "task": "tc_lgb",
             "sample_count": packed.get("sample_count"),
             "stock_count": packed.get("stock_count"),
             "tau": packed.get("tau"),
@@ -512,9 +525,14 @@ def fit_tau_ridge_report(
         day = str(d or "")[:10]
         if day:
             day_keys.add((code, day))
+    model["backend"] = "lightgbm"
+    model["solver"] = "lightgbm"
+    model["schema"] = model.get("schema") or "tau_lgb_v1"
     report = {
         "success": True,
-        "task": "tc_ridge",
+        "task": "tc_lgb",
+        "backend": "lightgbm",
+        "recommended_backend": "lightgbm",
         "stock_count": n_stocks,
         "sample_count": len(ys_use),
         "sample_count_raw": len(ys),
@@ -522,11 +540,12 @@ def fit_tau_ridge_report(
         "oos": oos,
         "return_model": model,
         "return_model_research": model,
+        "backends": {"lightgbm": {"return_model": dict(model), "oos": oos}},
         "tau": tau_key,
         "tau_grid": list(grid) if grid else None,
         "live_prefix": model.get("live_prefix"),
         "y_spec": dict(model.get("y_spec") or {}),
-        "schema": "tau_ridge_v15",
+        "schema": "tau_lgb_v1",
         "target": target,
         "residualized": False,
         "include_alpha_tc": True,
@@ -534,11 +553,11 @@ def fit_tau_ridge_report(
         **pack,
         "note": (
             (
-                f"ŷ_τc({pack_note})；变长前缀 5m 槽共享 β；τ→close 标签；OOS.by_tau；按日 OOS；live 调仓=因果末根"
+                f"ŷ_τc LightGBM({pack_note})；变长前缀 5m 槽共享模型；τ→close 标签；OOS.by_tau；按日 OOS；live 调仓=因果末根"
             )
             if use_minute
             else (
-                f"ŷ_τc({pack_note})；独立估 τ→close（开盘 price[τ]=open）；theme+|gap|；yclose_loc；PIT tau_lag1/ma5；与 EOD 解耦"
+                f"ŷ_τc LightGBM({pack_note})；独立估 τ→close（开盘 price[τ]=open）；theme+|gap|；yclose_loc；PIT tau_lag1/ma5；与 EOD 解耦"
             )
         ),
     }
@@ -550,16 +569,28 @@ def fit_tau_ridge_report(
 
 
 def tau_model_path() -> str:
-    """Live ŷ_τ 模型主路径。"""
+    """Live ŷ_τc LightGBM 主路径（``tau_lgb_model.json``）。"""
     from core.paths import LIVE_DIR
 
-    return os.path.join(LIVE_DIR, "tau_ridge_model.json")
+    return os.path.join(LIVE_DIR, "tau_lgb_model.json")
+
+
+def tau_model_legacy_path() -> str:
+    """旧盘名 ``tau_ridge_model.json``（与主路径同目录；读兼容；新写入走 ``tau_model_path``）。"""
+    return os.path.join(os.path.dirname(tau_model_path()), "tau_ridge_model.json")
 
 
 def tau_last_report_path() -> str:
     from core.paths import LIVE_DIR
 
-    return os.path.join(LIVE_DIR, "tau_ridge_last_report.json")
+    return os.path.join(LIVE_DIR, "tau_lgb_last_report.json")
+
+
+def tau_last_report_legacy_path() -> str:
+    """旧盘名；与 ``tau_last_report_path`` 同目录。"""
+    return os.path.join(
+        os.path.dirname(tau_last_report_path()), "tau_ridge_last_report.json"
+    )
 
 
 _JSON_MODEL_CACHE: Dict[str, Tuple[float, Optional[Dict[str, Any]]]] = {}
@@ -600,6 +631,8 @@ def save_tau_last_report(report: Dict[str, Any]) -> None:
         return
     if not isinstance(report.get("return_model"), dict):
         return
+    if not _usable_tau_lgb_doc(report):
+        return
     from core.research.holdout import stamp_fitted_at
 
     stamp_fitted_at(report)
@@ -610,9 +643,11 @@ def save_tau_last_report(report: Dict[str, Any]) -> None:
 
 
 def load_tau_last_report() -> Optional[Dict[str, Any]]:
-    doc = _load_json_model(tau_last_report_path())
-    if doc and doc.get("success"):
-        return doc
+    """上次拟合草稿；只认 LightGBM（旧 Ridge 草稿当缺）。"""
+    for path in (tau_last_report_path(), tau_last_report_legacy_path()):
+        doc = _load_json_model(path)
+        if doc and doc.get("success") and _usable_tau_lgb_doc(doc):
+            return doc
     return None
 
 
@@ -638,12 +673,28 @@ def persist_tau_model(
     live_path = tau_model_path()
 
     if role_n == MODEL_ROLE_LIVE:
-        research_doc, err = require_research_suite(live_path)
+        research_doc, err = require_research_suite(
+            live_path,
+            fallback_live_path=tau_model_legacy_path(),
+            accept=_usable_tau_lgb_doc,
+        )
         if err:
             return err
+        from core.research.tc_lgb import is_tc_lightgbm_blob
+
+        research_rm = (
+            research_doc.get("return_model")
+            if isinstance(research_doc.get("return_model"), dict)
+            else research_doc
+        )
+        if not is_tc_lightgbm_blob(research_rm):
+            return {
+                "success": False,
+                "error": "ŷ_τc 已切换为 LightGBM；研究套须为 booster 包（旧 Ridge 不可晋级，请重新拟合）",
+            }
         doc = stamp_live_suite_doc(
             research_doc,
-            note=note or "tau_ridge research → live promote",
+            note=note or "tau_lgb research → live promote",
         )
         doc["role"] = "live"
         os.makedirs(os.path.dirname(live_path), exist_ok=True)
@@ -665,8 +716,13 @@ def persist_tau_model(
     rm = select_fit_return_model(report)
     if not isinstance(rm, dict):
         return {"success": False, "error": "return_model missing"}
-    if not rm.get("coefficients") and rm.get("intercept") is None:
-        return {"success": False, "error": "return_model missing"}
+    from core.research.tc_lgb import is_tc_lightgbm_blob
+
+    if not is_tc_lightgbm_blob(rm):
+        return {
+            "success": False,
+            "error": "ŷ_τc 已切换为 LightGBM；无 booster 草稿（旧 Ridge 不可启用，请重新拟合）",
+        }
     gate = tau_promote_gate(report)
     if not force and not gate.get("ok"):
         return {
@@ -706,13 +762,15 @@ def persist_tau_model(
     rm.pop("include_alpha_oo", None)
     rm.pop("n_alpha_oo_features", None)
 
-    raw_schema = str(report.get("schema") or "tau_ridge_v15")
-    if raw_schema.startswith("rem_ridge"):
-        raw_schema = "tau_ridge_v15"
-    schema = raw_schema
+    schema = str(report.get("schema") or rm.get("schema") or "tau_lgb_v1")
+    if "lgb" not in schema.lower():
+        schema = "tau_lgb_v1"
     from core.research.holdout import model_fit_id
 
     fitted_at = model_fit_id(report)
+    rm["backend"] = "lightgbm"
+    rm["solver"] = "lightgbm"
+    rm["schema"] = schema
     n_atc = int(
         report.get("n_alpha_tc_features")
         or report.get("n_alpha_oo_features")  # 旧报告兼容
@@ -723,7 +781,7 @@ def persist_tau_model(
         "success": True,
         "fitted_at": fitted_at,
         "promoted_at": now_iso_utc(),
-        "note": note or "tau_ridge promote research",
+        "note": note or "tau_lgb promote research",
         "return_model": rm,
         "oos": report.get("oos"),
         "sample_count": report.get("sample_count"),
@@ -765,6 +823,16 @@ def persist_tau_model(
     return out
 
 
+def _usable_tau_lgb_doc(doc: Optional[Dict[str, Any]]) -> bool:
+    """打分可用：须为 LightGBM booster 包（旧 Ridge 文档当缺）。"""
+    if not isinstance(doc, dict):
+        return False
+    from core.research.tc_lgb import is_tc_lightgbm_blob
+
+    rm = doc.get("return_model") if isinstance(doc.get("return_model"), dict) else None
+    return bool(is_tc_lightgbm_blob(rm) or is_tc_lightgbm_blob(doc))
+
+
 def load_tau_model(*, role: Optional[str] = None) -> Optional[Dict[str, Any]]:
     from core.research.holdout import (
         MODEL_ROLE_RESEARCH,
@@ -774,10 +842,15 @@ def load_tau_model(*, role: Optional[str] = None) -> Optional[Dict[str, Any]]:
 
     role_n = role if role is not None else current_scoring_model_role()
     if role_n == MODEL_ROLE_RESEARCH:
-        return _load_json_model(research_model_path(tau_model_path()))
-    doc = _load_json_model(tau_model_path())
-    if doc:
-        return doc
+        for live in (tau_model_path(), tau_model_legacy_path()):
+            doc = _load_json_model(research_model_path(live))
+            if _usable_tau_lgb_doc(doc):
+                return doc
+        return None
+    for path in (tau_model_path(), tau_model_legacy_path()):
+        doc = _load_json_model(path)
+        if _usable_tau_lgb_doc(doc):
+            return doc
     return None
 
 
@@ -798,24 +871,15 @@ def predict_tau_from_features(
         stamp_z_tc_aliases(row)
     except Exception:  # noqa: BLE001
         pass
-    preds = _predict_rows(rm, [row])
-    return preds[0] if preds else None
+    from core.research.tc_lgb import is_tc_lightgbm_blob
 
+    if is_tc_lightgbm_blob(rm) or is_tc_lightgbm_blob(doc):
+        from core.research.horizon_tree import predict_tree_return
 
-_TAU_FEAT_LABELS = z_tc_feat_labels(
-    {
-        "gap_pct": "跳空 %",
-        "open_gap": "开盘缺口",
-        "sector_gap_breadth": "同业缺口广度",
-        "theme_day": "主题日",
-        "gap_atr": "缺口 / ATR",
-        "gap_vs_sector": "行业相对缺口",
-        "yclose_loc": "昨收位置",
-        **TAU_LAG_FEAT_LABELS,
-        **T30_LAG_FEAT_LABELS,
-        **MINUTE_TAU_FEAT_LABELS,
-    }
-)
+        blob = rm if is_tc_lightgbm_blob(rm) else doc
+        return predict_tree_return(row, blob)
+    # 正式唯一后端 LightGBM；旧 Ridge β 点积已下线
+    return None
 
 
 def explain_tau_prediction(
@@ -823,131 +887,37 @@ def explain_tau_prediction(
     *,
     model_doc: Optional[Dict[str, Any]] = None,
 ) -> Optional[Dict[str, Any]]:
-    """结构化拆解 ŷ_τ（与 ``predict_tau_from_features`` / ``_predict_rows`` 同口径）。
+    """结构化拆解 ŷ_τ（与 ``predict_tau_from_features`` 同口径）。
 
-    缺特征填 z=0。截面模型（``zscore_scope=cross_section``）假定 ``features``
-    **已是**日截面 z（与 ``rescore_fitted_cross_section`` / 池 refresh 同口径）；
-    勿传入 raw 价位比，否则 tip 的 β·z 会把水平≈1 的列抬高、把 ≈0.03 的
-    ``raw_atc_YKLEN`` 等压没。
+    LightGBM：pred_contrib。截面模型假定 ``features`` 已是日截面 z。
+    旧 Ridge β·z tip 已下线。
     """
     doc = model_doc if model_doc is not None else load_tau_model()
     if not doc:
         return None
     fit = doc.get("return_model") or {}
-    coefs = fit.get("coefficients") or {}
-    intercept = float(fit.get("intercept") or 0.0)
-    if not coefs and abs(intercept) < 1e-12:
-        return None
-    means = fit.get("zscore_means") or fit.get("z_means") or {}
-    stds = fit.get("zscore_stds") or fit.get("z_stds") or {}
-    try:
-        from core.research.feature_standardize import is_cross_section_zscore
+    from core.research.tc_lgb import is_tc_lightgbm_blob
 
-        cs = bool(is_cross_section_zscore(doc) or is_cross_section_zscore(fit))
+    if not (is_tc_lightgbm_blob(fit) or is_tc_lightgbm_blob(doc)):
+        return None
+    from core.research.horizon_tree import explain_tree_return
+
+    row = dict(features or {})
+    try:
+        from core.signal.factors.z_tc import stamp_z_tc_aliases
+
+        stamp_z_tc_aliases(row)
     except Exception:  # noqa: BLE001
-        cs = str(fit.get("zscore_scope") or doc.get("zscore_scope") or "") == (
-            "cross_section"
-        )
-    from core.signal.factors.sum_identity import (
-        coef_names_for_raw_identity,
-        filter_predict_active_names,
-        row_has_raw_sum_share_identity,
-    )
-
-    active = filter_predict_active_names(
-        fit.get("active_features") or coefs.keys(),
-        coefs,
-    )
-    row = features or {}
-    if cs and row_has_raw_sum_share_identity(
-        row,
-        relevant_names=coef_names_for_raw_identity(coefs),
-    ):
-        return None
-    try:
-        from core.signal.factors.meta.registry import factor_label
-    except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
-        factor_label = lambda k: str(k)  # noqa: E731
-
-    terms: List[Dict[str, Any]] = []
-    total = intercept
-    for name in active:
-        beta = float(coefs.get(name) or 0.0)
-        v = feature_get(row, name)
-        imputed = False
-        if v is None:
-            z = 0.0
-            imputed = True
-        else:
-            try:
-                fv = float(v)
-            except (TypeError, ValueError):
-                z = 0.0
-                imputed = True
-            else:
-                # 与 tc_ridge_compact._predict_rows 一致
-                if cs or not means:
-                    z = fv
-                else:
-                    mu = float(means.get(name, 0.0))
-                    sd = float(stds.get(name, 1.0))
-                    if sd < 1e-9:
-                        sd = 1.0
-                    z = (fv - mu) / sd
-        contrib = beta * z
-        total += contrib
-        label = _TAU_FEAT_LABELS.get(name) or factor_label(name) or name
-        term: Dict[str, Any] = {
-            "key": str(name),
-            "label": str(label),
-            "beta": round(beta, 6),
-            "z": round(float(z), 4),
-            "contrib": round(float(contrib), 6),
-        }
-        if imputed:
-            term["note"] = "缺特征·z≈0"
-        terms.append(term)
-    if not terms and abs(intercept) < 1e-12:
-        return None
-    # 缺特征：保留 Z 与 raw_atc_* / raw_aoo_*（旧头），其余无信息行丢掉
-    from core.signal.factors.alpha_oo import is_alpha_oo_raw_key
-    from core.signal.factors.alpha_tc import is_alpha_tc_raw_key
-
-    z_keys = set(TAU_Z_FEATURES) | set(Z_TC_LEGACY_KEYS) | {"open_gap", "z_τc_open_gap"}
-    slim: List[Dict[str, Any]] = []
-    for t in terms:
-        key = str(t.get("key") or "")
-        if t.get("note") and key not in z_keys and not (
-            is_alpha_oo_raw_key(key) or is_alpha_tc_raw_key(key)
-        ):
-            continue
-        slim.append(t)
-    if slim:
-        terms = slim
-    # 展示只列有实值的项。缺特征已按均值填进合计（contrib=0），不占表。
-    missing_terms = [t for t in terms if t.get("note")]
-    n_missing = len(missing_terms)
-    shown = [t for t in terms if not t.get("note")]
-    if shown:
-        terms = shown
-    terms.sort(key=lambda t: -abs(float(t.get("contrib") or 0)))
-    out = {
-        "intercept": round(intercept, 6),
-        "terms": terms[:32],
-        "total": round(total, 6),
-        "head": "tau",
-    }
-    if cs:
-        out["zscore_scope"] = "cross_section"
-    role = str((doc or {}).get("model_role") or "").strip()
+        pass
+    blob = fit if is_tc_lightgbm_blob(fit) else doc
+    expl = explain_tree_return(row, blob)
+    if not isinstance(expl, dict):
+        return expl
+    out = dict(expl)
+    out["backend"] = "lightgbm"
+    out["head_kind"] = "return"
+    role = str(fit.get("model_role") or doc.get("model_role") or "").strip()
     if role:
-        out["model_role"] = role
-    if n_missing:
-        out["missing_n"] = int(n_missing)
-        out["missing_keys"] = [
-            str(t.get("label") or t.get("key") or "")
-            for t in missing_terms[:8]
-            if str(t.get("label") or t.get("key") or "")
-        ]
+        out["score_model_role"] = role
     return out
 

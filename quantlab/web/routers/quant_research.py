@@ -18,7 +18,7 @@ from web.schemas import (
     T60RidgeRequest,
     T75RidgeRequest,
     T90RidgeRequest,
-    TauRidgeRequest,
+    TcLgbRequest,
     ThresholdSuggestRequest,
     WeightSuggestRequest,
     YhatResidualShadowRequest,
@@ -116,17 +116,16 @@ def quant_factor_ols_pool(body: FactorOlsPoolRequest) -> Dict[str, Any]:
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e)) from e
 
-@router.post("/api/quant/tau-ridge")
+@router.post("/api/quant/tc-lgb")
 
-def quant_tau_ridge(body: TauRidgeRequest) -> Dict[str, Any]:
-    """ŷ_τ Ridge + 时间 OOS；可选 persist 到 live/tau_ridge_model.json。
+def quant_tc_lgb(body: TcLgbRequest) -> Dict[str, Any]:
+    """ŷ_τc LightGBM + 时间 OOS；可选 persist 到 live/tau_lgb_model.json。
 
-    ``persist=true`` / ``sync=true`` 同步；否则入队 ``GET /api/jobs/tau-ridge``。
+    ``persist=true`` / ``sync=true`` 同步；否则入队 ``GET /api/jobs/tau-lgb``。
     """
     kwargs = dict(
         lookback=body.lookback,
         watching_limit=body.watching_limit,
-        ridge_lambda=body.ridge_lambda,
         gap_trigger_pct=body.gap_trigger_pct,
         theme_boost=body.theme_boost,
         persist=body.persist,
@@ -140,8 +139,8 @@ def quant_tau_ridge(body: TauRidgeRequest) -> Dict[str, Any]:
     )
     try:
         if body.persist or body.sync:
-            return deps.quant.run_tau_ridge_experiment(**kwargs)
-        return deps.quant.start_tau_ridge_job(**kwargs)
+            return deps.quant.run_tau_lgb_experiment(**kwargs)
+        return deps.quant.start_tau_lgb_job(**kwargs)
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e)) from e
 
@@ -157,12 +156,12 @@ def quant_yhat_residual_shadow(body: YhatResidualShadowRequest) -> Dict[str, Any
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e)) from e
 
-@router.get("/api/quant/tau-ridge/model")
+@router.get("/api/quant/tc-lgb/model")
 
-def quant_tau_ridge_model() -> Dict[str, Any]:
-    """读取已 promote 的 ŷ_τ 模型（主路径 tau_ridge_model.json；可读旧 rem 文件）。"""
+def quant_tc_lgb_model() -> Dict[str, Any]:
+    """读取已 promote 的 ŷ_τc 模型（主路径 tau_lgb_model.json；可读旧 tau_ridge_model.json）。"""
     try:
-        return deps.quant.get_tau_ridge_model()
+        return deps.quant.get_tau_lgb_model()
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e)) from e
 
@@ -532,18 +531,6 @@ def quant_research_universe_rebuild_and_reconcile() -> Dict[str, Any]:
         )
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e)) from e
-
-@router.post("/api/quant/tc-ridge")
-
-def quant_tc_ridge(body: TauRidgeRequest) -> Dict[str, Any]:
-    """ŷ_τc Ridge。与 ``/api/quant/tau-ridge`` 同一套 live 模型（tau_ridge_model.json）。"""
-    return quant_tau_ridge(body)
-
-@router.get("/api/quant/tc-ridge/model")
-
-def quant_tc_ridge_model() -> Dict[str, Any]:
-    """读取已 promote 的 ŷ_τc 模型（tau_ridge_model.json）。"""
-    return quant_tau_ridge_model()
 
 @router.post("/api/quant/t30-ridge")
 

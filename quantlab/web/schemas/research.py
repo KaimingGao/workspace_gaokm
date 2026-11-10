@@ -71,8 +71,8 @@ class FactorOlsPoolRequest(BaseModel):
     )
 
 
-class TauRidgeRequest(_CrossSectionZscore):
-    """open→close / τ→close ŷ_τ 头研究拟合（不写 ŷ_oo）。"""
+class TcLgbRequest(_CrossSectionZscore):
+    """τ→close ŷ_τc LightGBM 研究拟合（不写 ŷ_oo）。"""
 
     lookback: int = Field(default=120, ge=FIT_LOOKBACK_MIN, le=FIT_LOOKBACK_MAX)
     watching_limit: int = Field(
@@ -81,7 +81,6 @@ class TauRidgeRequest(_CrossSectionZscore):
         le=MODEL_FIT_MAX_SIZE,
         description=f"观察池上限（默认满池 {MODEL_FIT_MAX_SIZE}）",
     )
-    ridge_lambda: float = Field(default=1.0, ge=0.0, le=100.0)
     gap_trigger_pct: float = Field(default=2.0, ge=0.5, le=10.0)
     theme_boost: float = Field(default=1.5, ge=0.5, le=5.0)
     persist: bool = Field(
@@ -96,7 +95,7 @@ class TauRidgeRequest(_CrossSectionZscore):
         default=20,
         ge=1,
         le=60,
-        description="近 N 个交易日不进训练（Holdout）；只训前段一套 β",
+        description="近 N 个交易日不进训练（Holdout）；只训前段一套模型",
     )
     force_promote: bool = Field(
         default=False,
@@ -118,7 +117,7 @@ class TauRidgeRequest(_CrossSectionZscore):
     )
     sync: bool = Field(
         default=False,
-        description="true=同步跑（单测）；默认 persist=false 时入队 Job，轮询 GET /api/jobs/tau-ridge",
+        description="true=同步跑（单测）；默认 persist=false 时入队 Job，轮询 GET /api/jobs/tau-lgb",
     )
 
 
@@ -568,13 +567,18 @@ class AbCompareRequest(BaseModel):
 
 
 class ReturnModelFitRequest(_CrossSectionZscore):
-    """拟合收益排序模型并可选落研究草稿。"""
+    """拟合 ŷ_oo LightGBM 并可选落研究草稿。"""
 
     codes: Optional[list] = None
     lookback: int = Field(default=600, ge=FIT_LOOKBACK_MIN, le=FIT_LOOKBACK_MAX)
     horizon_days: int = Field(default=1, ge=1, le=10)
     watching_limit: int = Field(default=MODEL_FIT_MAX_SIZE, ge=3, le=MODEL_FIT_MAX_SIZE)
-    ridge_lambda: float = Field(default=1.0, ge=0.0, le=100.0)
+    ridge_lambda: float = Field(
+        default=1.0,
+        ge=0.0,
+        le=100.0,
+        description="兼容旧请求体；ŷ_oo 已切 LightGBM，不参与拟合",
+    )
     min_samples: int = Field(default=24, ge=8, le=500)
     save_draft: bool = True
     holdout_trading_days: int = Field(
@@ -604,7 +608,10 @@ class WeightSuggestRequest(BaseModel):
     watching_limit: int = Field(default=12, ge=3, le=30)
     run_oos_gate: bool = Field(
         default=True,
-        description="建议权 vs 当前权的研究池 Top-K OOS 门禁",
+        description=(
+            "兼容旧开关；ŷ_oo 已切 LightGBM 后 weights 不进打分，"
+            "门禁固定解耦跳过（看 IC/健康后人审）"
+        ),
     )
     oos_tol_pp: float = Field(default=1.0, ge=0.0, le=10.0)
     ridge_lambda: float = Field(

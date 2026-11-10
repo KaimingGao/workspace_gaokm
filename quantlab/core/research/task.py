@@ -47,7 +47,7 @@ def _scalar_config(arguments: Dict[str, Any]) -> Dict[str, Any]:
 def describe_processor_windows(report: Dict[str, Any]) -> Dict[str, Any]:
     """标出拟合报告的标准化窗口（Holdout 前训一套 β；研究/执行只是版本槽）。
 
-    样本外块若显式标明 model_role=live，视为用错了模型（OOS 应对 Holdout 前训 β）。
+    样本外块若显式标明 model_role=live，视为用错了模型（OOS 应对 Holdout 前训模型）。
     未标明时，只要存在 return_model_research / return_model，就记为 research。
     """
     rpt = report or {}

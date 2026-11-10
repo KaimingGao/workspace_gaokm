@@ -111,7 +111,7 @@ def tau_compact_to_day_panels(
     """``collect_tau_compact`` 矩阵 → 排序/定档日截面（入模列 + 按日/钟切）。"""
     from core.research.oo_rank_panel import group_day_matrices
     from core.research.panel_matrix import raw_atc_finite
-    from core.research.tc_ridge_compact import TAU_FIT_DROP_ALIASES, TAU_Z_FEATURES
+    from core.research.tc_model_compact import TAU_FIT_DROP_ALIASES, TAU_Z_FEATURES
     from core.signal.factors.z_tc import Z_TC_MINUTE_KEYS
 
     drop = set(Z_TC_MINUTE_KEYS) | set(TAU_FIT_DROP_ALIASES)

@@ -6,7 +6,7 @@
 默认 4 进程（与 ``OO_RIDGE_WORKERS`` / ``_resolve_workers`` 同口径）。
 默认口径（绝对收益、全注册因子、窗口不超过 alpha_oo 抬窗）直接读 L1 ``oo/``，
 不重算。超额收益或无法复用 oo 指纹时才单独 collect。
-不进 y_oo_fuse；过入场后作买序；可选 oo_rank_max 入场闸。
+不进 y_oo_fuse；过入场后作买序；入场 rank 阈值看 ``oo_tc_score_min``（相对分，不是绝对名次）。
 """
 
 from __future__ import annotations
@@ -274,7 +274,7 @@ def _oo_rank_stock_job(
 ) -> Optional[Tuple[str, np.ndarray, np.ndarray, List[str], List[str]]]:
     """子进程：一只股票 → compact 矩阵块 + code。"""
     from core.research.oo_panel import collect_oo_panel
-    from core.research.oo_ridge_compact import OoPanelMatrix
+    from core.research.oo_model_compact import OoPanelMatrix
 
     (
         code,
@@ -411,7 +411,7 @@ def _oo_rank_stock_job(
     except Exception:  # noqa: BLE001
         logger.debug("oo_rank lookback slice failed for %s", code_s, exc_info=True)
 
-    # 与 oo_ridge_compact 一致：次新凑不满垫窗+horizon，勿因缺 L1 打断整池。
+    # 与 oo_model_compact 一致：次新凑不满垫窗+horizon，勿因缺 L1 打断整池。
     if len(bars_l) < _oo_rank_min_bars(horizon_i):
         return None
 
@@ -529,7 +529,7 @@ def build_oo_rank_day_panels(
 
     from core.research.materialize.consumer import context_initargs, research_pool_init
     from core.research.materialize.pool import consume_process_batch
-    from core.research.oo_ridge_compact import (
+    from core.research.oo_model_compact import (
         _POOL_BATCH,
         _resolve_workers,
         _stack_blocks,

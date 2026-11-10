@@ -1,7 +1,8 @@
 """ŷ_τc 单票/截面 Z 的统一前缀 ``z_τc_*``。
 
-训练与新模型系数键用 canon；面板/live 仍可写旧裸名（``gap_pct`` 等）。
-``feature_get`` / ``stamp_z_tc_aliases`` 负责双向别名，旧 ``tau_ridge_v12`` 可继续打分。
+训练与新模型特征键用 canon；面板/live 仍可写旧裸名（``gap_pct`` 等）。
+``feature_get`` / ``stamp_z_tc_aliases`` 负责双向别名。打分须 LightGBM booster；
+旧 Ridge 包不再打分。
 """
 
 from __future__ import annotations

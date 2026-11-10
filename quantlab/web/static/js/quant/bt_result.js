@@ -449,6 +449,9 @@ function _replayGateBits(data) {
   }
   if (p.y_oo_gt0 === true || req.y_oo_gt0 === true) bits.push("ŷ_oo>0");
   if (p.y_τc_gt0 === true || req.y_τc_gt0 === true) bits.push("ŷ_τc>0");
+  if (p.morph_gate_enabled === true || req.morph_gate_enabled === true) {
+    bits.push("形态闸");
+  }
   const pool = Number(p.stock_count);
   if (Number.isFinite(pool) && pool > 0) bits.push(`池${Math.round(pool)}`);
   const days = Number(p.trade_days != null ? p.trade_days : p.common_dates);

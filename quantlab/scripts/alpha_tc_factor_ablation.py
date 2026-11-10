@@ -31,7 +31,7 @@ from core.research.panel_matrix import (
     predict_ridge_matrix,
 )
 from core.research.portfolio_bars import load_portfolio_stock_bars
-from core.research.tc_ridge import (
+from core.research.tc_model import (
     TAU_FIT_DROP_ALIASES,
     TAU_Z_FEATURES,
     _ic,

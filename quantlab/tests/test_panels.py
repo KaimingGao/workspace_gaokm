@@ -94,7 +94,7 @@ class TestAssembleUsesL1(unittest.TestCase):
         from core.research.feature_lake import load_stock_panel
         from core.research.lake_bridge import FAMILY_OO
         from core.research.materialize.consumer import materialize_writer
-        from core.research.oo_ridge_compact import assemble_oo_panels
+        from core.research.oo_model_compact import assemble_oo_panels
         from core.research.panel_fingerprint import bars_fingerprint, make_fingerprint
 
         items = [
@@ -135,7 +135,7 @@ class TestAssembleUsesL1(unittest.TestCase):
             _tau_stock_job,
             _tc_matrix_seed_names,
         )
-        from core.research.tc_ridge import TAU_Z_FEATURES
+        from core.research.tc_model import TAU_Z_FEATURES
 
         bars = _bars__panel_fingerprint(80, 10.0, 2)
         col_names = _tc_matrix_seed_names(list(TAU_Z_FEATURES), include_alpha_tc=False)
@@ -233,7 +233,7 @@ class TestAssembleUsesL1(unittest.TestCase):
             MaterializeRequired,
             materialized_consumer,
         )
-        from core.research.oo_ridge_compact import _oo_stock_job
+        from core.research.oo_model_compact import _oo_stock_job
 
         bars = _bars__panel_fingerprint(57, 10.0, 4)
         with materialized_consumer():
@@ -270,7 +270,7 @@ def _bars__panel_matrix(n: int = 40, start: float = 10.0, seed: int = 0):
 class TestCompactBreadth(unittest.TestCase):
     def test_build_tau_panels_drops_minute_bars(self):
         """分钟路径 collect 后丢掉 minute_bars，避免满池 5m 常驻。"""
-        from core.research.tc_ridge import build_tau_panels_from_bars
+        from core.research.tc_model import build_tau_panels_from_bars
 
         day = "2024-02-15"
         bars = _bars__panel_matrix(40, 10, 0)
@@ -305,7 +305,7 @@ class TestCompactBreadth(unittest.TestCase):
 
     def test_tau_matrix_matches_dict_breadth(self):
         from core.research.panel_matrix import collect_tau_compact
-        from core.research.tc_ridge import TAU_Z_FEATURES, _stack_panels, build_tau_panels_from_bars
+        from core.research.tc_model import TAU_Z_FEATURES, _stack_panels, build_tau_panels_from_bars
 
         # collect_tau_compact 算完会 pop bars；对照路径用独立副本
         stock_bars = [
@@ -360,7 +360,7 @@ class TestKeepallRidgeMatrix(unittest.TestCase):
             fit_keepall_ridge_matrix,
             predict_ridge_matrix,
         )
-        from core.research.tc_ridge import _predict_rows
+        from core.research.tc_model import _predict_rows
 
         rng = np.random.default_rng(0)
         n = 40

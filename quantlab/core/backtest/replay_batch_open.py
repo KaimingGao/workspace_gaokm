@@ -3,15 +3,18 @@
 按回测日期切片 L1，不把整段历史面板留在进程里。截面 z 用整池；
 ŷ 与名次只写 ``score_codes``。排序头仍读已有 L2 的 μ/σ，不在这里重拟合。
 切片不齐、排序立方读不到、或名次模型在但打不出来时，当日返回 None，调用方走逐日旧路径。
-决策头是 ŷ_oo / ŷ_τc / 名次，并写四份悬停组成：ŷ_oo、ŷ_τc 的 Ridge β·z，
-以及 oo_rank / τc_rank 的 Ridge β·z 或 LambdaRank pred_contrib。
+决策头是 ŷ_oo / ŷ_τc / 名次，并写四份悬停组成：ŷ_oo / ŷ_τc LightGBM、
+以及 oo_rank / τc_rank 的 LambdaRank pred_contrib。
+LightGBM tip（pred_contrib）仅在 ``score_codes`` 规模 ≤ ``_BATCH_LGB_EXPLAIN_MAX`` 时批量写；
+全池/大名单只写分数，避免逐票 explain 拖死回测。
+成交/续持后再由 ``stamp_trade_formula_tips`` 对当日明细票懒补 tip。
 """
 
 from __future__ import annotations
 
 import logging
 import math
-from typing import Any, Callable, Dict, List, Mapping, Optional, Sequence
+from typing import Any, Callable, Collection, Dict, List, Mapping, Optional, Sequence
 
 import numpy as np
 
@@ -19,6 +22,8 @@ logger = logging.getLogger(__name__)
 
 _HOLDER: Optional["_OpenSlice"] = None
 _MIN_COVER = 0.5
+# 批量开盘 LGB tip：超过此规模只写 ŷ，不跑 pred_contrib（全池 ~1.6k 时差一个数量级）
+_BATCH_LGB_EXPLAIN_MAX = 48
 
 
 class _RankModel:
@@ -172,7 +177,7 @@ def score_open_day_from_slice(
         head="tau",
     )
     if y_oo is None or y_tc is None:
-        _note_once(holder, "ridge", "replay open batch ridge spec missing; legacy score")
+        _note_once(holder, "ridge", "replay open batch head score missing; legacy score")
         return None
 
     oo_status, oo_ranks, _oo_z, _oo_hats = _rank_pass(
@@ -205,6 +210,234 @@ def score_open_day_from_slice(
     _stamp_oo_rank_formula(items, codes, _oo_z, _oo_hats, holder.oo_rank, oo_ranks)
     _stamp_tc_rank_formula(items, codes, tc_z, tc_hats, holder.tc_rank, tc_ranks)
     return items
+
+
+_OO_FORMULA_KEYS = ("formula_terms", "score_formula_terms")
+_TAU_FORMULA_KEYS = ("formula_terms_tau", "score_formula_terms_tau")
+_OO_RANK_FORMULA_KEYS = ("formula_terms_oo_rank", "score_formula_terms_oo_rank")
+_TC_RANK_FORMULA_KEYS = ("formula_terms_tc_rank", "score_formula_terms_tc_rank")
+
+
+def _has_formula_terms(item: Optional[Mapping[str, Any]], keys: Sequence[str]) -> bool:
+    if not isinstance(item, Mapping):
+        return False
+    for key in keys:
+        pack = item.get(key)
+        if isinstance(pack, dict) and pack.get("terms"):
+            return True
+    return False
+
+
+def _apply_formula_map_missing(
+    items: List[dict],
+    expls: Mapping[str, dict],
+    keys: Sequence[str],
+) -> int:
+    """只补缺 tip；已有 terms 的不覆盖（前缀 τ tip 优先）。"""
+    if not expls or not keys:
+        return 0
+    n = 0
+    for it in items:
+        if not isinstance(it, dict):
+            continue
+        code = str(it.get("stock_code") or "")
+        expl = expls.get(code)
+        if not isinstance(expl, dict):
+            continue
+        if _has_formula_terms(it, keys):
+            continue
+        for key in keys:
+            it[key] = expl
+        n += 1
+    return n
+
+
+def stamp_trade_formula_tips(
+    day: str,
+    tip_codes: Collection[str],
+    items: List[dict],
+    *,
+    date_maps: Optional[Dict[str, Dict[str, dict]]] = None,
+    dates: Optional[Sequence[str]] = None,
+    day_i: int = 0,
+    tau_pool_day: Optional[Mapping[str, Any]] = None,
+) -> int:
+    """成交/续持票懒补 formula tip。全池批量打分跳过 pred_contrib 时用。
+
+    截面 z 仍用整池 L1；只对 ``tip_codes`` 跑 explain。已有 tip 不覆盖。
+    无开盘切片（晚钟 / legacy）时返回 0。
+    """
+    holder = _HOLDER
+    day_s = str(day or "")[:10]
+    want = {str(c).strip() for c in (tip_codes or []) if str(c or "").strip()}
+    if holder is None or len(day_s) < 10 or not want or not items:
+        return 0
+    if day_s not in holder.dates:
+        return 0
+    if not _ensure_models(holder):
+        return 0
+
+    by_code = {
+        str(it.get("stock_code") or "").strip(): it
+        for it in items
+        if isinstance(it, dict) and str(it.get("stock_code") or "").strip()
+    }
+    need_oo = {c for c in want if c in by_code and not _has_formula_terms(by_code[c], _OO_FORMULA_KEYS)}
+    need_tau = {
+        c for c in want if c in by_code and not _has_formula_terms(by_code[c], _TAU_FORMULA_KEYS)
+    }
+    need_oo_rank = {
+        c
+        for c in want
+        if c in by_code and not _has_formula_terms(by_code[c], _OO_RANK_FORMULA_KEYS)
+    }
+    need_tc_rank = {
+        c
+        for c in want
+        if c in by_code and not _has_formula_terms(by_code[c], _TC_RANK_FORMULA_KEYS)
+    }
+    if not (need_oo or need_tau or need_oo_rank or need_tc_rank):
+        return 0
+
+    oo_rows = _day_rows(holder.oo, day_s)
+    if len(oo_rows) < _min_rows(len(holder.codes)):
+        return 0
+    tc_rows = _day_rows(holder.tc, day_s)
+    codes = [c for c in holder.codes if c in oo_rows]
+    if not codes:
+        return 0
+    prev = ""
+    if dates and 0 < int(day_i) < len(dates):
+        prev = str(dates[int(day_i) - 1])[:10]
+    maps = date_maps or {}
+    quotes = {code: _quote(code, day_s, prev, maps) for code in codes}
+    trigger = _gap_trigger()
+    oo_raw = [_stamped(oo_rows.get(c), _stamp_oo) for c in codes]
+    tc_raw = [
+        _stamped_tau(
+            tc_rows.get(code),
+            quote=quotes.get(code),
+            pool=tau_pool_day,
+            code=code,
+            day=day_s,
+            trigger=trigger,
+        )
+        for code in codes
+    ]
+
+    stamped = 0
+    tip_items = [by_code[c] for c in want if c in by_code]
+    if need_oo:
+        _scores, oo_terms = _ridge_pack(
+            codes,
+            oo_raw,
+            holder.oo_model,
+            need_oo,
+            impute_all_missing=False,
+            getter=_oo_get,
+            head="eod",
+            explain_codes=need_oo,
+        )
+        if oo_terms:
+            stamped += _apply_formula_map_missing(tip_items, oo_terms, _OO_FORMULA_KEYS)
+    if need_tau:
+        _scores, tc_terms = _ridge_pack(
+            codes,
+            tc_raw,
+            holder.tau_doc,
+            need_tau,
+            impute_all_missing=True,
+            getter=_tc_get,
+            head="tau",
+            explain_codes=need_tau,
+        )
+        if tc_terms:
+            stamped += _apply_formula_map_missing(tip_items, tc_terms, _TAU_FORMULA_KEYS)
+
+    if need_oo_rank and holder.oo_rank is not None and not holder.oo_rank.broken:
+        # 名次分仍可全员；tip 只解释 need。allow=None 避免缩截面。
+        oo_status, oo_ranks, oo_z, oo_hats = _rank_pass(
+            day_s, codes, oo_raw, holder.oo_rank, None, getter=_oo_get
+        )
+        if oo_status == "ok" and oo_ranks:
+            before = sum(
+                1 for c in need_oo_rank if _has_formula_terms(by_code[c], _OO_RANK_FORMULA_KEYS)
+            )
+            _stamp_oo_rank_formula(
+                tip_items,
+                codes,
+                oo_z,
+                oo_hats,
+                holder.oo_rank,
+                oo_ranks,
+                explain_codes=need_oo_rank,
+            )
+            after = sum(
+                1 for c in need_oo_rank if _has_formula_terms(by_code[c], _OO_RANK_FORMULA_KEYS)
+            )
+            stamped += max(0, after - before)
+
+    if need_tc_rank and holder.tc_rank is not None and not holder.tc_rank.broken:
+        tc_status, tc_ranks, tc_z, tc_hats = _rank_pass(
+            day_s, codes, tc_raw, holder.tc_rank, None, getter=_tc_get
+        )
+        if tc_status == "ok" and tc_ranks:
+            before = sum(
+                1 for c in need_tc_rank if _has_formula_terms(by_code[c], _TC_RANK_FORMULA_KEYS)
+            )
+            _stamp_tc_rank_formula(
+                tip_items,
+                codes,
+                tc_z,
+                tc_hats,
+                holder.tc_rank,
+                tc_ranks,
+                explain_codes=need_tc_rank,
+            )
+            after = sum(
+                1 for c in need_tc_rank if _has_formula_terms(by_code[c], _TC_RANK_FORMULA_KEYS)
+            )
+            stamped += max(0, after - before)
+    return int(stamped)
+
+
+def merge_formula_tips_onto_legs(
+    legs: Optional[Sequence[dict]],
+    scored: Sequence[dict],
+) -> int:
+    """把 scored 上的 tip 组成回填到买卖腿（plan 时可能还没有）。"""
+    from core.paper.rebalance.rank_lots import tip_explain_fields
+
+    by_code = {
+        str(it.get("stock_code") or "").strip(): it
+        for it in (scored or [])
+        if isinstance(it, dict) and str(it.get("stock_code") or "").strip()
+    }
+    n = 0
+    for leg in legs or []:
+        if not isinstance(leg, dict):
+            continue
+        code = str(leg.get("stock_code") or "").strip()
+        src = by_code.get(code)
+        if src is None:
+            continue
+        tips = tip_explain_fields(src)
+        if not tips:
+            continue
+        tips.pop("fusion_w_oo", None)
+        tips.pop("fusion_w_oc", None)
+        changed = False
+        for key, value in tips.items():
+            existing = leg.get(key)
+            if isinstance(existing, dict) and existing.get("terms"):
+                continue
+            if value is None:
+                continue
+            leg[key] = value
+            changed = True
+        if changed:
+            n += 1
+    return n
 
 
 def cross_section_ridge(
@@ -302,8 +535,57 @@ def _ridge_pack(
     impute_all_missing: bool,
     getter: Callable[[Mapping[str, Any], str], Any],
     head: str,
+    explain_codes: Optional[Collection[str]] = None,
 ) -> tuple:
-    """``(scores, expl_by_code)``。``scores is None`` 表示 Ridge 规格不可用。"""
+    """``(scores, expl_by_code)``。``scores is None`` 表示规格不可用。
+
+    ``explain_codes``：强制只对这些票写 tip（成交后懒补）；忽略批量规模闸。
+    """
+    force = (
+        {str(c).strip() for c in explain_codes if str(c or "").strip()}
+        if explain_codes is not None
+        else None
+    )
+    if head == "eod":
+        try:
+            from core.research.oo_lgb import is_oo_lightgbm_scorer
+        except Exception:  # noqa: BLE001
+            is_oo_lightgbm_scorer = None  # type: ignore[assignment]
+        if callable(is_oo_lightgbm_scorer) and is_oo_lightgbm_scorer(model):
+            return _oo_lgb_pack(
+                codes,
+                rows,
+                model,
+                allow,
+                impute_all_missing=impute_all_missing,
+                getter=getter,
+                explain_codes=force,
+            )
+    if head == "tau":
+        try:
+            from core.research.tc_lgb import is_tc_lightgbm_blob, is_tc_lightgbm_scorer
+        except Exception:  # noqa: BLE001
+            is_tc_lightgbm_blob = None  # type: ignore[assignment]
+            is_tc_lightgbm_scorer = None  # type: ignore[assignment]
+        tau_lgb = False
+        if callable(is_tc_lightgbm_scorer) and is_tc_lightgbm_scorer(model):
+            tau_lgb = True
+        elif callable(is_tc_lightgbm_blob) and _resolve_lgb_blob(
+            model, is_blob=is_tc_lightgbm_blob
+        ):
+            tau_lgb = True
+        if tau_lgb:
+            return _tc_lgb_pack(
+                codes,
+                rows,
+                model,
+                allow,
+                impute_all_missing=impute_all_missing,
+                getter=getter,
+                explain_codes=force,
+            )
+        # 与线上 predict_tau_from_features 一致：拒旧 Ridge β
+        return None, {}
     spec = _ridge_spec(model)
     if spec is None:
         return None, {}
@@ -326,7 +608,10 @@ def _ridge_pack(
             continue
         if allow is not None and str(code) not in allow:
             continue
-        scores[str(code)] = float(value)
+        code_s = str(code)
+        scores[code_s] = float(value)
+        if force is not None and code_s not in force:
+            continue
         expl = _ridge_expl_row(
             None if z is None else z[i],
             None if finite is None else finite[i],
@@ -339,8 +624,23 @@ def _ridge_pack(
             labels=labels,
         )
         if expl is not None:
-            expls[str(code)] = _cap_formula(expl, tau=(head == "tau"))
+            expls[code_s] = _cap_formula(expl, tau=(head == "tau"))
     return scores, expls
+
+
+def _batch_lgb_explain(allow: Optional[set]) -> bool:
+    """全池 / 大名单跳过 tip；小 ``score_codes`` 才批量 pred_contrib。"""
+    if allow is None:
+        return False
+    return len(allow) <= int(_BATCH_LGB_EXPLAIN_MAX)
+
+
+def _want_lgb_explain(allow: Optional[set], explain_codes: Optional[set], code: str) -> bool:
+    """批量闸：小名单全写；或 ``explain_codes`` 命中（成交懒补）。"""
+    code_s = str(code)
+    if explain_codes is not None:
+        return code_s in explain_codes
+    return _batch_lgb_explain(allow)
 
 
 def _suite_role(model: Any) -> str:
@@ -371,7 +671,7 @@ def _term_labels(names: Sequence[str], *, head: str) -> Dict[str, str]:
     tau_labels: Dict[str, str] = {}
     if head == "tau":
         try:
-            from core.research.tc_ridge import _TAU_FEAT_LABELS
+            from core.research.tc_model import _TAU_FEAT_LABELS
 
             tau_labels = {str(k): str(v) for k, v in (_TAU_FEAT_LABELS or {}).items()}
         except Exception:  # noqa: BLE001
@@ -546,11 +846,20 @@ def _stamp_oo_rank_formula(
     hats: Optional[Sequence[Optional[float]]],
     rank: Optional[_RankModel],
     scores: Mapping[str, float],
+    *,
+    explain_codes: Optional[Collection[str]] = None,
 ) -> None:
     from core.research.oo_rank_lambdarank import _stamp_formula_terms_oo_rank
 
     _stamp_rank_formula(
-        items, codes, z_rows, hats, rank, scores, stamp=_stamp_formula_terms_oo_rank
+        items,
+        codes,
+        z_rows,
+        hats,
+        rank,
+        scores,
+        stamp=_stamp_formula_terms_oo_rank,
+        explain_codes=explain_codes,
     )
 
 
@@ -561,11 +870,20 @@ def _stamp_tc_rank_formula(
     hats: Optional[Sequence[Optional[float]]],
     rank: Optional[_RankModel],
     scores: Mapping[str, float],
+    *,
+    explain_codes: Optional[Collection[str]] = None,
 ) -> None:
     from core.research.tc_rank import _stamp_formula_terms_tc_rank
 
     _stamp_rank_formula(
-        items, codes, z_rows, hats, rank, scores, stamp=_stamp_formula_terms_tc_rank
+        items,
+        codes,
+        z_rows,
+        hats,
+        rank,
+        scores,
+        stamp=_stamp_formula_terms_tc_rank,
+        explain_codes=explain_codes,
     )
 
 
@@ -578,10 +896,26 @@ def _stamp_rank_formula(
     scores: Mapping[str, float],
     *,
     stamp: Callable[..., None],
+    explain_codes: Optional[Collection[str]] = None,
 ) -> None:
-    """把与名次同一套 z 的因子组成写上票。缺模型或解释失败不改名次。"""
+    """把与名次同一套 z 的因子组成写上票。缺模型或解释失败不改名次。
+
+    全池 / 大名单跳过 tip（与 LGB 决策头同闸），避免 LambdaRank pred_contrib 扫 ~1.6k 行。
+    ``explain_codes`` 命中时只解释这些票（成交懒补），不受规模闸限制。
+    """
     if rank is None or rank.broken or not scores or not z_rows or hats is None:
         return
+    force = (
+        {str(c).strip() for c in explain_codes if str(c or "").strip()}
+        if explain_codes is not None
+        else None
+    )
+    if force is None:
+        if not _batch_lgb_explain(set(str(c) for c in scores)):
+            return
+        tip_set = set(str(c) for c in scores)
+    else:
+        tip_set = force
     from core.research.oo_rank_lambdarank import (
         _explain_oo_rank_lambdarank_rows,
         _explain_oo_rank_ridge,
@@ -591,29 +925,42 @@ def _stamp_rank_formula(
 
     by_code = {str(it.get("stock_code") or ""): it for it in items if isinstance(it, dict)}
     model = rank.model
+    # 只对已写分且需要 tip 的票做解释，不扫整池 z_rows
+    scored_idx = [
+        i
+        for i, code in enumerate(codes)
+        if str(code) in scores
+        and str(code) in tip_set
+        and i < len(z_rows)
+        and i < len(hats)
+    ]
+    if not scored_idx:
+        return
     try:
         if _oo_rank_use_booster(model):
+            sub_rows = [z_rows[i] for i in scored_idx]
+            sub_hats = [hats[i] for i in scored_idx]
             expls = _explain_oo_rank_lambdarank_rows(
-                list(z_rows), model, hats=list(hats)
+                list(sub_rows), model, hats=list(sub_hats)
             )
-            for code, expl in zip(codes, expls):
-                if str(code) not in scores or not isinstance(expl, dict):
+            for i, expl in zip(scored_idx, expls):
+                if not isinstance(expl, dict):
                     continue
-                it = by_code.get(str(code))
+                it = by_code.get(str(codes[i]))
                 if it is not None:
                     stamp(it, expl)
             return
         if not _oo_rank_use_ridge(model):
             return
-        for code, feats, hat in zip(codes, z_rows, hats):
-            if str(code) not in scores:
-                continue
+        for i in scored_idx:
+            code = str(codes[i])
+            feats = z_rows[i]
             expl = _explain_oo_rank_ridge(
                 feats if isinstance(feats, dict) else {},
                 model,
-                y_hat=hat,
+                y_hat=hats[i],
             )
-            it = by_code.get(str(code))
+            it = by_code.get(code)
             if it is not None and isinstance(expl, dict):
                 stamp(it, expl)
     except Exception:  # noqa: BLE001
@@ -701,7 +1048,7 @@ def _decision_item(
     if y_tc is not None:
         item["y_τc"] = y_tc
         item["predicted_score_τc"] = y_tc
-        item["y_τc_source"] = "ridge"
+        item["y_τc_source"] = "lightgbm"
     return item
 
 
@@ -740,9 +1087,9 @@ def _ensure_models(holder: _OpenSlice) -> bool:
     try:
         from core.research.feature_standardize import is_cross_section_zscore
         from core.research.oo_rank_lambdarank import load_oo_rank_model
-        from core.research.oo_ridge import load_scoring_return_model
+        from core.research.oo_model import load_scoring_return_model
         from core.research.tc_rank import load_tc_rank_model
-        from core.research.tc_ridge import load_tau_model
+        from core.research.tc_model import load_tau_model
 
         oo_model, _meta = load_scoring_return_model()
         tau_doc = load_tau_model()
@@ -757,7 +1104,7 @@ def _ensure_models(holder: _OpenSlice) -> bool:
         not is_cross_section_zscore(oo_model)
         or not is_cross_section_zscore(tau_doc)
     ):
-        logger.info("replay open batch skip: ridge head is not cross-section z")
+        logger.info("replay open batch skip: decision head is not cross-section z")
         return False
     if (oo_rank is not None and oo_rank.broken) or (tc_rank is not None and tc_rank.broken):
         logger.info("replay open batch rank model unusable; legacy score")
@@ -809,12 +1156,227 @@ def _decode_booster(model: Mapping[str, Any]) -> Any:
         return None
 
 
+def _resolve_lgb_blob(model: Any, *, is_blob: Callable[[Any], bool]) -> Optional[Dict[str, Any]]:
+    """从 scorer / 套件 JSON / 裸包解出 LightGBM 推理 blob。"""
+    if model is None:
+        return None
+    if hasattr(model, "to_dict") and callable(model.to_dict):
+        try:
+            blob = model.to_dict()
+        except Exception:  # noqa: BLE001
+            blob = None
+        if is_blob(blob):
+            return dict(blob)
+    if isinstance(model, Mapping):
+        if is_blob(model):
+            return dict(model)
+        for key in ("return_model", "model"):
+            inner = model.get(key)
+            if isinstance(inner, Mapping) and is_blob(inner):
+                return dict(inner)
+    return None
+
+
+def _oo_lgb_pack(
+    codes: Sequence[str],
+    rows: Sequence[Mapping[str, Any]],
+    model: Any,
+    allow: Optional[set],
+    *,
+    impute_all_missing: bool,
+    getter: Callable[[Mapping[str, Any], str], Any],
+    explain_codes: Optional[set] = None,
+) -> tuple:
+    """ŷ_oo LightGBM：截面 z 后矩阵推理；tip 仅小名单或 ``explain_codes``。"""
+    from core.research.feature_standardize import (
+        cross_section_zscore_matrix,
+        is_cross_section_zscore,
+    )
+    from core.research.horizon_lgb import _predict_lightgbm
+    from core.research.horizon_tree import load_lightgbm_booster
+    from core.research.oo_lgb import is_oo_lightgbm_blob
+
+    if model is None or not is_cross_section_zscore(model):
+        return None, {}
+    blob = _resolve_lgb_blob(model, is_blob=is_oo_lightgbm_blob)
+    if not blob:
+        return None, {}
+    names = [
+        str(n)
+        for n in (
+            getattr(model, "feature_names", None)
+            or blob.get("feature_names")
+            or []
+        )
+    ]
+    if not names:
+        return None, {}
+    n = len(rows)
+    mat = np.full((n, len(names)), np.nan, dtype=np.float64)
+    for i, row in enumerate(rows):
+        src = row if isinstance(row, Mapping) else {}
+        for j, name in enumerate(names):
+            fv = _finite(getter(src, name))
+            if fv is not None:
+                mat[i, j] = fv
+    z = cross_section_zscore_matrix(mat, ["d"] * n)
+    filled = np.where(np.isfinite(z), z, 0.0)
+    used = np.isfinite(z).any(axis=1)
+    try:
+        booster = load_lightgbm_booster(blob.get("booster") or {})
+        raw = _predict_lightgbm(booster, filled)
+    except Exception:  # noqa: BLE001
+        logger.info("replay oo lgb predict failed", exc_info=True)
+        return None, {}
+    role = _suite_role(model)
+    scores: Dict[str, float] = {}
+    expls: Dict[str, dict] = {}
+    explain_fn = getattr(model, "explain_prediction", None)
+    for i, (code, value) in enumerate(zip(codes, raw)):
+        if not impute_all_missing and not bool(used[i]):
+            continue
+        try:
+            fv = float(value)
+        except (TypeError, ValueError):
+            continue
+        if not math.isfinite(fv):
+            continue
+        if allow is not None and str(code) not in allow:
+            continue
+        code_s = str(code)
+        scores[code_s] = round(fv, 6)
+        if not _want_lgb_explain(allow, explain_codes, code_s) or not callable(explain_fn):
+            continue
+        feats = {
+            names[j]: float(filled[i, j])
+            for j in range(len(names))
+            if math.isfinite(float(filled[i, j]))
+        }
+        try:
+            expl = explain_fn(feats)
+        except Exception:  # noqa: BLE001
+            expl = None
+        if isinstance(expl, dict):
+            if role in {"research", "live"}:
+                expl = dict(expl)
+                expl["score_model_role"] = role
+            expls[code_s] = _cap_formula(expl, tau=False)
+    _refuse_collapsed(list(scores.values()), 0.0)
+    return scores, expls
+
+
+def _tc_lgb_pack(
+    codes: Sequence[str],
+    rows: Sequence[Mapping[str, Any]],
+    model: Any,
+    allow: Optional[set],
+    *,
+    impute_all_missing: bool,
+    getter: Callable[[Mapping[str, Any], str], Any],
+    explain_codes: Optional[set] = None,
+) -> tuple:
+    """ŷ_τc LightGBM：截面 z 后矩阵推理；tip 仅小名单或 ``explain_codes``。"""
+    from core.research.feature_standardize import (
+        cross_section_zscore_matrix,
+        is_cross_section_zscore,
+    )
+    from core.research.horizon_lgb import _predict_lightgbm
+    from core.research.horizon_tree import explain_tree_return, load_lightgbm_booster
+    from core.research.tc_lgb import is_tc_lightgbm_blob
+
+    if model is None or not is_cross_section_zscore(model):
+        return None, {}
+    blob = _resolve_lgb_blob(model, is_blob=is_tc_lightgbm_blob)
+    if not blob:
+        return None, {}
+    names = [str(n) for n in (blob.get("feature_names") or [])]
+    if not names:
+        return None, {}
+    n = len(rows)
+    mat = np.full((n, len(names)), np.nan, dtype=np.float64)
+    for i, row in enumerate(rows):
+        src = row if isinstance(row, Mapping) else {}
+        for j, name in enumerate(names):
+            fv = _finite(getter(src, name))
+            if fv is not None:
+                mat[i, j] = fv
+    z = cross_section_zscore_matrix(mat, ["d"] * n)
+    filled = np.where(np.isfinite(z), z, 0.0)
+    used = np.isfinite(z).any(axis=1)
+    try:
+        booster = load_lightgbm_booster(blob.get("booster") or {})
+        raw = _predict_lightgbm(booster, filled)
+    except Exception:  # noqa: BLE001
+        logger.info("replay tc lgb predict failed", exc_info=True)
+        return None, {}
+    role = _suite_role(model)
+    if not role and isinstance(model, Mapping):
+        role = _suite_role(model.get("return_model") or {})
+    scores: Dict[str, float] = {}
+    expls: Dict[str, dict] = {}
+    explain_fn = getattr(model, "explain_prediction", None)
+    for i, (code, value) in enumerate(zip(codes, raw)):
+        if not impute_all_missing and not bool(used[i]):
+            continue
+        try:
+            fv = float(value)
+        except (TypeError, ValueError):
+            continue
+        if not math.isfinite(fv):
+            continue
+        if allow is not None and str(code) not in allow:
+            continue
+        code_s = str(code)
+        scores[code_s] = round(fv, 6)
+        if not _want_lgb_explain(allow, explain_codes, code_s):
+            continue
+        feats = {
+            names[j]: float(filled[i, j])
+            for j in range(len(names))
+            if math.isfinite(float(filled[i, j]))
+        }
+        expl = None
+        if callable(explain_fn):
+            try:
+                expl = explain_fn(feats)
+            except Exception:  # noqa: BLE001
+                expl = None
+        if not isinstance(expl, dict):
+            try:
+                expl = explain_tree_return(feats, blob)
+            except Exception:  # noqa: BLE001
+                expl = None
+        if isinstance(expl, dict):
+            expl = dict(expl)
+            expl.setdefault("backend", "lightgbm")
+            expl.setdefault("head_kind", "return")
+            if role in {"research", "live"}:
+                expl["score_model_role"] = role
+            expls[code_s] = _cap_formula(expl, tau=True)
+    _refuse_collapsed(list(scores.values()), 0.0)
+    return scores, expls
+
+
 def _ridge_spec(model: Any) -> Optional[tuple]:
     from core.research.feature_standardize import is_cross_section_zscore
     from core.signal.factors.sum_identity import filter_predict_active_names, finite_coef
 
     if model is None or not is_cross_section_zscore(model):
         return None
+    try:
+        from core.research.oo_lgb import is_oo_lightgbm_scorer
+
+        if is_oo_lightgbm_scorer(model):
+            return None
+    except Exception:  # noqa: BLE001
+        pass
+    try:
+        from core.research.tc_lgb import is_tc_lightgbm_scorer
+
+        if is_tc_lightgbm_scorer(model):
+            return None
+    except Exception:  # noqa: BLE001
+        pass
     if hasattr(model, "coefficients"):
         coefs = model.coefficients or {}
         try:

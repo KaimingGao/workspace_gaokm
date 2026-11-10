@@ -244,8 +244,20 @@ export function installResearchUniverseUi(q) {
     const fitBits = [];
     if (rankB === "lambdarank" || rankB === "lightgbm") fitBits.push("排序 LambdaRank");
     else if (rankB) fitBits.push(`排序 ${rankB}`);
-    if (retB === "ridge") fitBits.push("收益 Ridge");
+    const tcB = String(extra.tc_backend || "").trim().toLowerCase();
+    if (retB === "lightgbm" || retB === "lgb") {
+      fitBits.push(tcB === "lightgbm" || tcB === "lgb" || !tcB
+        ? "oo/τc LightGBM"
+        : "oo LightGBM");
+    } else if (retB === "ridge") fitBits.push("收益 Ridge");
     else if (retB) fitBits.push(`收益 ${retB}`);
+    if (
+      (tcB === "lightgbm" || tcB === "lgb") &&
+      retB !== "lightgbm" &&
+      retB !== "lgb"
+    ) {
+      fitBits.push("τc LightGBM");
+    }
     const fit = fitBits.length ? ` · ${fitBits.join(" / ")}` : "";
     const core = `定档猜涨 ${heads.join(" + ")}${fit}`;
     return short ? `${core}（${short}）` : core;
@@ -273,10 +285,12 @@ export function installResearchUniverseUi(q) {
     const when = start && end ? `${start}…${end}` : `${n} 日`;
     const src =
       rep && rep.source === "oo_research_model"
-        ? "标题指标读研究套"
-        : rep && rep.source === "oo_pre_holdout_refit"
-          ? "无研究套，标题指标用 Holdout 前现训"
-          : "标题指标读 ŷ_oo";
+        ? "标题指标读研究套 LightGBM ŷ_oo"
+        : rep && rep.source === "oo_active_model"
+          ? "标题指标读执行套 LightGBM ŷ_oo"
+          : rep && rep.source === "oo_pre_holdout_refit"
+            ? "旧报告：Holdout 前现训（已停用）"
+            : "标题指标读 ŷ_oo";
     return `Holdout ${when}（${n} 日）只评测，研究套 ŷ_oo / ŷ_τc 未改写 · ${src}`;
   }
 
@@ -661,7 +675,7 @@ export function installResearchUniverseUi(q) {
           ? `<table class="quant-ru-tier-grid">
               <thead><tr>
                 <th class="quant-ru-col-stock">标的</th>
-                <th class="num" title="定档窗 oo：内存 Ridge；说涨 = 预估 > 0.05pp；lift = 说涨精度 − 上涨日比例；进 Lift_Score 等权">oo</th>
+                <th class="num" title="定档窗 oo：落盘 LightGBM ŷ_oo；说涨 = 预估 > 0.05pp；lift = 说涨精度 − 上涨日比例；进 Lift_Score 等权">oo</th>
                 <th class="num" title="定档窗 oo_rank：内存 LambdaRank；说涨 = 预估高于当日截面中位数；lift = 说涨精度 − 上涨日比例；进 Lift_Score 等权">oo_rank</th>
                 <th class="num" title="定档窗 τc：内存 Ridge（与 τc_rank 各自拟合）；说涨 = 预估 > 0.05pp；进 Lift_Score 等权">τc</th>
                 <th class="num" title="定档窗 τc_rank：内存 LambdaRank；说涨 = 预估高于当日截面中位数；进 Lift_Score 等权">τc_rank</th>
@@ -753,7 +767,7 @@ export function installResearchUniverseUi(q) {
         const bits = [];
         if (stale) {
           bits.push(
-            "这份报告不是四头猜涨 lift 定档。请再点「观察池分档」：排序头 LambdaRank、收益头 Ridge 当场拟合（不改研究套），有样本头等权，用说涨精度减去上涨日比例重写 A/B/C"
+            "这份报告不是四头猜涨 lift 定档。请再点「观察池分档」：oo 用落盘 LightGBM ŷ_oo、排序头 LambdaRank、τc 内存 Ridge（不改研究套），有样本头等权，用说涨精度减去上涨日比例重写 A/B/C"
           );
         }
         if (missingHold) {

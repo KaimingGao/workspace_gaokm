@@ -211,7 +211,7 @@ class TestT30Tree(unittest.TestCase):
     def test_tree_z_matches_ridge_no_path_shape(self):
         from core.research.horizon_ridge import _horizon_ridge_config
         from core.research.horizon_tree import _horizon_tree_config
-        from core.research.tc_ridge_compact import TAU_HORIZON_TREE_SHAPE_FEATURES
+        from core.research.tc_model_compact import TAU_HORIZON_TREE_SHAPE_FEATURES
 
         ridge_z = list(_horizon_ridge_config("t30")["z_features"])
         tree_z = list(_horizon_tree_config("t30")["z_features"])

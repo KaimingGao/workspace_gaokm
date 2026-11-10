@@ -61,7 +61,7 @@
     ▼
 影响估计（Alpha / Risk 两条估计）
     ├─ Alpha：**双层 ŷ**
-    │         · ŷ_oo = predicted_score：T−1 因子 → Ridge β → 前瞻 h 日（主排序 / 买入）
+    │         · ŷ_oo = predicted_score：T−1 因子 → LightGBM → 前瞻 h 日（主排序 / 买入）
     │         · ŷ_τ = predicted_score_tau：X+Z_≤τ → open→close（分钟前缀可选；旧名 score_rem 仅兼容）
     └─ Risk：回撤/集中度/成本/滚动 ŷ IC（能买多少、要不要停）
     ▼
@@ -92,7 +92,7 @@ flowchart LR
 |----------|----------|------------|--------|
 | **事实输入** | 当时可见的价量、财务、资讯、账本 | `ports` · `fetch_daily_bars` · fundamentals · sentiment · `watching` / `paper` · **L1 Feature Lake / L2 DayCube**（训练·回测·live 共用截面物化） | 基本面多为 **snapshot**（非完整 PIT）；须在质量/文档标明；截面 μ/σ 绑 `universe_hash` |
 | **清洗门禁** | 能否进入生产估计 | `normalize_bars` · `assess_quality` · `allows_production_score` · manifest `adjust_policy` | thin/empty/fallback → `hard_reject`，不硬塞分 |
-| **Alpha 估计** | 已发生形态对「相对吸引力」的影响 | `factor_registry` · `score_bars`→sub_scores · `ReturnScoreModel`（β）· **多目标多头**：ŷ_oo / ŷ_τ · **blend 融合** · `compute_buy_stance` | 方法论见 [design-spine · 预估方法论](design-spine.md#预估方法论多频率-多目标-ensemble)；生产主排序 = **ŷ_oo**；τ 独立 Ridge + OOS；融合见 [quant §2.5](quant.md#25-双层-predictedscoreŷoo-ŷτ)；LLM **不改**分 |
+| **Alpha 估计** | 已发生形态对「相对吸引力」的影响 | `factor_registry` · `score_bars`→sub_scores · ŷ_oo / ŷ_τc LightGBM（`OoLightgbmScorer` / `TcLightgbmScorer`）· **多目标多头** · **blend 融合** · `compute_buy_stance` | 方法论见 [design-spine · 预估方法论](design-spine.md#预估方法论多频率-多目标-ensemble)；生产主排序 = **ŷ_oo**；τc 独立 LightGBM + OOS；融合见 [quant §2.5](quant.md#25-双层-predictedscoreŷoo-ŷτ)；LLM **不改**分 |
 | **Risk 估计** | 已发生敞口对「能买多少 / 要不要停」的影响 | `check_account_risk` · `optimize_weights` · `strategy_monitor`（回撤 · 滚动 IC · 行业覆盖） · 成本 `simple_cn` | 监控 **只告警**；不自动改权、不代客下单 |
 | **验证** | 同一规则在历史上是否仍有效 | `backtest` · OOS/regime · IC / `weight_suggest` · 纸面 `ops_report` 五问 | 研究结果 ≠ 实盘保证；OOS 失败须可见 |
 | **动作** | 估计如何变成可审计行为 | 观察 · 人建仓 · `run_daily_cycle` / 横截面调仓 · `paper_daily` · DecisionRecord | **现行不接 OMS**（策略验证）；配置变更走 feedback → **人审 promote** |
@@ -160,7 +160,7 @@ flowchart LR
 | 机制 | 类型 | 说明 |
 |------|------|------|
 | **ŷ_trade blend** | Ensemble（固定权融合） | `fusion_mode=blend`：盘中 \(w_{\mathrm{oo}}\cdot\hat y_{\mathrm{oo}}+w_{\tau}\cdot(\text{缺口}\circ\hat y_\tau)\)。现网 **`w_oo=0, w_tau=1`**；收盘后 `eod_next` 剥离当日 τ。调仓 rank_lots 另用 `fusion_w_oo/oc`（默认 0.6/0.4） |
-| **多 Ridge 头** | Multi-target（非堆叠单分） | `tc_ridge` 独立 artifact；**不**改主 β |
+| **多 horizon 头** | Multi-target（非堆叠单分） | `tc_lgb` 独立 artifact；**不**改主 β |
 | **close_band 做 T** | 纯 ŷ_τw | 每根前缀估 ŷ_τ*→ŷ_τw；≥入场正T、≤−入场反T；金额看 \|ŷ_τw\|；leg2 无预设目标 |
 | **promote（人审）** | 新头工程化验收 | 新头先 OOS 对照 → **人审 promote** 才切换 live |
 
@@ -267,7 +267,7 @@ flowchart LR
 |---|------|------------------------|--------------------------|------------|-----------------|------------------|
 | 1 | **多维数据收集** | 统一行情仓（日/分钟/Tick）+ 财务/宏观/另类；多源对齐、可订阅增量 | 日线 + 现货 + 基本面快照 + 资讯标题可复现拉取；薄 `DataService` | **部分 ~62%** | **M1 已收口**：DataService · 覆盖率 · 快照缓存 · 观察池日线增量；仍缺 Tick/宏观/全市场数仓；路径内加深见 [architecture.md · 数据层](component/data.md) | Velocity · 拟合（数据一致） |
 | 2 | **数据清洗与预处理** | 完整 **PIT**、复权策略参数化、公司行为、日历对齐、质量分级进生产门禁 | 日线 as_of 切条；`quality` 门禁；`adjust_policy` 进 manifest；基本面标明非 PIT | **部分 ~58%** | `normalize` · `allows_production_score` · `data_pit` · `pit_report`；财务 PIT 深度 / 停牌对齐见 pro-core DC | 拟合（防未来函数） |
-| 3 | **因子挖掘与模型** | 大规模因子库 + IC/IR 流水线 + 中性化；可选 ML/NN，artifact 冻结可 promote | `score_bars`→sub_scores + **回归 ŷ**（当前 OLS/Ridge）；IC / weight_suggest 遗留；NN **仅研究轨** | **线性 ŷ ~70%** | `ReturnScoreModel` · Ridge β · 横截面；健康门/衰减见 pro-core FM；NN 不上生产 `score` | Velocity · 收益质量 |
+| 3 | **因子挖掘与模型** | 大规模因子库 + IC/IR 流水线 + 中性化；可选 ML/NN，artifact 冻结可 promote | `score_bars`→sub_scores + **回归 ŷ**（ŷ_oo/ŷ_τc=LightGBM）；IC / weight_suggest 遗留；NN **仅研究轨** | **ŷ_oo / ŷ_τc 树头** | `OoLightgbmScorer` / `tc_lgb` · 横截面；健康门/衰减见 pro-core FM；NN 不上生产 `score` | Velocity · 收益质量 |
 | 4 | **组合优化与风控** | QP/风险预算求解；单票/行业/风格暴露；VaR/限额实时；成本与冲击进目标函数 | 分数风险预算 + `risk_parity_lite` + 暴露矩阵 + 单票/行业硬拦；行业 map 覆盖与预算告警；纸面止损/回撤熔断 | **部分 ~68%** | `optimize_weights` · `risk/budget` · `check_account_risk` · `exposure`；风格进目标/动态限额见 pro-core RK；仍缺完整 QP / 实时 VaR | 收益质量 · 风控底线 |
 | 5 | **历史回测验证** | 组合级事件驱动；T+1/涨跌停/冲击；OOS/多 regime；Brinson/因子归因 | 共用 `score_bars`；成本对照；OOS/regime；撮合近似（板别涨跌停 + 跌停延后卖）；个股/行业/选股超额归因 | **较强 ~80%** | `backtest` · `matching` · `attribution`；非交易所级仿真 | 拟合 · 收益质量诊断 |
 | 6 | **部署与迭代** | OMS/券商 API；实时监控与自动风控；衰减触发再训练/调仓流水线 | **纸面准实盘（策略验证）**：日更调度、滚动 IC、告警出站、人审 promote；**现行不接 OMS** | **模拟 ~52%** | `paper_daily` · `strategy_monitor` · `alert_outbound`；N6 = 验证成熟后另立项 | 纸面收益 · 拟合闭环 |
@@ -758,7 +758,7 @@ data/*.json   → 配置与账本落盘
 ### 盘中 / 实时增强（进行中）
 
 ŷ_oo 主轴不变；事件先验 + open→close 的 **ŷ_τ 头**能力定义与阶段表（P0–R3）见专文：  
-[quant.md · Live 旁路 / §2.5](quant.md#live-出分与旁路)。**P0～R3 代码已落地**；生产排序仍只用 ŷ_oo；ŷ_τ 需 `POST /api/quant/tau-ridge`（`persist=true`，落盘 `tau_ridge_model.json`；旧 `rem-ridge` / `rem_ridge_*` 仍兼容）后人审启用门控。
+[quant.md · Live 旁路 / §2.5](quant.md#live-出分与旁路)。**P0～R3 代码已落地**；生产排序仍只用 ŷ_oo；ŷ_τ 需 `POST /api/quant/tc-lgb`（`persist=true`，落盘 `tau_lgb_model.json`；旧 `tau_ridge_model*` 仍可读）后人审启用门控。
 
 **契约缺口与下一步**：**双层 ŷ** A1+F1 已落地；**F2** `predicted_score_blend` 可选（`fusion_mode=f2`）；**B1** promote 相对 active 的 OOS 失败率硬闸已落地；**B2/B3** focused 贪心 + promote-preflight / 落地卡已接通。未做：**A3** 主轴切换、分钟 τ 默认 live、Ridge 头重训并成功 promote。见
 [quant.md · τ 契约升级](quant.md#25-双层-predictedscoreŷoo-ŷτ) · [quant.md · ŷ 全链路 §2.5](quant.md#predictedscoreŷ全链路)。

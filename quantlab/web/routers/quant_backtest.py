@@ -134,10 +134,7 @@ def _portfolio_backtest_kwargs(body: PaperReplayBacktestRequest) -> Dict[str, An
         "oo_tc_score_min": body.oo_tc_score_min,
         "oo_tc_score_strong_min": body.oo_tc_score_strong_min,
         "oo_tc_score_high_min": body.oo_tc_score_high_min,
-        "oo_rank_max": body.oo_rank_max,
-        "oo_rank_strong_max": body.oo_rank_strong_max,
-        "oo_rank_high_max": body.oo_rank_high_max,
-        "oo_rank_top_frac": body.oo_rank_top_frac,
+        # 旧绝对名次闸字段仍在 schema（旧客户端不 422），不转发到引擎
         "initial_cash": body.initial_cash,
         "fill_clock": body.fill_clock,
         "lot_base_amount": body.lot_base_amount,

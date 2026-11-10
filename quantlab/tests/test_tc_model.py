@@ -1,4 +1,4 @@
-"""ŷ_τc：close[T]/price(τ)−1 标签与 Ridge。"""
+"""ŷ_τc：close[T]/price(τ)−1 标签与展示字段。"""
 
 from __future__ import annotations
 
@@ -35,30 +35,19 @@ class YRPctTests(unittest.TestCase):
         self.assertIsNone(y_r_pct(69.20, None))
 
 class YRDisplayOnlyTests(unittest.TestCase):
-    def test_scores_from_item_passes_y_r(self):
+    def test_scores_from_item_prefers_y_τc(self):
         from core.t0.score_policy import scores_from_item
 
-        sc = scores_from_item(
-            {
-                "y_tau_oc": 1.2,
-                "predicted_score_r": 0.85,
-                "y_r_hat": 0.85,
-                "y_r": 0.85,
-                "r_realized": 0.4,
-            }
-        )
+        sc = scores_from_item({"y_τc": 1.2, "y_tau": 0.3, "r_realized": 0.4})
         self.assertAlmostEqual(sc.get("y_tau"), 1.2)
-        self.assertAlmostEqual(sc.get("predicted_score_r"), 0.85)
-        self.assertAlmostEqual(sc.get("y_r"), 0.85)
-        self.assertAlmostEqual(sc.get("y_τc"), 0.85)
+        self.assertAlmostEqual(sc.get("y_τc"), 1.2)
         self.assertAlmostEqual(sc.get("r_realized"), 0.4)
 
-    def test_scores_from_item_does_not_invert_bare_y_r(self):
+    def test_scores_from_item_falls_back_to_y_tau_field(self):
         from core.t0.score_policy import scores_from_item
 
-        sc = scores_from_item({"y_tau_oc": 0.1, "y_r": -0.8})
-        self.assertAlmostEqual(sc.get("y_τc"), -0.8, places=6)
-        self.assertAlmostEqual(sc.get("y_r"), -0.8, places=6)
+        sc = scores_from_item({"y_tau": -0.8})
+        self.assertAlmostEqual(sc.get("y_tau"), -0.8, places=6)
 
     def test_close_band_enter_does_not_read_y_r(self):
         from core.t0 import close_band
@@ -70,7 +59,7 @@ class YRDisplayOnlyTests(unittest.TestCase):
 
 class TestTcFiniteLabels(unittest.TestCase):
     def test_ic_and_sign_hit_drop_nan_labels(self):
-        from core.research.tc_ridge import _ic, _oos_sign_buckets, _residual_var, _sign_hit
+        from core.research.tc_model import _ic, _oos_sign_buckets, _residual_var, _sign_hit
 
         preds = [0.2, -0.4, 0.8, -0.3, 0.6, 1.1]
         ys = [0.1, -0.2, 0.5, -0.4, 0.3, 0.9]

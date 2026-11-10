@@ -57,7 +57,7 @@
         </label>
         <label
           class="platform-field quant-pro-field replay-lookback-field replay-model-field"
-          title="研究槽：Holdout 前训 β，默认历史验证。执行槽：由研究槽晋级的同一份 β（与自动调仓同一套）。两槽只是版本前后。"
+          title="研究槽：Holdout 前训，默认历史验证。执行槽：由研究槽晋级的同一份模型（与自动调仓同一套）。两槽只是版本前后。"
         >
           <span class="quant-pro-field-label">模型</span>
           <select id="quant-score-model-role">
@@ -146,7 +146,7 @@
                 <section class="follow-path-matrix-panel" data-panel="rank" aria-labelledby="pm-panel-rank">
                   <header class="follow-path-matrix-panel-head">
                     <h4 id="pm-panel-rank" class="follow-path-matrix-panel-title">FUSE 门槛</h4>
-                    <p class="follow-path-matrix-panel-note">过入场才开/加 · 过强档改金额和 rank 阈值 · 高阈旁路（fuse 阈值 0=关）</p>
+                    <p class="follow-path-matrix-panel-note">过入场才开/加 · 过强档改金额和 rank 阈值 · 高阈旁路可救 fuse/rank（0=关；不绕形态闸 / y_oo&gt;0 / y_τc&gt;0）</p>
                   </header>
                   <div class="follow-path-matrix-body follow-path-matrix-body--row3">
                     <div
@@ -201,7 +201,7 @@
                     </div>
                     <div
                       class="follow-path-matrix-box follow-path-matrix-box--pair"
-                      title="高阈：与入场/强档并列的旁路。fuse 过本格阈值且 oo_rank / τc_rank 过本格 rank 阈值时，用本格金额开/加（已因入场/强档买过不叠第二笔）。不绕过形态闸。fuse 阈值 0=关。默认 1.0% / 10 万 / rank 0.3。保存规则同步到交易执行自动调仓。"
+                      title="高阈：与入场/强档并列的旁路。fuse 过本格阈值且 oo_rank / τc_rank 过本格 rank 阈值时，用本格金额开/加（已因入场/强档买过不叠第二笔）。不绕过形态闸 / y_oo&gt;0 / y_τc&gt;0。fuse 阈值 0=关。默认 1.0% / 10 万 / rank 0.3。保存规则同步到交易执行自动调仓。"
                     >
                       <span class="follow-path-matrix-box-text">
                         <span class="follow-path-matrix-box-title">高阈</span>
@@ -257,7 +257,7 @@
                     </label>
                     <label
                       class="follow-path-matrix-box"
-                      title="开=入场须 y_oo&gt;0；关=不看。缺分不拦。未过则已持仓清仓。"
+                      title="开=入场须 y_oo&gt;0；关=不看。缺分不拦。未过则已持仓清仓。高阈旁路也不得绕过。"
                     >
                       <span class="follow-path-matrix-box-text">
                         <span class="follow-path-matrix-box-title">y_oo &gt; 0</span>
@@ -267,7 +267,7 @@
                     </label>
                     <label
                       class="follow-path-matrix-box"
-                      title="开=入场须 y_τc&gt;0；关=不看。缺分不拦。未过则已持仓清仓。"
+                      title="开=入场须 y_τc&gt;0；关=不看。缺分不拦。未过则已持仓清仓。高阈旁路也不得绕过。"
                     >
                       <span class="follow-path-matrix-box-text">
                         <span class="follow-path-matrix-box-title">y_τc &gt; 0</span>
@@ -394,7 +394,7 @@
         </label>
         <label
           class="platform-field quant-pro-field replay-lookback-field replay-model-field"
-          title="执行槽：由研究槽晋级的 Holdout 前训 β，与手动预演 / 自动做 T 同一套。研究槽：候审版本；两槽系数同源、仅版本不同。"
+          title="执行槽：由研究槽晋级的 Holdout 前训模型，与手动预演 / 自动做 T 同一套。研究槽：候审版本；两槽同源、仅版本不同。"
         >
           <span class="quant-pro-field-label">模型</span>
           <select id="paper-t0-score-model-role">

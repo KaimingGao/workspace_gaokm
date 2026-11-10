@@ -18,7 +18,7 @@ class PaperReplayBacktestRequest(BaseModel):
     lookback: int = Field(default=10, ge=10, le=500)
     score_model_role: str = Field(
         default="research",
-        description="回测模型：research=研究槽（Holdout 前训 β，默认）；live=执行槽（由研究槽晋级的同一份 β）。",
+        description="回测模型：research=研究槽（Holdout 前训，默认）；live=执行槽（由研究槽晋级的同一份模型）。",
         max_length=16,
     )
     score_backend: str = Field(
@@ -63,15 +63,15 @@ class PaperReplayBacktestRequest(BaseModel):
         default=None,
         ge=0.0,
         le=10.0,
-        description="高阈旁路：y_oo_fuse 下限（净收益；≤0/缺=关；UI 默认 0.01=1%）。与入场/强档 OR，不绕过形态闸",
+        description="高阈旁路：y_oo_fuse 下限（净收益；≤0/缺=关；UI 默认 0.01=1%）。与入场/强档 OR，不绕过形态闸 / y_oo>0 / y_τc>0",
     )
     y_oo_gt0: bool = Field(
         default=False,
-        description="开=入场须 y_oo>0；关=不看。缺分不拦。未过则已持仓清仓",
+        description="开=入场须 y_oo>0；关=不看。缺分不拦。未过则已持仓清仓。高阈旁路也不得绕过",
     )
     y_τc_gt0: Optional[bool] = Field(
         default=None,
-        description="开=入场须 ŷ_τc>0；关=不看。缺分不拦。未过则已持仓清仓",
+        description="开=入场须 ŷ_τc>0；关=不看。缺分不拦。未过则已持仓清仓。高阈旁路也不得绕过",
     )
     sentiment_gate_enabled: bool = Field(
         default=False,

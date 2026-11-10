@@ -1,7 +1,7 @@
 """T 日事件先验（ŷ 外）：开盘缺口 / 板块广度。
 
 契约：
-  ŷ = ReturnScoreModel(...)     ← 唯一生产排序轴
+  ŷ = ŷ_oo LightGBM（load_scoring_return_model）← 唯一生产排序轴
   E = build_event_prior(...)    ← 先验（不改 ŷ）
   action = policy(ŷ, E)         ← soft_hold / warn
 """
@@ -16,7 +16,7 @@ DEFAULT_EVENT_PRIOR = {
     "sector_breadth_min": 0.5,
     "soft_hold_on_theme": True,
     "warn_only": False,
-    # R0p：ŷ_τ 头门控（需 live tau_ridge_model.json；可读旧 rem_ridge_model.json）
+    # ŷ_τc 软闸（需已 promote 的 LightGBM；本文件只配开关）
     "rem_gate_enabled": True,
     "rem_soft_hold_min": 0.25,
 }

@@ -192,6 +192,7 @@ def backtest_paper_replay(
     oo_tc_score_min: Optional[float] = 0.3,
     oo_tc_score_strong_min: Optional[float] = 0.3,
     oo_tc_score_high_min: Optional[float] = 0.3,
+    # 旧绝对名次闸已退役：保留入参以免旧调用方炸，但不进生效配置 / params
     oo_rank_max: Optional[int] = None,
     oo_rank_strong_max: Optional[int] = None,
     oo_rank_high_max: Optional[int] = None,
@@ -239,14 +240,13 @@ def backtest_paper_replay(
         with scoring_model_role_context(requested), rebalance_score_backend_context(requested_backend):
             return backtest_paper_replay(stock_bars, **params)
     from core.backtest.engine import _trade_metrics
+    # 旧绝对名次闸入参已退役，仅吞掉以免 unused 告警 / 旧调用方仍可传
+    _ = (oo_rank_max, oo_rank_strong_max, oo_rank_high_max, oo_rank_top_frac)
     from core.paper.rebalance.rank_lots import (
         clamp_fusion_weight,
         coerce_fuse_threshold,
         fuse_high_from_cfg,
         get_rank_lot_cfg,
-        oo_rank_max_from_cfg,
-        oo_rank_strong_max_from_cfg,
-        oo_rank_top_frac_from_cfg,
         oo_tc_score_high_min_from_cfg,
         oo_tc_score_min_from_cfg,
         oo_tc_score_strong_min_from_cfg,
@@ -293,7 +293,7 @@ def backtest_paper_replay(
         except Exception:  # noqa: BLE001
             logger.debug("replay alpha_oo window bump failed", exc_info=True)
         try:
-            from core.research.tc_ridge import load_tau_model
+            from core.research.tc_model import load_tau_model
 
             tau_model_doc = load_tau_model()
         except Exception:  # noqa: BLE001
@@ -536,22 +536,6 @@ def backtest_paper_replay(
                 "fuse_high": high_n,
             }
         ),
-        "oo_rank_max": oo_rank_max_from_cfg(
-            {"oo_rank_max": oo_rank_max} if oo_rank_max is not None else {}
-        ),
-        "oo_rank_strong_max": oo_rank_strong_max_from_cfg(
-            {"oo_rank_strong_max": oo_rank_strong_max}
-            if oo_rank_strong_max is not None
-            else {"oo_rank_strong_max": None}
-        ),
-        "oo_rank_high_max": (
-            int(oo_rank_high_max) if oo_rank_high_max is not None else None
-        ),
-        "oo_rank_top_frac": oo_rank_top_frac_from_cfg(
-            {"oo_rank_top_frac": oo_rank_top_frac}
-            if oo_rank_top_frac is not None
-            else {}
-        ),
         "lot_base_amount": lot_base_n,
         "lot_strong_amount": lot_strong_n,
         "lot_high_amount": lot_high_n,
@@ -579,10 +563,6 @@ def backtest_paper_replay(
     rl_cfg["oo_tc_score_min"] = replay_lots.get("oo_tc_score_min")
     rl_cfg["oo_tc_score_strong_min"] = replay_lots.get("oo_tc_score_strong_min")
     rl_cfg["oo_tc_score_high_min"] = replay_lots.get("oo_tc_score_high_min")
-    rl_cfg["oo_rank_max"] = replay_lots.get("oo_rank_max")
-    rl_cfg["oo_rank_strong_max"] = replay_lots.get("oo_rank_strong_max")
-    rl_cfg["oo_rank_high_max"] = replay_lots.get("oo_rank_high_max")
-    rl_cfg["oo_rank_top_frac"] = replay_lots.get("oo_rank_top_frac")
     rl_cfg["score_backend"] = current_rebalance_score_backend()
     rl_cfg["holdings_mv_cap"] = 0.0
     rl_cfg["t0_sell_blocks"] = {}
@@ -897,6 +877,40 @@ def backtest_paper_replay(
                 if ms.get("bars_source"):
                     morph_stamp_agg["bars_source"] = ms.get("bars_source")
             _apply_price_space_plan_skips(plan, mismatch_reason)
+            # 全池批量打分跳过 LGB tip；成交/续持票懒补因子组成。
+            try:
+                from core.backtest.replay_batch_open import (
+                    merge_formula_tips_onto_legs,
+                    stamp_trade_formula_tips,
+                )
+
+                tip_codes = {
+                    str(leg.get("stock_code") or "").strip()
+                    for bucket in ("buys", "sells")
+                    for leg in (plan.get(bucket) or [])
+                    if isinstance(leg, dict)
+                    and str(leg.get("stock_code") or "").strip()
+                }
+                for h in paper.get("holdings") or []:
+                    if not isinstance(h, dict):
+                        continue
+                    code = str(h.get("stock_code") or "").strip()
+                    if code:
+                        tip_codes.add(code)
+                if tip_codes:
+                    stamp_trade_formula_tips(
+                        day,
+                        tip_codes,
+                        scored,
+                        date_maps=date_maps,
+                        dates=dates,
+                        day_i=i,
+                        tau_pool_day=tau_pool_by_date.get(day) or {},
+                    )
+                    merge_formula_tips_onto_legs(plan.get("buys") or [], scored)
+                    merge_formula_tips_onto_legs(plan.get("sells") or [], scored)
+            except Exception:  # noqa: BLE001
+                logger.debug("replay stamp trade formula tips failed", exc_info=True)
             for leg in plan.get("sells") or []:
                 if not isinstance(leg, dict):
                     continue
@@ -1229,10 +1243,6 @@ def backtest_paper_replay(
             "oo_tc_score_min": rl_cfg.get("oo_tc_score_min"),
             "oo_tc_score_strong_min": rl_cfg.get("oo_tc_score_strong_min"),
             "oo_tc_score_high_min": rl_cfg.get("oo_tc_score_high_min"),
-            "oo_rank_max": rl_cfg.get("oo_rank_max"),
-            "oo_rank_strong_max": rl_cfg.get("oo_rank_strong_max"),
-            "oo_rank_high_max": rl_cfg.get("oo_rank_high_max"),
-            "oo_rank_top_frac": rl_cfg.get("oo_rank_top_frac"),
             "fusion_w_oo": w_oo,
             "fusion_w_oc": w_τc,
             "lot_base_amount": float(rl_cfg.get("lot_base_amount") or REPLAY_AMOUNT_BASE),

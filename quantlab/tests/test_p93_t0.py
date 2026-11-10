@@ -2568,6 +2568,8 @@ class TestDualYDirection(unittest.TestCase):
                 "total": 0.35,
                 "p_up": 0.35,
                 "model_role": "tree",
+                "backend": "lightgbm",
+                "head_kind": "prob",
                 "terms": [
                     {
                         "key": "z_τh_theme_day",
@@ -2588,6 +2590,8 @@ class TestDualYDirection(unittest.TestCase):
             limit=12,
         )
         self.assertEqual(slim.get("model_role"), "tree")
+        self.assertEqual(slim.get("backend"), "lightgbm")
+        self.assertEqual(slim.get("head_kind"), "prob")
         self.assertAlmostEqual(float(slim.get("p_up")), 0.35, places=6)
         terms = slim.get("terms") or []
         self.assertEqual(len(terms), 2)

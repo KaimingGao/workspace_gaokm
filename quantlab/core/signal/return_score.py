@@ -1,6 +1,6 @@
 """收益导向打分：系统仅认 ``predicted_score``（收益分 ŷ%）。
 
-- ``predicted_score``（收益分）：OLS/Ridge 预测前瞻收益（%）— **唯一排序键**
+- ``predicted_score``（收益分）：ŷ_oo（LightGBM；旧包 Ridge）预测前瞻收益（%）— **唯一排序键**
 - 规则分（0–100 加权综合）已全局退役，不再写入 ``heuristic_score``
 不自动写 ``signal_config``。
 """
@@ -312,7 +312,7 @@ class ReturnScoreModel:
             ),
             solver=str(report.get("solver") or "qr"),
             fitted_as_of=fitted_as_of,
-            note="由 OLS/Ridge 报告构建；预测值为前瞻收益百分点，非 0–100 score。",
+            note="由 ŷ_oo 报告构建；预测值为前瞻收益百分点，非 0–100 score。",
             y_spec=y_spec,
         )
 
@@ -428,7 +428,9 @@ def _batch_feature_rows(
 
     if model is None or not is_cross_section_zscore(model):
         return None
-    names = [str(k) for k in (model.coefficients or {})]
+    from core.research.oo_lgb import oo_model_feature_names
+
+    names = oo_model_feature_names(model)
     if not names:
         return None
     from core.signal.factors.z_oo import stamp_z_oo_aliases

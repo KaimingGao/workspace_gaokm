@@ -353,7 +353,7 @@ def compute_predicted_score_blend(
     rem_doc = None
     if str(cfg.get("w_mode") or "") == "variance":
         try:
-            from core.research.tc_ridge import load_tau_model
+            from core.research.tc_model import load_tau_model
 
             rem_doc = load_tau_model()
         except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程

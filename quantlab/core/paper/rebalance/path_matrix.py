@@ -25,7 +25,7 @@ DEFAULT_PATH_MATRIX: Dict[str, Any] = {
     "mode": "rank_lots",
     "fuse_enter": 0.001,
     "fuse_strong": 0.001,
-    # 高阈旁路：默认 1%；≤0=关
+    # 高阈旁路：默认 1%；≤0=关；可救 fuse/rank，不绕形态闸 / y_oo>0 / y_τc>0
     "fuse_high": 0.01,
     "cash_floor": 0.0,
     "holdings_mv_cap": 150_000.0,
@@ -154,6 +154,19 @@ def get_path_matrix_cfg(
         "morph_gap_max",
         "morph_vol20_min",
         "y_on_alpha",
+        "y_oo_enter",
+        "y_oo_enter_alt",
+        "y_oc_enter",
+        "y_oc_enter_alt",
+        "y_hl_enter",
+        "y_hl_enter_alt",
+        "y_hl_enabled",
+        "y_hl_gt0",
+        "y_oc_gt0",
+        "y_enter_enabled",
+        "y_enter_alt_enabled",
+        "y_oo_oc_enter",
+        "y_oo_oc_enabled",
     ):
         out.pop(_dead, None)
     try:

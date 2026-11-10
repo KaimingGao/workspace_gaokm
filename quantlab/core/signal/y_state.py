@@ -127,7 +127,7 @@ def _resolve_sigma(item: dict, config: Optional[dict] = None) -> Tuple[Optional[
         return round(s, 6), "y_sigma"
     # τ 模型落盘 OOS
     try:
-        from core.research.tc_ridge import load_tau_model
+        from core.research.tc_model import load_tau_model
 
         doc = load_tau_model() or {}
         oos = doc.get("oos") if isinstance(doc.get("oos"), dict) else {}
@@ -372,7 +372,7 @@ def build_y_state(
         rem_oc = bool(it.get("rem_oc"))
     else:
         try:
-            from core.research.tc_ridge import load_tau_model
+            from core.research.tc_model import load_tau_model
             from core.signal.yhat_geom import rem_label_is_open_to_close
 
             rem_oc = rem_label_is_open_to_close(load_tau_model())

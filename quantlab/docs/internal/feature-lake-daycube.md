@@ -338,7 +338,7 @@ L1 存的是特征行和拟合标签 y，不存可成交价格。消费方仍读
 
 | 路径 | 文件 |
 |------|------|
-| oo collect | `oo_ridge_compact.py` |
+| oo collect | `oo_model_compact.py` |
 | τc collect | `panel_matrix.py` |
 | oo_rank | `oo_rank_panel.py` |
 | ŷ_τ* / LGB | `horizon_ridge.py` · `horizon_prob.py` · `horizon_lgb.py` |
@@ -571,7 +571,7 @@ L1/L2 按 schema 分目录。观察池名单变化后，旧 `universe_hash` 目�
 | 耗时参考 | 日线 open L1+L2 · 池≈800：约 **5–8 min**；τ 网格首轮（18 钟 L1+L2）可到 **数小时**；L1 指纹增量后会快很多；L2 宇宙键对齐后同池再跑可命中跳过（见 [daycube-universe-key.md](./daycube-universe-key.md)）；强更 5m · 800 票约 **30 min**（2 并发 · 开工间隔 2s；已 Ready 跳过） |
 | 无自动物化 | 日线/分钟线均手动；无 auto-materialize 勾选 |
 | 前缀滑条 | **ŷ_τc** 独立（默认 09:30）；**ŷ_τ30…90** 共用（默认 11:00）；localStorage / 拟合恢复按组隔离 |
-| ŷ_τc 拟合进度 | `解析宇宙` → `拉日线` →（可选）`读5m` → `面板 k/N` → `截面广度` → `Ridge`；槽 `allow_zero_progress` |
+| ŷ_τc 拟合进度 | `解析宇宙` → `拉日线` →（可选）`读5m` → `面板 k/N` → `截面广度` → `LightGBM`；槽 `allow_zero_progress` |
 | 窗头拟合 Job | 进度区分 `L1 hit / 5m miss / Cube hit`；CS-z 只用 L2；产品路径 `l1_tau_coverage` cold / 命中过低 → `materialize_required` |
 
 ### 13.6 运维顺序（窗头专用）

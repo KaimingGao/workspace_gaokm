@@ -5,7 +5,42 @@ from __future__ import annotations
 import os
 import tempfile
 import unittest
+from contextlib import contextmanager
 from unittest.mock import patch
+
+
+@contextmanager
+def _patch_cube_cs_z_for_synthetic():
+    """无 L2 仓时：截面 z 走批内，勿因缺 Cube 把合成拟合打空。"""
+    import numpy as np
+    from core.research.feature_standardize import cross_section_zscore_matrix
+
+    def _cs_prefer(raw, names, groups, **_kw):
+        z = cross_section_zscore_matrix(raw, groups)
+        return np.where(np.isfinite(z), z, 0.0)
+
+    def _align(x, y, dates, **_kw):
+        arr_x = np.asarray(x, dtype=np.float64)
+        arr_y = np.asarray(y, dtype=np.float64)
+        n = int(arr_x.shape[0])
+        mask = np.ones(n, dtype=bool)
+        dates_out = [str(d or "")[:10] for d in dates]
+        return arr_x, arr_y, dates_out, mask
+
+    with patch(
+        "core.research.materialize.cube_z.cs_z_matrix_prefer_cube",
+        side_effect=_cs_prefer,
+    ), patch(
+        "core.research.materialize.cube_z.align_fit_rows_to_l2",
+        side_effect=_align,
+    ), patch(
+        "core.research.materialize.cube_z.groups_with_day_cube",
+        side_effect=lambda groups, **_kw: (
+            __import__("numpy").ones(len(groups or []), dtype=bool),
+            [],
+        ),
+    ):
+        yield
 
 
 def _bars(n: int = 40, start: float = 10.0):
@@ -31,7 +66,7 @@ def _bars(n: int = 40, start: float = 10.0):
         px = c
     return out
 
-class TestRemPanel(unittest.TestCase):
+class TestTcPanel(unittest.TestCase):
     def test_open_panel_shapes(self):
         from core.research.tau_panel import collect_tau_open_panel
 
@@ -102,7 +137,7 @@ class TestRemPanel(unittest.TestCase):
         self.assertIsNotNone(n)
         self.assertGreater(q, n)
 
-class TestRemRidgeFit(unittest.TestCase):
+class TestTcModelFit(unittest.TestCase):
     def test_gap_pct_stays_when_not_constant(self):
         """百分点 gap 标准差可以很小，仍入模。真常数另剔。"""
         from core.research.factor_ols_fit import _prepare_complete_panel
@@ -137,7 +172,7 @@ class TestRemRidgeFit(unittest.TestCase):
         self.assertNotIn("gap_pct", meta.get("dropped_constant") or [])
 
     def test_oos_by_tau_buckets(self):
-        from core.research.tc_ridge import _oos_by_tau
+        from core.research.tc_model import _oos_by_tau
 
         preds = [1.0] * 5 + [-1.0] * 5 + [1.0] * 5 + [1.0] * 5
         ys = [1.0] * 5 + [-1.0] * 5 + [1.0] * 5 + [-1.0] * 5
@@ -149,30 +184,33 @@ class TestRemRidgeFit(unittest.TestCase):
         self.assertAlmostEqual(by["10:30"]["sign_hit"], 0.5)
 
     def test_fit_synthetic_pool(self):
-        from core.research.tc_ridge import fit_tau_ridge_report, persist_tau_model
+        from core.research.tc_model import fit_tau_model_report, persist_tau_model
 
         stock_bars = [
             {"code": "A", "bars": _bars(90, 10)},
             {"code": "B", "bars": _bars(90, 12)},
             {"code": "C", "bars": _bars(90, 8)},
         ]
-        report = fit_tau_ridge_report(
-            stock_bars, ridge_lambda=1.0, theme_boost=1.5
-        )
+        with _patch_cube_cs_z_for_synthetic():
+            report = fit_tau_model_report(
+                stock_bars, ridge_lambda=1.0, theme_boost=1.5
+            )
         self.assertTrue(report.get("success"), report.get("error"))
-        self.assertEqual(report.get("task"), "tc_ridge")
+        self.assertEqual(report.get("task"), "tc_lgb")
+        self.assertEqual(report.get("backend"), "lightgbm")
         self.assertFalse(report.get("residualized"))
         self.assertEqual(report.get("target"), "tau_to_close_z")
         self.assertIn("return_model", report)
         self.assertIn("oos", report)
         self.assertEqual(report.get("tau"), "open")
-        self.assertTrue(str(report.get("schema") or "").startswith("tau_ridge_v"))
+        self.assertEqual(report.get("schema"), "tau_lgb_v1")
         rm = report["return_model"]
-        self.assertIn("coefficients", rm)
+        self.assertEqual(rm.get("backend"), "lightgbm")
+        self.assertTrue(rm.get("feature_names") or rm.get("booster"))
         self.assertEqual((rm.get("y_spec") or {}).get("tau"), "open")
-        coefs = rm.get("coefficients") or {}
-        self.assertNotIn("momentum", coefs)
-        self.assertNotIn("quality", coefs)
+        feat_names = [str(n) for n in (rm.get("feature_names") or [])]
+        self.assertNotIn("momentum", feat_names)
+        self.assertNotIn("quality", feat_names)
         extras = rm.get("extra_features") or []
         self.assertIn("z_τc_gap_atr", extras)
         self.assertIn("z_τc_gap_vs_sector", extras)
@@ -226,13 +264,13 @@ class TestRemRidgeFit(unittest.TestCase):
                 saved = persist_tau_model(report, note="test", role="live")
                 self.assertTrue(saved.get("success"), saved)
                 self.assertEqual(saved.get("promoted_from"), "research")
-                self.assertEqual(saved.get("schema"), "tau_ridge_v15")
-                self.assertTrue(os.path.isfile(os.path.join(live, "tau_ridge_model.json")))
-                from core.research.tc_ridge import load_tau_model, predict_tau_from_features
+                self.assertEqual(saved.get("schema"), "tau_lgb_v1")
+                self.assertTrue(os.path.isfile(os.path.join(live, "tau_lgb_model.json")))
+                from core.research.tc_model import load_tau_model, predict_tau_from_features
 
                 doc = load_tau_model()
                 self.assertIsNotNone(doc)
-                self.assertEqual(doc.get("schema"), "tau_ridge_v15")
+                self.assertEqual(doc.get("schema"), "tau_lgb_v1")
                 self.assertEqual(doc.get("tau"), "open")
                 self.assertEqual(doc.get("dual_score_head"), "predicted_score_tau")
                 yhat = predict_tau_from_features(
@@ -248,7 +286,7 @@ class TestRemRidgeFit(unittest.TestCase):
                 # 缺特征按均值填 z=0，应能出数（不再因部分特征缺失整段 None）
                 self.assertIsNotNone(yhat)
                 self.assertTrue(doc.get("return_model"))
-                from core.research.tc_ridge import explain_tau_prediction
+                from core.research.tc_model import explain_tau_prediction
 
                 expl = explain_tau_prediction(
                     {
@@ -264,8 +302,8 @@ class TestRemRidgeFit(unittest.TestCase):
                 self.assertIn("terms", expl)
                 self.assertAlmostEqual(float(expl["total"]), float(yhat), places=4)
 
-    def test_fit_tau_ridge_alpha_tc_pack(self):
-        from core.research.tc_ridge import fit_tau_ridge_report
+    def test_fit_tau_model_alpha_tc_pack(self):
+        from core.research.tc_model import fit_tau_model_report
 
         stock_bars = [
             {"code": "A", "bars": _bars(90, 10)},
@@ -274,11 +312,12 @@ class TestRemRidgeFit(unittest.TestCase):
             {"code": "D", "bars": _bars(90, 15)},
         ]
         ticks: list = []
-        on = fit_tau_ridge_report(
-            stock_bars,
-            holdout_trading_days=5,
-            progress_cb=lambda c, t, m: ticks.append((c, t, str(m))),
-        )
+        with _patch_cube_cs_z_for_synthetic():
+            on = fit_tau_model_report(
+                stock_bars,
+                holdout_trading_days=5,
+                progress_cb=lambda c, t, m: ticks.append((c, t, str(m))),
+            )
         self.assertTrue(on.get("success"), on.get("error"))
         self.assertTrue(on.get("include_alpha_tc"))
         self.assertGreater(int(on.get("n_alpha_tc_features") or 0), 0)
@@ -288,12 +327,15 @@ class TestRemRidgeFit(unittest.TestCase):
         # 组面板阶段须刷进度，勿长期停在「准备…」
         self.assertTrue(ticks, "progress_cb should fire during fit")
         self.assertTrue(
-            any("面板" in m or "Ridge" in m or "截面" in m for _, _, m in ticks),
+            any(
+                "面板" in m or "LightGBM" in m or "Ridge" in m or "截面" in m
+                for _, _, m in ticks
+            ),
             ticks[:8],
         )
 
     def test_tau_promote_gate(self):
-        from core.research.tc_ridge import tau_promote_gate
+        from core.research.tc_model import tau_promote_gate
 
         bad = tau_promote_gate({"oos": {"sign_hit": 0.5, "n_valid": 40}})
         self.assertFalse(bad.get("ok"))
@@ -322,13 +364,13 @@ class TestRemRidgeFit(unittest.TestCase):
         self.assertTrue(ok.get("ok"))
 
     def test_persist_uses_last_report_without_refit(self):
-        from core.research.tc_ridge import (
+        from core.research.tc_model import (
             load_tau_last_report,
             persist_tau_model,
             save_tau_last_report,
         )
 
-        dummy = {
+        ridge_dummy = {
             "success": True,
             "schema": "tau_ridge_v11",
             "return_model": {
@@ -345,11 +387,40 @@ class TestRemRidgeFit(unittest.TestCase):
             "sample_count": 10,
             "stock_count": 3,
         }
+        lgb_dummy = {
+            "success": True,
+            "schema": "tau_lgb_v1",
+            "backend": "lightgbm",
+            "return_model": {
+                "schema": "tau_lgb_v1",
+                "backend": "lightgbm",
+                "solver": "lightgbm",
+                "feature_names": ["gap_pct"],
+                "booster": {"payload_b64": "dGVzdA==", "format": "lgb"},
+                "coefficients": {},
+                "intercept": 0.0,
+                "y_spec": {"formula": "close[T]/open[T]-1", "tau": "open", "unit": "pct"},
+            },
+            "oos": {
+                "ic": 0.09,
+                "sign_hit": 0.60,
+                "n_valid": 100,
+                "buckets": {"abs_ge_0_6": {"n": 40, "sign_hit": 0.62}},
+            },
+            "sample_count": 10,
+            "stock_count": 3,
+        }
         with tempfile.TemporaryDirectory() as tmp:
             live = os.path.join(tmp, "live")
             os.makedirs(live, exist_ok=True)
             with patch("core.paths.LIVE_DIR", live):
-                save_tau_last_report(dummy)
+                rejected = persist_tau_model(
+                    ridge_dummy, note="old ridge", role="research", force=True
+                )
+                self.assertFalse(rejected.get("success"))
+                self.assertIn("LightGBM", str(rejected.get("error") or ""))
+
+                save_tau_last_report(lgb_dummy)
                 last = load_tau_last_report()
                 self.assertIsNotNone(last)
                 self.assertTrue(
@@ -359,13 +430,13 @@ class TestRemRidgeFit(unittest.TestCase):
                 )
                 saved = persist_tau_model(last, note="from last", role="live")
                 self.assertTrue(saved.get("success"), saved)
-                from core.research.tc_ridge import load_tau_model
+                from core.research.tc_model import load_tau_model
 
                 doc = load_tau_model()
-                self.assertAlmostEqual(
-                    float((doc.get("return_model") or {}).get("coefficients")["gap_pct"]),
-                    0.1,
-                )
+                rm = doc.get("return_model") or {}
+                self.assertEqual(doc.get("schema"), "tau_lgb_v1")
+                self.assertEqual(rm.get("feature_names"), ["gap_pct"])
+                self.assertEqual(rm.get("backend"), "lightgbm")
 
 class TestSentimentBullish(unittest.TestCase):
     def test_bullish_theme_badge_only(self):
@@ -485,7 +556,7 @@ class TauLagFeatureTests(unittest.TestCase):
             realized_tau_by_date,
             tau_lag_features,
         )
-        from core.research.tc_ridge import TAU_Z_FEATURES
+        from core.research.tc_model import TAU_Z_FEATURES
 
         self.assertIn("z_τc_tau_lag1", TAU_Z_FEATURES)
         self.assertIn("z_τc_tau_ma5", TAU_Z_FEATURES)

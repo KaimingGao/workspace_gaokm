@@ -1,4 +1,4 @@
-"""调仓回测 ŷ头：恒 ridge（影子树头已下线）。"""
+"""遗留 rebalance_score_backend 开关：恒 ridge（影子树头已下线；ŷ_oo 另走 LightGBM）。"""
 
 from __future__ import annotations
 

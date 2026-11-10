@@ -26,7 +26,7 @@ from core.research.horizon_prob import (
     stamp_horizon_explain,
     train_eval_horizon_prob_matrix,
 )
-from core.research.tc_ridge import (
+from core.research.tc_model import (
     _theme_counts,
     _theme_trigger_sensitivity,
     build_tau_panels_from_bars,
@@ -1574,7 +1574,7 @@ def explain_ridge_prediction(
     *,
     model_doc: Optional[Dict[str, Any]] = None,
 ) -> Optional[Dict[str, Any]]:
-    from core.research.tc_ridge import explain_tau_prediction
+    from core.research.tc_model import explain_tau_prediction
 
     from core.signal.factors.z_th import stamp_z_th_aliases
 

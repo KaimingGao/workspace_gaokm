@@ -266,7 +266,7 @@ def _score_y_oo_days(days: Sequence[dict], model: Any) -> Dict[str, Dict[str, Tu
     """研究套 ŷ_oo 连续分。返回 date → code → (score, 实现收益百分点)。"""
     import numpy as np
 
-    from core.research.oo_ridge_compact import predict_oo_matrix
+    from core.research.oo_model_compact import predict_oo_matrix
 
     out: Dict[str, Dict[str, Tuple[float, float]]] = {}
     for day in days:
@@ -565,7 +565,7 @@ def _print_score_slices(
 
 
 def _main_y_oo(args: argparse.Namespace, *, cost_cfg: dict) -> int:
-    from core.research.oo_ridge import load_return_model
+    from core.research.oo_model import load_return_model
     from core.research.rank_day_panels import build_rank_day_panels
 
     model, info = load_return_model(prefer_research=True)

@@ -492,7 +492,7 @@ export function collectPathMatrixForm(root) {
     wOc /= wSum;
   }
   const yOoGt0 = chk("pm_y_oo_gt0", false);
-  const yOcGt0 = chk("pm_y_τc_gt0", false);
+  const yTcGt0 = chk("pm_y_τc_gt0", false);
   const morphGate = chk("pm_morph_gate", false);
   const scoreOrNull = (name, fallback) => {
     const el = root.querySelector(`[name="${name}"]`);
@@ -518,7 +518,7 @@ export function collectPathMatrixForm(root) {
         fuse_strong: strong,
         fuse_high: high,
         y_oo_gt0: yOoGt0,
-        y_τc_gt0: yOcGt0,
+        y_τc_gt0: yTcGt0,
         morph_gate_enabled: morphGate,
         sentiment_gate_enabled: false,
         oo_tc_score_min: ooTcScoreMin,

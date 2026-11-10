@@ -157,7 +157,7 @@ def _fit_ridge_on_days(
     ridge_lambda: float = 1.0,
 ) -> Optional[Any]:
     """扩展窗 Ridge：date <= fit_end。返回 ReturnScoreModel。"""
-    from core.research.oo_ridge_compact import fit_oo_ridge_matrix
+    from core.research.oo_model_compact import fit_oo_ridge_matrix
 
     use = [d for d in days if str(d.get("date") or "")[:10] <= fit_end]
     if len(use) < 8:
@@ -300,10 +300,10 @@ def main() -> int:
         _predict_ridge_matrix,
         load_oo_rank_model,
     )
-    from core.research.oo_ridge import load_return_model
-    from core.research.oo_ridge_compact import predict_oo_matrix
+    from core.research.oo_model import load_return_model
+    from core.research.oo_model_compact import predict_oo_matrix
     from core.research.rank_day_panels import build_rank_day_panels
-    from core.research.tc_ridge import load_tau_model
+    from core.research.tc_model import load_tau_model
     from core.signal.yhat_windows import fuse_pct
 
     stock_bars = mean_m._load_pool(int(args.lookback), a_codes)

@@ -91,7 +91,7 @@ def dual_score_book_fields(
     formula_terms_r = work.get("formula_terms_r") or work.get("score_formula_terms_r")
     if not (isinstance(formula_terms_r, dict) and formula_terms_r.get("terms")):
         try:
-            from core.research.tc_ridge import explain_tau_prediction, load_tau_model
+            from core.research.tc_model import explain_tau_prediction, load_tau_model
 
             feats_r = work.get("features_tau") if isinstance(work.get("features_tau"), dict) else {}
             if not feats_r:

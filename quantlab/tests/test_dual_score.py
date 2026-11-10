@@ -3,6 +3,60 @@
 from __future__ import annotations
 
 import unittest
+from typing import Any, Dict, Optional
+
+
+def _ridge_explain_for_test(
+    feats: Optional[Dict[str, Any]],
+    *,
+    model_doc: Optional[Dict[str, Any]] = None,
+) -> Optional[Dict[str, Any]]:
+    """单测假 Ridge tip。生产已拒 Ridge；此处只测 ensure/apply 接线。"""
+    doc = model_doc if isinstance(model_doc, dict) else {}
+    rm = doc.get("return_model") if isinstance(doc.get("return_model"), dict) else doc
+    if not isinstance(rm, dict):
+        return None
+    coefs = rm.get("coefficients") or {}
+    if not isinstance(coefs, dict) or not coefs:
+        return None
+    means = rm.get("zscore_means") or {}
+    stds = rm.get("zscore_stds") or {}
+    intercept = float(rm.get("intercept") or 0.0)
+    terms = []
+    total = intercept
+    src = feats if isinstance(feats, dict) else {}
+    for k, beta in coefs.items():
+        if k not in src or src.get(k) is None:
+            continue
+        raw = float(src[k])
+        mu = means.get(k)
+        sd = stds.get(k)
+        if mu is not None and sd is not None and abs(float(sd)) > 1e-12:
+            z = (raw - float(mu)) / float(sd)
+        else:
+            z = raw
+        b = float(beta)
+        c = b * z
+        terms.append({"key": str(k), "label": str(k), "beta": b, "z": z, "contrib": c})
+        total += c
+    return {
+        "terms": terms,
+        "total": total,
+        "intercept": intercept,
+        "backend": "ridge_test",
+        "zscore_scope": rm.get("zscore_scope") or doc.get("zscore_scope"),
+    }
+
+
+def _ridge_predict_for_test(
+    feats: Optional[Dict[str, Any]],
+    *,
+    model_doc: Optional[Dict[str, Any]] = None,
+) -> Optional[float]:
+    expl = _ridge_explain_for_test(feats, model_doc=model_doc)
+    if not expl:
+        return None
+    return float(expl["total"])
 
 
 class TestDualScoreFields(unittest.TestCase):
@@ -78,7 +132,12 @@ class TestDualScoreFields(unittest.TestCase):
         with patch(
             "core.signal.dual_score.tau._eod_return_model_for_item", return_value=eod_rm
         ), patch(
-            "core.research.tc_ridge.load_tau_model", return_value=rem_doc
+            "core.research.tc_model.load_tau_model", return_value=rem_doc
+        ), patch(
+            "core.research.tc_model.explain_tau_prediction",
+            side_effect=lambda feats, model_doc=None: _ridge_explain_for_test(
+                feats, model_doc=model_doc or rem_doc
+            ),
         ):
             expl = ensure_formula_terms_tau(item)
         self.assertIsNotNone(expl)
@@ -131,7 +190,12 @@ class TestDualScoreFields(unittest.TestCase):
             "gap_pct": 0.313,
             "features_tau": {"gap_pct": 0.313},
         }
-        with patch("core.research.tc_ridge.load_tau_model", return_value=rem_doc):
+        with patch("core.research.tc_model.load_tau_model", return_value=rem_doc), patch(
+            "core.research.tc_model.explain_tau_prediction",
+            side_effect=lambda feats, model_doc=None: _ridge_explain_for_test(
+                feats, model_doc=model_doc or rem_doc
+            ),
+        ):
             expl = ensure_formula_terms_tau(item)
         self.assertIsNotNone(expl)
         by_key = {t["key"]: t for t in expl["terms"]}
@@ -176,7 +240,12 @@ class TestDualScoreFields(unittest.TestCase):
             "formula_terms_tau": stale,
             "features_tau": {"theme_day": 0.0, "ret_open_to_tau": 1.25},
         }
-        with patch("core.research.tc_ridge.load_tau_model", return_value=rem_doc):
+        with patch("core.research.tc_model.load_tau_model", return_value=rem_doc), patch(
+            "core.research.tc_model.explain_tau_prediction",
+            side_effect=lambda feats, model_doc=None: _ridge_explain_for_test(
+                feats, model_doc=model_doc or rem_doc
+            ),
+        ):
             expl = ensure_formula_terms_tau(item)
         self.assertIsNotNone(expl)
         by_key = {t["key"]: t for t in expl["terms"]}
@@ -235,7 +304,12 @@ class TestDualScoreFields(unittest.TestCase):
                 "sector_gap_breadth": 0.008,
             },
         }
-        with patch("core.research.tc_ridge.load_tau_model", return_value=rem_doc):
+        with patch("core.research.tc_model.load_tau_model", return_value=rem_doc), patch(
+            "core.research.tc_model.explain_tau_prediction",
+            side_effect=lambda feats, model_doc=None: _ridge_explain_for_test(
+                feats, model_doc=model_doc or rem_doc
+            ),
+        ):
             expl = ensure_formula_terms_tau(item)
         self.assertIsNotNone(expl)
         by_key = {t["key"]: t for t in expl["terms"]}
@@ -290,7 +364,12 @@ class TestDualScoreFields(unittest.TestCase):
                 "ret_open_to_tau": 0.0,
             },
         }
-        with patch("core.research.tc_ridge.load_tau_model", return_value=rem_doc):
+        with patch("core.research.tc_model.load_tau_model", return_value=rem_doc), patch(
+            "core.research.tc_model.explain_tau_prediction",
+            side_effect=lambda feats, model_doc=None: _ridge_explain_for_test(
+                feats, model_doc=model_doc or rem_doc
+            ),
+        ):
             expl = ensure_formula_terms_tau(item)
         self.assertIsNotNone(expl)
         self.assertAlmostEqual(float(expl["total"]), 0.32, places=3)
@@ -335,7 +414,7 @@ class TestDualScoreFields(unittest.TestCase):
             "features_tau": {"raw_atc_CLOSE0": 1.0, "ret_open_to_tau": 0.0},
         }
         with patch(
-            "core.research.tc_ridge.load_tau_model", return_value=rem_doc
+            "core.research.tc_model.load_tau_model", return_value=rem_doc
         ), patch(
             "core.t0.score_policy._tau_feature_row_for_refresh", return_value=None
         ):
@@ -346,8 +425,8 @@ class TestDualScoreFields(unittest.TestCase):
         self.assertAlmostEqual(float(by_key["raw_atc_CLOSE0"]["z"]), 0.47, places=3)
         self.assertNotIn("ret_open_to_tau", by_key)
 
-    def test_ensure_formula_terms_tau_rebuilds_from_saved_z(self):
-        """已落盘的 raw 组成对不上表列时，用预测当时的截面 z 重拆。"""
+    def test_ensure_formula_terms_tau_cannot_rebuild_ridge(self):
+        """旧 Ridge 包无法重拆 tip；对不上表列时返回 None（勿假 β·z）。"""
         from unittest.mock import patch
 
         from core.signal.dual_score import ensure_formula_terms_tau
@@ -375,15 +454,13 @@ class TestDualScoreFields(unittest.TestCase):
                 ],
             },
         }
-        with patch("core.research.tc_ridge.load_tau_model", return_value=rem_doc):
+        with patch("core.research.tc_model.load_tau_model", return_value=rem_doc):
             expl = ensure_formula_terms_tau(item)
-        self.assertIsNotNone(expl)
-        by_key = {t["key"]: t for t in expl["terms"]}
-        self.assertAlmostEqual(float(by_key["raw_atc_CLOSE0"]["z"]), 0.47, places=3)
-        self.assertAlmostEqual(float(expl["total"]), 0.085 + 0.5 * 0.47, places=3)
+        self.assertIsNone(expl)
 
-    def test_explain_tau_prediction_lists_missing_keys(self):
-        from core.research.tc_ridge import explain_tau_prediction
+    def test_explain_tau_prediction_refuses_ridge_blob(self):
+        """旧 Ridge β 包：explain 与 predict 同口径拒掉。"""
+        from core.research.tc_model import explain_tau_prediction, predict_tau_from_features
 
         doc = {
             "return_model": {
@@ -398,20 +475,13 @@ class TestDualScoreFields(unittest.TestCase):
                 "zscore_stds": {"gap_pct": 1.0, "range_pct": 1.0, "ret_open_to_tau": 1.0},
             }
         }
-        expl = explain_tau_prediction(
-            {"gap_pct": 0.5, "ret_open_to_tau": 0.0},
-            model_doc=doc,
-        )
-        keys = {t["key"] for t in expl["terms"]}
-        self.assertIn("gap_pct", keys)
-        self.assertIn("ret_open_to_tau", keys)
-        self.assertNotIn("range_pct", keys)
-        self.assertEqual(expl.get("missing_n"), 1)
-        self.assertIn("前缀振幅 %", expl.get("missing_keys") or [])
+        feats = {"gap_pct": 0.5, "ret_open_to_tau": 0.0}
+        self.assertIsNone(explain_tau_prediction(feats, model_doc=doc))
+        self.assertIsNone(predict_tau_from_features(feats, model_doc=doc))
 
-    def test_explain_tau_keeps_missing_raw_atc_in_diag(self):
-        """缺 raw_atc_* 应进 missing_keys（不再被旧 aoo-only 过滤静默丢掉）。"""
-        from core.research.tc_ridge import explain_tau_prediction
+    def test_explain_tau_keeps_refusing_ridge_missing_raw(self):
+        """缺 raw_atc_* 的旧 Ridge 包同样拒 explain（不再假拆 β）。"""
+        from core.research.tc_model import explain_tau_prediction
 
         doc = {
             "return_model": {
@@ -427,19 +497,12 @@ class TestDualScoreFields(unittest.TestCase):
             },
             "zscore_scope": "cross_section",
         }
-        expl = explain_tau_prediction({"gap_pct": 0.5}, model_doc=doc)
-        self.assertEqual(expl.get("missing_n"), 1)
-        miss = " ".join(expl.get("missing_keys") or [])
-        self.assertTrue(
-            "YKLEN" in miss or "raw_atc_YKLEN" in miss,
-            miss,
-        )
-        keys = {t["key"] for t in expl["terms"]}
-        self.assertIn("gap_pct", keys)
-        self.assertNotIn("raw_atc_YKLEN", keys)
+        self.assertIsNone(explain_tau_prediction({"gap_pct": 0.5}, model_doc=doc))
 
     def test_apply_tau_explain_feats_uses_cs_z_for_tip(self):
         """截面模型 tip 应用 explain_feats（z），勿用 raw 水平比挤掉 YKLEN。"""
+        from unittest.mock import patch
+
         from core.signal.dual_score import apply_tau_score_fields
 
         doc = {
@@ -461,15 +524,21 @@ class TestDualScoreFields(unittest.TestCase):
         # 截面 z：YKLEN 偏高、YVWAP0 近均值
         z_row = {"raw_atc_YKLEN": 1.2, "raw_atc_YVWAP0": 0.1, "gap_pct": 0.0}
         item = {"predicted_score": 1.0, "score": 1.0}
-        apply_tau_score_fields(
-            item,
-            rem_yhat=1.5,
-            gap_pct=0.0,
-            feats=raw,
-            explain_feats=z_row,
-            rem_model_doc=doc,
-                        config={"dual_score": {"w_eod": 0.5, "w_tau": 0.5, "w_mode": "fixed"}},
-        )
+        with patch(
+            "core.research.tc_model.explain_tau_prediction",
+            side_effect=lambda feats, model_doc=None: _ridge_explain_for_test(
+                feats, model_doc=model_doc or doc
+            ),
+        ):
+            apply_tau_score_fields(
+                item,
+                rem_yhat=1.5,
+                gap_pct=0.0,
+                feats=raw,
+                explain_feats=z_row,
+                rem_model_doc=doc,
+                config={"dual_score": {"w_eod": 0.5, "w_tau": 0.5, "w_mode": "fixed"}},
+            )
         # features_tau 仍落 raw
         self.assertAlmostEqual(item["features_tau"]["raw_atc_YKLEN"], 0.03, places=5)
         terms = (item.get("formula_terms_tau") or {}).get("terms") or []
@@ -566,10 +635,20 @@ class TestDualScoreFields(unittest.TestCase):
             },
         ]
         with mock.patch(
-            "core.research.tc_ridge.load_tau_model", return_value=doc
+            "core.research.tc_model.load_tau_model", return_value=doc
         ), mock.patch(
             "core.research.feature_standardize.is_cross_section_zscore",
             return_value=True,
+        ), mock.patch(
+            "core.research.tc_model.predict_tau_from_features",
+            side_effect=lambda feats, model_doc=None: _ridge_predict_for_test(
+                feats, model_doc=model_doc or doc
+            ),
+        ), mock.patch(
+            "core.research.tc_model.explain_tau_prediction",
+            side_effect=lambda feats, model_doc=None: _ridge_explain_for_test(
+                feats, model_doc=model_doc or doc
+            ),
         ):
             _rescore_tau(items)
         terms = (items[0].get("formula_terms_tau") or {}).get("terms") or []
