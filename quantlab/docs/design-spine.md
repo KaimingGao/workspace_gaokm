@@ -758,7 +758,7 @@ data/*.json   → 配置与账本落盘
 ### 盘中 / 实时增强（进行中）
 
 ŷ_oo 主轴不变；事件先验 + open→close 的 **ŷ_τ 头**能力定义与阶段表（P0–R3）见专文：  
-[quant.md · Live 旁路 / §2.5](quant.md#live-出分与旁路)。**P0～R3 代码已落地**；生产排序仍只用 ŷ_oo；ŷ_τ 需 `POST /api/quant/tc-lgb`（`persist=true`，落盘 `tau_lgb_model.json`；旧 `tau_ridge_model*` 仍可读）后人审启用门控。
+[quant.md · Live 旁路 / §2.5](quant.md#live-出分与旁路)。**P0～R3 代码已落地**；生产排序仍只用 ŷ_oo；ŷ_τ 需 `POST /api/quant/tc-lgb`（`persist=true`，落盘 `tau_lgb_model.json`）后人审启用门控。
 
 **契约缺口与下一步**：**双层 ŷ** A1+F1 已落地；**F2** `predicted_score_blend` 可选（`fusion_mode=f2`）；**B1** promote 相对 active 的 OOS 失败率硬闸已落地；**B2/B3** focused 贪心 + promote-preflight / 落地卡已接通。未做：**A3** 主轴切换、分钟 τ 默认 live、Ridge 头重训并成功 promote。见
 [quant.md · τ 契约升级](quant.md#25-双层-predictedscoreŷoo-ŷτ) · [quant.md · ŷ 全链路 §2.5](quant.md#predictedscoreŷ全链路)。

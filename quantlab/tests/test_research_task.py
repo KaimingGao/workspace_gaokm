@@ -102,9 +102,9 @@ class TestResearchTask(unittest.TestCase):
         from quant.services.quant_service import QuantService
 
         self.assertEqual(research_head_method("tc_lgb"), "run_tau_lgb_experiment")
-        # 旧登记名经 experiment_tracker 归到 tc_lgb
-        self.assertEqual(research_head_method("tc_ridge"), "run_tau_lgb_experiment")
-        self.assertEqual(research_head_method("tau_ridge"), "run_tau_lgb_experiment")
+        self.assertEqual(research_head_method("tau_lgb"), "run_tau_lgb_experiment")
+        self.assertIsNone(research_head_method("tc_ridge"))
+        self.assertIsNone(research_head_method("tau_ridge"))
         self.assertIsNone(research_head_method("tc_tree"))
         self.assertIsNone(research_head_method("tau_tree"))
         self.assertIsNone(research_head_method("oo_tree"))

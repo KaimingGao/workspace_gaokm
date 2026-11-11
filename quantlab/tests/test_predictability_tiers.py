@@ -1319,10 +1319,11 @@ class TestPredictabilityTiers(unittest.TestCase):
                 tau = build_predictability_tiers(10, head="tau", persist=False)
                 self.assertFalse(tau.get("success"))
 
-    def test_load_research_oo_model_skips_active(self):
+    def test_load_research_oo_model_refuses_ridge_and_missing(self):
         from core.research.predictability_tiers import _load_research_oo_model
         from core.signal.return_score import ReturnScoreModel
 
+        # 旧 Ridge β 研究套不可 hydrate（正式唯一 LightGBM）
         research = {
             "role": "research",
             "model": ReturnScoreModel(
@@ -1335,10 +1336,9 @@ class TestPredictabilityTiers(unittest.TestCase):
             return_value=research,
         ):
             model, meta = _load_research_oo_model()
-        self.assertIsNotNone(model)
-        self.assertTrue(meta.get("ok"))
-        self.assertEqual(meta.get("lookback"), 120)
-        self.assertAlmostEqual(float(model.predict({"momentum": 1.0})), 0.3)
+        self.assertIsNone(model)
+        self.assertFalse(meta.get("ok"))
+        self.assertEqual(meta.get("reason"), "invalid_research_model")
 
         with patch(
             "core.research.oo_model.load_return_model_payload",
@@ -1347,6 +1347,7 @@ class TestPredictabilityTiers(unittest.TestCase):
             model2, meta2 = _load_research_oo_model()
         self.assertIsNone(model2)
         self.assertFalse(meta2.get("ok"))
+        self.assertEqual(meta2.get("reason"), "no_research_model")
 
     def test_load_research_oo_model_hydrates_lightgbm(self):
         from core.research.oo_lgb import SCHEMA_OO_LGB, OoLightgbmScorer

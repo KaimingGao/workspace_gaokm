@@ -323,19 +323,16 @@ def model_suite_fingerprint(
 
     try:
         from core.research.holdout import research_model_path
-        from core.research.tc_model import tau_model_legacy_path, tau_model_path
+        from core.research.tc_model import tau_model_path
 
         live_tau = tau_model_path()
-        legacy_tau = tau_model_legacy_path()
         if role == "live":
-            paths.extend([live_tau, legacy_tau])
+            paths.append(live_tau)
         else:
             paths.extend(
                 [
                     research_model_path(live_tau),
-                    research_model_path(legacy_tau),
                     live_tau,
-                    legacy_tau,
                 ]
             )
     except Exception:  # noqa: BLE001

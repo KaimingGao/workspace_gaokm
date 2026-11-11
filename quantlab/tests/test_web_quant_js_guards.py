@@ -621,7 +621,7 @@ class TestWebQuantJsGuards(unittest.TestCase):
         self.assertNotIn(">TC_R+&gt;0</span>", panel)
         self.assertIn("观察池分档", panel)
         self.assertIn(
-            "定档窗 60 日猜涨 lift（排序 LambdaRank · oo LightGBM · τc LightGBM）",
+            "定档窗 60 日猜涨 lift（排序 LambdaRank · ŷ_oo · ŷ_τc）",
             panel,
         )
         self.assertIn("标题 Holdout Lift_Score / 等权买持看 Holdout", panel)
@@ -2897,7 +2897,7 @@ class TestWebQuantJsGuards(unittest.TestCase):
         render_js = self._read("web", "static", "js", "quant", "watching_render.js")
         self.assertIn("y_oo_source", render_js)
         self.assertIn('"y_τc_source"', render_js)
-        self.assertIn("本槽未跑 τc LightGBM", tip_js)
+        self.assertIn("本槽未跑 ŷ_τc", tip_js)
         self.assertIn("ŷ_oc反推=(1+开盘→τ)(1+ŷ_τc)−1", tip_js)
         self.assertIn("pickTauToPct", tip_js)
         self.assertIn("remainingAtTauPct", tip_js)
@@ -2943,7 +2943,8 @@ class TestWebQuantJsGuards(unittest.TestCase):
         self.assertIn("namedRole =", tip_js)
         self.assertIn("截距 α（执行套）", tip_js)
         self.assertIn("研究/执行两槽同一份 Holdout 前训模型", tip_js)
-        self.assertIn("ŷ_τc · LightGBM", tip_js)
+        self.assertIn('score-hero-label">ŷ_τc</div>', tip_js)
+        self.assertNotIn("ŷ_τc · LightGBM", tip_js)
         self.assertNotIn("ŷ_τc · Ridge", tip_js)
         # τc/tc tip 走 formatCompactTauTip（LightGBM），勿误进 formatCompactRTip
         self.assertIn(
@@ -3798,9 +3799,9 @@ class TestWebQuantJsGuards(unittest.TestCase):
         self.assertIn('backend="lightgbm"', _tiers_py)
         self.assertIn("已取消内存 Ridge 回退", _tiers_py)
         self.assertIn('"return_backend": "lightgbm"', _tiers_py)
-        self.assertIn("oo LightGBM abs · τc LightGBM abs", _tiers_py)
-        self.assertIn("oo LightGBM", ru_js)
-        self.assertIn("落盘 LightGBM ŷ_oo", ru_js)
+        self.assertIn("ŷ_oo abs · ŷ_τc abs", _tiers_py)
+        self.assertIn("ŷ_oo/ŷ_τc", ru_js)
+        self.assertIn("落盘 ŷ_oo", ru_js)
         bt_js = self._read("web", "static", "js", "quant", "domain_backtest.js")
         self.assertNotIn("fitReturnScoreModel", bt_js)
         self.assertIn("formatTrainTiersBit", js)
@@ -3893,7 +3894,7 @@ class TestWebQuantJsGuards(unittest.TestCase):
         self.assertNotIn("function fmtOoFitSec", suggest)
         self.assertNotIn("function ooFitErrorMessage", suggest)
         self.assertIn(
-          "ŷ_oo LightGBM… ${q.fmtRidgeFitSec(s)} · ${q.ridgeFitBusyHint(s)}",
+          "ŷ_oo… ${q.fmtRidgeFitSec(s)} · ${q.ridgeFitBusyHint(s)}",
           suggest,
         )
         self.assertIn("function ridgeFitBusyHint", js)
@@ -3909,7 +3910,7 @@ class TestWebQuantJsGuards(unittest.TestCase):
         self.assertNotIn("setQuantMeta(`ŷ_oo · ${line}`)", suggest)
         self.assertNotIn("观察池堆叠 Ridge / OLS", suggest)
         self.assertIn("拟合后看 gain · 再启用研究/执行", suggest)
-        self.assertIn('setQuantMeta("全局 ŷ_oo · LightGBM")', js)
+        self.assertIn('setQuantMeta("全局 ŷ_oo")', js)
         self.assertNotIn(
             "justFitted && !active.exists && !research.exists",
             suggest.replace("\r\n", "\n"),
@@ -3929,7 +3930,7 @@ class TestWebQuantJsGuards(unittest.TestCase):
         self.assertNotIn('remStatusMeta(\n            "Holdout"', js.replace("\r\n", "\n"))
         self.assertIn('remStatusMeta(\n          "拟合"', js.replace("\r\n", "\n"))
         self.assertIn(
-            "ŷ_oo / ŷ_τc LightGBM OOS 在系数表 KPI；ŷ_oo_rank 在上方对照板",
+            "ŷ_oo / ŷ_τc OOS 在系数表 KPI；ŷ_oo_rank 在上方对照板",
             js,
         )
         self.assertIn("paintOoFitStatus", suggest)
@@ -4060,6 +4061,8 @@ class TestWebQuantJsGuards(unittest.TestCase):
         self.assertIn("观察池 ∩ <strong>A 档</strong>", panel)
         self.assertNotIn(">全池</span>", panel[panel.find('id="quant-section-roll-gate"') : panel.find('id="quant-rg-run"')])
         self.assertIn('id="quant-rg-run" class="dialog-btn primary"', panel)
+        self.assertIn("ŷ&gt;0.5% ∧ rank_score&gt;0.5 · top_n=10", panel)
+        self.assertNotIn("ŷ&gt;0.2% ∧ rank_score&gt;0.3", panel)
         self.assertIn('id="quant-rg-ran"', panel)
         rg_head = panel[panel.find('id="quant-rg-strip"') : panel.find('id="quant-rg-run"')]
         self.assertNotIn("quant-rg-ran", rg_head[: rg_head.find("quant-rg-protocol")])
@@ -4077,6 +4080,11 @@ class TestWebQuantJsGuards(unittest.TestCase):
         self.assertIn("/api/quant/roll-gate/last", rg_js)
         self.assertNotIn("/api/quant/roll-gate-top1", rg_js)
         self.assertIn("A 档 walk-forward", rg_js)
+        self.assertIn(
+            "Walk-forward · ŷ>0.5% ∧ rank_score>0.5 · top_n=10 · 不入库",
+            rg_js,
+        )
+        self.assertNotIn("rank_score>0.3", rg_js)
         self.assertIn("拉 A 档日线", rg_js)
         self.assertIn("A档 ${nPool}", rg_js)
         self.assertIn("全池(旧) ${nPool}", rg_js)

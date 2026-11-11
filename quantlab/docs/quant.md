@@ -536,7 +536,7 @@ score_stock(code) 续——
 
 ```text
 【训练层】
-  tau_lgb             → tau_model    (γ)         → promote → tau_lgb_model.json  # 旧 tau_ridge_model* 可读
+  tau_lgb             → tau_model    (γ)         → promote → tau_lgb_model.json
 
   【Live 打分层】
   score_stock(code)
@@ -786,7 +786,7 @@ A 改进「估得准」；B 改进「做得对」。北极星乘积两者都要�
 | 打分（ŷ_oo） | **`core/signal_service.py`**（门面）· `core/signal/service.py` · `score_stock.py` · `cross_section_batch.py` |
 | **SignalService 收口** | **SS encapsulate + E1～E5**：信封/门禁 · tip/观察/Skill/脚本/研究 · `book_fields` · BookResult 拷贝戳章 · metrics→DQ/日更 · 买入 production ŷ 闸 · 框架锁 |
 | **双层 ŷ 契约 / 融合** | **`core/signal/dual_score/`**（F1 闸 · blend · 字段写入） |
-| **τ 头训练 / 预测** | **`core/research/tc_model.py`**（`fit_tau_model_report` · `predict_tau_from_features`）；模型文件 `tau_lgb_model.json`；旧 `tau_ridge_model*` 仅作路径兼容 |
+| **τ 头训练 / 预测** | **`core/research/tc_model.py`**（`fit_tau_model_report` · `predict_tau_from_features`）；模型文件 `tau_lgb_model.json` |
 | **τ 打分挂载** | **`core/signal/score_stock.py` § R3/A1 段**（apply_tau_score_fields 调用） |
 | **F1 买入闸（纸面）** | **`core/paper/rebalance/`**（buy_passes_tau_gate 调用） |
 | **账本 / 复盘（双层）** | 历史 JSON 在 `data/reports/score_ledger/` |
@@ -812,7 +812,7 @@ A 改进「估得准」；B 改进「做得对」。北极星乘积两者都要�
 | **物化写穿** | 物化写入时日线新于湖必须重算（`allow_l1_end_lag()=False`），禁止只切交集仍报成功 | [internal/feature-lake-daycube.md](internal/feature-lake-daycube.md) |
 | **舆情标签** | 读 `news.db` 决策窗标签写表列；规则栏已下掉软先验闸；不进 ŷ | [component/risk.md](component/risk.md#舆情与另类数据sentiment-altdata) |
 | **今日收益** | `当前净值 − session_nav[昨收]`；快照裁剪后仍可对账 | [rebalance-logic.md](rebalance-logic.md) · [quant-ui.md](quant-ui.md) `/follow` |
-| **滚动验证** | 研究枢纽 Walk-forward 相对分闸（默认 **A 档**；ŷ>0.2% ∧ `rank_score>0.3` · `top_n=10` 等权）；Job `roll-gate`；不写模型 | [quant-ui.md](quant-ui.md) `#quant-section-roll-gate` |
+| **滚动验证** | 研究枢纽 Walk-forward 相对分闸（默认 **A 档**；ŷ>0.5% ∧ `rank_score>0.5` · `top_n=10` 等权）；Job `roll-gate`；不写模型 | [quant-ui.md](quant-ui.md) `#quant-section-roll-gate` |
 
 <a id="13-盘中剩余收益头intraday-residual方案"></a>
 

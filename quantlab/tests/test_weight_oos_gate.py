@@ -242,7 +242,7 @@ class TestWeightOosGate(unittest.TestCase):
             }
         )
         self.assertTrue(diff.get("promote_ready"))
-        self.assertIn("LightGBM", diff.get("apply_note") or "")
+        self.assertIn("不经 weights", diff.get("apply_note") or "")
 
 
 class TestScoreViewLgbPayload(unittest.TestCase):

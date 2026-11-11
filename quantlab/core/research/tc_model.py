@@ -575,22 +575,10 @@ def tau_model_path() -> str:
     return os.path.join(LIVE_DIR, "tau_lgb_model.json")
 
 
-def tau_model_legacy_path() -> str:
-    """旧盘名 ``tau_ridge_model.json``（与主路径同目录；读兼容；新写入走 ``tau_model_path``）。"""
-    return os.path.join(os.path.dirname(tau_model_path()), "tau_ridge_model.json")
-
-
 def tau_last_report_path() -> str:
     from core.paths import LIVE_DIR
 
     return os.path.join(LIVE_DIR, "tau_lgb_last_report.json")
-
-
-def tau_last_report_legacy_path() -> str:
-    """旧盘名；与 ``tau_last_report_path`` 同目录。"""
-    return os.path.join(
-        os.path.dirname(tau_last_report_path()), "tau_ridge_last_report.json"
-    )
 
 
 _JSON_MODEL_CACHE: Dict[str, Tuple[float, Optional[Dict[str, Any]]]] = {}
@@ -644,10 +632,9 @@ def save_tau_last_report(report: Dict[str, Any]) -> None:
 
 def load_tau_last_report() -> Optional[Dict[str, Any]]:
     """上次拟合草稿；只认 LightGBM（旧 Ridge 草稿当缺）。"""
-    for path in (tau_last_report_path(), tau_last_report_legacy_path()):
-        doc = _load_json_model(path)
-        if doc and doc.get("success") and _usable_tau_lgb_doc(doc):
-            return doc
+    doc = _load_json_model(tau_last_report_path())
+    if doc and doc.get("success") and _usable_tau_lgb_doc(doc):
+        return doc
     return None
 
 
@@ -675,7 +662,6 @@ def persist_tau_model(
     if role_n == MODEL_ROLE_LIVE:
         research_doc, err = require_research_suite(
             live_path,
-            fallback_live_path=tau_model_legacy_path(),
             accept=_usable_tau_lgb_doc,
         )
         if err:
@@ -842,16 +828,10 @@ def load_tau_model(*, role: Optional[str] = None) -> Optional[Dict[str, Any]]:
 
     role_n = role if role is not None else current_scoring_model_role()
     if role_n == MODEL_ROLE_RESEARCH:
-        for live in (tau_model_path(), tau_model_legacy_path()):
-            doc = _load_json_model(research_model_path(live))
-            if _usable_tau_lgb_doc(doc):
-                return doc
-        return None
-    for path in (tau_model_path(), tau_model_legacy_path()):
-        doc = _load_json_model(path)
-        if _usable_tau_lgb_doc(doc):
-            return doc
-    return None
+        doc = _load_json_model(research_model_path(tau_model_path()))
+        return doc if _usable_tau_lgb_doc(doc) else None
+    doc = _load_json_model(tau_model_path())
+    return doc if _usable_tau_lgb_doc(doc) else None
 
 
 def predict_tau_from_features(

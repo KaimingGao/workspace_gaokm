@@ -159,7 +159,7 @@ def quant_yhat_residual_shadow(body: YhatResidualShadowRequest) -> Dict[str, Any
 @router.get("/api/quant/tc-lgb/model")
 
 def quant_tc_lgb_model() -> Dict[str, Any]:
-    """读取已 promote 的 ŷ_τc 模型（主路径 tau_lgb_model.json；可读旧 tau_ridge_model.json）。"""
+    """读取已 promote 的 ŷ_τc 模型（``tau_lgb_model.json``）。"""
     try:
         return deps.quant.get_tau_lgb_model()
     except Exception as e:
@@ -229,7 +229,7 @@ def quant_tc_rank_model() -> Dict[str, Any]:
 
 @router.post("/api/quant/roll-gate")
 def quant_roll_gate() -> Dict[str, Any]:
-    """滚动验证：A 档 lookback500 · holdout10×3 · ŷ>0.2% ∧ rank_score>0.3 · top_n=10 等权 · oo/τc 两臂；后台 Job，不写模型。
+    """滚动验证：A 档 lookback500 · holdout10×3 · ŷ>0.5% ∧ rank_score>0.5 · top_n=10 等权 · oo/τc 两臂；后台 Job，不写模型。
 
     轮询 ``GET /api/jobs/roll-gate?progress=1``；折表读 ``GET /api/quant/roll-gate/last``。
     """

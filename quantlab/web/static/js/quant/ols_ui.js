@@ -24,7 +24,7 @@ export function createOlsUi(deps) {
       research_oos_failed: "研究臂自身 OOS 失败旗标",
       no_weight_suggest: "无组内建议权（遗留）",
       [YHAT_WEIGHTS_DECOUPLED]:
-        "ŷ_oo 为 LightGBM，weights 补丁不进打分（门禁不适用）",
+        "ŷ_oo 不经 weights，补丁不进打分（门禁不适用）",
     };
     if (/^oos_worse_/.test(reasonRaw)) {
       return `研究臂差于基线超过容差（${reasonRaw.replace("oos_worse_", "")}）`;

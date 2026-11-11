@@ -119,10 +119,10 @@ export function installRollGateUi(q) {
       let label = "拟合";
       let step = 1;
       if (/OO\s*LightGBM|oo\s*lightgbm|OO\s*LGB|oo\s*lgb/i.test(msg)) {
-        label = "拟合 oo LightGBM";
+        label = "拟合 ŷ_oo";
         step = 1;
       } else if (/OO\s*Ridge|oo\s*ridge/i.test(msg)) {
-        label = "拟合 oo LightGBM";
+        label = "拟合 ŷ_oo";
         step = 1;
       } else if (/OO\s*Lambda|oo\s*lambda/i.test(msg)) {
         label = "拟合 oo LambdaRank";
@@ -132,7 +132,7 @@ export function installRollGateUi(q) {
           msg
         )
       ) {
-        label = "拟合 τc LightGBM";
+        label = "拟合 ŷ_τc";
         step = 3;
       } else if (/τc\s*Lambda|tc\s*lambda/i.test(msg)) {
         label = "拟合 τc LambdaRank";
@@ -992,7 +992,11 @@ export function installRollGateUi(q) {
         );
       } else {
         applyDoc(null);
-        setStatus("idle", "未跑", "Walk-forward · rank_score>0.3 · top_n=10 · 不入库");
+        setStatus(
+          "idle",
+          "未跑",
+          "Walk-forward · ŷ>0.5% ∧ rank_score>0.5 · top_n=10 · 不入库"
+        );
       }
       return last;
     } catch (err) {

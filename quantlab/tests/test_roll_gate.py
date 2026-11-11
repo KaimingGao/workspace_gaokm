@@ -154,32 +154,42 @@ class TestRollGateHardening(unittest.TestCase):
         ):
             self.assertEqual(rg._tier_a_codes(), [])
 
+    def test_defaults_y_and_rank_score_min(self):
+        from core.research.roll_gate import DEFAULT_RANK_SCORE_MIN, DEFAULT_Y_MIN
+
+        self.assertEqual(DEFAULT_Y_MIN, 0.5)
+        self.assertEqual(DEFAULT_RANK_SCORE_MIN, 0.5)
+
     def test_pick_gated_requires_rank_score_above_min(self):
-        from core.research.roll_gate import _pick_gated_top_n
+        from core.research.roll_gate import (
+            DEFAULT_RANK_SCORE_MIN,
+            DEFAULT_Y_MIN,
+            _pick_gated_top_n,
+        )
 
         day = {
             "codes": ["A", "B"],
             "ys": [1.0, -0.5],
         }
-        # 相对分最高者 A=0.25 ≤ 0.3 → 空闸
+        # 相对分最高者 A=0.25 ≤ 0.5 → 空闸
         out = _pick_gated_top_n(
             day,
             y_preds=[1.0, 0.5],
             rank_preds=[0.25, 0.10],
-            y_min=0.2,
-            rank_score_min=0.3,
+            y_min=DEFAULT_Y_MIN,
+            rank_score_min=DEFAULT_RANK_SCORE_MIN,
         )
         self.assertTrue(out["empty"])
         self.assertEqual(out["reason"], "rank_score")
         self.assertEqual(out["code"], "A")
 
-        # 相对分最高者 B=0.45 > 0.3 且 ŷ 过线 → 有仓
+        # 相对分最高者 B=0.55 > 0.5 且 ŷ 过线 → 有仓
         hit = _pick_gated_top_n(
             day,
             y_preds=[0.1, 0.8],
-            rank_preds=[0.20, 0.45],
-            y_min=0.2,
-            rank_score_min=0.3,
+            rank_preds=[0.20, 0.55],
+            y_min=DEFAULT_Y_MIN,
+            rank_score_min=DEFAULT_RANK_SCORE_MIN,
         )
         self.assertFalse(hit["empty"])
         self.assertEqual(hit["code"], "B")
@@ -187,7 +197,11 @@ class TestRollGateHardening(unittest.TestCase):
         self.assertEqual(hit["n_picks"], 1)
 
     def test_pick_gated_top_n_by_rank_score(self):
-        from core.research.roll_gate import _pick_gated_top_n
+        from core.research.roll_gate import (
+            DEFAULT_RANK_SCORE_MIN,
+            DEFAULT_Y_MIN,
+            _pick_gated_top_n,
+        )
 
         day = {
             "codes": ["A", "B", "C", "D"],
@@ -196,10 +210,10 @@ class TestRollGateHardening(unittest.TestCase):
         # A/B/C 过闸；D 分不够。top_n=2 → 按分取 A,B；等权 label=(1+2)/2
         out = _pick_gated_top_n(
             day,
-            y_preds=[1.0, 0.8, 0.5, 1.0],
+            y_preds=[1.0, 0.8, 0.6, 1.0],
             rank_preds=[0.9, 0.8, 0.7, 0.2],
-            y_min=0.2,
-            rank_score_min=0.3,
+            y_min=DEFAULT_Y_MIN,
+            rank_score_min=DEFAULT_RANK_SCORE_MIN,
             top_n=2,
         )
         self.assertFalse(out["empty"])

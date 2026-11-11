@@ -374,7 +374,7 @@ export function initQuant(ctx) {
    * ŷ_* 卡头状态：拟合时间 / 研究·执行启用时间（或未写盘）；
    * 有启用态 meta 时不再叠「研究+执行」等 chip（与 meta 重复）。
    * busy / error / 尚无 meta 时仍显示 chip。
-   * ŷ_oo / ŷ_τc LightGBM OOS 在系数表 KPI；ŷ_oo_rank 在上方对照板。
+   * ŷ_oo / ŷ_τc OOS 在系数表 KPI；ŷ_oo_rank 在上方对照板。
    */
   function renderRemStatus(el, opts = {}) {
     if (!el) return;
@@ -2085,7 +2085,7 @@ export function initQuant(ctx) {
         ]);
       }
       if (els.quantMeta) {
-        setQuantMeta("全局 ŷ_oo · LightGBM");
+        setQuantMeta("全局 ŷ_oo");
       }
       if (useDialog) els.quantDialog.showModal();
       // 运维/因子/桥接等后台拉取：不阻塞 tab 加载态
@@ -2495,7 +2495,7 @@ export function initQuant(ctx) {
         ? forcePromote
           ? `强制写入上次拟合（${roleLabel}）…`
           : `写入上次拟合（${roleLabel}）…`
-        : "ŷ_τc LightGBM + 时间 OOS…",
+        : "ŷ_τc + 时间 OOS…",
       busy: true,
     });
     try {

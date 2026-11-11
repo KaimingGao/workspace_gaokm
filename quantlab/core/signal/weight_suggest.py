@@ -459,7 +459,7 @@ def format_weight_config_diff(suggestion: Dict[str, Any]) -> Dict[str, Any]:
         )
     elif str(oos_gate.get("reason") or "") == YHAT_WEIGHTS_DECOUPLED:
         apply_note = (
-            "ŷ_oo 为 LightGBM，weights 补丁不进打分；OOS ŷ 曲线不适用。"
+            "ŷ_oo 不经 weights，补丁不进打分；OOS ŷ 曲线不适用。"
             "请看 IC/健康后人审合并；系统不会自动写盘。"
         )
     elif oos_gate.get("skipped"):

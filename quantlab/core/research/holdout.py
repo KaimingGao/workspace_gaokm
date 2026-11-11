@@ -115,12 +115,11 @@ def load_research_promoted_json(live_path: str) -> Optional[Dict[str, Any]]:
 def research_sidecar_flags(
     live_path: str,
     *,
-    fallback_live_path: Optional[str] = None,
     accept: Optional[Callable[[Dict[str, Any]], bool]] = None,
 ) -> Dict[str, Any]:
-    """研究套 sidecar 是否已启用（不回退 live；可试 ``fallback_live_path`` 旧盘名）。
+    """研究套 sidecar 是否已启用（不回退 live）。
 
-    ``accept``：文档可用性闸（如 ŷ_τc 须 LightGBM）；不通过则当缺并继续试 fallback。
+    ``accept``：文档可用性闸（如 ŷ_τc 须 LightGBM）；不通过则当缺。
     """
     path = research_model_path(live_path)
 
@@ -139,16 +138,6 @@ def research_sidecar_flags(
             "research_promoted_at": doc.get("promoted_at"),
             "research_fitted_at": model_fit_id(doc),
         }
-    if fallback_live_path:
-        fb_path = research_model_path(fallback_live_path)
-        fb_doc = load_research_promoted_json(fallback_live_path)
-        if _ok(fb_doc):
-            return {
-                "research_exists": True,
-                "research_path": fb_path,
-                "research_promoted_at": fb_doc.get("promoted_at"),
-                "research_fitted_at": model_fit_id(fb_doc),
-            }
     return {
         "research_exists": False,
         "research_path": path,
@@ -314,12 +303,11 @@ def select_fit_return_model(report: Mapping[str, Any]) -> Optional[Dict[str, Any
 def require_research_suite(
     live_path: str,
     *,
-    fallback_live_path: Optional[str] = None,
     accept: Optional[Callable[[Dict[str, Any]], bool]] = None,
 ) -> Tuple[Optional[Dict[str, Any]], Dict[str, Any]]:
-    """启用执行前读取研究槽；缺则返回错误包。``fallback_live_path`` 试旧盘名。
+    """启用执行前读取研究槽；缺则返回错误包。
 
-    ``accept``：不通过则当缺（继续 fallback），避免坏新盘挡住好旧盘。
+    ``accept``：不通过则当缺。
     """
     import json
 
@@ -348,10 +336,6 @@ def require_research_suite(
 
     if _ok(doc):
         return doc, {}
-    if fallback_live_path:
-        return require_research_suite(
-            fallback_live_path, accept=accept
-        )
     return None, {
         "success": False,
         "error": "无研究套可晋级；请先「启用研究」并通过回测后再启用执行",

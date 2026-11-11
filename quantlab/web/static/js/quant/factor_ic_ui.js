@@ -1279,7 +1279,7 @@ export function createFactorIcUi(deps) {
             )
           : "");
     const ooLgbMetrics = isOoLgb
-      ? `<div class="quant-rem-coef-spec-metrics" role="group" aria-label="oo LightGBM 摘要">` +
+      ? `<div class="quant-rem-coef-spec-metrics" role="group" aria-label="ŷ_oo 摘要">` +
         ooOosKpis +
         kpi(
           "入模",
@@ -1287,7 +1287,7 @@ export function createFactorIcUi(deps) {
           `开盘 ${openN} · 分钟 ${minuteN} · 历史 ${histN}`
         ) +
         (Array.isArray(rm.feature_names) && rm.feature_names.length
-          ? kpi("特征", String(rm.feature_names.length), "LightGBM 入模列数")
+          ? kpi("特征", String(rm.feature_names.length), "入模列数")
           : "") +
         (exclN > 0 ? kpi("省略", exclN, omitTip) : "") +
         `</div>`

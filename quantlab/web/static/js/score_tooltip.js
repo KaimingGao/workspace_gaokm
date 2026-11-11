@@ -527,7 +527,7 @@ function formatCompactTauTip(raw) {
     Number.isFinite(totRaw) &&
     Math.abs(totRaw - Number(fit)) > 0.02;
   const hint = !hasTerms && (yTo != null || rot != null)
-    ? `τ=${escapeText(tau)} · 本槽未跑 τc LightGBM · ŷ_oc反推=(1+开盘→τ)(1+ŷ_τc)−1`
+    ? `τ=${escapeText(tau)} · 本槽未跑 ŷ_τc · ŷ_oc反推=(1+开盘→τ)(1+ŷ_τc)−1`
     : formulaMismatch
       ? `ŷ_τc · τ=${escapeText(tau)} · ${escapeText(
           String(ySpec)
@@ -703,7 +703,7 @@ function formatCompactRTip(raw) {
   return (
     `<div class="score-layer score-layer-r">` +
     `<div class="score-layer-head">` +
-    `<div class="score-hero-label">ŷ_τc · LightGBM</div>` +
+    `<div class="score-hero-label">ŷ_τc</div>` +
     `<div class="score-hero-value ${signCls(fit)}">${escapeText(fitTxt)}</div>` +
     `</div>` +
     `<div class="score-hero-hint">${hint}</div>` +

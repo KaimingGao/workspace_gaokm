@@ -304,7 +304,7 @@ export const Y_PATH_TITLE = Y_HL_TITLE;
 export const PATH_REALIZED_TITLE =
   "HL实 · 先 low→high 为正、先 high→low 为负（与 ŷ_hl 同标签）";
 export const Y_τc_TITLE =
-  "ŷ_τc · LightGBM 预估 close[T]/price(τ)−1 · 模型 price→close";
+  "ŷ_τc · 预估 close[T]/price(τ)−1 · 模型 price→close";
 export const Y_TC_TITLE = Y_τc_TITLE;
 export const Y_R_TITLE = Y_τc_TITLE;
 export const Y_T30_TITLE =

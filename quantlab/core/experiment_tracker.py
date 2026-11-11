@@ -28,13 +28,9 @@ from core.paths import DATA_DIR
 
 EXPERIMENTS_DIR = os.path.join(DATA_DIR, "experiments")
 
-# τ→close 登记名 tc_lgb；旧 tc_ridge / tau_* 仅扫历史实验目录。
+# τ→close 登记名 tc_lgb（服务方法名仍是 tau_lgb）。
 _CANONICAL_MODEL_TYPE = {
     "tau_lgb": "tc_lgb",
-    "tau_ridge": "tc_lgb",
-    "tc_ridge": "tc_lgb",
-    # 影子 τc_tree 已下线；别名仅兼容历史实验目录检索
-    "tau_tree": "tc_tree",
 }
 # 进行中的实验（进程内）
 _active: Dict[str, Dict[str, Any]] = {}

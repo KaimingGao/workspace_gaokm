@@ -581,7 +581,7 @@ export function installSuggest(q) {
     };
     const tick = () => {
       const s = Math.max(0, Math.round((Date.now() - t0) / 1000));
-      const msg = `ŷ_oo LightGBM… ${q.fmtRidgeFitSec(s)} · ${q.ridgeFitBusyHint(s)}`;
+      const msg = `ŷ_oo… ${q.fmtRidgeFitSec(s)} · ${q.ridgeFitBusyHint(s)}`;
       // 状态只写 ŷ_oo 卡头，不刷页顶 #quant-meta（与 ŷ_τc 等头一致）
       paintOoStatus({
         state: "busy",

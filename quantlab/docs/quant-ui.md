@@ -534,7 +534,7 @@ OMS 级盘口布局仍禁止。
 - **ŷ_oo_rank**：单头 LambdaRank（样式对齐 ŷ_oo）；标签为日截面 **稠密名次**；鲁棒默认 truncation=100 / z±3 / min_leaf=50 / num_leaves=16 / L2=5；拟合固定全池（训练档下拉已下线）；过入场后买序按相对分；与 τc_rank 共用 `/replay` **rank 阈值**（限制 oo_rank / τc_rank 相对分，不是 y_oo / y_τc）。因子表 KPI **主看 Gate lift**（IC 仅对照）。卡头若仍显示旧 Ridge：有同窗 LambdaRank 包则**重新启用研究**即可（不重训）；否则先拟合
 - **ŷ_τc_rank**：同协议（样式对齐 ŷ_τc）；**前缀滑条与 ŷ_τc 同组同步**（默认 09:30）；拟合固定全池；不进 fuse、不改买序；因子表 KPI 同 ŷ_oo_rank（Gate lift 主）
 - **ŷ_τ30…90**：`P(窗收益>0)` 双 backend；Holdout AUC 择优
-- **滚动验证**（`#quant-section-roll-gate`）：Walk-forward 相对分闸 · **A 档** lookback 500 · holdout 10×3 · ŷ>0.2% ∧ `rank_score>0.3` · 按分最多 **top_n=10** 等权 · oo/τc 两臂；不写模型；蓝主按钮 + 上次执行时间；Job `roll-gate`
+- **滚动验证**（`#quant-section-roll-gate`）：Walk-forward 相对分闸 · **A 档** lookback 500 · holdout 10×3 · ŷ>0.5% ∧ `rank_score>0.5` · 按分最多 **top_n=10** 等权 · oo/τc 两臂；不写模型；蓝主按钮 + 上次执行时间；Job `roll-gate`
 
 ### `/platform` 平台
 

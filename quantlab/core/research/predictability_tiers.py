@@ -1818,23 +1818,19 @@ def _predict_oo_lgb_days(
 
 
 def _load_tier_tc_lgb_model() -> Tuple[Optional[Any], Dict[str, Any]]:
-    """分档 ŷ_τc：研究套 LightGBM，缺则执行套；拒旧 Ridge；可读旧盘名。"""
+    """分档 ŷ_τc：研究套 LightGBM，缺则执行套；拒旧 Ridge。"""
     from core.research.holdout import research_model_path
     from core.research.tc_lgb import TcLightgbmScorer, is_tc_lightgbm_blob
     from core.research.tc_model import (
         _load_json_model,
-        tau_model_legacy_path,
         tau_model_path,
     )
 
     last_non_lgb: Optional[Dict[str, Any]] = None
-    live_new = tau_model_path()
-    live_old = tau_model_legacy_path()
+    live = tau_model_path()
     for role, path in (
-        ("research", research_model_path(live_new)),
-        ("research", research_model_path(live_old)),
-        ("active", live_new),
-        ("active", live_old),
+        ("research", research_model_path(live)),
+        ("active", live),
     ):
         raw = _load_json_model(path)
         if not isinstance(raw, dict):
@@ -3580,7 +3576,7 @@ def _emit_predictability_tiers(
             f" · 面板 {panel_lb} 日"
             f"；{score_note}；说涨至少 {DEFAULT_TIER_MIN_DAYS} 次才入队"
             f"；lift = 说涨精度 − 上涨日比例；有样本头等权"
-            f"（排序头 LambdaRank cs · oo LightGBM abs · τc LightGBM abs）"
+            f"（排序头 LambdaRank cs · ŷ_oo abs · ŷ_τc abs）"
             f"；按 lift 降序 top {n_a}→A、接着 {n_b}→B、其余→C"
             "；表内：四头 lift / Lift_Score；档标题 Holdout Lift_Score"
             "；落盘 last；live 档位跟随历史回测「分档」勾选；回测天数用独立 lookback。"

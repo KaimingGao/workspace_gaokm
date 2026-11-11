@@ -5,7 +5,7 @@ OO：ŷ_oo>y_min 且 oo_rank 相对分 > rank_score_min，按相对分降序最�
 τc：ŷ_τc>y_min 且 τc_rank 相对分 > rank_score_min（开盘钟），按相对分降序最多取 top_n
 有仓日收益 = 入选等权均值；命中 = 等权收益 > 0。
 
-默认 lookback=500、holdout=10、folds=3、y_min=0.2、rank_score_min=0.3、top_n=10。
+默认 lookback=500、holdout=10、folds=3、y_min=0.5、rank_score_min=0.5、top_n=10。
 API / Job wire：``roll-gate``；落盘 ``roll_gate_last.json`` / ``jobs/roll_gate.json``。
 """
 
@@ -27,8 +27,8 @@ logger = logging.getLogger(__name__)
 DEFAULT_LOOKBACK = 500
 DEFAULT_HOLDOUT = 10
 DEFAULT_FOLDS = 3
-DEFAULT_Y_MIN = 0.2  # 百分点
-DEFAULT_RANK_SCORE_MIN = 0.3  # oo_rank / τc_rank 相对分
+DEFAULT_Y_MIN = 0.5  # 百分点
+DEFAULT_RANK_SCORE_MIN = 0.5  # oo_rank / τc_rank 相对分
 DEFAULT_TOP_N = 10  # 过闸后按相对分最多取 N
 DEFAULT_RIDGE_LAMBDA = 1.0
 

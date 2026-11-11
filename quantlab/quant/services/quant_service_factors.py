@@ -137,7 +137,6 @@ def _attach_ridge_role_flags(
     live_path: str,
     *,
     live_present: Optional[bool] = None,
-    fallback_live_path: Optional[str] = None,
     accept_research: Optional[Any] = None,
 ) -> Dict[str, Any]:
     """给 ŷ_* GET/POST 打上执行套 / 研究套是否已落盘及各自拟合时间标识。"""
@@ -145,7 +144,6 @@ def _attach_ridge_role_flags(
 
     flags = research_sidecar_flags(
         live_path,
-        fallback_live_path=fallback_live_path,
         accept=accept_research,
     )
     out["research_exists"] = bool(flags.get("research_exists"))
@@ -156,28 +154,19 @@ def _attach_ridge_role_flags(
     out["research_promoted_at"] = flags.get("research_promoted_at")
     if live_present is None:
         live_present = bool(live_path and os.path.isfile(live_path))
-        if not live_present and fallback_live_path:
-            live_present = bool(os.path.isfile(fallback_live_path))
     out["live_model_present"] = bool(live_present)
     live_fit = _peek_model_stamp(live_path) if live_path and os.path.isfile(live_path) else None
-    if not live_fit and fallback_live_path and os.path.isfile(fallback_live_path):
-        live_fit = _peek_model_stamp(fallback_live_path)
     out["live_fitted_at"] = live_fit
     live_promoted = (
         _peek_json_key(live_path, "promoted_at")
         if live_path and os.path.isfile(live_path)
         else None
     )
-    if not live_promoted and fallback_live_path and os.path.isfile(fallback_live_path):
-        live_promoted = _peek_json_key(fallback_live_path, "promoted_at")
     out["live_promoted_at"] = live_promoted
     fitted = out.get("fitted_at")
     if not fitted:
         last_path = _last_report_path_from_live(live_path)
         fitted = _peek_model_stamp(last_path) or _file_mtime_iso(last_path)
-        if not fitted and fallback_live_path:
-            fb_last = _last_report_path_from_live(fallback_live_path)
-            fitted = _peek_model_stamp(fb_last) or _file_mtime_iso(fb_last)
     if fitted:
         out["fitted_at"] = fitted
     return out
@@ -791,7 +780,6 @@ class QuantFactorMixin:
             load_tau_model,
             persist_tau_model,
             save_tau_last_report,
-            tau_model_legacy_path,
             tau_model_path,
             tau_promote_gate,
         )
@@ -859,7 +847,6 @@ class QuantFactorMixin:
                     out,
                     tau_model_path(),
                     live_present=bool(load_tau_model()),
-                    fallback_live_path=tau_model_legacy_path(),
                     accept_research=_usable_tau_lgb_doc,
                 )
 
@@ -943,8 +930,7 @@ class QuantFactorMixin:
                 report,
                 tau_model_path(),
                 live_present=bool(load_tau_model()),
-                fallback_live_path=tau_model_legacy_path(),
-            accept_research=_usable_tau_lgb_doc,
+                accept_research=_usable_tau_lgb_doc,
             )
         if report.get("success"):
             save_tau_last_report(report)
@@ -971,8 +957,7 @@ class QuantFactorMixin:
             report,
             tau_model_path(),
             live_present=bool(load_tau_model()),
-            fallback_live_path=tau_model_legacy_path(),
-            accept_research=_usable_tau_lgb_doc,
+                accept_research=_usable_tau_lgb_doc,
         )
         return report
 
@@ -1025,7 +1010,6 @@ class QuantFactorMixin:
             _usable_tau_lgb_doc,
             load_tau_last_report,
             load_tau_model,
-            tau_model_legacy_path,
             tau_model_path,
             tau_promote_gate,
         )
@@ -1043,8 +1027,7 @@ class QuantFactorMixin:
                 },
                 tau_model_path(),
                 live_present=False,
-                fallback_live_path=tau_model_legacy_path(),
-            accept_research=_usable_tau_lgb_doc,
+                accept_research=_usable_tau_lgb_doc,
             )
 
         _doc, use_last = _select_ridge_desk_doc(live, last)
@@ -1068,8 +1051,7 @@ class QuantFactorMixin:
                 out,
                 tau_model_path(),
                 live_present=bool(live),
-                fallback_live_path=tau_model_legacy_path(),
-            accept_research=_usable_tau_lgb_doc,
+                accept_research=_usable_tau_lgb_doc,
             )
 
         if not live:
@@ -1090,8 +1072,7 @@ class QuantFactorMixin:
                 out,
                 tau_model_path(),
                 live_present=False,
-                fallback_live_path=tau_model_legacy_path(),
-            accept_research=_usable_tau_lgb_doc,
+                accept_research=_usable_tau_lgb_doc,
             )
 
         return _attach_ridge_role_flags(
@@ -1110,8 +1091,7 @@ class QuantFactorMixin:
             },
             tau_model_path(),
             live_present=True,
-            fallback_live_path=tau_model_legacy_path(),
-            accept_research=_usable_tau_lgb_doc,
+                accept_research=_usable_tau_lgb_doc,
         )
 
     @records_experiment("oo_rank")

@@ -2,7 +2,7 @@
   <div class="dashboard-head-text quant-head-text">
     <p class="dashboard-eyebrow">Research Desk</p>
     <h2>研究枢纽</h2>
-    <p class="dashboard-meta quant-meta" id="quant-meta" aria-live="polite">全局 ŷ · LightGBM · 只读输出不写生产配置</p>
+    <p class="dashboard-meta quant-meta" id="quant-meta" aria-live="polite">全局 ŷ · 只读输出不写生产配置</p>
     <p class="dashboard-section-desc quant-head-path">
       <a class="quant-hero-link" href="#quant-section-research-universe">研究宇宙</a>
       →
@@ -138,7 +138,7 @@
     <header class="dashboard-section-head quant-section-head">
       <h3 id="quant-section-research-universe-title" class="dashboard-section-title">观察池分档</h3>
       <p class="dashboard-section-desc quant-section-desc">
-        定档窗 60 日猜涨 lift（排序 LambdaRank · oo LightGBM · τc LightGBM）· 标题 Holdout Lift_Score / 等权买持看 Holdout · live 跟随回测「分档」
+        定档窗 60 日猜涨 lift（排序 LambdaRank · ŷ_oo · ŷ_τc）· 标题 Holdout Lift_Score / 等权买持看 Holdout · live 跟随回测「分档」
       </p>
     </header>
     <div class="dashboard-card quant-pro-card quant-ru-card">
@@ -155,7 +155,7 @@
                 定档窗是 Holdout 前 <strong>60 个交易日</strong>，与 Holdout、与拟合窗交界各空 <strong>1 个交易日</strong>。
                 不覆盖研究套；交易打分仍用研究套。
                 排序头 oo_rank / τc_rank：内存 <strong>LambdaRank</strong>（稠密名次），说涨 = 预估高于当日截面中位数。
-                收益头 <strong>oo</strong> / <strong>τc</strong>：落盘 <strong>LightGBM</strong>（研究套优先）。说涨 = 预估 &gt; 0.05 个百分点；不用排序分做 abs 说涨。
+                收益头 <strong>oo</strong> / <strong>τc</strong>：落盘研究套优先。说涨 = 预估 &gt; 0.05 个百分点；不用排序分做 abs 说涨。
                 猜涨精度 = 说涨日里标签真正上涨的比例。lift = 猜涨精度 − 这只票在定档窗里的<strong>上涨日比例</strong>；四头有样本等权。收益大小不进分数。
                 单头说涨少于 <strong>8 次</strong>不计入该头；oo_rank 失败则整次失败；都没有则归 C。
                 按 lift 降序取 top <strong>A 数量</strong>→A，接着 <strong>B 数量</strong>→B、其余→C（默认 100 / 300）。
@@ -237,7 +237,7 @@
     <header class="dashboard-section-head quant-section-head">
       <h3 id="quant-section-bars-title" class="dashboard-section-title">日线</h3>
       <p class="dashboard-section-desc quant-section-desc" id="quant-section-bars-desc">
-        两块：日 K 仓（增量补齐 / 强更日 K）· 物化特征（L1/L2 · open）· 调度 bars_warmup · ≠「刷新 watching」· 下游 ŷ_oo LightGBM
+        两块：日 K 仓（增量补齐 / 强更日 K）· 物化特征（L1/L2 · open）· 调度 bars_warmup · ≠「刷新 watching」· 下游 ŷ_oo
       </p>
     </header>
     <div class="quant-bars-panels">
@@ -503,7 +503,7 @@
     <details class="quant-primary-fold" open>
       <summary class="quant-primary-fold-sum dashboard-section-head quant-section-head">
         <h3 id="quant-section-factors-title" class="dashboard-section-title">ŷ_oo</h3>
-        <p class="dashboard-section-desc quant-section-desc">open[T]→open[T+1] · LightGBM</p>
+        <p class="dashboard-section-desc quant-section-desc">open[T]→open[T+1]</p>
       </summary>
     <div class="dashboard-card quant-pro-card">
       <div class="dashboard-card-head quant-pro-card-head quant-card-head--tools quant-card-head--fit">
@@ -562,7 +562,7 @@
     <details class="quant-primary-fold" open>
       <summary class="quant-primary-fold-sum dashboard-section-head quant-section-head">
         <h3 id="quant-section-tau-title" class="dashboard-section-title">ŷ_τc</h3>
-        <p class="dashboard-section-desc quant-section-desc">price[τ]→close[T] · LightGBM</p>
+        <p class="dashboard-section-desc quant-section-desc">price[τ]→close[T]</p>
       </summary>
     <div class="dashboard-card quant-pro-card">
       <div class="dashboard-card-head quant-pro-card-head quant-card-head--tools quant-card-head--fit">
@@ -573,7 +573,7 @@
         <div class="quant-fit-params" role="group" aria-label="ŷ_τc 拟合参数">
           <label
             class="quant-tau-end-slider"
-            title="ŷ_τc 训练前缀终点 09:30…11:00（每 5m）。网格自 09:30 至该钟共享 LightGBM；09:30=0 前缀 open→close。与 ŷ_τc_rank 同组同步；与 ŷ_τ* 滑条独立。无拟合记录默认 09:30；刷新后恢复为本组最新拟合前缀。"
+            title="ŷ_τc 训练前缀终点 09:30…11:00（每 5m）。网格自 09:30 至该钟共享模型；09:30=0 前缀 open→close。与 ŷ_τc_rank 同组同步；与 ŷ_τ* 滑条独立。无拟合记录默认 09:30；刷新后恢复为本组最新拟合前缀。"
           >
             <span class="quant-tau-end-slider-lab">前缀</span>
             <span class="quant-tau-end-scale">
@@ -630,7 +630,7 @@
           </label>
         </div>
         <div class="dashboard-card-tools quant-pro-card-tools quant-fit-actions" role="group" aria-label="ŷ_τc 操作">
-          <button type="button" id="quant-tau-lgb-run" class="dialog-btn primary" title="观察池拟合 ŷ_τc LightGBM（特征包 alpha_τc=Z∪raw_atc_*）+ Holdout OOS（前缀 / 训练窗见左侧；09:30=0 前缀 open→close；不写盘；只训 Holdout 前一套）">拟合</button>
+          <button type="button" id="quant-tau-lgb-run" class="dialog-btn primary" title="观察池拟合 ŷ_τc（特征包 alpha_τc=Z∪raw_atc_*）+ Holdout OOS（前缀 / 训练窗见左侧；09:30=0 前缀 open→close；不写盘；只训 Holdout 前一套）">拟合</button>
           <button type="button" id="quant-tau-lgb-persist-research" class="dialog-btn warn" data-persist-role="research" title="草稿/报告 → tau_lgb_model_research.json，供历史回测">启用研究</button>
           <button type="button" id="quant-tau-lgb-persist" class="dialog-btn warn" data-persist-role="live" title="研究槽 → live/tau_lgb_model.json（晋级；须先启用研究）">启用执行</button>
           <button type="button" id="quant-tau-lgb-status" class="dialog-btn secondary" title="读取研究 / 执行 / 上次拟合">状态</button>
@@ -1160,8 +1160,8 @@
               <p>
                 定长 lookback <strong>500</strong> 交易日训练，holdout <strong>10</strong> 日 × 连续 <strong>3</strong> 折；
                 每折 embargo=1 后重训（非冻当前 research 权重）。宇宙 = 观察池 ∩ <strong>A 档</strong>（须先跑分档）。
-                oo：<code>ŷ_oo &gt; 0.2%</code> ∧ <code>oo_rank_score &gt; 0.3</code>，按相对分降序最多 <strong>top_n=10</strong>（等权）；
-                τc：开盘钟 <code>ŷ_τc &gt; 0.2%</code> ∧ <code>τc_rank_score &gt; 0.3</code>，同 top_n。
+                oo：<code>ŷ_oo &gt; 0.5%</code> ∧ <code>oo_rank_score &gt; 0.5</code>，按相对分降序最多 <strong>top_n=10</strong>（等权）；
+                τc：开盘钟 <code>ŷ_τc &gt; 0.5%</code> ∧ <code>τc_rank_score &gt; 0.5</code>，同 top_n。
                 空仓/未过闸不进命中分母。基线 50%。不写模型、不入库。
               </p>
             </div>
@@ -1171,12 +1171,12 @@
             <span class="quant-rg-sep" aria-hidden="true">·</span>
             <span class="quant-rg-kv" title="holdout×折数"><span class="quant-rg-k">HO</span><span class="quant-rg-v">10×3</span></span>
             <span class="quant-rg-sep" aria-hidden="true">·</span>
-            <span class="quant-rg-kv" title="ŷ 门槛 ∧ oo_rank / τc_rank 相对分 &gt; 0.3，按分最多 top_n=10 等权"><span class="quant-rg-v">ŷ&gt;0.2% ∧ rank_score&gt;0.3 · top_n=10</span></span>
+            <span class="quant-rg-kv" title="ŷ 门槛 ∧ oo_rank / τc_rank 相对分 &gt; 0.5，按分最多 top_n=10 等权"><span class="quant-rg-v">ŷ&gt;0.5% ∧ rank_score&gt;0.5 · top_n=10</span></span>
             <span class="quant-rg-sep" aria-hidden="true">·</span>
             <span class="quant-rg-kv" title="宇宙：观察池∩可预测性 A 档"><span class="quant-rg-v">A 档</span></span>
           </div>
           <span id="quant-rg-ran" class="quant-rg-ran" title="尚无执行记录">上次 —</span>
-          <button type="button" id="quant-rg-run" class="dialog-btn primary" title="A 档 walk-forward：rank_score&gt;0.3 · top_n=10 等权（后台，不写模型）">运行</button>
+          <button type="button" id="quant-rg-run" class="dialog-btn primary" title="A 档 walk-forward：ŷ&gt;0.5% ∧ rank_score&gt;0.5 · top_n=10 等权（后台，不写模型）">运行</button>
         </div>
       </div>
       <div class="quant-pro-card-body quant-rg-body">
