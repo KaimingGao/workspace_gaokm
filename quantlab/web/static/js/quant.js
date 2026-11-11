@@ -3999,8 +3999,8 @@ export function initQuant(ctx) {
     if (
       !window.confirm(
         persistRole === "research"
-          ? `将 ŷ_oo_rank 写入 ${target}？Holdout 前训 LambdaRank；成交明细 oo_rank=1..n；过入场后作买序。`
-          : `将当前研究套 ŷ_oo_rank 晋级为执行套？过入场后作买序。`
+          ? `将 ŷ_oo_rank 写入 ${target}？Holdout 前训 LambdaRank；成交明细 oo_rank=1..n；进合成 rank_score（买序/阈值）。`
+          : `将当前研究套 ŷ_oo_rank 晋级为执行套？进合成 rank_score（买序/阈值）。`
       )
     ) {
       return;
@@ -4069,8 +4069,8 @@ export function initQuant(ctx) {
     if (
       !window.confirm(
         persistRole === "research"
-          ? `将 ŷ_τc_rank 写入 ${target}？Holdout 前训 LambdaRank。不进 fuse、不改买序；与 oo_rank 共用 rank 阈值。`
-          : `将当前研究套 ŷ_τc_rank 晋级为执行套？不改买序；与 oo_rank 共用 rank 入场。`
+          ? `将 ŷ_τc_rank 写入 ${target}？Holdout 前训 LambdaRank。不进 fuse；进合成 rank_score（买序/阈值）。`
+          : `将当前研究套 ŷ_τc_rank 晋级为执行套？进合成 rank_score（买序/阈值）。`
       )
     ) {
       return;

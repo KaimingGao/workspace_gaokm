@@ -560,7 +560,7 @@ L1/L2 按 schema 分目录。观察池名单变化后，旧 `universe_hash` 目�
 | 日线卡 | 两块：L0 日 K 仓 + 物化卡「物化特征（L1/L2）」= open L1（oo/tc）+ open Cube |
 | 分钟线卡 | 两块：L0 5m 仓 + 物化卡 Ready 后「物化特征（L1/L2）」= τ 网格 L1 + 按钟 Cube |
 | τ 网格进度 | 文案 `L1 τ 网格 HH:MM（k/N）`：`N`=`suggested_tau_clocks` 钟数（默认 **18**=09:35…11:00 每 5m，不含 open/09:30）；Job `current/total` 仍钉宏步（如 0/2） |
-| 状态条 | L0 与物化各有 chip+msg+progress；**蓝**=增量/强更，**黄**=物化（对齐按钮 primary/warn）；物化终态 msg 追加「上次更新 YYYY-MM-DD HH:MM」（`job.updated_at`） |
+| 状态条 | L0 与物化各有 chip+msg+progress；**蓝**=增量/强更，**黄**=物化（对齐按钮 primary/warn）；终态 msg「上次更新」：L0/物化均用 `job.updated_at`（Ready/今日跳过时仓 `last_fetched_at` 不变，避免点完时间不跳）；空闲覆盖条仍可显示仓写入时刻 |
 | 刷新接管 | 页加载 **先** `resumeIfRunning`（物化条）**再** `refreshStatus`（L0 覆盖），未接管再 `syncJobSlot`；**running** 后台挂 wait；**7 天内 done**（按 open/τ kind）与 **6h 内 failed** 重画状态条；`clearJobPanels` 清 sticky |
 | waitJob | 见过本 id 后槽位被换 →「已被新任务替换」；前端等待 open **90min** / τ **150min**；**终态看 `result.ok/success`**（勿只信 `status=done`）；等满且槽仍 running → 提示刷新接管（勿标 FAIL）；编排 `ok=false` 进度句为「物化失败」 |
 | waitMinuteJob | 增量 **60min** / 强更 5m **120min** 为软上限（勿再用 30min）；心跳不足 90s 则继续轮询，硬上限 **8h**；心跳停了且已过软上限 → WAIT + 刷新接管（勿标 FAIL）；页加载 `syncJobSlot` 可挂接 |

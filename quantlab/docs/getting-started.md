@@ -163,7 +163,7 @@ WEB_PORT=8001 python3 run_web.py
 | **ŷ_τc** | Holdout `20`，训练窗 `120` | 成交钟到收盘的副轴；要用上一步的 5 分钟 K |
 两张都点完「启用研究」再往下。ŷ_τ30…90 默认折着；拟合即同窗双训 LightGBM + Ridge，启用研究按 Holdout AUC 择优（打平→Ridge）。
 
-**ŷ_oo_rank / ŷ_τc_rank** 可稍后启用：截面名次进成交明细；过 fuse 门槛后买序看 `y_oo_rank_score`；`/replay` fuse「入场 / 强档 / 高阈」里的 **rank 阈值** 看两头相对分均 ≥ 阈值（默认 `0.3`；不是绝对名次；显式空=关）。第一次上手可以不拟合这两张。
+**ŷ_oo_rank / ŷ_τc_rank** 可稍后启用：截面名次进成交明细；过 fuse 门槛后买序看合成 `rank_score`（`w_oo_rank·y_oo_rank_score + w_τc_rank·y_tc_rank_score`，默认 0.6/0.4）；`/replay` fuse「入场 / 强档」里的 **rank 阈值** 限制合成分（默认 `0.3`；不是绝对名次；显式空=关）。可选 **y_*>0** 要求四头均 >0。第一次上手可以不拟合这两张。
 
 「观察池分档」用落盘 LightGBM ŷ_oo / ŷ_τc + 当场拟合排序头 LambdaRank（不覆盖研究套）；交易打分仍用研究套。第一次回测可以不跑它：下一步会把分档勾选全部取消。
 

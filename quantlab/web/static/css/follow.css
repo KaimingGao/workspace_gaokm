@@ -8382,10 +8382,13 @@ body[data-page="replay"] .follow-path-matrix-panel-head {
   display: grid;
   gap: 2px;
   align-content: start;
+  /* 标题 1 行 + note 1 行：三栏表头同高，正文起线对齐 */
+  min-height: 3.35rem;
   padding: 10px 14px 10px 22px;
   border-bottom: 1px solid var(--pm-line);
   box-shadow: inset 3px 0 0 0 var(--pm-accent);
   background: var(--pm-wash);
+  box-sizing: border-box;
 }
 
 body[data-page="replay"] .follow-path-matrix-panel-title {
@@ -8402,6 +8405,9 @@ body[data-page="replay"] .follow-path-matrix-panel-note {
   font-size: 0.68rem;
   color: var(--pm-muted);
   line-height: 1.35;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 body[data-page="replay"] .follow-path-matrix-body {
@@ -8422,6 +8428,10 @@ body[data-page="replay"] .follow-path-matrix-body--row2 > .follow-path-matrix-bo
   height: auto;
 }
 
+body[data-page="replay"] .follow-path-matrix-body--row4 {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
 body[data-page="replay"] .follow-path-matrix-body--row3 {
   grid-template-columns: repeat(3, minmax(0, 1fr));
   align-items: stretch;
@@ -8429,22 +8439,6 @@ body[data-page="replay"] .follow-path-matrix-body--row3 {
 
 body[data-page="replay"] .follow-path-matrix-body--row3 > .follow-path-matrix-box--pair {
   min-width: 0;
-}
-
-body[data-page="replay"] .follow-path-matrix-body--row5 {
-  grid-template-columns: repeat(5, minmax(0, 1fr));
-}
-
-@media (max-width: 900px) {
-  body[data-page="replay"] .follow-path-matrix-body--row5 {
-    grid-template-columns: repeat(5, minmax(0, 1fr));
-  }
-}
-
-@media (max-width: 560px) {
-  body[data-page="replay"] .follow-path-matrix-body--row5 {
-    grid-template-columns: repeat(5, minmax(0, 1fr));
-  }
 }
 
 body[data-page="replay"] .follow-path-matrix-box {

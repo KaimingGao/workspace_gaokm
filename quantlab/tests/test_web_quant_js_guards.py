@@ -328,6 +328,14 @@ class TestWebQuantJsGuards(unittest.TestCase):
         self.assertIn("l0RunningHead", job_js)
         self.assertIn("l0DoneBits", job_js)
         self.assertIn("l0DoneHead", job_js)
+        # 终态「上次更新」优先 job.updated_at：Ready/今日跳过时仓 fetched_at 不变
+        self.assertIn("job?.updated_at", job_js)
+        self.assertIn('!String(bit).startsWith("上次更新")', job_js)
+        # 日线状态条不挂「目标 YYYY-MM-DD」（Expected KPI 已有）；分钟线可 showTarget
+        self.assertIn("showTarget = false", job_js)
+        self.assertIn("showTarget: kind === \"minute\"", job_js)
+        self.assertIn("showTarget: true", minute_js)
+        self.assertNotIn("showTarget: true", bars_js)
         self.assertIn("isJobHeartbeatStale", job_js)
         self.assertIn("jobHeartbeatAge", job_js)
         self.assertIn("installMinuteUi", quant_js)
@@ -1414,10 +1422,8 @@ class TestWebQuantJsGuards(unittest.TestCase):
         self.assertIn("开仓/加仓上涨为命中，清仓/减仓下跌为命中", replay)
         self.assertIn("策略看多（买/加/持仓）的命中率", replay)
         self.assertIn("没有次日开盘不计", replay)
-        self.assertIn(
-            "fuse = w_oo·ŷ_oo + w_τc·ŷ_τc",
-            replay,
-        )
+        self.assertIn("按 fuse 调仓", replay)
+        self.assertIn("买序按 rank_score", replay)
         self.assertNotIn("ŷ_oo残", replay)
         self.assertNotIn("分数仍是 09:30 开盘信息集", replay)
         self.assertIn("截至该钟的 5m 前缀重算", replay)
@@ -1506,7 +1512,7 @@ class TestWebQuantJsGuards(unittest.TestCase):
         self.assertNotIn('name="pm_y_oo_oc_enter"', replay)
         self.assertNotIn('name="pm_y_oo_oc_enabled"', replay)
         self.assertIn('name="pm_y_oo_gt0"', replay)
-        self.assertIn('name="pm_y_τc_gt0"', replay)
+        self.assertNotIn('name="pm_y_τc_gt0"', replay)
         self.assertIn('name="pm_morph_gate"', replay)
         # 形态闸说明改为标题旁「？」tip，旧独占 <span> 文案已下线
         self.assertNotIn(">形态闸</span>", replay)
@@ -1523,8 +1529,9 @@ class TestWebQuantJsGuards(unittest.TestCase):
         self.assertIn("须已启用对应研究/执行套", replay)
         self.assertIn("rank 阈值", replay)
         self.assertNotIn("Rank 阈值", replay)
-        self.assertIn("oo_rank 与 τc_rank", replay)
+        self.assertIn("合成 rank_score", replay)
         self.assertIn("不是 y_oo / y_τc", replay)
+        self.assertIn("fuse / rank 各两权", replay)
         self.assertNotIn("须已落盘 oo_rank 影子模型", replay)
         self.assertNotIn('name="pm_y_hl_gt0"', replay)
         self.assertNotIn('name="pm_y_oo_enter_alt"', replay)
@@ -1534,8 +1541,11 @@ class TestWebQuantJsGuards(unittest.TestCase):
         self.assertNotIn('follow-path-matrix-box-slot-label">启用</span>', replay)
         self.assertNotIn(">Y_HL</span>", replay)
         self.assertNotIn(">Y_OO / Y_OC</span>", replay)
-        self.assertIn(">y_oo &gt; 0</span>", replay)
-        self.assertIn(">y_τc &gt; 0</span>", replay)
+        self.assertIn(">y_* &gt; 0</span>", replay)
+        self.assertNotIn(">y_oo &gt; 0</span>", replay)
+        self.assertNotIn(">y_τc &gt; 0</span>", replay)
+        self.assertIn("四头入场闸", replay)
+        self.assertIn("follow-path-matrix-body--row4", replay)
         self.assertIn('follow-path-matrix-box-slot-label">rank 阈值</span>', replay)
         self.assertNotIn('follow-path-matrix-box-slot-label">Rank 阈值</span>', replay)
         self.assertNotIn('follow-path-matrix-box-slot-label">oo &amp; τc 阈值</span>', replay)
@@ -1553,16 +1563,14 @@ class TestWebQuantJsGuards(unittest.TestCase):
         self.assertIn('value="0.3"', strong_inp)
         self.assertLess(strong.find('name="pm_fuse_strong"'), strong.find('name="pm_oo_tc_score_strong_min"'))
         self.assertLess(strong.find('name="pm_oo_tc_score_strong_min"'), strong.find('name="pm_lot_strong_amount"'))
-        high = replay[replay.find(">高阈</span>") : replay.find('data-panel="other"')]
-        self.assertLess(high.find('name="pm_fuse_high"'), high.find('name="pm_oo_tc_score_high_min"'))
-        self.assertLess(high.find('name="pm_oo_tc_score_high_min"'), high.find('name="pm_lot_high_amount"'))
-        # 高阈旁路不得绕过形态闸 / y_oo>0 / y_τc>0（title 在「高阈」标题前；面板 note 同步）
-        self.assertIn("不绕过形态闸 / y_oo&gt;0 / y_τc&gt;0", replay)
-        self.assertIn(
-            "高阈旁路可救 fuse/rank（0=关；不绕形态闸 / y_oo&gt;0 / y_τc&gt;0）",
-            replay,
-        )
-        self.assertIn("高阈旁路也不得绕过", replay)
+        # 高阈已退役
+        self.assertNotIn(">高阈</span>", replay)
+        self.assertNotIn('name="pm_fuse_high"', replay)
+        self.assertNotIn('name="pm_oo_tc_score_high_min"', replay)
+        self.assertNotIn('name="pm_lot_high_amount"', replay)
+        self.assertIn("过强档改金额与 rank 阈", replay)
+        self.assertIn('name="pm_fusion_w_oo_rank"', replay)
+        self.assertIn('name="pm_fusion_w_tc_rank"', replay)
         self.assertNotIn(">y_oc &gt; 0</span>", replay)
         self.assertNotIn(">y_hl &gt; 0</span>", replay)
         self.assertNotIn("启用 y_hl</span>", replay)
@@ -1573,7 +1581,7 @@ class TestWebQuantJsGuards(unittest.TestCase):
         self.assertNotIn('slot-label">强阈值', replay)
         self.assertNotIn('slot-label">强档股数', replay)
         pm = replay[replay.find('id="paper-path-matrix-form"') : replay.find('id="paper-t0-form"')]
-        self.assertIn("FUSE 权重", pm)
+        self.assertIn(">权重</h4>", pm)
         self.assertIn("FUSE 门槛", pm)
         self.assertIn(">其他</h4>", pm)
         self.assertNotIn("<legend>共用</legend>", pm)
@@ -1683,7 +1691,7 @@ class TestWebQuantJsGuards(unittest.TestCase):
         self.assertIn("Holdout 前训 → oo_rank_model_research.json", panel)
         self.assertIn("Holdout 前训 LambdaRank", quant_js)
         self.assertIn("成交明细 oo_rank=1..n", quant_js)
-        self.assertIn("过入场后作买序", quant_js)
+        self.assertIn("进合成 rank_score（买序/阈值）", quant_js)
         self.assertNotIn("旁路对照，不进 ranking / 买序（成交明细 rank 列）", quant_js)
         self.assertIn(">研究</option>", replay)
         self.assertIn(">执行</option>", replay)
@@ -1839,7 +1847,8 @@ class TestWebQuantJsGuards(unittest.TestCase):
         self.assertNotIn("rank_exit", bt_js)
         self.assertNotIn("y_hl_gt0", bt_js)
         self.assertIn("y_oo_gt0", bt_js)
-        self.assertIn("y_τc_gt0", bt_js)
+        self.assertNotIn("pm_y_τc_gt0", bt_js)
+        self.assertNotIn("y_τc_gt0:", bt_js)
         self.assertIn("oo_tc_score_min", bt_js)
         self.assertIn("pm_oo_tc_score_min", bt_js)
         self.assertNotIn("pm_oo_rank_top50", bt_js)
@@ -1873,6 +1882,7 @@ class TestWebQuantJsGuards(unittest.TestCase):
         result_js = self._read("web", "static", "js", "quant", "bt_result.js")
         self.assertIn("trade_days", result_js)
         self.assertIn('bits.push("形态闸")', result_js)
+        self.assertIn('bits.push("y_*>0")', result_js)
         self.assertIn("morph_gate_enabled", result_js)
         # 调仓影子 Tree 状态条已下线（tree_models / 塌成截距）
         self.assertNotIn("tree_models", result_js)
@@ -2156,8 +2166,8 @@ class TestWebQuantJsGuards(unittest.TestCase):
         self.assertLess(trades_js.find('id: "y_tau"'), trades_js.find('id: "y_oo_rank"'))
         self.assertIn('id: "y_oo_rank"', trades_js)
         self.assertIn('label: "oo_rank",', trades_js)
-        self.assertIn("过入场后按 y_oo_rank_score 买序", trades_js)
-        self.assertIn("共用相对分 rank 阈值（默认 0.3", trades_js)
+        self.assertIn("进合成 rank_score（买序/阈值", trades_js)
+        self.assertIn("默认阈 0.3", trades_js)
         self.assertNotIn("共用门槛 max(oo,τc)<N（默认 10）", trades_js)
         self.assertNotIn("默认 100", trades_js)
         self.assertNotIn("rank < top 50%", trades_js)
@@ -2172,7 +2182,7 @@ class TestWebQuantJsGuards(unittest.TestCase):
         self.assertLess(trades_js.find('id: "y_oo_rank"'), trades_js.find('id: "y_tc_rank"'))
         self.assertIn('id: "y_tc_rank"', trades_js)
         self.assertIn('label: "τc_rank"', trades_js)
-        self.assertIn("与 oo_rank 共用相对分 rank 阈值", trades_js)
+        self.assertIn("进合成 rank_score（买序/阈值；默认阈 0.3", trades_js)
         self.assertIn('col.id === "y_tc_rank"', trades_js)
         self.assertIn('"tc_rank"', trades_js)
         self.assertNotIn("无固定上下界", trades_js)
@@ -4396,7 +4406,7 @@ class TestWebQuantJsGuards(unittest.TestCase):
         self.assertNotIn('name="pm_w_eod"', replay)
         self.assertNotIn('name="pm_w_tau"', replay)
         self.assertNotIn("w_EOD", replay)
-        self.assertIn("FUSE 权重", replay)
+        self.assertIn(">权重</h4>", replay)
         self.assertIn("FUSE 门槛", replay)
         self.assertIn(">其他</h4>", replay)
         self.assertIn("follow-path-matrix-body--row2", replay)
@@ -4412,7 +4422,8 @@ class TestWebQuantJsGuards(unittest.TestCase):
         self.assertNotIn('name="pm_y_oo_oc_enter"', pm)
         self.assertNotIn('name="pm_y_oo_oc_enabled"', pm)
         self.assertIn('name="pm_y_oo_gt0"', pm)
-        self.assertIn('name="pm_y_τc_gt0"', pm)
+        self.assertNotIn('name="pm_y_τc_gt0"', pm)
+        self.assertIn(">y_* &gt; 0</span>", pm)
         self.assertIn('name="pm_oo_tc_score_min"', pm)
         self.assertNotIn('name="pm_oo_rank_top50"', pm)
         self.assertNotIn('name="pm_y_hl_gt0"', pm)
@@ -4420,7 +4431,7 @@ class TestWebQuantJsGuards(unittest.TestCase):
         self.assertNotIn('name="pm_y_enter_enabled"', pm)
         self.assertNotIn('name="pm_y_enter_alt_enabled"', pm)
         self.assertNotIn("paper-t0-cfg-gates", pm)
-        self.assertIn("follow-path-matrix-body--row5", pm)
+        self.assertNotIn("follow-path-matrix-body--row5", pm)
         self.assertIn('name="pm_morph_gate"', pm)
         self.assertNotIn('name="pm_sentiment_gate"', pm)
         self.assertNotIn("follow-path-matrix-box--sent", pm)
@@ -4428,13 +4439,17 @@ class TestWebQuantJsGuards(unittest.TestCase):
         self.assertNotIn("舆情先验", pm)
         self.assertNotIn('aria-label="舆情先验说明"', pm)
         self.assertIn(
-            'name="pm_fuse_high" min="0" max="10" step="0.01" value="1"',
+            'name="pm_fusion_w_oo_rank" min="0.0" max="1.0" step="0.05" value="0.6"',
             pm,
         )
         self.assertIn(
-            'name="pm_oo_tc_score_high_min" min="-5" max="5" step="0.01" value="0.3"',
+            'name="pm_fusion_w_tc_rank" min="0.0" max="1.0" step="0.05" value="0.4"',
             pm,
         )
+        self.assertNotIn('name="pm_fuse_high"', pm)
+        self.assertNotIn('name="pm_oo_tc_score_high_min"', pm)
+        self.assertNotIn('name="pm_lot_high_amount"', pm)
+        self.assertIn("follow-path-matrix-body--row4", pm)
         self.assertNotIn("follow-path-matrix-body--row4", t0)
         self.assertNotIn("follow-path-matrix-body--row5", t0)
         fuse = pm[pm.find('data-panel="rank"') : pm.find('data-panel="other"')]
@@ -4541,13 +4556,14 @@ class TestWebQuantJsGuards(unittest.TestCase):
         self.assertIn("morph_gate_enabled", exe_ui)
         self.assertNotIn("pm_sentiment_gate", exe_ui)
         self.assertIn("sentiment_gate_enabled: false", exe_ui)
-        # 高阈 UI 缺省回落 1.0%（旧盘 ≤0 不再填 0）
-        self.assertIn(
-            'highScore != null && Number(highScore) > 0 ? fuseScoreToPct(highScore) : 1',
-            exe_ui,
-        )
-        self.assertIn('numFirst(["pm_fuse_high"], 1)', exe_ui)
-        self.assertIn("pm_oo_tc_score_high_min", exe_ui)
+        # 高阈已退役；rank 权重落盘
+        self.assertNotIn("pm_fuse_high", exe_ui)
+        self.assertNotIn("pm_oo_tc_score_high_min", exe_ui)
+        self.assertNotIn("pm_lot_high_amount", exe_ui)
+        self.assertIn("pm_fusion_w_oo_rank", exe_ui)
+        self.assertIn("pm_fusion_w_tc_rank", exe_ui)
+        self.assertIn("fusion_w_oo_rank", exe_ui)
+        self.assertIn("fusion_w_tc_rank", exe_ui)
         # 门槛写死在引擎：UI/保存体/回测请求均不带 morph_* 门槛字段
         self.assertNotIn("pm_morph_vol_pctl", exe_ui)
         self.assertNotIn("pm_morph_a1_max", exe_ui)
@@ -4582,7 +4598,7 @@ class TestWebQuantJsGuards(unittest.TestCase):
         exe_forms = self._read("web", "static", "js", "paper", "execution_forms.js")
         self.assertIn("morph-gate-tip", exe_forms)
         self.assertIn("follow-path-matrix-morph-tip-btn", exe_forms)
-        self.assertIn("pm_y_τc_gt0", exe_ui)
+        self.assertNotIn("pm_y_τc_gt0", exe_ui)
         self.assertIn("pm_oo_tc_score_min", exe_ui)
         self.assertIn("oo_tc_score_min", exe_ui)
         self.assertIn("pm_oo_tc_score_strong_min", exe_ui)
@@ -4641,7 +4657,7 @@ class TestWebQuantJsGuards(unittest.TestCase):
         self.assertIn("已恢复默认", forms)
         self.assertIn("quantlab-replay-desk-persist", forms)
         self.assertNotIn("已保存规则 · 交易执行将按此落地", forms)
-        # 嵌套 execution_ui 必须跟 __ASSET_V__，否则旧 ?v= 硬钉缓存会丢掉 morph_gate / 高阈等新字段
+        # 嵌套 execution_ui 必须跟 __ASSET_V__，否则旧 ?v= 硬钉缓存会丢掉 morph_gate / rank 权重等字段
         self.assertIn("__ASSET_V__", forms)
         self.assertIn("execution_ui.js?v=", forms)
         self.assertNotIn("execution_ui.js?v=p3378", forms)
@@ -5293,6 +5309,7 @@ class TestWebQuantJsGuards(unittest.TestCase):
         self.assertNotIn("Y_τ*中位点%", ui)
         self.assertNotIn("Y_τw中位点%", ui)
         self.assertNotIn('name="fusion_w_tc"', panel)
+        self.assertNotIn('"fusion_w_tc":', ui)
         self.assertNotIn('name="residual_w_oc"', panel)
         self.assertNotIn('name="residual_w_mode"', panel)
         self.assertIn("t0_price_space_gate: true", ui)
@@ -5332,7 +5349,9 @@ class TestWebQuantJsGuards(unittest.TestCase):
         self.assertNotIn('Math.min(num("y_t90_enter_alt", 0), 0.7)', ui)
         self.assertNotIn("r_tau_enter", ui)
         self.assertNotIn("r_tau_enter_alt", ui)
-        self.assertNotIn("fusion_w_tc", ui)
+        # 旧键 fusion_w_tc 已退役；fusion_w_tc_rank 是新 rank 权，允许出现
+        self.assertNotIn('"fusion_w_tc":', ui)
+        self.assertNotIn("fusion_w_tc,", ui)
         self.assertNotIn("residual_w_oc", ui)
         self.assertNotIn("residual_w_mode", ui)
         self.assertNotIn('"门槛1"', ui)

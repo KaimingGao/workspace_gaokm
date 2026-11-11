@@ -53,11 +53,7 @@ export function renderPaperRulesHtml(data) {
   if (pm) {
     const enter = coerceFuseChip(pm.fuse_enter, 0.001);
     const strong = coerceFuseChip(pm.fuse_strong, 0.001);
-    const high = coerceFuseChip(pm.fuse_high, 0.01);
-    let rankLabel = `入场${(Number(enter) * 100).toFixed(1)}% · 强${(Number(strong) * 100).toFixed(1)}%`;
-    if (Number(high) > 0) {
-      rankLabel += ` · 高阈${(Number(high) * 100).toFixed(1)}%`;
-    }
+    const rankLabel = `入场${(Number(enter) * 100).toFixed(1)}% · 强${(Number(strong) * 100).toFixed(1)}%`;
     chips.push(["rank", rankLabel]);
   }
   if (exe.effective_hash) {

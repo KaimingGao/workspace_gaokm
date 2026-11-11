@@ -351,8 +351,9 @@ function coverageDay(raw) {
   return /^\d{4}-\d{2}-\d{2}$/.test(s) ? s : "";
 }
 
-/** 日线 / 分钟线覆盖条：数据落到哪一天、仓上次写入时间。目标日只在和末 bar 不一致时出现。 */
-export function l0CoverageFacts(data) {
+/** 日线 / 分钟线覆盖条：数据落到哪一天、仓上次写入时间。
+ *  ``showTarget``：分钟线在末 bar≠期望日时附「目标」；日线已有 Expected KPI，默认关。 */
+export function l0CoverageFacts(data, { showTarget = false } = {}) {
   try {
     if (!data || typeof data !== "object") return [];
     const bits = [];
@@ -362,8 +363,10 @@ export function l0CoverageFacts(data) {
     else if (hi) bits.push(`更新至 ${hi}`);
     const when = fmtCoverageTime(data.last_fetched_at);
     if (when) bits.push(`上次更新 ${when}`);
-    const target = coverageDay(data.expected_latest_bar);
-    if (target && target !== hi) bits.push(`目标 ${target}`);
+    if (showTarget) {
+      const target = coverageDay(data.expected_latest_bar);
+      if (target && target !== hi) bits.push(`目标 ${target}`);
+    }
     return bits;
   } catch (_) {
     return [];
@@ -414,15 +417,26 @@ export function l0DoneBits(sum, kind) {
 /** 完成态状态条：标题 · 计数 · 更新至 · 上次更新。没有写入时间时才退回相对年龄。 */
 export function l0DoneHead(sum, kind, coverage, job) {
   try {
+    // 仓 last_fetched_at 只表示真实落盘；Ready/今日跳过时不变。
+    // 终态「上次更新」优先 job.updated_at（对齐物化），否则点完仍像没更新。
+    const facts = l0CoverageFacts(coverage, {
+      showTarget: kind === "minute",
+    }).filter((bit) => !String(bit).startsWith("上次更新"));
     const head = [
       l0DoneTitle(sum),
       ...l0DoneBits(sum || {}, kind),
-      ...l0CoverageFacts(coverage),
+      ...facts,
     ];
-    const hasWhen = head.some((bit) => String(bit).startsWith("上次更新"));
-    const updated = Number(job?.updated_at);
-    if (!hasWhen && Number.isFinite(updated) && updated > 0) {
-      head.push(fmtAgeSec(Date.now() / 1000 - updated));
+    const jobWhen = fmtCoverageTime(job?.updated_at);
+    const coverWhen = fmtCoverageTime(coverage?.last_fetched_at);
+    const when = jobWhen || coverWhen;
+    if (when) {
+      head.push(`上次更新 ${when}`);
+    } else {
+      const updated = Number(job?.updated_at);
+      if (Number.isFinite(updated) && updated > 0) {
+        head.push(fmtAgeSec(Date.now() / 1000 - updated));
+      }
     }
     return head.filter(Boolean);
   } catch (_) {

@@ -408,7 +408,6 @@ export function installBacktest(q) {
       if (req.initial_cash != null) setName("pm_initial_cash", req.initial_cash);
       if (req.lot_base_amount != null) setName("pm_lot_base_amount", req.lot_base_amount);
       if (req.lot_strong_amount != null) setName("pm_lot_strong_amount", req.lot_strong_amount);
-      if (req.lot_high_amount != null) setName("pm_lot_high_amount", req.lot_high_amount);
       // 历史回测不再按拟合档过滤；只用观察池分档勾选
       if (Array.isArray(req.predictability_tiers)) {
         const set = new Set(
@@ -447,6 +446,10 @@ export function installBacktest(q) {
     if (wOc != null) {
       setName("pm_fusion_w_nc", wOc);
     }
+    const wOoRank = clamp01(req.fusion_w_oo_rank);
+    const wTcRank = clamp01(req.fusion_w_tc_rank);
+    if (wOoRank != null) setName("pm_fusion_w_oo_rank", wOoRank);
+    if (wTcRank != null) setName("pm_fusion_w_tc_rank", wTcRank);
     const enterScore = req.fuse_enter;
     const strongScore =
       req.fuse_strong != null ? req.fuse_strong : enterScore;
@@ -458,29 +461,23 @@ export function installBacktest(q) {
     if (strongPct) {
       setName("pm_fuse_strong", strongPct);
     }
-    const highScore = req.fuse_high;
-    if (highScore != null && Number(highScore) > 0) {
-      const highPct = scoreToRankPct(highScore);
-      if (highPct) setName("pm_fuse_high", highPct);
-      else setName("pm_fuse_high", 1);
-    } else {
-      // UI 默认 1.0%；旧盘 ≤0 / 缺键不再填 0
-      setName("pm_fuse_high", 1);
-    }
     const setChk = (name, val, fallback) => {
       const el = form && form.querySelector(`[name="${name}"]`);
       if (!el || el.type !== "checkbox") return;
       el.checked = coerceCfgBool(val, fallback);
     };
-    setChk("pm_y_oo_gt0", req.y_oo_gt0, false);
-    setChk("pm_y_τc_gt0", req.y_τc_gt0, false);
+    setChk(
+      "pm_y_oo_gt0",
+      req.y_oo_gt0 === true || req.y_τc_gt0 === true,
+      false,
+    );
     setChk("pm_morph_gate", req.morph_gate_enabled, false);
     const clampScore = (v, fb) => {
       const n = Number(v);
       if (!Number.isFinite(n)) return fb;
       return Math.max(-5, Math.min(5, Math.round(n * 10000) / 10000));
     };
-    // rank 阈值：oo_rank / τc_rank（不是 y_oo / y_τc）；空=关
+    // rank 阈值：合成 rank_score（不是 y_oo / y_τc）；空=关
     if (Object.prototype.hasOwnProperty.call(req, "oo_tc_score_min")) {
       const sc = req.oo_tc_score_min;
       if (sc == null || sc === "") setName("pm_oo_tc_score_min", "", { allowEmpty: true });
@@ -497,16 +494,6 @@ export function installBacktest(q) {
       }
     } else {
       setName("pm_oo_tc_score_strong_min", 0.3);
-    }
-    if (Object.prototype.hasOwnProperty.call(req, "oo_tc_score_high_min")) {
-      const sc = req.oo_tc_score_high_min;
-      if (sc == null || sc === "") {
-        setName("pm_oo_tc_score_high_min", "", { allowEmpty: true });
-      } else {
-        setName("pm_oo_tc_score_high_min", clampScore(sc, 0.3));
-      }
-    } else {
-      setName("pm_oo_tc_score_high_min", 0.3);
     }
   }
 
@@ -791,15 +778,13 @@ export function installBacktest(q) {
     let lot_base_amount = val("pm_lot_base_amount", 10000);
     let lot_strong_amount = val("pm_lot_strong_amount", lot_base_amount);
     if (lot_strong_amount < lot_base_amount) lot_strong_amount = lot_base_amount;
-    const lot_high_amount = val("pm_lot_high_amount", 100000);
     const setIf = (name, v) => {
       const el = form && form.querySelector(`[name="${name}"]`);
       if (el && el.value !== String(v)) el.value = String(v);
     };
     setIf("pm_lot_base_amount", lot_base_amount);
     setIf("pm_lot_strong_amount", lot_strong_amount);
-    setIf("pm_lot_high_amount", lot_high_amount);
-    return { lot_base_amount, lot_strong_amount, lot_high_amount };
+    return { lot_base_amount, lot_strong_amount };
   }
 
   function readPriceSpaceGate() {
@@ -818,12 +803,16 @@ export function installBacktest(q) {
         return {
           fusion_w_oo: lots.fusion_w_oo,
           fusion_w_oc: lots.fusion_w_oc,
+          fusion_w_oo_rank: lots.fusion_w_oo_rank,
+          fusion_w_tc_rank: lots.fusion_w_tc_rank,
         };
       }
     }
     return {
       fusion_w_oo: 0.6,
       fusion_w_oc: 0.4,
+      fusion_w_oo_rank: 0.6,
+      fusion_w_tc_rank: 0.4,
     };
   }
 
@@ -855,21 +844,14 @@ export function installBacktest(q) {
         const enter = lots.fuse_enter;
         const strong =
           lots.fuse_strong != null ? lots.fuse_strong : enter;
-        const high =
-          lots.fuse_high != null && Number(lots.fuse_high) > 0
-            ? Number(lots.fuse_high)
-            : 0;
         return {
           fuse_enter: enter,
           fuse_strong: strong,
-          fuse_high: high,
           y_oo_gt0: lots.y_oo_gt0 === true,
-          y_τc_gt0: lots.y_τc_gt0 === true,
           morph_gate_enabled: lots.morph_gate_enabled === true,
           sentiment_gate_enabled: false,
           oo_tc_score_min: clampSc(lots.oo_tc_score_min, 0.3),
           oo_tc_score_strong_min: clampSc(lots.oo_tc_score_strong_min, 0.3),
-          oo_tc_score_high_min: clampSc(lots.oo_tc_score_high_min, 0.3),
         };
       }
     }
@@ -877,10 +859,8 @@ export function installBacktest(q) {
     return {
       fuse_enter: enter,
       fuse_strong: enter,
-      fuse_high: 0.01,
       oo_tc_score_min: 0.3,
       oo_tc_score_strong_min: 0.3,
-      oo_tc_score_high_min: 0.3,
       morph_gate_enabled: false,
       sentiment_gate_enabled: false,
     };
@@ -1528,20 +1508,18 @@ export function installBacktest(q) {
         benchmark_code,
         fusion_w_oo,
         fusion_w_oc,
+        fusion_w_oo_rank,
+        fusion_w_tc_rank,
         fuse_enter,
         fuse_strong,
-        fuse_high,
         y_oo_gt0,
-        y_τc_gt0,
         morph_gate_enabled,
         oo_tc_score_min,
         oo_tc_score_strong_min,
-        oo_tc_score_high_min,
         initial_cash,
         fill_clock,
         lot_base_amount,
         lot_strong_amount,
-        lot_high_amount,
         use_predictability_tiers,
         predictability_tiers,
         price_space_gate,
@@ -1549,13 +1527,6 @@ export function installBacktest(q) {
       const enterThresh = fuse_enter;
       const strongThresh =
         fuse_strong != null ? fuse_strong : enterThresh;
-      // 缺省跟 UI 高阈 1%；显式 0=关
-      const highThresh =
-        fuse_high == null
-          ? 0.01
-          : Number(fuse_high) > 0
-            ? Number(fuse_high)
-            : 0;
       const clampSc = (v, fb) => {
         if (v == null || v === "") return null;
         const n = Number(v);
@@ -1585,21 +1556,19 @@ export function installBacktest(q) {
         benchmark_code,
         fusion_w_oo,
         fusion_w_oc,
+        fusion_w_oo_rank,
+        fusion_w_tc_rank,
         fuse_enter: enterThresh,
         fuse_strong: strongThresh,
-        fuse_high: highThresh,
         y_oo_gt0: y_oo_gt0 === true,
-        y_τc_gt0: y_τc_gt0 === true,
         morph_gate_enabled: morph_gate_enabled === true,
         sentiment_gate_enabled: false,
         oo_tc_score_min: clampSc(oo_tc_score_min, 0.3),
         oo_tc_score_strong_min: clampSc(oo_tc_score_strong_min, 0.3),
-        oo_tc_score_high_min: clampSc(oo_tc_score_high_min, 0.3),
         initial_cash,
         fill_clock,
         lot_base_amount,
         lot_strong_amount,
-        lot_high_amount,
         use_predictability_tiers: !!use_predictability_tiers,
         predictability_tiers: use_predictability_tiers
           ? predictability_tiers || ["A"]

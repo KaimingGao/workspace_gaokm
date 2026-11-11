@@ -1042,12 +1042,12 @@ function formatCompactOoRankTip(raw) {
     `</div>` +
     `<div class="score-hero-hint">ŷ_oo_rank · 1=最高 · 相对分 ${escapeText(
       scoreTxt
-    )} · ${backendHint} · 不进 fuse / y_oo_fuse；过入场后作买序</div>` +
+    )} · ${backendHint} · 不进 fuse；进合成 rank_score（买序/阈值）</div>` +
     `</div>`
   );
 }
 
-/** 成交明细 τc_rank 列：截面名次 + 相对分。与 oo_rank 取 max 作入场闸。 */
+/** 成交明细 τc_rank 列：截面名次 + 相对分；进合成 rank_score。 */
 function formatCompactTcRankTip(raw) {
   const ord =
     raw && raw.y_tc_rank != null && Number.isFinite(Number(raw.y_tc_rank))
@@ -1089,7 +1089,7 @@ function formatCompactTcRankTip(raw) {
     `</div>` +
     `<div class="score-hero-hint">ŷ_τc_rank · 1=最高 · 相对分 ${escapeText(
       scoreTxt
-    )} · ${backendHint} · 与 oo_rank 取 max 作入场闸；不进 fuse / 不改买序</div>` +
+    )} · ${backendHint} · 不进 fuse；进合成 rank_score（买序/阈值）</div>` +
     `</div>`
   );
 }
@@ -2618,7 +2618,7 @@ export function createScoreTooltipController() {
         termsHtml ||
           `<div class="score-formula-section">` +
             `<div class="score-section-title">ŷ_τc_rank 组成</div>` +
-            `<div class="score-formula-caption">无因子拆解（旧回测未落盘）。重跑回测后悬停可见 LightGBM / LambdaRank pred_contrib。与 oo_rank 取 max 作入场闸。</div>` +
+            `<div class="score-formula-caption">无因子拆解（旧回测未落盘）。重跑回测后悬停可见 LightGBM / LambdaRank pred_contrib。进合成 rank_score。</div>` +
             `</div>`,
       ].filter(Boolean);
       showCompactScoreTip(cell, parts.join(""), { sticky });

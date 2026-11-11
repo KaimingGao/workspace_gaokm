@@ -956,12 +956,12 @@ function rankOrdinal(raw, nRaw) {
       );
       const ooRankTitle =
         ooRank.text === "—"
-          ? "oo_rank — · 无已启用模型或未写入；不进 fuse；过入场后作买序；与 τc_rank 共用 rank 入场"
-          : `当日截面第 ${ooRank.text} 名 / ${ooRank.n} · 1=相对分最高 · 不进 fuse；过入场后作买序；与 τc_rank 共用 rank 入场`;
+          ? "oo_rank — · 无已启用模型或未写入；不进 fuse；进合成 rank_score（买序/阈值）"
+          : `当日截面第 ${ooRank.text} 名 / ${ooRank.n} · 1=相对分最高 · 不进 fuse；进合成 rank_score（买序/阈值）`;
       const tcRankTitle =
         tcRank.text === "—"
-          ? "τc_rank — · 无已启用模型或未写入 · 与 oo_rank 共用 rank 入场；不进 fuse / 不改买序"
-          : `当日截面第 ${tcRank.text} 名 / ${tcRank.n} · 1=相对分最高 · 与 oo_rank 共用 rank 入场；不进 fuse / 不改买序`;
+          ? "τc_rank — · 无已启用模型或未写入 · 不进 fuse；进合成 rank_score（买序/阈值）"
+          : `当日截面第 ${tcRank.text} 名 / ${tcRank.n} · 1=相对分最高 · 不进 fuse；进合成 rank_score（买序/阈值）`;
       const tipDetailJson = escapeText(
         JSON.stringify(tipDetailPayload(r))
       );
@@ -1117,12 +1117,12 @@ function rankOrdinal(raw, nRaw) {
     }</div>` +
     `<div class="rebalance-th num is-sortable${
       _rankSort.key === "oo_rank" ? " is-sorted" : ""
-    }" role="columnheader" tabindex="0" data-rank-sort="oo_rank" title="ŷ_oo_rank 当日观察池截面名次 · 1=相对分最高 · 点击排序 · 过入场后作买序；与 τc_rank 共用 rank 入场">oo_rank${
+    }" role="columnheader" tabindex="0" data-rank-sort="oo_rank" title="ŷ_oo_rank 当日观察池截面名次 · 1=相对分最高 · 点击排序 · 进合成 rank_score（买序/阈值）">oo_rank${
       _rankSort.key === "oo_rank" ? (_rankSort.desc ? " ↓" : " ↑") : ""
     }</div>` +
     `<div class="rebalance-th num is-sortable${
       _rankSort.key === "tc_rank" ? " is-sorted" : ""
-    }" role="columnheader" tabindex="0" data-rank-sort="tc_rank" title="ŷ_τc_rank 当日截面名次 · 1=相对分最高 · 点击排序 · 与 oo_rank 共用 rank 入场；不进 fuse / 不改买序">τc_rank${
+    }" role="columnheader" tabindex="0" data-rank-sort="tc_rank" title="ŷ_τc_rank 当日截面名次 · 1=相对分最高 · 点击排序 · 不进 fuse；进合成 rank_score（买序/阈值）">τc_rank${
       _rankSort.key === "tc_rank" ? (_rankSort.desc ? " ↓" : " ↑") : ""
     }</div>` +
     `</div>` +

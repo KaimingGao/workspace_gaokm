@@ -267,7 +267,7 @@ def _attach_open_yhat_heads(
     except Exception:  # noqa: BLE001
         logger.debug("oo_rank import failed", exc_info=True)
 
-    # ŷ_oo_rank：整日截面批打分后再编 1..n 名次；不改 y_oo_fuse；过入场后作买序
+    # ŷ_oo_rank：整日截面批打分后再编 1..n 名次；不改 y_oo_fuse；相对分进合成 rank_score
     if apply_oo_rank_scores is not None and oo_rank_doc is not None:
         try:
             apply_oo_rank_scores(

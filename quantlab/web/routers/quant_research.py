@@ -168,7 +168,7 @@ def quant_tc_lgb_model() -> Dict[str, Any]:
 @router.post("/api/quant/oo-rank")
 
 def quant_oo_rank(body: OoRankRequest) -> Dict[str, Any]:
-    """ŷ_oo_rank：单头 LambdaRank（成交 oo_rank=1..n；过入场后作买序；与 τc_rank 共用 rank 相对分闸）。persist 只写盘，不重训。"""
+    """ŷ_oo_rank：单头 LambdaRank（成交 oo_rank=1..n；进合成 rank_score（买序/阈值））。persist 只写盘，不重训。"""
     try:
         return deps.quant.run_oo_rank_experiment(
             lookback=body.lookback,
@@ -198,7 +198,7 @@ def quant_oo_rank_model() -> Dict[str, Any]:
 @router.post("/api/quant/tc-rank")
 
 def quant_tc_rank(body: TcRankRequest) -> Dict[str, Any]:
-    """ŷ_τc_rank：单头 LambdaRank（标签 price[τ]→close[T]；前缀与 ŷ_τc 同组）。persist 只写盘；不改买序；与 oo_rank 共用 rank 相对分闸。"""
+    """ŷ_τc_rank：单头 LambdaRank（标签 price[τ]→close[T]；前缀与 ŷ_τc 同组）。persist 只写盘；进合成 rank_score（买序/阈值）。"""
     try:
         return deps.quant.run_tc_rank_experiment(
             lookback=body.lookback,

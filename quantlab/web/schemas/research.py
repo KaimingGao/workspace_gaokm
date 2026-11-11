@@ -129,7 +129,7 @@ class TcLgbRequest(_CrossSectionZscore):
 
 
 class OoRankRequest(_CrossSectionZscore):
-    """ŷ_oo_rank：单头 LambdaRank；成交 oo_rank=1..n；过入场后作买序；与 τc_rank 共用 rank 相对分闸。"""
+    """ŷ_oo_rank：单头 LambdaRank；成交 oo_rank=1..n；进合成 rank_score（买序/阈值）。"""
 
     lookback: int = Field(default=700, ge=FIT_LOOKBACK_MIN, le=FIT_LOOKBACK_MAX)
     watching_limit: int = Field(
@@ -184,7 +184,7 @@ class OoRankRequest(_CrossSectionZscore):
 
 
 class TcRankRequest(OoRankRequest):
-    """ŷ_τc_rank：单头 LambdaRank；标签 price[τ]→close[T]。启用只落盘；不进 fuse、不改买序；与 oo_rank 共用 rank 入场。"""
+    """ŷ_τc_rank：单头 LambdaRank；标签 price[τ]→close[T]。启用只落盘；不进 fuse；进合成 rank_score（买序/阈值）。"""
 
     tau_end_hm: Optional[str] = Field(
         default=None,

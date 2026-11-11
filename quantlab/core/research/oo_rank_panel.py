@@ -6,7 +6,7 @@
 默认 4 进程（与 ``OO_RIDGE_WORKERS`` / ``_resolve_workers`` 同口径）。
 默认口径（绝对收益、全注册因子、窗口不超过 alpha_oo 抬窗）直接读 L1 ``oo/``，
 不重算。超额收益或无法复用 oo 指纹时才单独 collect。
-不进 y_oo_fuse；过入场后作买序；入场 rank 阈值看 ``oo_tc_score_min``（相对分，不是绝对名次）。
+不进 y_oo_fuse；相对分进合成 rank_score（买序/阈值；``oo_tc_score_min``，不是绝对名次）。
 """
 
 from __future__ import annotations

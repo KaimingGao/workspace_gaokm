@@ -327,7 +327,11 @@ export function installMinuteUi(q) {
     const missing = data.missing ?? 0;
     const med = data.minute_span_days_med ?? 0;
     const pct = total > 0 ? Math.round((1000 * ok) / total) / 10 : 0;
-    const parts = [`Ready ${pct}% (${ok}/${total})`, ...l0CoverageFacts(data), `span med ${med}d`];
+    const parts = [
+      `Ready ${pct}% (${ok}/${total})`,
+      ...l0CoverageFacts(data, { showTarget: true }),
+      `span med ${med}d`,
+    ];
     if (short > 0) parts.push(`Short ${short}`);
     if (missing > 0) parts.push(`Missing ${missing}`);
     let state = "ok";
@@ -409,7 +413,7 @@ export function installMinuteUi(q) {
         <div><dt>Universe</dt><dd>watching · Limit ${esc(limit)} · ${total} 只</dd></div>
         <div><dt>Lookback</dt><dd>新浪近端约 41 交易日 · Ready 近 ${esc(minSpan)} 交易日无缺 · 增量跳过跨度≥20日且末根对齐</dd></div>
         <div><dt>Span</dt><dd>med ${esc(data.minute_span_days_med ?? "—")}d · ${esc(data.minute_span_days_min ?? "—")}→${esc(data.minute_span_days_max ?? "—")}</dd></div>
-        <div><dt>Updated</dt><dd>${l0CoverageFacts(data).map((bit) => esc(bit)).join(" · ") || "—"}</dd></div>
+        <div><dt>Updated</dt><dd>${l0CoverageFacts(data, { showTarget: true }).map((bit) => esc(bit)).join(" · ") || "—"}</dd></div>
       </dl>
       <div class="quant-bars-strip-badges">${badges.join("")}</div>
     </div>`;
@@ -869,13 +873,15 @@ export function installMinuteUi(q) {
         const mw = minuteWarmup({ result }, modeS);
         const polled =
           lastPolledJob && (lastPolledJob.id || lastPolledJob.message) ? lastPolledJob : null;
+        const doneAt = Date.now() / 1000;
         const jobForDone = polled
           ? {
               ...polled,
               result: polled.result || result || null,
               result_summary: mw,
+              updated_at: Number(polled.updated_at) > 0 ? polled.updated_at : doneAt,
             }
-          : { result_summary: mw, result: result || {}, updated_at: Date.now() / 1000 };
+          : { result_summary: mw, result: result || {}, updated_at: doneAt };
         clearJobPanels();
         applyJobSuccess(jobForDone, modeS);
       } catch (err) {

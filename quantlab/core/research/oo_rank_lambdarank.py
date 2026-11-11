@@ -6,7 +6,7 @@
 推理：相对分 → 当日截面 1..n 名次（1=最高）。
 启用研究/执行：落盘 LambdaRank（``backend=auto`` / ``lambdarank`` 同义；``ridge`` 拒）。
 回测 / live 只消费已启用模型，无 backend 开关。
-不进 y_oo_fuse；过入场后作买序；可选 rank 相对分闸（UI「rank 阈值」）。
+不进 y_oo_fuse；相对分进合成 rank_score（买序/阈值；UI「rank 阈值」）。
 """
 
 from __future__ import annotations
@@ -115,7 +115,7 @@ def assign_oo_rank_day_ranks(items: Sequence[dict]) -> List[dict]:
     """把当日截面相对分改成 1..n 名次（1=相对分最高）。
 
     原始分写入 ``y_oo_rank_score``；``y_oo_rank`` / hat / predicted_score_oo_rank 改为整数名次。
-    同分按 ``stock_code`` 稳定破平。不改 y_oo_fuse；过入场后作买序。
+    同分按 ``stock_code`` 稳定破平。不改 y_oo_fuse；相对分进合成 rank_score。
     """
 
     def _sort_key(it: dict) -> Tuple[float, str]:
@@ -1596,7 +1596,7 @@ def apply_oo_rank_scores(
     day_cube: Any = None,
     clock: str = "open",
 ) -> List[dict]:
-    """就地写入 y_oo_rank；缺 sub_scores 则跳过。不改 y_oo_fuse；过入场后作买序。
+    """就地写入 y_oo_rank；缺 sub_scores 则跳过。不改 y_oo_fuse；相对分进合成 rank_score。
 
     截面 z 只用全池 L2（``day_cube`` / ``cs_z_*_prefer_cube``）；缺 Cube 不写分。
     ``score_codes`` 只限制写分/名次；训练宇宙（A）不影响打分 z。
@@ -2258,7 +2258,7 @@ def fit_oo_rank_report(
     def _pack(backend_key: str, holdout_src: Dict[str, Any]) -> Dict[str, Any]:
         note = (
             "LambdaRank；模型输出相对分；live/回测成交明细编成当日截面 1..n 名次（1=最高）；"
-            "不进 y_oo_fuse；过入场后作买序；可选 rank 相对分闸"
+            "不进 y_oo_fuse；相对分进合成 rank_score（买序/阈值）"
         )
         y_spec = dict(y_spec_base, backend=backend_key, note=note)
         research = _stamp_oo_rank_model_meta(
@@ -2315,7 +2315,7 @@ def fit_oo_rank_report(
             "ŷ_oo_rank=LambdaRank；只训 Holdout 前一套；"
             "启用研究→研究槽；启用执行=研究槽晋级；"
             "OOS 主看 Gate lift；IC 仅对照；"
-            "不进 y_oo_fuse；过入场后作买序；成交明细编当日截面 1..n 名次；"
+            "不进 y_oo_fuse；相对分进合成 rank_score；成交明细编当日截面 1..n 名次；"
             "可选 rank 相对分闸"
         ),
     }

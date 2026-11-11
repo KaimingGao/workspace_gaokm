@@ -385,8 +385,8 @@ export function renderPaperRebalanceWorkerDesk(el, desk) {
     `<th scope="col" class="num paper-rb-col-open" title="当日开盘价">今开</th>` +
     `<th scope="col" class="num paper-rb-col-amt" title="成交金额">金额</th>` +
     `<th scope="col" class="num paper-t0-col-clock" title="当时 fuse">fuse</th>` +
-    `<th scope="col" class="num paper-rb-col-rank" title="ŷ_oo_rank 当日观察池截面名次 · 1=相对分最高 · 过入场后作买序">oo_rank</th>` +
-    `<th scope="col" class="num paper-rb-col-rank" title="ŷ_τc_rank 当日截面名次 · 与 oo_rank 共用 rank 入场 · 不进 fuse / 不改买序">τc_rank</th>` +
+    `<th scope="col" class="num paper-rb-col-rank" title="ŷ_oo_rank 当日观察池截面名次 · 1=相对分最高 · 进合成 rank_score（买序/阈值）">oo_rank</th>` +
+    `<th scope="col" class="num paper-rb-col-rank" title="ŷ_τc_rank 当日截面名次 · 不进 fuse；进合成 rank_score（买序/阈值）">τc_rank</th>` +
     `<th scope="col" class="paper-t0-col-reason">说明</th>` +
     `</tr></thead><tbody>${body}</tbody></table></div>` +
     foot +

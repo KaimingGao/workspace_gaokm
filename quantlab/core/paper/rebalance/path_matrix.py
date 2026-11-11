@@ -3,6 +3,7 @@
 Follow / 历史回测 / 自动调仓都走 ``rank_lots``。
 y_oo_fuse 是某一 τ 的 fuse：w_oo·((ŷ_oo+1)/(1+rot)−1) + w_τc·ŷ_τc。
 rot = price(τ)/open[T]−1。τ = 开盘时 rot = 0，即 w_oo·ŷ_oo + w_τc·ŷ_τc。
+rank_score = w_oo_rank·y_oo_rank_score + w_τc_rank·y_tc_rank_score（默认 0.6/0.4）。
 ŷ_trade / ŷ_nowcast / y_tau 已下线（τ 头只写 y_τc）。
 
 配置键优先 ``rebalance_timing.rank_lots``，仍认旧键 ``path_matrix``。
@@ -25,21 +26,19 @@ DEFAULT_PATH_MATRIX: Dict[str, Any] = {
     "mode": "rank_lots",
     "fuse_enter": 0.001,
     "fuse_strong": 0.001,
-    # 高阈旁路：默认 1%；≤0=关；可救 fuse/rank，不绕形态闸 / y_oo>0 / y_τc>0
-    "fuse_high": 0.01,
     "cash_floor": 0.0,
     "holdings_mv_cap": 150_000.0,
     "fusion_w_oo": 0.6,
     "fusion_w_oc": 0.4,
+    "fusion_w_oo_rank": 0.6,
+    "fusion_w_tc_rank": 0.4,
     "residual_w_oc": 0.5,
+    # y_*>0：四头 oo/τc/oo_rank/τc_rank；旧 y_τc_gt0 读盘并入后丢弃
     "y_oo_gt0": False,
-    "y_τc_gt0": False,
-    # rank 阈值：oo_rank / τc_rank 相对分均 ≥ 阈值（不是 y_oo / y_τc）；缺键=0.3；显式 null=关
+    # rank 阈值：合成 rank_score ≥ 阈值（不是 y_oo / y_τc）；缺键=0.3；显式 null=关
     "oo_tc_score_min": 0.3,
-    # 强档 rank 阈值（仍限 oo_rank / τc_rank）；缺键=0.3；显式 null=关
+    # 强档 rank 阈值（仍看合成 rank_score）；缺键=0.3；显式 null=关
     "oo_tc_score_strong_min": 0.3,
-    # 高阈 rank 阈值（仍限 oo_rank / τc_rank）；缺键且高阈开着=0.3；显式 null=关
-    "oo_tc_score_high_min": 0.3,
     # 历史回测成交钟（/replay）；不驱动 live 自动调仓。
     "fill_clock": "09:30",
     # Live 自动调仓 / 手动预演窗口起点；止于 10:00。与回测 fill_clock 分立。
@@ -48,7 +47,6 @@ DEFAULT_PATH_MATRIX: Dict[str, Any] = {
     # 手数：按金额/价换算整手，不够一手则跳过；保存规则写入交易执行。缺省 live 1万/2万。
     "lot_base_amount": 10_000.0,
     "lot_strong_amount": 20_000.0,
-    "lot_high_amount": 100_000.0,
     # 形态硬闸（默认关）；门槛在 morph_gate 写死，不进配置
     "morph_gate_enabled": False,
     # 规则栏已下掉舆情软先验；键保留恒 false，读盘强制关
@@ -142,12 +140,14 @@ def get_path_matrix_cfg(
     out["enabled"] = bool(out.get("enabled"))
     from core.t0.config import coerce_cfg_bool
 
-    out["y_oo_gt0"] = coerce_cfg_bool(out.get("y_oo_gt0"), False)
-    out["y_τc_gt0"] = coerce_cfg_bool(out.get("y_τc_gt0"), False)
+    # y_*>0：旧 y_τc_gt0 并入 y_oo_gt0 后丢弃
+    out["y_oo_gt0"] = coerce_cfg_bool(out.get("y_oo_gt0"), False) or coerce_cfg_bool(
+        (raw or {}).get("y_τc_gt0") if isinstance(raw, dict) else None, False
+    )
     out["morph_gate_enabled"] = coerce_cfg_bool(out.get("morph_gate_enabled"), False)
     # 规则栏已下掉舆情软先验：读盘恒关，清掉旧 True
     out["sentiment_gate_enabled"] = False
-    # 旧门槛字段不再进配置；读盘时丢掉
+    # 旧门槛字段 / 高阈旁路 / 单头 y_τc_gt0 不再进配置；读盘时丢掉
     for _dead in (
         "morph_vol_pctl",
         "morph_a1_max",
@@ -163,19 +163,21 @@ def get_path_matrix_cfg(
         "y_hl_enabled",
         "y_hl_gt0",
         "y_oc_gt0",
+        "y_τc_gt0",
         "y_enter_enabled",
         "y_enter_alt_enabled",
         "y_oo_oc_enter",
         "y_oo_oc_enabled",
+        "fuse_high",
+        "lot_high_amount",
+        "oo_tc_score_high_min",
     ):
         out.pop(_dead, None)
     try:
         from core.paper.rebalance.rank_lots import (
-            fuse_high_from_cfg,
-            lot_high_amount_from_cfg,
-            oo_tc_score_high_min_from_cfg,
             oo_tc_score_min_from_cfg,
             oo_tc_score_strong_min_from_cfg,
+            rank_fusion_weights_from_cfg,
         )
 
         # 关闸须能清掉已存值：优先读 raw（含 null）
@@ -187,37 +189,17 @@ def get_path_matrix_cfg(
             out["oo_tc_score_strong_min"] = oo_tc_score_strong_min_from_cfg(raw)
         else:
             out["oo_tc_score_strong_min"] = oo_tc_score_strong_min_from_cfg(out)
-        if isinstance(raw, dict) and "fuse_high" in raw:
-            high = fuse_high_from_cfg(raw)
-            # 显式 0/空 = 关；缺键走默认 1%
-            out["fuse_high"] = float(high) if high is not None else 0.0
-        else:
-            high = fuse_high_from_cfg(out)
-            out["fuse_high"] = float(high) if high is not None else 0.01
-        high_score_key_in_raw = (
-            isinstance(raw, dict) and "oo_tc_score_high_min" in raw
+        w_oo_rank, w_tc_rank = rank_fusion_weights_from_cfg(
+            raw if isinstance(raw, dict) else out
         )
-        high_score_src = raw if high_score_key_in_raw else out
-        out["oo_tc_score_high_min"] = oo_tc_score_high_min_from_cfg(
-            {**high_score_src, "fuse_high": out["fuse_high"]}
-        )
-        # 仅缺键补默认；显式 null=关，不可再填回 0.3（否则 UI 空值保存不住）
-        if (
-            not high_score_key_in_raw
-            and out["oo_tc_score_high_min"] is None
-            and out["fuse_high"] > 0
-        ):
-            out["oo_tc_score_high_min"] = 0.3
-        out["lot_high_amount"] = lot_high_amount_from_cfg(
-            raw if isinstance(raw, dict) and "lot_high_amount" in raw else out
-        )
+        out["fusion_w_oo_rank"] = float(w_oo_rank)
+        out["fusion_w_tc_rank"] = float(w_tc_rank)
     except Exception:  # noqa: BLE001
-        logger.debug("oo_tc_score / high gate coerce failed", exc_info=True)
+        logger.debug("oo_tc_score / rank weight coerce failed", exc_info=True)
         out["oo_tc_score_min"] = 0.3
         out["oo_tc_score_strong_min"] = 0.3
-        out["oo_tc_score_high_min"] = 0.3
-        out["fuse_high"] = 0.01
-        out["lot_high_amount"] = 100_000.0
+        out["fusion_w_oo_rank"] = 0.6
+        out["fusion_w_tc_rank"] = 0.4
 
     # 旧绝对名次闸已退役：读盘丢掉，勿再进生效配置
     for _dead_rank in (
@@ -242,6 +224,8 @@ def get_path_matrix_cfg(
         ("holdings_mv_cap", 150_000.0, 0.0, 1.0e8),
         ("fusion_w_oo", 0.6, 0.0, 1.0),
         ("fusion_w_oc", 0.4, 0.0, 1.0),
+        ("fusion_w_oo_rank", 0.6, 0.0, 1.0),
+        ("fusion_w_tc_rank", 0.4, 0.0, 1.0),
         ("residual_w_oc", 0.5, 0.0, 1.0),
     ):
         try:
@@ -250,6 +234,13 @@ def get_path_matrix_cfg(
             out[key] = float(default)
     w_oo, w_τc = fusion_weights_from_cfg(out)
     out["fusion_w_oo"], out["fusion_w_oc"] = w_oo, w_τc
+    try:
+        from core.paper.rebalance.rank_lots import rank_fusion_weights_from_cfg
+
+        w_oo_rank, w_tc_rank = rank_fusion_weights_from_cfg(out)
+        out["fusion_w_oo_rank"], out["fusion_w_tc_rank"] = w_oo_rank, w_tc_rank
+    except Exception:  # noqa: BLE001
+        logger.debug("normalize rank fusion weights failed", exc_info=True)
     out["cash_floor"] = 0.0
     try:
         from core.backtest.paper_replay import (
@@ -285,9 +276,6 @@ def get_path_matrix_cfg(
         strong_amt = base
     out["lot_base_amount"] = base
     out["lot_strong_amount"] = strong_amt
-    out["lot_high_amount"] = _clamp_lot_amount(
-        out.get("lot_high_amount"), 100_000.0
-    )
     return out
 
 

@@ -434,21 +434,26 @@ function _replayGateBits(data) {
   if (scStrong != null && Number.isFinite(Number(scStrong))) {
     bits.push(`强rank≥${Number(scStrong)}`);
   }
-  const high = p.fuse_high != null ? p.fuse_high : req.fuse_high;
-  const highPct = _fmtGatePct(high);
-  if (highPct) {
-    const highSc =
-      p.oo_tc_score_high_min != null
-        ? p.oo_tc_score_high_min
-        : req.oo_tc_score_high_min;
-    bits.push(
-      highSc != null && Number.isFinite(Number(highSc))
-        ? `高阈≥${highPct}%·rank≥${Number(highSc)}`
-        : `高阈≥${highPct}%`
-    );
+  const wOoRank =
+    p.fusion_w_oo_rank != null ? p.fusion_w_oo_rank : req.fusion_w_oo_rank;
+  const wTcRank =
+    p.fusion_w_tc_rank != null ? p.fusion_w_tc_rank : req.fusion_w_tc_rank;
+  if (
+    wOoRank != null &&
+    wTcRank != null &&
+    Number.isFinite(Number(wOoRank)) &&
+    Number.isFinite(Number(wTcRank))
+  ) {
+    bits.push(`w_rank=${Number(wOoRank).toFixed(2)}/${Number(wTcRank).toFixed(2)}`);
   }
-  if (p.y_oo_gt0 === true || req.y_oo_gt0 === true) bits.push("ŷ_oo>0");
-  if (p.y_τc_gt0 === true || req.y_τc_gt0 === true) bits.push("ŷ_τc>0");
+  if (
+    p.y_oo_gt0 === true ||
+    req.y_oo_gt0 === true ||
+    p.y_τc_gt0 === true ||
+    req.y_τc_gt0 === true
+  ) {
+    bits.push("y_*>0");
+  }
   if (p.morph_gate_enabled === true || req.morph_gate_enabled === true) {
     bits.push("形态闸");
   }

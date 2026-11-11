@@ -4,8 +4,8 @@
 特征：alpha_τc（z_τc_* ∪ raw_atc_*），日截面 z-score；非开盘前缀按 date|clock 成组。
 面板按股落在 ``tc_rank/``；与 ŷ_τc 的 ``tc/`` 分片 fingerprint 一致时直接复制，不重算。
 落盘 LambdaRank（``backend=auto`` / ``lambdarank`` 同义；``ridge`` 拒）。
-研究枢纽启用只落盘；不进 y_oo_fuse，不改买序。
-回测/live 写入当日截面名次；与 oo_rank 共用 rank 相对分闸。
+研究枢纽启用只落盘；不进 y_oo_fuse。
+回测/live 写入当日截面名次；相对分进合成 rank_score（买序/阈值）。
 """
 
 from __future__ import annotations
@@ -379,7 +379,7 @@ def fit_tc_rank_report(
 
     def _pack(backend_key: str, holdout_src: Dict[str, Any]) -> Dict[str, Any]:
         note = (
-            "LambdaRank 相对分；不进 y_oo_fuse；不改买序；与 oo_rank 共用 rank 相对分闸；"
+            "LambdaRank 相对分；不进 y_oo_fuse；进合成 rank_score（买序/阈值）；"
             "前缀与 ŷ_τc 同组"
         )
         y_spec = dict(y_spec_base, backend=backend_key, note=note)
@@ -447,7 +447,7 @@ def fit_tc_rank_report(
             "前缀与 ŷ_τc 同组（默认 09:30）；"
             "启用研究→研究槽；启用执行=研究槽晋级；"
             "OOS 主看 Gate lift；IC 仅对照；"
-            "不进 y_oo_fuse；不改买序；与 oo_rank 共用 rank 相对分闸"
+            "不进 y_oo_fuse；进合成 rank_score（买序/阈值）"
         ),
     }
     attach_holdout_meta(report, split_meta)

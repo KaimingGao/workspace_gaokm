@@ -64,10 +64,6 @@ def prune_macro_errors(errors: list, series: Optional[dict]) -> list:
     return sorted(set(kept))[:20]
 
 
-# 兼容旧私有名（热重载 / 外部引用）
-_prune_macro_errors = prune_macro_errors
-
-
 def merge_macro_snapshots(
     fresh: Dict[str, Any],
     prior: Optional[Dict[str, Any]],

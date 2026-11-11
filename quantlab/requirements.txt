@@ -12,6 +12,8 @@ numpy>=1.24.0
 # LightGBM：horizon 树头（t30…t90）与 oo_rank LambdaRank；影子 oo/τc/co_tree 已下线
 # 未安装时 resolve_tree_backend 抛 ImportError
 lightgbm>=4.0.0
+# 可选：ŷ_oo 研究轨序列 Transformer（scripts/run_oo_transformer_holdout.py）
+# torch>=2.0.0
 
 # ===== Web 端 =====
 fastapi>=0.110.0

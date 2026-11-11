@@ -107,7 +107,7 @@ Web 主路径：观察建仓 → 确认调仓（`run_daily_cycle`）→ 轮询 *
 | 账户风控限额 SSOT | `core/risk/limits.py`（`resolve_account_risk_limits` · `pct_to_fraction`） |
 | 账本 / 成交 / 日循环 | `core/paper/`（ledger · exec · cycle · rebalance · `validate_paper`） |
 | Live 清单 | `core/live_config_manifest.py` · `data/live/live_config_manifest.json` |
-| 研究共享（core） | `core/research/{factor_ols_fit,oo_panel,tau_panel,portfolio_bars}.py`（`panel.py` 仅兼容再导出） |
+| 研究共享（core） | `core/research/{factor_ols_fit,oo_panel,tau_panel,portfolio_bars}.py` |
 | 风控门禁 | `core/risk/checks.py` |
 | Job 槽 | `core/platform/job_progress.py`（根路径 shim）· **`GET /api/jobs/{name}`**（canonical） |
 | 模拟 UI | `web/static/js/paper.js` + `paper/fmt.js` · `chart.js` |

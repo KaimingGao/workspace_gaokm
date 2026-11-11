@@ -871,13 +871,15 @@ export function installBarsUi(q) {
         const br = barsSummary({ result }, modeS);
         const polled =
           lastPolledJob && (lastPolledJob.id || lastPolledJob.message) ? lastPolledJob : null;
+        const doneAt = Date.now() / 1000;
         const jobForDone = polled
           ? {
               ...polled,
               result: polled.result || result || null,
               result_summary: br,
+              updated_at: Number(polled.updated_at) > 0 ? polled.updated_at : doneAt,
             }
-          : { result_summary: br, result: result || {}, updated_at: Date.now() / 1000 };
+          : { result_summary: br, result: result || {}, updated_at: doneAt };
         clearJobPanels();
         applyJobSuccess(jobForDone, modeS);
       } catch (err) {

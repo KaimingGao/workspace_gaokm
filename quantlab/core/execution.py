@@ -154,21 +154,19 @@ DEFAULT_REBALANCE_TIMING: Dict[str, Any] = {
         "mode": "rank_lots",
         "fuse_enter": 0.001,
         "fuse_strong": 0.001,
-        "fuse_high": 0.01,
         "cash_floor": 0.0,
         "holdings_mv_cap": 150000.0,
         "fusion_w_oo": 0.6,
         "fusion_w_oc": 0.4,
+        "fusion_w_oo_rank": 0.6,
+        "fusion_w_tc_rank": 0.4,
         "y_oo_gt0": False,
-        "y_τc_gt0": False,
         "oo_tc_score_min": 0.3,
         "oo_tc_score_strong_min": 0.3,
-        "oo_tc_score_high_min": 0.3,
         "fill_clock": "09:30",
         "live_fill_clock": "09:30",
         "lot_base_amount": 10000.0,
         "lot_strong_amount": 20000.0,
-        "lot_high_amount": 100000.0,
         "morph_gate_enabled": False,
         "sentiment_gate_enabled": False,
     },
@@ -213,11 +211,10 @@ def _merge_dict(base: dict, overlay: Optional[dict]) -> dict:
     return out
 
 
-# rank 阈值（oo_rank / τc_rank 相对分；不是 y_oo / y_τc）。显式 null=关，须能盖掉默认 0.3。
+# rank 阈值（合成 rank_score；不是 y_oo / y_τc）。显式 null=关，须能盖掉默认 0.3。
 _RANK_SCORE_GATE_KEYS = (
     "oo_tc_score_min",
     "oo_tc_score_strong_min",
-    "oo_tc_score_high_min",
 )
 
 
@@ -228,7 +225,14 @@ _RETIRED_ABS_RANK_KEYS = (
     "oo_rank_top_frac",
 )
 
-# 旧绝对 ŷ 入场阈值 / 符号闸别名（已退役；入场改看 fuse + y_oo_gt0 / y_τc_gt0）
+# 旧高阈旁路（已退役）
+_RETIRED_HIGH_GATE_KEYS = (
+    "fuse_high",
+    "lot_high_amount",
+    "oo_tc_score_high_min",
+)
+
+# 旧绝对 ŷ 入场阈值 / 符号闸别名（已退役；入场改看 fuse + y_*>0）
 _RETIRED_ENTER_KEYS = (
     "y_oo_enter",
     "y_oo_enter_alt",
@@ -239,6 +243,7 @@ _RETIRED_ENTER_KEYS = (
     "y_hl_enabled",
     "y_hl_gt0",
     "y_oc_gt0",
+    "y_τc_gt0",
     "y_enter_enabled",
     "y_enter_alt_enabled",
     "y_oo_oc_enter",
@@ -288,6 +293,8 @@ def _sync_rank_lots_mirrors(timing: dict) -> dict:
     for k in _RETIRED_ABS_RANK_KEYS:
         base.pop(k, None)
     for k in _RETIRED_ENTER_KEYS:
+        base.pop(k, None)
+    for k in _RETIRED_HIGH_GATE_KEYS:
         base.pop(k, None)
     # 保证两侧同对象内容
     mirrored = dict(base)
@@ -881,11 +888,6 @@ def validate_execution_patch(raw: Any) -> Tuple[bool, Dict[str, Any], List[str]]
                     "mode": "rank_lots",
                     "fuse_enter": float(pm.get("fuse_enter") or 0.001),
                     "fuse_strong": float(pm.get("fuse_strong") or 0.001),
-                    "fuse_high": (
-                        float(pm["fuse_high"])
-                        if pm.get("fuse_high") is not None
-                        else 0.01
-                    ),
                     "cash_floor": 0.0,
                     "holdings_mv_cap": float(
                         pm.get("holdings_mv_cap")
@@ -894,13 +896,13 @@ def validate_execution_patch(raw: Any) -> Tuple[bool, Dict[str, Any], List[str]]
                     ),
                     "fusion_w_oo": float(pm.get("fusion_w_oo") or 0.6),
                     "fusion_w_oc": float(pm.get("fusion_w_oc") or 0.4),
-                    # get_path_matrix_cfg 已 coerce 闸开关
+                    "fusion_w_oo_rank": float(pm.get("fusion_w_oo_rank") or 0.6),
+                    "fusion_w_tc_rank": float(pm.get("fusion_w_tc_rank") or 0.4),
+                    # get_path_matrix_cfg 已 coerce：y_*>0（四头）；旧 y_τc_gt0 已并入
                     "y_oo_gt0": bool(pm.get("y_oo_gt0")),
-                    "y_τc_gt0": bool(pm.get("y_τc_gt0")),
-                    # rank 阈值：oo_rank / τc_rank 相对分（不是 y_oo / y_τc）；缺键默认 0.3；显式 null=关。
+                    # rank 阈值：合成 rank_score（不是 y_oo / y_τc）；缺键默认 0.3；显式 null=关。
                     "oo_tc_score_min": pm.get("oo_tc_score_min"),
                     "oo_tc_score_strong_min": pm.get("oo_tc_score_strong_min"),
-                    "oo_tc_score_high_min": pm.get("oo_tc_score_high_min"),
                     "fill_clock": str(pm.get("fill_clock") or "09:30"),
                     "live_fill_clock": str(pm.get("live_fill_clock") or "09:30"),
                     "score_backend": str(pm.get("score_backend") or "ridge"),
@@ -908,7 +910,6 @@ def validate_execution_patch(raw: Any) -> Tuple[bool, Dict[str, Any], List[str]]
                     "lot_strong_amount": float(
                         pm.get("lot_strong_amount") or 20_000.0
                     ),
-                    "lot_high_amount": float(pm.get("lot_high_amount") or 100_000.0),
                     # 形态硬闸（默认关）；门槛写死在 morph_gate，不入配置
                     "morph_gate_enabled": bool(pm.get("morph_gate_enabled")),
                     # 规则栏已下掉；落盘恒关
@@ -922,10 +923,12 @@ def validate_execution_patch(raw: Any) -> Tuple[bool, Dict[str, Any], List[str]]
                     lots["oo_tc_score_min"] = full.get("oo_tc_score_min")
                 if "oo_tc_score_strong_min" in pm_in:
                     lots["oo_tc_score_strong_min"] = full.get("oo_tc_score_strong_min")
-                if "oo_tc_score_high_min" in pm_in:
-                    lots["oo_tc_score_high_min"] = full.get("oo_tc_score_high_min")
-                # 旧绝对名次闸 / 旧 ŷ 入场键已退役：补丁里若仍带则丢弃，不落盘
-                for _dead in (*_RETIRED_ABS_RANK_KEYS, *_RETIRED_ENTER_KEYS):
+                # 旧绝对名次闸 / 旧 ŷ 入场键 / 高阈旁路已退役：补丁里若仍带则丢弃，不落盘
+                for _dead in (
+                    *_RETIRED_ABS_RANK_KEYS,
+                    *_RETIRED_ENTER_KEYS,
+                    *_RETIRED_HIGH_GATE_KEYS,
+                ):
                     lots.pop(_dead, None)
                 timing_out["rank_lots"] = lots
                 timing_out["path_matrix"] = dict(lots)

@@ -97,7 +97,8 @@ class TestExecutionResolve(unittest.TestCase):
         bundle = resolve_effective_execution(paper=paper, channel="paper")
         for key in ("rank_lots", "path_matrix"):
             block = bundle["rebalance_timing"][key]
-            self.assertFalse(block["y_τc_gt0"])
+            self.assertNotIn("y_τc_gt0", block)
+            self.assertFalse(block.get("y_oo_gt0"))
         stored = paper["rules"]["execution"]["rebalance_timing"]["rank_lots"]
         self.assertTrue(stored["y_oc_gt0"])
         self.assertNotIn("y_τc_gt0", stored)

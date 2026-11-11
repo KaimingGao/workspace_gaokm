@@ -330,7 +330,7 @@ function fusePctToScore(raw, fallbackPct = FUSE_PCT_DEFAULT) {
     if (Number.isFinite(n)) pct = n;
   }
   const score = pct / 100;
-  // 与 domain_backtest 对齐：净收益上限 1（100%）；高阈常用 1%→0.01
+  // 与 domain_backtest 对齐：净收益上限 1（100%）
   return Math.round(Math.max(0, Math.min(1, score)) * 10000) / 10000;
 }
 
@@ -366,21 +366,18 @@ export function fillPathMatrixForm(root, execution) {
     pm.fuse_strong != null ? pm.fuse_strong : enterScore;
   set("pm_fuse_enter", fuseScoreToPct(enterScore));
   set("pm_fuse_strong", fuseScoreToPct(strongScore));
-  const highScore = pm.fuse_high;
-  // UI 默认 1.0%；缺键 / ≤0（旧默认关）都回落到 1，避免表单显示 0
+  // y_*>0：四头闸；旧 y_τc_gt0 并入
   set(
-    "pm_fuse_high",
-    highScore != null && Number(highScore) > 0 ? fuseScoreToPct(highScore) : 1
+    "pm_y_oo_gt0",
+    coerceCfgBool(pm.y_oo_gt0, false) || coerceCfgBool(pm.y_τc_gt0, false),
   );
-  set("pm_y_oo_gt0", coerceCfgBool(pm.y_oo_gt0, false));
-  set("pm_y_τc_gt0", coerceCfgBool(pm.y_τc_gt0, false));
   set("pm_morph_gate", coerceCfgBool(pm.morph_gate_enabled, false));
   const clampScore = (v, fb) => {
     const n = Number(v);
     if (!Number.isFinite(n)) return fb;
     return Math.max(-5, Math.min(5, Math.round(n * 10000) / 10000));
   };
-  // rank 阈值：oo_rank / τc_rank（不是 y_oo / y_τc）；显式 null/空=关，须能回填空框
+  // rank 阈值：合成 rank_score（不是 y_oo / y_τc）；显式 null/空=关，须能回填空框
   if (Object.prototype.hasOwnProperty.call(pm, "oo_tc_score_min")) {
     const sc = pm.oo_tc_score_min;
     if (sc == null || sc === "") set("pm_oo_tc_score_min", null, { allowEmpty: true });
@@ -398,16 +395,6 @@ export function fillPathMatrixForm(root, execution) {
   } else {
     set("pm_oo_tc_score_strong_min", 0.3);
   }
-  if (Object.prototype.hasOwnProperty.call(pm, "oo_tc_score_high_min")) {
-    const sc = pm.oo_tc_score_high_min;
-    if (sc == null || sc === "") {
-      set("pm_oo_tc_score_high_min", null, { allowEmpty: true });
-    } else {
-      set("pm_oo_tc_score_high_min", clampScore(sc, 0.3));
-    }
-  } else {
-    set("pm_oo_tc_score_high_min", 0.3);
-  }
   const clamp01 = (v, fb) => {
     const n = Number(v);
     if (!Number.isFinite(n)) return fb;
@@ -415,6 +402,12 @@ export function fillPathMatrixForm(root, execution) {
   };
   set("pm_fusion_w_oo", clamp01(pm.fusion_w_oo, 0.6));
   set("pm_fusion_w_nc", clamp01(pm.fusion_w_oc, 0.4));
+  const rk = _normWeightPair(
+    pm.fusion_w_oo_rank != null ? Number(pm.fusion_w_oo_rank) : 0.6,
+    pm.fusion_w_tc_rank != null ? Number(pm.fusion_w_tc_rank) : 0.4
+  );
+  set("pm_fusion_w_oo_rank", clamp01(rk.a, 0.6));
+  set("pm_fusion_w_tc_rank", clamp01(rk.b, 0.4));
   const clockEl = document.getElementById("quant-fill-clock");
   if (clockEl && pm.fill_clock) {
     const v = String(pm.fill_clock).replace("：", ":").trim().slice(0, 5);
@@ -431,10 +424,8 @@ export function fillPathMatrixForm(root, execution) {
     Math.max(lotBase, 20000)
   );
   if (lotStrong < lotBase) lotStrong = lotBase;
-  const lotHigh = clampLotAmount(pm.lot_high_amount, 100000);
   set("pm_lot_base_amount", lotBase);
   set("pm_lot_strong_amount", lotStrong);
-  set("pm_lot_high_amount", lotHigh);
 }
 
 function _normWeightPair(a, b) {
@@ -470,11 +461,6 @@ export function collectPathMatrixForm(root) {
     numFirst(["pm_fuse_strong"], FUSE_PCT_DEFAULT)
   );
   if (strong < enter) strong = enter;
-  const highPctRaw = numFirst(["pm_fuse_high"], 1);
-  const high =
-    Number.isFinite(highPctRaw) && highPctRaw > 0
-      ? fusePctToScore(highPctRaw, 1)
-      : 0;
   const chk = (name, fallback = true) => {
     const el = root.querySelector(`[name="${name}"]`);
     if (!el) return fallback;
@@ -491,8 +477,12 @@ export function collectPathMatrixForm(root) {
     wOo /= wSum;
     wOc /= wSum;
   }
+  let wOoRank = Math.max(0, Math.min(num("pm_fusion_w_oo_rank", 0.6), 1));
+  let wTcRank = Math.max(0, Math.min(num("pm_fusion_w_tc_rank", 0.4), 1));
+  const rkNorm = _normWeightPair(wOoRank, wTcRank);
+  wOoRank = rkNorm.a;
+  wTcRank = rkNorm.b;
   const yOoGt0 = chk("pm_y_oo_gt0", false);
-  const yTcGt0 = chk("pm_y_τc_gt0", false);
   const morphGate = chk("pm_morph_gate", false);
   const scoreOrNull = (name, fallback) => {
     const el = root.querySelector(`[name="${name}"]`);
@@ -506,30 +496,26 @@ export function collectPathMatrixForm(root) {
   };
   const ooTcScoreMin = scoreOrNull("pm_oo_tc_score_min", 0.3);
   const ooTcScoreStrong = scoreOrNull("pm_oo_tc_score_strong_min", 0.3);
-  const ooTcScoreHigh = scoreOrNull("pm_oo_tc_score_high_min", 0.3);
   let lotBase = clampLotAmount(num("pm_lot_base_amount", 10000), 10000);
   let lotStrong = clampLotAmount(num("pm_lot_strong_amount", lotBase), lotBase);
   if (lotStrong < lotBase) lotStrong = lotBase;
-  const lotHigh = clampLotAmount(num("pm_lot_high_amount", 100000), 100000);
   const lots = {
         enabled: true,
         mode: "rank_lots",
         fuse_enter: enter,
         fuse_strong: strong,
-        fuse_high: high,
         y_oo_gt0: yOoGt0,
-        y_τc_gt0: yTcGt0,
         morph_gate_enabled: morphGate,
         sentiment_gate_enabled: false,
         oo_tc_score_min: ooTcScoreMin,
         oo_tc_score_strong_min: ooTcScoreStrong,
-        oo_tc_score_high_min: ooTcScoreHigh,
         holdings_mv_cap: Math.round(mvCap),
         fusion_w_oo: Math.round(wOo * 1000) / 1000,
         fusion_w_oc: Math.round(wOc * 1000) / 1000,
+        fusion_w_oo_rank: Math.round(wOoRank * 1000) / 1000,
+        fusion_w_tc_rank: Math.round(wTcRank * 1000) / 1000,
         lot_base_amount: lotBase,
         lot_strong_amount: lotStrong,
-        lot_high_amount: lotHigh,
   };
   const clockEl = document.getElementById("quant-fill-clock");
   if (clockEl && clockEl.value) {

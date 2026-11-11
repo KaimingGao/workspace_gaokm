@@ -54,7 +54,6 @@ from core.backtest.replay_fill import (
     LIVE_FILL_CLOCK,
     LIVE_FILL_CLOCKS,
     REPLAY_AMOUNT_BASE,
-    REPLAY_AMOUNT_HIGH,
     REPLAY_AMOUNT_MAX,
     REPLAY_AMOUNT_MIN,
     REPLAY_AMOUNT_STRONG,
@@ -62,7 +61,6 @@ from core.backtest.replay_fill import (
     REPLAY_FILL_CLOCK,
     REPLAY_FILL_CLOCKS,
     REPLAY_FUSE_ENTER,
-    REPLAY_FUSE_HIGH,
     REPLAY_FUSE_STRONG,
     REPLAY_FUSION_W_NOWCAST,
     REPLAY_FUSION_W_TRADE,
@@ -76,7 +74,6 @@ from core.backtest.replay_fill import (
     _sell_fill_fallback_note,
     _stamp_replay_prev_close,
     clamp_live_fill_clock,
-    clamp_replay_amount,
     clamp_replay_amount_pair,
     clamp_replay_fill_clock,
     clamp_replay_initial_cash,
@@ -174,9 +171,10 @@ def backtest_paper_replay(
     cash_floor: Optional[float] = None,
     fuse_enter: Optional[float] = None,
     fuse_strong: Optional[float] = None,
-    fuse_high: Optional[float] = None,
     fusion_w_oo: Optional[float] = None,
     fusion_w_oc: Optional[float] = None,
+    fusion_w_oo_rank: Optional[float] = None,
+    fusion_w_tc_rank: Optional[float] = None,
     include_session_day: bool = True,
     session_quotes: Optional[Dict[str, dict]] = None,
     session_now: Optional[datetime] = None,
@@ -184,19 +182,12 @@ def backtest_paper_replay(
     minute_bars_by_code: Optional[Dict[str, Dict[str, List[dict]]]] = None,
     lot_base_amount: Optional[float] = None,
     lot_strong_amount: Optional[float] = None,
-    lot_high_amount: Optional[float] = None,
     y_oo_gt0: Optional[bool] = None,
     y_τc_gt0: Optional[bool] = None,
     morph_gate_enabled: Optional[bool] = None,
     sentiment_gate_enabled: Optional[bool] = None,
     oo_tc_score_min: Optional[float] = 0.3,
     oo_tc_score_strong_min: Optional[float] = 0.3,
-    oo_tc_score_high_min: Optional[float] = 0.3,
-    # 旧绝对名次闸已退役：保留入参以免旧调用方炸，但不进生效配置 / params
-    oo_rank_max: Optional[int] = None,
-    oo_rank_strong_max: Optional[int] = None,
-    oo_rank_high_max: Optional[int] = None,
-    oo_rank_top_frac: Optional[float] = None,
     price_space_cfg: Optional[dict] = None,
     score_model_role: Optional[str] = None,
     score_backend: Optional[str] = None,
@@ -206,10 +197,11 @@ def backtest_paper_replay(
     """策略调仓历史回测：ŷ_oo 09:30 开盘；ŷ_τc 随成交钟前缀重算（09:30=开盘 Z），按调仓钟 5m 价成交。
 
     ``score_backend`` 恒为 ridge（影子树头已下线）；传入 tree 会被忽略。
-    ŷ_oo_rank 有模型时按当日截面编成 1..n 名次透传到成交行；过入场后买序按 oo_rank_score。
+    ŷ_oo_rank / ŷ_τc_rank 有模型时按当日截面编成 1..n 名次透传到成交行；
+    过入场后买序按 rank_score=w_oo_rank·y_oo_rank_score+w_τc_rank·y_tc_rank_score。
     ``tradable_codes`` 给定时：主头与排序头截面 z 仍用整池；ŷ 与名次只写这份名单（分档内）。
     产品排序头拟合固定全池；旧落盘 ``train_universe`` / ``zscore_universe=tier_a`` 仅审计，打分不缩 z。
-    ``oo_tc_score_min`` 开则未过强档时另须 oo_rank / τc_rank 相对分均 ≥ 阈值（不是 y_oo / y_τc；缺省 0.3；None=关）。
+    ``oo_tc_score_min`` 开则未过强档时另须合成 rank_score ≥ 阈值（不是 y_oo / y_τc；缺省 0.3；None=关）。
     y_oo_fuse > fuse_strong 时改看 ``oo_tc_score_strong_min``（缺省 0.3；None=关）。
     """
     from core.research.holdout import (
@@ -240,17 +232,14 @@ def backtest_paper_replay(
         with scoring_model_role_context(requested), rebalance_score_backend_context(requested_backend):
             return backtest_paper_replay(stock_bars, **params)
     from core.backtest.engine import _trade_metrics
-    # 旧绝对名次闸入参已退役，仅吞掉以免 unused 告警 / 旧调用方仍可传
-    _ = (oo_rank_max, oo_rank_strong_max, oo_rank_high_max, oo_rank_top_frac)
     from core.paper.rebalance.rank_lots import (
         clamp_fusion_weight,
         coerce_fuse_threshold,
-        fuse_high_from_cfg,
         get_rank_lot_cfg,
-        oo_tc_score_high_min_from_cfg,
         oo_tc_score_min_from_cfg,
         oo_tc_score_strong_min_from_cfg,
         plan_rank_lot_day,
+        rank_fusion_weights_from_cfg,
     )
     from core.paper.rebalance.watching_matrix import _apply_matrix_trades
     from core.paper.replay_ctx import paper_replay_context
@@ -484,18 +473,12 @@ def backtest_paper_replay(
         lot_base_amount,
         lot_strong_amount,
     )
-    lot_high_n = clamp_replay_amount(
-        REPLAY_AMOUNT_HIGH if lot_high_amount is None else lot_high_amount,
-        REPLAY_AMOUNT_HIGH,
+    w_oo_rank, w_tc_rank = rank_fusion_weights_from_cfg(
+        {
+            "fusion_w_oo_rank": fusion_w_oo_rank,
+            "fusion_w_tc_rank": fusion_w_tc_rank,
+        }
     )
-    high_raw = fuse_high
-    if high_raw is None:
-        # API 缺省=关；UI 表单始终显式传值（默认 1%=REPLAY_FUSE_HIGH）
-        high_n = 0.0
-    else:
-        high_n = coerce_fuse_threshold(high_raw, REPLAY_FUSE_HIGH)
-        high_n = max(0.0, min(1.0, float(high_n)))
-    gt0_τc = y_τc_gt0
     from core.t0.config import coerce_cfg_bool
 
     paper = _default_paper(
@@ -503,6 +486,10 @@ def backtest_paper_replay(
         top_k=top_k,
         cost_model=cost_model,
     )
+    # y_*>0：请求侧旧 y_τc_gt0 并入 y_oo_gt0
+    y_star = False if y_oo_gt0 is None else bool(coerce_cfg_bool(y_oo_gt0, False))
+    if y_τc_gt0 is not None and coerce_cfg_bool(y_τc_gt0, False):
+        y_star = True
     # 必须写 rank_lots：get_path_matrix_cfg 优先该键。只写旧键 path_matrix 时，
     # 其它 live 缺省（如持仓市值帽）会漏进合成 paper。
     replay_lots = {
@@ -510,13 +497,13 @@ def backtest_paper_replay(
         "mode": "rank_lots",
         "fuse_enter": enter,
         "fuse_strong": strong,
-        "fuse_high": high_n,
         "cash_floor": floor,
         "holdings_mv_cap": 0.0,
         "fusion_w_oo": w_oo,
         "fusion_w_oc": w_τc,
-        "y_oo_gt0": False if y_oo_gt0 is None else bool(coerce_cfg_bool(y_oo_gt0, False)),
-        "y_τc_gt0": False if gt0_τc is None else bool(coerce_cfg_bool(gt0_τc, False)),
+        "fusion_w_oo_rank": w_oo_rank,
+        "fusion_w_tc_rank": w_tc_rank,
+        "y_oo_gt0": bool(y_star),
         "morph_gate_enabled": (
             False
             if morph_gate_enabled is None
@@ -530,15 +517,8 @@ def backtest_paper_replay(
         "oo_tc_score_strong_min": oo_tc_score_strong_min_from_cfg(
             {"oo_tc_score_strong_min": oo_tc_score_strong_min}
         ),
-        "oo_tc_score_high_min": oo_tc_score_high_min_from_cfg(
-            {
-                "oo_tc_score_high_min": oo_tc_score_high_min,
-                "fuse_high": high_n,
-            }
-        ),
         "lot_base_amount": lot_base_n,
         "lot_strong_amount": lot_strong_n,
-        "lot_high_amount": lot_high_n,
     }
     paper.setdefault("rules", {})["execution"] = {
         "rebalance_timing": {
@@ -550,19 +530,17 @@ def backtest_paper_replay(
     rl_cfg["cash_floor"] = floor
     rl_cfg["lot_base_amount"] = lot_base_n
     rl_cfg["lot_strong_amount"] = lot_strong_n
-    rl_cfg["lot_high_amount"] = lot_high_n
     rl_cfg["fusion_w_oo"] = w_oo
     rl_cfg["fusion_w_oc"] = w_τc
+    rl_cfg["fusion_w_oo_rank"] = w_oo_rank
+    rl_cfg["fusion_w_tc_rank"] = w_tc_rank
     rl_cfg["fuse_enter"] = enter
     rl_cfg["fuse_strong"] = strong
-    rl_cfg["fuse_high"] = fuse_high_from_cfg(replay_lots)
     rl_cfg["y_oo_gt0"] = replay_lots["y_oo_gt0"]
-    rl_cfg["y_τc_gt0"] = replay_lots["y_τc_gt0"]
     rl_cfg["morph_gate_enabled"] = bool(replay_lots["morph_gate_enabled"])
     rl_cfg["sentiment_gate_enabled"] = bool(replay_lots["sentiment_gate_enabled"])
     rl_cfg["oo_tc_score_min"] = replay_lots.get("oo_tc_score_min")
     rl_cfg["oo_tc_score_strong_min"] = replay_lots.get("oo_tc_score_strong_min")
-    rl_cfg["oo_tc_score_high_min"] = replay_lots.get("oo_tc_score_high_min")
     rl_cfg["score_backend"] = current_rebalance_score_backend()
     rl_cfg["holdings_mv_cap"] = 0.0
     rl_cfg["t0_sell_blocks"] = {}
@@ -1224,9 +1202,7 @@ def backtest_paper_replay(
             "cash_floor": floor,
             "fuse_enter": rl_cfg.get("fuse_enter"),
             "fuse_strong": rl_cfg.get("fuse_strong"),
-            "fuse_high": rl_cfg.get("fuse_high"),
             "y_oo_gt0": rl_cfg.get("y_oo_gt0"),
-            "y_τc_gt0": rl_cfg.get("y_τc_gt0"),
             "morph_gate_enabled": bool(rl_cfg.get("morph_gate_enabled")),
             "sentiment_gate_enabled": bool(rl_cfg.get("sentiment_gate_enabled", False)),
             "morph_stamp": (
@@ -1242,12 +1218,12 @@ def backtest_paper_replay(
             ),
             "oo_tc_score_min": rl_cfg.get("oo_tc_score_min"),
             "oo_tc_score_strong_min": rl_cfg.get("oo_tc_score_strong_min"),
-            "oo_tc_score_high_min": rl_cfg.get("oo_tc_score_high_min"),
             "fusion_w_oo": w_oo,
             "fusion_w_oc": w_τc,
+            "fusion_w_oo_rank": w_oo_rank,
+            "fusion_w_tc_rank": w_tc_rank,
             "lot_base_amount": float(rl_cfg.get("lot_base_amount") or REPLAY_AMOUNT_BASE),
             "lot_strong_amount": float(rl_cfg.get("lot_strong_amount") or REPLAY_AMOUNT_STRONG),
-            "lot_high_amount": float(rl_cfg.get("lot_high_amount") or REPLAY_AMOUNT_HIGH),
             "cost_model": cost_model,
             "execution_mode": exec_mode,
             "fill_clock": clock,

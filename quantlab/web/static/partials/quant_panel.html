@@ -677,7 +677,7 @@
 
         <div class="dashboard-card-tools quant-pro-card-tools quant-fit-actions" role="group" aria-label="ŷ_oo_rank 操作">
           <button type="button" id="quant-oo-rank-run" class="dialog-btn primary" title="观察池拟合 LambdaRank · Holdout OOS（不写盘）">拟合</button>
-          <button type="button" id="quant-oo-rank-persist-research" class="dialog-btn warn" data-persist-role="research" title="Holdout 前训 → oo_rank_model_research.json；成交 oo_rank=1..n；过入场后作买序">启用研究</button>
+          <button type="button" id="quant-oo-rank-persist-research" class="dialog-btn warn" data-persist-role="research" title="Holdout 前训 → oo_rank_model_research.json；成交 oo_rank=1..n；进合成 rank_score（买序/阈值）">启用研究</button>
           <button type="button" id="quant-oo-rank-persist" class="dialog-btn warn" data-persist-role="live" title="研究槽 → live/oo_rank_model.json（晋级；须先启用研究）">启用执行</button>
           <button type="button" id="quant-oo-rank-status" class="dialog-btn secondary" title="读取研究 / 执行 / 上次拟合">状态</button>
         </div>
@@ -690,7 +690,7 @@
     </details>
   </section>
 
-  <!-- ŷ_τc_rank：对齐 ŷ_oo_rank / ŷ_τc · 单头 LambdaRank；与 oo_rank 共用 rank 阈值，不改买序 -->
+  <!-- ŷ_τc_rank：对齐 ŷ_oo_rank / ŷ_τc · 单头 LambdaRank；进合成 rank_score（买序/阈值） -->
   <section class="dashboard-section quant-section" id="quant-section-tc-rank" aria-labelledby="quant-section-tc-rank-title">
     <details class="quant-primary-fold" open>
       <summary class="quant-primary-fold-sum dashboard-section-head quant-section-head">
@@ -752,8 +752,8 @@
 
         <div class="dashboard-card-tools quant-pro-card-tools quant-fit-actions" role="group" aria-label="ŷ_τc_rank 操作">
           <button type="button" id="quant-tc-rank-run" class="dialog-btn primary" title="观察池拟合 LambdaRank · Holdout OOS（前缀 / 训练窗见左侧；与 ŷ_τc 同组前缀；不写盘）">拟合</button>
-          <button type="button" id="quant-tc-rank-persist-research" class="dialog-btn warn" data-persist-role="research" title="Holdout 前训 → tc_rank_model_research.json；不进 fuse、不改买序；与 oo_rank 共用 rank 阈值">启用研究</button>
-          <button type="button" id="quant-tc-rank-persist" class="dialog-btn warn" data-persist-role="live" title="研究槽 → live/tc_rank_model.json（晋级；须先启用研究；不改买序；与 oo_rank 共用 rank 阈值）">启用执行</button>
+          <button type="button" id="quant-tc-rank-persist-research" class="dialog-btn warn" data-persist-role="research" title="Holdout 前训 → tc_rank_model_research.json；不进 fuse；进合成 rank_score（买序/阈值）">启用研究</button>
+          <button type="button" id="quant-tc-rank-persist" class="dialog-btn warn" data-persist-role="live" title="研究槽 → live/tc_rank_model.json（晋级；须先启用研究；进合成 rank_score（买序/阈值））">启用执行</button>
           <button type="button" id="quant-tc-rank-status" class="dialog-btn secondary" title="读取研究 / 执行 / 上次拟合">状态</button>
         </div>
       </div>

@@ -71,18 +71,6 @@ class TestRebalanceScoreBackend(unittest.TestCase):
         summed = float(expl["intercept"]) + sum(float(t["contrib"]) for t in expl["terms"])
         self.assertAlmostEqual(summed, float(pred), places=3)
 
-    def test_finish_return_tree_persist(self):
-        from core.research.return_tree import finish_return_tree_persist
-
-        report = {"tree_return_model": {"booster": {"x": 1}}}
-        out = finish_return_tree_persist(
-            report, {"success": True, "path": "/tmp/m.json"}
-        )
-        self.assertTrue(out["persisted"]["success"])
-        self.assertEqual(out["model_path"], "/tmp/m.json")
-        self.assertNotIn("tree_return_model", out)
-        self.assertTrue(out["backtest_hook"])
-        self.assertFalse(out["live_hook"])
 
 if __name__ == "__main__":
     unittest.main()

@@ -169,7 +169,7 @@ def _attach_oo_rank_scores(
     day_cube: Any = None,
     clock: str = "open",
 ) -> None:
-    """ŷ_oo_rank：有已启用模型则写入当日截面 1..n 名次；缺则跳过。不改 y_oo_fuse；过入场后作买序。
+    """ŷ_oo_rank：有已启用模型则写入当日截面 1..n 名次；缺则跳过。不改 y_oo_fuse；相对分进合成 rank_score。
 
     截面 z 只用全池 L2；``score_codes`` 只限制写名次。
     模型 ``train_universe``（``tier_a`` / ``tier``）不影响打分 μ/σ。

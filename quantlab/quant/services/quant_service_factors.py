@@ -1116,7 +1116,7 @@ class QuantFactorMixin:
         日线与 ŷ_oo / ŷ_τc 同源（``load_portfolio_stock_bars``：
         本地仓够长则不补远端，避免拟合时把当日 K 线刷进仓里）。
         截面 z 与损失宇宙均用整观察池（训练档已下线）。
-        成交明细 oo_rank=1..n；不进 ranking 融合分；过入场后作买序；与 τc_rank 共用 rank 相对分闸。
+        成交明细 oo_rank=1..n；不进 ranking 融合分；进合成 rank_score（买序/阈值）。
         ``persist=True``：research=写入研究槽；live=研究槽晋级执行槽；落盘 LambdaRank，不重训。
         """
         from core.research.feature_standardize import ZSCORE_UNIVERSE_POOL
@@ -1366,7 +1366,7 @@ class QuantFactorMixin:
         本地仓够长则不补远端）。
         ``tau_end_hm`` 与 ŷ_τc 同组前缀（默认 09:30）。
         截面 z 与损失宇宙均用整观察池（训练档已下线）。
-        启用只落盘；不改买序、不进 fuse；与 oo_rank 共用 rank 相对分闸。
+        启用只落盘；不进 fuse；相对分进合成 rank_score（买序/阈值）。
         """
         from core.research.feature_standardize import ZSCORE_UNIVERSE_POOL
         from core.research.oo_rank_lambdarank import stamp_rank_zscore_universe_meta

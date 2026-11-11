@@ -1125,13 +1125,14 @@ body[data-page="replay"] #paper-path-matrix-form {
   --pm-pair-gap: 6px;
   --pm-box-pad-x: 8px;
   /*
-   * 16 个等宽输入铺满一行：权重 2 + 门槛 9（入场/强档/高阈×3）+ 其他 5。
-   * 固定开销 = 栏内 padding/gap/边框（mode 65 + rank 128 + other 142）。
+   * 14 个等宽输入铺满一行：权重 4 + 门槛 6（入场/强档×3）+ 其他 4。
+   * 固定开销 = 栏内 padding/gap/边框/卡内 pair-gap
+   * （mode 4 格 116 + rank 2 卡 88 + other 4 格 116）。
    */
-  --pm-slot: calc((100% - 335px) / 16);
-  --pm-mode-w: calc(2 * var(--pm-slot) + 65px);
-  --pm-rank-w: calc(9 * var(--pm-slot) + 128px);
-  --pm-other-w: calc(5 * var(--pm-slot) + 142px);
+  --pm-slot: calc((100% - 320px) / 14);
+  --pm-mode-w: calc(4 * var(--pm-slot) + 116px);
+  --pm-rank-w: calc(6 * var(--pm-slot) + 88px);
+  --pm-other-w: calc(4 * var(--pm-slot) + 116px);
   width: 100%;
   max-width: 100%;
   box-sizing: border-box;
@@ -1152,15 +1153,15 @@ body[data-page="replay"] #paper-path-matrix-form .follow-path-matrix-panels {
   box-sizing: border-box;
 }
 
-/* 压过 follow.css ≤900px 单列 / row5 折两列，保持三栏单行铺满 */
+/* 压过 follow.css ≤900px 单列，保持三栏单行铺满 */
 @media (max-width: 900px) {
   body[data-page="replay"] #paper-path-matrix-form .follow-path-matrix-panels {
     grid-template-columns: var(--pm-mode-w) var(--pm-rank-w) var(--pm-other-w);
     grid-template-rows: auto;
     grid-template-areas: "mode rank other";
   }
-  body[data-page="replay"] #paper-path-matrix-form .follow-path-matrix-body--row5 {
-    grid-template-columns: repeat(5, minmax(0, 1fr));
+  body[data-page="replay"] #paper-path-matrix-form .follow-path-matrix-panel[data-panel="other"] .follow-path-matrix-body--row4 {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
   }
   body[data-page="replay"] #paper-path-matrix-form .follow-path-matrix-panel[data-panel="mode"],
   body[data-page="replay"] #paper-path-matrix-form .follow-path-matrix-panel[data-panel="rank"] {
@@ -1221,7 +1222,7 @@ body[data-page="replay"] #paper-path-matrix-form .follow-path-matrix-box:not(.fo
   align-items: stretch;
 }
 
-/* 权重 2 格 / 门槛 3 卡 / 其他 5 格：等分，不折行 */
+/* 权重 4 格 / 门槛 2 卡 / 其他 5 格：等分，不折行 */
 body[data-page="replay"] #paper-path-matrix-form .follow-path-matrix-body--row2 {
   grid-template-columns: repeat(2, minmax(0, 1fr));
 }
@@ -1230,8 +1231,8 @@ body[data-page="replay"] #paper-path-matrix-form .follow-path-matrix-body--row3 
   grid-template-columns: repeat(3, minmax(0, 1fr));
 }
 
-body[data-page="replay"] #paper-path-matrix-form .follow-path-matrix-body--row5 {
-  grid-template-columns: repeat(5, minmax(0, 1fr));
+body[data-page="replay"] #paper-path-matrix-form .follow-path-matrix-body--row4 {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
 }
 
 /* 形态闸：? 贴标题旁；tips 走悬浮层，不改格子布局 */
@@ -1294,15 +1295,15 @@ body[data-page="replay"] #paper-path-matrix-form input[type="number"]::-webkit-i
   margin: 0;
 }
 
-/* 入场 / 强档 / 高阈：三卡等宽，卡内三槽等宽 */
-body[data-page="replay"] #paper-path-matrix-form .follow-path-matrix-panel[data-panel="rank"] .follow-path-matrix-body--row3 {
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+/* 入场 / 强档：两卡等宽，卡内三槽等宽 */
+body[data-page="replay"] #paper-path-matrix-form .follow-path-matrix-panel[data-panel="rank"] .follow-path-matrix-body--row2 {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   justify-content: stretch;
   align-items: stretch;
   width: 100%;
 }
 
-body[data-page="replay"] #paper-path-matrix-form .follow-path-matrix-panel[data-panel="rank"] .follow-path-matrix-body--row3 > .follow-path-matrix-box--pair {
+body[data-page="replay"] #paper-path-matrix-form .follow-path-matrix-panel[data-panel="rank"] .follow-path-matrix-body--row2 > .follow-path-matrix-box--pair {
   align-self: stretch;
   height: 100%;
   width: auto;

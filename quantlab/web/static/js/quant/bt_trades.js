@@ -339,7 +339,7 @@ export const BT_LEDGER_TRADE_COLS = [
     widthMin: "5.6rem",
     num: true,
     sortable: true,
-    title: "ŷ_oo_rank 当日观察池截面名次 · 1=相对分最高 · 悬停看因子组成 · 过入场后按 y_oo_rank_score 买序；与 τc_rank 共用相对分 rank 阈值（默认 0.3；空=关；不是绝对名次）；fuse 过强档改看强档阈值",
+    title: "ŷ_oo_rank 当日观察池截面名次 · 1=相对分最高 · 悬停看因子组成 · 不进 fuse；进合成 rank_score（买序/阈值；默认阈 0.3；空=关；过强档改看强档阈）",
   },
   {
     id: "y_tc_rank",
@@ -348,7 +348,7 @@ export const BT_LEDGER_TRADE_COLS = [
     widthMin: "5.6rem",
     num: true,
     sortable: true,
-    title: "ŷ_τc_rank 当日截面名次 · 1=相对分最高 · 悬停看因子组成 · 与 oo_rank 共用相对分 rank 阈值（默认 0.3；空=关）；fuse 过强档改看强档阈值；不进 fuse / 不改买序",
+    title: "ŷ_τc_rank 当日截面名次 · 1=相对分最高 · 悬停看因子组成 · 不进 fuse；进合成 rank_score（买序/阈值；默认阈 0.3；空=关；过强档改看强档阈）",
   },
 ];
 
@@ -443,7 +443,7 @@ function _ooRankOrdinalDisplay(yRank, yRankN) {
   if (yRank == null) {
     return {
       text: "—",
-      tip: "oo_rank — · 无已启用模型或未写入；不进 fuse；过入场后作买序；与 τc_rank 共用 rank 入场",
+      tip: "oo_rank — · 无已启用模型或未写入；不进 fuse；进合成 rank_score（买序/阈值）",
     };
   }
   const ord = Math.round(yRank);
@@ -452,21 +452,21 @@ function _ooRankOrdinalDisplay(yRank, yRankN) {
   if (n != null && isInt && ord >= 1 && ord <= n) {
     return {
       text: String(ord),
-      tip: `当日截面第 ${ord} 名 / ${n} · 1=相对分最高 · 不进 fuse；过入场后作买序；与 τc_rank 共用 rank 入场`,
+      tip: `当日截面第 ${ord} 名 / ${n} · 1=相对分最高 · 不进 fuse；进合成 rank_score（买序/阈值）`,
     };
   }
   return {
     text: "—",
-    tip: "旧回测为相对分或缺池大小，请重跑以生成 1..n 名次 · 不进 fuse；过入场后作买序",
+    tip: "旧回测为相对分或缺池大小，请重跑以生成 1..n 名次 · 不进 fuse；进合成 rank_score（买序/阈值）",
   };
 }
 
-/** 成交明细 τc_rank：与 oo_rank 同为 1..n；共用 rank 入场门槛，不改买序。 */
+/** 成交明细 τc_rank：与 oo_rank 同为 1..n；相对分进合成 rank_score。 */
 function _tcRankOrdinalDisplay(yRank, yRankN) {
   if (yRank == null) {
     return {
       text: "—",
-      tip: "τc_rank — · 无已启用模型或未写入 · 与 oo_rank 共用 rank 入场；不进 fuse / 不改买序",
+      tip: "τc_rank — · 无已启用模型或未写入 · 不进 fuse；进合成 rank_score（买序/阈值）",
     };
   }
   const ord = Math.round(yRank);
@@ -475,12 +475,12 @@ function _tcRankOrdinalDisplay(yRank, yRankN) {
   if (n != null && isInt && ord >= 1 && ord <= n) {
     return {
       text: String(ord),
-      tip: `当日截面第 ${ord} 名 / ${n} · 1=相对分最高 · 与 oo_rank 共用 rank 入场；不进 fuse / 不改买序`,
+      tip: `当日截面第 ${ord} 名 / ${n} · 1=相对分最高 · 不进 fuse；进合成 rank_score（买序/阈值）`,
     };
   }
   return {
     text: "—",
-    tip: "缺池大小，请重跑以生成 1..n 名次 · 与 oo_rank 共用 rank 入场；不进 fuse / 不改买序",
+    tip: "缺池大小，请重跑以生成 1..n 名次 · 不进 fuse；进合成 rank_score（买序/阈值）",
   };
 }
 
@@ -1347,7 +1347,7 @@ export function btTradesCellHtml(col, d, deps) {
     return _stackScoreHtml(
       escapeHtml(d.y_oo_rankText || "—"),
       d.y_oo_rankTip ||
-        "ŷ_oo_rank 当日截面名次 · 悬停看因子组成 · 不进 fuse；过入场后作买序；与 τc_rank 共用 rank 入场",
+        "ŷ_oo_rank 当日截面名次 · 悬停看因子组成 · 不进 fuse；进合成 rank_score（买序/阈值）",
       escapeHtml,
       "oo_rank",
       d.scoreDetail
@@ -1357,7 +1357,7 @@ export function btTradesCellHtml(col, d, deps) {
     return _stackScoreHtml(
       escapeHtml(d.y_tc_rankText || "—"),
       d.y_tc_rankTip ||
-        "ŷ_τc_rank 当日截面名次 · 悬停看因子组成 · 与 oo_rank 共用 rank 入场；不进 fuse / 不改买序",
+        "ŷ_τc_rank 当日截面名次 · 悬停看因子组成 · 不进 fuse；进合成 rank_score（买序/阈值）",
       escapeHtml,
       "tc_rank",
       d.scoreDetail
