@@ -18,6 +18,7 @@ from core.research.holdout import (
     select_persist_return_model,
     split_by_holdout_days,
     stamp_fitted_at,
+    stamp_full_sample_live_fitted_at,
 )
 
 
@@ -36,6 +37,18 @@ class TestHoldoutSplit(unittest.TestCase):
             self.assertLess(dates[i], eval_start)
         for i in test_idx:
             self.assertGreaterEqual(dates[i], eval_start)
+
+    def test_holdout_zero_is_full_sample_train(self):
+        dates = [f"2026-01-{d:02d}" for d in range(1, 21)]
+        train_idx, test_idx, meta = split_by_holdout_days(
+            dates, holdout_trading_days=0
+        )
+        self.assertEqual(meta["holdout_trading_days"], 0)
+        self.assertEqual(meta["split_mode"], "full_sample")
+        self.assertEqual(meta["n_test_days"], 0)
+        self.assertEqual(test_idx, [])
+        self.assertEqual(len(train_idx), 20)
+        self.assertIsNone(meta.get("eval_start"))
 
     def test_split_eod_horizon_embargo_drops_last_h_train_days(self):
         dates = [f"2026-01-{d:02d}" for d in range(1, 28)]
@@ -130,6 +143,24 @@ class TestHoldoutSplit(unittest.TestCase):
         fresh = {"success": True, "return_model": {"intercept": 0}}
         stamp_fitted_at(fresh)
         self.assertTrue(fresh.get("fitted_at"))
+
+    def test_stamp_full_sample_live_fitted_at_overrides_research_stamp(self):
+        """全样本写入执行槽不得沿用研究套 fitted_at。"""
+        live = {
+            "fitted_at": "2026-11-12T09:04:39Z",
+            "return_model": {
+                "fitted_at": "2026-11-12T09:04:39Z",
+                "sample_count": 1_500_000,
+            },
+            "promoted_from": "full_sample_refit",
+        }
+        stamp_full_sample_live_fitted_at(
+            live, source={"fitted_at": "2026-11-12T09:13:59Z"}
+        )
+        self.assertEqual(live["fitted_at"], "2026-11-12T09:13:59Z")
+        self.assertEqual(
+            live["return_model"]["fitted_at"], "2026-11-12T09:13:59Z"
+        )
 
     def test_horizon_ridge_persist_keeps_fitted_at(self):
         import json

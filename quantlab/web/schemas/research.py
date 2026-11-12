@@ -91,11 +91,18 @@ class TcLgbRequest(_CrossSectionZscore):
         default="live",
         description="research=报告→研究槽；live=研究槽→执行槽（晋级）",
     )
+    deploy_full_sample: bool = Field(
+        default=False,
+        description=(
+            "仅 persist_role=live：True=用上次 Holdout=0 全样本报告写入执行槽，"
+            "研究套不动；因子表 OOS 仍溯源研究套"
+        ),
+    )
     holdout_trading_days: int = Field(
         default=20,
-        ge=1,
+        ge=0,
         le=60,
-        description="近 N 个交易日不进训练（Holdout）；只训前段一套模型",
+        description="近 N 个交易日不进训练（Holdout）；只训前段一套模型；0=全样本",
     )
     force_promote: bool = Field(
         default=False,
@@ -143,7 +150,7 @@ class OoRankRequest(_CrossSectionZscore):
     )
     holdout_trading_days: int = Field(
         default=20,
-        ge=1,
+        ge=0,
         le=60,
         description="OOS holdout 交易日。默认 20，允许 1～60；拟合按请求值切分",
     )
@@ -171,6 +178,13 @@ class OoRankRequest(_CrossSectionZscore):
     persist_role: str = Field(
         default="live",
         description="research=报告→研究槽；live=研究槽→执行槽（晋级）",
+    )
+    deploy_full_sample: bool = Field(
+        default=False,
+        description=(
+            "仅 persist_role=live：True=用上次 Holdout=0 全样本报告写入执行槽，"
+            "研究套不动；因子表 OOS 仍溯源研究套"
+        ),
     )
     note: str = Field(default="", max_length=200)
 
@@ -223,7 +237,7 @@ class T30RidgeRequest(_CrossSectionZscore):
     )
     holdout_trading_days: int = Field(
         default=20,
-        ge=1,
+        ge=0,
         le=60,
         description="近 N 个交易日不进训练（Holdout）；只训前段一套 β",
     )
@@ -278,7 +292,7 @@ class T45RidgeRequest(_CrossSectionZscore):
     )
     holdout_trading_days: int = Field(
         default=20,
-        ge=1,
+        ge=0,
         le=60,
         description="近 N 个交易日不进训练（Holdout）；只训前段一套 β",
     )
@@ -333,7 +347,7 @@ class T60RidgeRequest(_CrossSectionZscore):
     )
     holdout_trading_days: int = Field(
         default=20,
-        ge=1,
+        ge=0,
         le=60,
         description="近 N 个交易日不进训练（Holdout）；只训前段一套 β",
     )
@@ -388,7 +402,7 @@ class T75RidgeRequest(_CrossSectionZscore):
     )
     holdout_trading_days: int = Field(
         default=20,
-        ge=1,
+        ge=0,
         le=60,
         description="近 N 个交易日不进训练（Holdout）；只训前段一套 β",
     )
@@ -516,7 +530,7 @@ class T90RidgeRequest(_CrossSectionZscore):
     )
     holdout_trading_days: int = Field(
         default=20,
-        ge=1,
+        ge=0,
         le=60,
         description="近 N 个交易日不进训练（Holdout）；只训前段一套 β",
     )
@@ -583,9 +597,12 @@ class ReturnModelFitRequest(_CrossSectionZscore):
     save_draft: bool = True
     holdout_trading_days: int = Field(
         default=20,
-        ge=3,
+        ge=0,
         le=60,
-        description="近 N 个交易日 Holdout，只测不训（与 ŷ_oo 卡片 Holdout 共用）",
+        description=(
+            "近 N 个交易日 Holdout，只测不训（与 ŷ_oo 卡片 Holdout 共用）；"
+            "允许 0～60；0=全样本训练（晋级执行重训）"
+        ),
     )
 
 
@@ -594,6 +611,13 @@ class ReturnModelPromoteRequest(BaseModel):
     persist_role: str = Field(
         default="live",
         description="research=草稿→研究槽（回测）；live=研究槽→执行槽（晋级）",
+    )
+    refit_full_sample: bool = Field(
+        default=False,
+        description=(
+            "仅 persist_role=live：True=用当前草稿（Holdout=0 全样本重训）写入执行槽，"
+            "研究套不动；门禁 OOS 仍溯源研究套"
+        ),
     )
 
 

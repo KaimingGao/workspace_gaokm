@@ -46,6 +46,7 @@ from web.routers import (  # noqa: E402
     quant_config,
     quant_dashboard,
     quant_research,
+    quant_yhat_tf,
     strategy,
     watching,
 )
@@ -122,6 +123,7 @@ app.include_router(quant_research.router)
 app.include_router(quant_cluster.router)
 app.include_router(quant_backtest.router)
 app.include_router(quant_dashboard.router)
+app.include_router(quant_yhat_tf.router)
 app.include_router(watching.router)
 app.include_router(evals.router)
 app.include_router(platform.router)
@@ -207,6 +209,15 @@ def follow_page() -> HTMLResponse:
 def paper_page() -> RedirectResponse:
     """旧「纸面」入口并入模拟页；API 仍为 /api/paper（内部 canonical）。"""
     return RedirectResponse(url="/follow", status_code=302)
+
+
+@app.get("/yhat-tf")
+def yhat_tf_page() -> HTMLResponse:
+    """L4 四头 ŷ Transformer 隐藏研究台：仅 ⌘⇧K 入口；不写生产 score。"""
+    return HTMLResponse(
+        render_tool_html("yhat_tf"),
+        headers={"Cache-Control": "no-store"},
+    )
 
 
 @app.get("/favicon.ico")

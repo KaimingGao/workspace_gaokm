@@ -56,7 +56,7 @@ def allocate_topk_weights(
         code = str(leg.get("stock_code") or "")
         row = {
             "stock_code": code,
-            "score": float(leg.get("score") or 50.0),
+            "score": float(leg.get("score") if leg.get("score") is not None else 50.0),
             "sector": leg.get("sector") or "未知",
         }
         if mode == "risk_parity_lite" and stock_bars:
@@ -100,9 +100,12 @@ def allocate_topk_weights(
     if total <= 1e-6:
         w = round(100.0 / n, 4)
         return {str(leg["stock_code"]): w for leg in legs}, "equal"
-    do_renorm = bool(renormalize) if renormalize is not None else False
-    if do_renorm:
-        return {
-            c: round(100.0 * v / total, 4) for c, v in filtered.items() if v > 0
-        }, mode
-    return {c: round(v, 4) for c, v in filtered.items() if v > 0.05}, mode
+    # 统一归一化 + 剔除 0 权重腿，避免组合实际仓位不足 100%
+    renormed = {c: round(100.0 * v / total, 4) for c, v in filtered.items() if v > 0}
+    # 浮点 round 后总和可能略超 100，迭代扣到 <= 100
+    while renormed and round(sum(renormed.values()), 8) > 100.0:
+        c_max = max(renormed, key=renormed.get)
+        renormed[c_max] = round(renormed[c_max] - 0.0001, 4)
+        if renormed[c_max] <= 0:
+            del renormed[c_max]
+    return renormed, mode

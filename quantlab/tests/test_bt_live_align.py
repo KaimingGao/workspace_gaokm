@@ -36,7 +36,7 @@ class TestAllocateNoRenorm(unittest.TestCase):
             max_sector_pct=40.0,
         )
         self.assertEqual(mode, "score_budget")
-        self.assertLessEqual(sum(w.values()) + 1e-6, 100.0)
+        self.assertLessEqual(sum(w.values()), 100.0 + 1e-6)  # 权重归一化后应严格不超 100
 
     def test_port_return_uses_cash_base(self):
         from core.backtest.legacy.topk_risk import _weighted_port_return

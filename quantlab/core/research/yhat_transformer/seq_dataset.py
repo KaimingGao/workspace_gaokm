@@ -1,4 +1,4 @@
-"""ŷ_oo PIT 日线短序列面板（研究轨）。
+"""四头 ŷ_* PIT 日线短序列面板（研究轨；默认标签 y_oo）。
 
 决策日 T：序列 = 完整日 ``[T-L … T-1]``；附加 ``gap_t``（今开/昨收−1）；
 标签 ``open[T+h]/open[T]−1``。今收 / 今高 / 今低 / 今量 **不进** 序列。
@@ -9,7 +9,7 @@ from __future__ import annotations
 import logging
 import math
 from dataclasses import dataclass
-from typing import Any, Dict, List, Mapping, Optional, Sequence, Tuple
+from typing import Any, Dict, List, Mapping, Optional, Sequence, Tuple  # noqa: I001 — Any used by head dispatch
 
 import numpy as np
 
@@ -83,7 +83,7 @@ def _step_features(
 
 
 @dataclass
-class OoSeqPanel:
+class SeqPanel:
     """紧凑面板：X (N,L,F) · gap (N,) · y (N,) · dates/codes 等长。"""
 
     X: np.ndarray
@@ -98,9 +98,9 @@ class OoSeqPanel:
     def n(self) -> int:
         return int(self.y.shape[0])
 
-    def subset(self, idx: Sequence[int]) -> "OoSeqPanel":
+    def subset(self, idx: Sequence[int]) -> "SeqPanel":
         ii = np.asarray(list(idx), dtype=np.int64)
-        return OoSeqPanel(
+        return SeqPanel(
             X=self.X[ii],
             gap=self.gap[ii],
             y=self.y[ii],
@@ -120,6 +120,27 @@ def _vol_ma20(vols: Sequence[float], j: int) -> float:
     return float(sum(chunk) / len(chunk))
 
 
+def _forward_label_pct(
+    bars: Sequence[dict],
+    i: int,
+    *,
+    label: str,
+    horizon_days: int,
+) -> Optional[float]:
+    """按 head 标签取 y（百分点）。``tc_open`` = close[T]/open[T]−1（τ=开盘）。"""
+    lab = str(label or "oo").strip().lower()
+    if lab in ("tc", "tc_open", "y_tc", "oc"):
+        # τ=open：同日 close/open；horizon 对日线 τc 开盘头无意义，忽略
+        o0 = _f((bars[i] or {}).get("open"))
+        c0 = _f((bars[i] or {}).get("close"))
+        if o0 is None or c0 is None or o0 <= 0 or c0 <= 0:
+            return None
+        return (float(c0) / float(o0) - 1.0) * 100.0
+    from core.signal.yhat_windows import forward_oo_pct
+
+    return forward_oo_pct(bars, i, max(1, int(horizon_days or 1)))
+
+
 def samples_from_bars(
     code: str,
     bars: Sequence[dict],
@@ -127,16 +148,21 @@ def samples_from_bars(
     seq_len: int = 20,
     horizon_days: int = 1,
     min_history: Optional[int] = None,
+    label: str = "oo",
 ) -> Tuple[np.ndarray, np.ndarray, np.ndarray, List[str]]:
-    """单票：返回 ``(X, gap, y, dates)``；无样本则空数组。"""
-    from core.signal.yhat_windows import forward_oo_pct
+    """单票：返回 ``(X, gap, y, dates)``；无样本则空数组。
 
+    ``label``：``oo``（open→open）或 ``tc_open``（close/open，τ=开盘）。
+    """
     L = max(5, int(seq_len or 20))
     h = max(1, int(horizon_days or 1))
+    lab = str(label or "oo").strip().lower()
+    # tc_open 标签在同日 close，不需要未来 bar
+    tail = 0 if lab in ("tc", "tc_open", "y_tc", "oc") else h
     need = int(min_history) if min_history is not None else (L + 2)
     need = max(need, L + 2)
     n = len(bars or [])
-    if n < need + h:
+    if n < need + tail:
         return (
             np.zeros((0, L, len(SEQ_FEATURE_NAMES)), dtype=np.float32),
             np.zeros((0,), dtype=np.float32),
@@ -157,8 +183,9 @@ def samples_from_bars(
     dates: List[str] = []
 
     # 决策下标 i：完整日用到 i-1；序列窗口 [i-L, i)
-    for i in range(max(need - 1, L), n - h):
-        fr = forward_oo_pct(bars, i, h)
+    end_i = n if tail <= 0 else n - tail
+    for i in range(max(need - 1, L), end_i):
+        fr = _forward_label_pct(bars, i, label=lab, horizon_days=h)
         if fr is None or not math.isfinite(float(fr)):
             continue
         cur_o = _f((bars[i] or {}).get("open"))
@@ -183,7 +210,7 @@ def samples_from_bars(
             )
         if not ok:
             continue
-        # PIT：窗口末日必须是 T-1
+        # PIT：窗口末日必须是 T-1；今收不进序列（仅可进 y）
         last_date = str((bars[i - 1] or {}).get("date") or "")[:10]
         decision = str((bars[i] or {}).get("date") or "")[:10]
         if not decision or not last_date or last_date >= decision:
@@ -209,15 +236,30 @@ def samples_from_bars(
     )
 
 
-def build_oo_seq_panel(
+def _label_for_head(head: Any) -> str:
+    """回归/排序共用底层收益标签；排序在 listwise 损失里按日截面做。"""
+    if head is None:
+        return "oo"
+    if hasattr(head, "id"):
+        hid = str(getattr(head, "id") or "oo")
+    else:
+        hid = str(head).strip().lower()
+    if hid in ("tc", "tc_open", "y_tc", "tc_rank", "y_tc_rank"):
+        return "tc_open"
+    return "oo"
+
+
+def build_seq_panel(
     stock_bars: Mapping[str, Sequence[dict]],
     *,
+    head: Any = "oo",
     seq_len: int = 20,
     horizon_days: int = 1,
-) -> OoSeqPanel:
-    """多票堆叠序列面板（float32）。"""
+) -> SeqPanel:
+    """多票堆叠序列面板（float32）；``head`` 可为 HeadSpec 或 id。"""
     L = max(5, int(seq_len or 20))
     F = len(SEQ_FEATURE_NAMES)
+    lab = _label_for_head(head)
     chunks_x: List[np.ndarray] = []
     chunks_g: List[np.ndarray] = []
     chunks_y: List[np.ndarray] = []
@@ -233,9 +275,10 @@ def build_oo_seq_panel(
                 bars,
                 seq_len=L,
                 horizon_days=horizon_days,
+                label=lab,
             )
         except Exception:  # noqa: BLE001
-            logger.debug("oo seq samples failed code=%s", code_s, exc_info=True)
+            logger.debug("seq samples failed code=%s head=%s", code_s, lab, exc_info=True)
             continue
         if X.shape[0] <= 0:
             continue
@@ -245,7 +288,7 @@ def build_oo_seq_panel(
         dates.extend(ds)
         codes.extend([code_s] * len(ds))
     if not chunks_x:
-        return OoSeqPanel(
+        return SeqPanel(
             X=np.zeros((0, L, F), dtype=np.float32),
             gap=np.zeros((0,), dtype=np.float32),
             y=np.zeros((0,), dtype=np.float32),
@@ -253,7 +296,7 @@ def build_oo_seq_panel(
             codes=[],
             seq_len=L,
         )
-    return OoSeqPanel(
+    return SeqPanel(
         X=np.concatenate(chunks_x, axis=0),
         gap=np.concatenate(chunks_g, axis=0),
         y=np.concatenate(chunks_y, axis=0),
@@ -277,7 +320,7 @@ def assert_pit_last_bar_before_decision(
     return bool(last and dec and last < dec)
 
 
-def panel_metas(panel: OoSeqPanel) -> List[Dict[str, str]]:
+def panel_metas(panel: SeqPanel) -> List[Dict[str, str]]:
     return [
         {"code": c, "date": d, "decision_date": d}
         for c, d in zip(panel.codes, panel.dates)
@@ -287,9 +330,9 @@ def panel_metas(panel: OoSeqPanel) -> List[Dict[str, str]]:
 __all__ = [
     "SEQ_FEATURE_NAMES",
     "GAP_FEATURE_NAME",
-    "OoSeqPanel",
+    "SeqPanel",
     "samples_from_bars",
-    "build_oo_seq_panel",
+    "build_seq_panel",
     "assert_pit_last_bar_before_decision",
     "panel_metas",
 ]

@@ -488,7 +488,9 @@ def resolve_effective_execution(
         notes=notes,
     )
     t0 = load_t0_rules(raw_t0)
-    t0["t0_ratio"] = 1.0
+    # 仅在缺失或非正值时兜底为 1.0，保留用户显式配置
+    if not t0.get("t0_ratio") or float(t0.get("t0_ratio") or 0) <= 0:
+        t0["t0_ratio"] = 1.0
 
     # rebalance 规则键：Spec paper_rules ← paper.rules（非 t0）
     rebalance = deepcopy(strategy_exe.get("_paper_rules") or {})

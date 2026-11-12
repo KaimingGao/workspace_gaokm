@@ -31,6 +31,7 @@ _PAGE_TITLES = {
     "replay": "历史回测",
     "follow": "交易执行",
     "platform": "平台",
+    "yhat_tf": "模型中心",
 }
 
 _PANEL_CLASS = {
@@ -42,6 +43,7 @@ _PANEL_CLASS = {
     "replay": "quant-panel",
     "follow": "quant-panel",
     "platform": "quant-panel",
+    "yhat_tf": "quant-panel",
 }
 
 @lru_cache(maxsize=16)

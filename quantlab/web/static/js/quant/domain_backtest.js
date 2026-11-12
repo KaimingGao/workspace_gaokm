@@ -974,6 +974,21 @@ export function installBacktest(q) {
     el.value = String(role).toLowerCase() === "live" ? "live" : "research";
   }
 
+  /** 研究台套切换 / 拟合执行后：对齐回测「模型」下拉（调仓默认跟套；做 T 仅在切执行时跟） */
+  function syncBacktestScoreModelRole(role, { t0 = null } = {}) {
+    const v = String(role || "").toLowerCase() === "live" ? "live" : "research";
+    applyScoreModelRole("quant-score-model-role", v);
+    // 做 T 默认执行；仅当明确要求或切到执行时跟套，避免研究套误拖做 T
+    if (t0 === true || (t0 == null && v === "live")) {
+      applyScoreModelRole("paper-t0-score-model-role", v);
+    }
+    try {
+      persistReplayDeskPrefs();
+    } catch (_) {
+      /* ignore */
+    }
+  }
+
   function readPortfolioBtParams() {
     const lbEl = document.getElementById("quant-lookback");
     let lookback = 10;
@@ -2609,5 +2624,6 @@ export function installBacktest(q) {
     runPortfolioBacktest,
     setBtTradesCaption,
     setQuantBtBusy,
+    syncBacktestScoreModelRole,
   };
 }

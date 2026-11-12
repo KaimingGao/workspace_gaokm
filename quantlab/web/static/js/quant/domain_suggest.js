@@ -28,6 +28,8 @@ export function installSuggest(q) {
     fmtOlsCell,
   } = q;
   const { researchGridHtml, metricCell, metricClass, fmtPct } = q;
+  /** 研究/执行拟合勿叠跑：全池 LightGBM 极重，多点会把内存打爆 */
+  let ooFitInflight = false;
 
   function weightSuggestStatusHtml(suggest) {
     return buildWeightSuggestStatusHtml(suggest, {
@@ -337,8 +339,28 @@ export function installSuggest(q) {
     return factorIcWeightMergedHtml(null, suggest, state.lastOlsForMerge);
   }
 
+  // 状态只写 ŷ_oo 卡头 #quant-ols-summary，不刷页顶 #quant-meta
   function paintOoStatus(opts) {
-    q.renderRemStatus(els.quantOlsSummary, opts);
+    const o = opts && typeof opts === "object" ? opts : {};
+    const view =
+      o.suiteView === "live"
+        ? "live"
+        : o.suiteView === "research"
+          ? "research"
+          : null;
+    if (view && typeof q.paintSuiteHeadStatus === "function") {
+      q.paintSuiteHeadStatus("oo", view, o);
+      return;
+    }
+    if (view === "research" && typeof q.paintSuiteResearchBusy === "function") {
+      q.paintSuiteResearchBusy("oo", o);
+      return;
+    }
+    q.renderRemStatus(els.quantOlsSummary, {
+      ...o,
+      omitRoleMetas: true,
+      omitFitMeta: true,
+    });
   }
 
   /** 状态接口 → ŷ_τc 卡头字段（拟合 / 研究 / 执行）。 */
@@ -371,20 +393,15 @@ export function installSuggest(q) {
   function paintOoFitStatus(data, extra = {}) {
     q.paintRidgeEnableStatus(els.quantOlsSummary, ooRidgeStatusPayload(data), {
       omitTauEndBit: true,
-      idleMessage: "拟合后看 gain · 再启用研究/执行",
+      idleMessage: "研究 Holdout OOS",
       ...extra,
     });
   }
-  const paintOoLikeRidge = paintOoFitStatus;
 
-  function _setOoPromoteEnabled(draftExists) {
-    for (const id of [
-      "quant-return-model-promote",
-      "quant-return-model-persist-research",
-    ]) {
-      const btn = document.getElementById(id);
-      if (btn) btn.disabled = !draftExists;
-    }
+  function _setOoPromoteEnabled(_researchExists) {
+    // 允许无研究套直接「拟合执行」（Holdout=0 全样本 → 执行槽）
+    const btn = document.getElementById("quant-return-model-promote");
+    if (btn) btn.disabled = false;
   }
 
   async function renderReturnModelFit(data) {
@@ -397,33 +414,45 @@ export function installSuggest(q) {
         : () => {
             if (resultEl) resultEl.innerHTML = "";
           };
-    const draftOk = !!(data.draft && data.draft.success);
     state.lastReturnModelFit = data;
     syncOverviewOo(data.oos || {});
     /* 与 ŷ_τc 一致：成功路径只刷系数表，不另挂 fingerprint 摘要块 */
     clearResult();
-    if (paintCoef) {
-      const lgbRm =
-        data.backends &&
-        data.backends.lightgbm &&
-        (data.backends.lightgbm.return_model || data.backends.lightgbm);
-      const fi =
-        (data.model && data.model.feature_importance) ||
-        (lgbRm && lgbRm.feature_importance) ||
-        null;
-      const rm = {
-        ...(data.model || {}),
-        sample_count: data.sample_count ?? (data.model || {}).sample_count,
-        backend: "lightgbm",
-        recommended_backend: "lightgbm",
-        feature_importance: Array.isArray(fi) ? fi : (data.model || {}).feature_importance,
-      };
+    const lgbRm =
+      data.backends &&
+      data.backends.lightgbm &&
+      (data.backends.lightgbm.return_model || data.backends.lightgbm);
+    const fi =
+      (data.model && data.model.feature_importance) ||
+      (lgbRm && lgbRm.feature_importance) ||
+      null;
+    const rm = {
+      ...(data.model || {}),
+      sample_count: data.sample_count ?? (data.model || {}).sample_count,
+      backend: "lightgbm",
+      recommended_backend: "lightgbm",
+      feature_importance: Array.isArray(fi) ? fi : (data.model || {}).feature_importance,
+    };
+    if (typeof q.cacheHeadSuitePacks === "function") {
+      q.cacheHeadSuitePacks("oo", {
+        suite_research: {
+          return_model: rm,
+          oos: data.oos || {},
+          fitted_at: data.fitted_at || null,
+          backend: "lightgbm",
+          feature_importance: Array.isArray(fi) ? fi : null,
+        },
+      });
+    }
+    if (typeof q.setHeadSuiteView === "function") {
+      q.setHeadSuiteView("oo", "research", { paint: true });
+    } else if (paintCoef) {
       await paintCoef(rm, {
         oos: data.oos || {},
+        showOos: true,
         feature_importance: Array.isArray(fi) ? fi : undefined,
       });
     }
-    _setOoPromoteEnabled(draftOk);
   }
 
   function _ooOosFromStatus(data) {
@@ -473,9 +502,11 @@ export function installSuggest(q) {
       const draft = data.draft || {};
       const oos = _ooOosFromStatus(data);
       syncOverviewOo(oos);
-      _setOoPromoteEnabled(!!draft.exists);
+      const researchOn = !!(data.research && data.research.exists);
+      _setOoPromoteEnabled(researchOn);
       const lastFit = state.lastReturnModelFit || {};
       const fittedAt =
+        (data.research && (data.research.fitted_at || data.research.promoted_at)) ||
         draft.fitted_at ||
         draft.saved_at ||
         (lastFit.draft && lastFit.draft.saved_at) ||
@@ -483,29 +514,28 @@ export function installSuggest(q) {
         lastFit.saved_at ||
         null;
       const liveOn = !!(data.active && data.active.exists);
-      const researchOn = !!(data.research && data.research.exists);
-      // 刚拟合只提示草稿；落盘态交给拟合/研究/执行时间
+      // 刚拟合研究：指标来自研究套 Holdout OOS；拟合执行不改因子表指标
       const extra = {
         justFitted: justFittedOnce,
         fittedAt,
+        suiteView: "research",
       };
       if (justFittedOnce) {
-        extra.message =
-          draft.exists && (liveOn || researchOn)
-            ? "草稿已更新 · 可启用研究（验证后再晋级执行）"
-            : draft.exists
-              ? "草稿已存 · 可启用研究（验证后再晋级执行）"
-              : "已拟合";
+        // 文案只谈研究套；执行是否已有槽不改 chip（避免「跟到执行」）
+        extra.message = researchOn
+          ? "研究套已写入 · 因子表=Holdout OOS"
+          : "已拟合";
       }
-      paintOoLikeRidge(data, extra);
+      paintOoFitStatus(data, extra);
       if (justFittedOnce && clearResult) clearResult();
-      if (paintCoef) {
-        let rm = justFittedOnce
-          ? lastFit.model ||
-            (lastFit.return_model ? lastFit.return_model : null) ||
-            data.return_model
-          : data.return_model || null;
-        // 状态刷新也要 stamp LightGBM，否则空 β 被当 Ridge 表
+      if (typeof q.cacheHeadSuitePacks === "function") {
+        q.cacheHeadSuitePacks("oo", data);
+      }
+      // 刚拟合：强制研究视图，并把本次 Holdout OOS 写入研究包
+      if (justFittedOnce && typeof q.setHeadSuiteView === "function") {
+        let rm = lastFit.model ||
+          (lastFit.return_model ? lastFit.return_model : null) ||
+          data.return_model;
         if (rm && typeof rm === "object") {
           const be = String(rm.backend || rm.solver || data.backend || "").toLowerCase();
           const boosterOk =
@@ -546,16 +576,22 @@ export function installSuggest(q) {
               solver: rm.solver || "lightgbm",
               feature_importance: Array.isArray(fi) ? fi : rm.feature_importance,
             };
-            await paintCoef(rm, {
-              oos,
-              feature_importance: Array.isArray(fi) ? fi : undefined,
-            });
-          } else {
-            await paintCoef(rm, { oos });
           }
-        } else {
-          await paintCoef(rm, { oos });
+          q.cacheHeadSuitePacks("oo", {
+            suite_research: {
+              return_model: rm,
+              oos,
+              fitted_at: fittedAt,
+              backend: "lightgbm",
+              feature_importance: rm.feature_importance,
+            },
+          });
         }
+        q.setHeadSuiteView("oo", "research", { paint: true });
+      } else if (typeof q.paintHeadSuiteCoef === "function") {
+        await q.paintHeadSuiteCoef("oo");
+      } else if (paintCoef) {
+        await paintCoef(data.return_model || null, { oos, showOos: true });
       }
       return data;
     } catch (err) {
@@ -571,6 +607,19 @@ export function installSuggest(q) {
   }
 
   async function runReturnModelFit() {
+    if (ooFitInflight) {
+      paintOoStatus({
+        state: "busy",
+        chip: "拟合中",
+        message: "ŷ_oo 正在拟合，请等待当前任务结束",
+        busy: true,
+        suiteView: "research",
+      });
+      return;
+    }
+    ooFitInflight = true;
+    const holdN =
+      typeof readHoldoutTradingDays === "function" ? readHoldoutTradingDays("oo") : 20;
     const t0 = Date.now();
     let busyTimer = null;
     const stopBusy = () => {
@@ -581,13 +630,13 @@ export function installSuggest(q) {
     };
     const tick = () => {
       const s = Math.max(0, Math.round((Date.now() - t0) / 1000));
-      const msg = `ŷ_oo… ${q.fmtRidgeFitSec(s)} · ${q.ridgeFitBusyHint(s)}`;
-      // 状态只写 ŷ_oo 卡头，不刷页顶 #quant-meta（与 ŷ_τc 等头一致）
+      const msg = `ŷ_oo 拟合… ${q.fmtRidgeFitSec(s)} · ${q.ridgeFitBusyHint(s)}`;
       paintOoStatus({
         state: "busy",
         chip: "拟合中",
         message: msg,
         busy: true,
+        suiteView: "research",
       });
     };
     tick();
@@ -604,8 +653,7 @@ export function installSuggest(q) {
           horizon_days: 1,
           watching_limit: readWatchingLimit(),
           save_draft: true,
-          holdout_trading_days:
-            typeof readHoldoutTradingDays === "function" ? readHoldoutTradingDays("oo") : 20,
+          holdout_trading_days: holdN,
           ...csFit,
         }),
       });
@@ -644,6 +692,37 @@ export function installSuggest(q) {
         return;
       }
       await renderReturnModelFit(data);
+      // 拟合研究：草稿 → 研究槽（因子表 OOS 来自本次 Holdout）
+      paintOoStatus({
+        state: "busy",
+        chip: "写入中",
+        message: "写入研究套…",
+        busy: true,
+        suiteView: "research",
+      });
+      const promo = await fetch("/api/quant/return-model/promote", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          note: `ui oo fit-research Holdout=${holdN}`,
+          persist_role: "research",
+        }),
+      });
+      const promoData = await promo.json().catch(() => null);
+      if (!promo.ok || !promoData || !promoData.success) {
+        const msg = formatApiDetail(
+          promoData && (promoData.error || promoData.detail),
+          `研究套写入失败 HTTP ${promo.status}`
+        );
+        paintOoStatus({
+          state: "error",
+          chip: "失败",
+          message: msg,
+          error: true,
+        });
+        await refreshReturnModelStatus({ justFitted: true });
+        return;
+      }
       await refreshReturnModelStatus({ justFitted: true });
     } catch (err) {
       stopBusy();
@@ -655,61 +734,132 @@ export function installSuggest(q) {
       });
     } finally {
       stopBusy();
+      ooFitInflight = false;
     }
   }
 
-  async function runReturnModelPromote(persistRole = "live") {
-    const role = String(persistRole || "live").toLowerCase() === "research"
-      ? "research"
-      : "live";
-    const roleLabel = role === "research" ? "研究套" : "执行套";
-    const pathHint =
-      role === "research"
-        ? "草稿 → return_score_model_research.json（供回测）"
-        : "研究槽 → return_score_model_active.json（晋级；须先启用研究）";
-    if (
-      !window.confirm(
-        role === "research"
-          ? `将 ŷ_oo 草稿写入${roleLabel}（${pathHint}）？`
-          : `将当前研究套 ŷ_oo 晋级为${roleLabel}（${pathHint}）？`
-      )
-    ) {
-      return;
-    }
-    paintOoStatus({
-      state: "busy",
-      chip: "写入中",
-      message: `写入${roleLabel}…`,
-      busy: true,
-    });
-    const res = await fetch("/api/quant/return-model/promote", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        note: `研究枢纽·ŷ_oo 人审启用${roleLabel}`,
-        persist_role: role,
-      }),
-    });
-    let data = null;
-    try {
-      data = await res.json();
-    } catch (_) {
-      data = null;
-    }
-    if (!res.ok || !data || !data.success) {
-      const msg = formatApiDetail(
-        data && (data.error || data.detail),
-        `HTTP ${res.status}`
-      );
+  /** 拟合执行：Holdout=0 全样本重训 → 执行槽（研究套可选） */
+  async function runReturnModelPromote(_persistRole = "live") {
+    if (ooFitInflight) {
       paintOoStatus({
-        state: "error",
-        chip: "失败",
-        message: msg,
-        error: true,
+        state: "busy",
+        chip: "拟合中",
+        message: "ŷ_oo 正在拟合，请等待当前任务结束",
+        busy: true,
+        suiteView: "live",
       });
       return;
     }
-    await refreshReturnModelStatus();
+    ooFitInflight = true;
+    const t0 = Date.now();
+    let busyTimer = null;
+    const stopBusy = () => {
+      if (busyTimer) {
+        clearInterval(busyTimer);
+        busyTimer = null;
+      }
+    };
+    const tick = () => {
+      const s = Math.max(0, Math.round((Date.now() - t0) / 1000));
+      paintOoStatus({
+        state: "busy",
+        chip: "拟合中",
+        message: `ŷ_oo 全样本重训… ${q.fmtRidgeFitSec(s)}`,
+        busy: true,
+        suiteView: "live",
+      });
+    };
+    tick();
+    busyTimer = setInterval(tick, 1000);
+    try {
+      await ensureFactorMeta();
+      const csFit = readCrossSectionFitParams("oo");
+      const fitRes = await fetch("/api/quant/return-model/fit", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          lookback:
+            typeof readFitLookbackDays === "function" ? readFitLookbackDays("oo") : 600,
+          horizon_days: 1,
+          watching_limit: readWatchingLimit(),
+          save_draft: true,
+          holdout_trading_days: 0,
+          ...csFit,
+        }),
+      });
+      const fitData = await fitRes.json().catch(() => null);
+      if (!fitRes.ok || !fitData || fitData.success === false) {
+        stopBusy();
+        paintOoStatus({
+          state: "error",
+          chip: "失败",
+          message: q.formatHorizonFitErrorMessage(
+            fitData,
+            "",
+            !fitRes.ok ? `HTTP ${fitRes.status}` : "全样本重训失败"
+          ),
+          error: true,
+        });
+        return;
+      }
+      paintOoStatus({
+        state: "busy",
+        chip: "写入中",
+        message: "全样本包写入执行套…",
+        busy: true,
+        suiteView: "live",
+      });
+      const promo = await fetch("/api/quant/return-model/promote", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          note: "ui oo promote-exec full-sample refit",
+          persist_role: "live",
+          refit_full_sample: true,
+        }),
+      });
+      const promoData = await promo.json().catch(() => null);
+      stopBusy();
+      if (!promo.ok || !promoData || !promoData.success) {
+        paintOoStatus({
+          state: "error",
+          chip: "失败",
+          message: formatApiDetail(
+            promoData && (promoData.error || promoData.detail),
+            `HTTP ${promo.status}`
+          ),
+          error: true,
+        });
+        return;
+      }
+      // 不刷全样本 IS 指标；有研究套时因子表仍用其 Holdout OOS
+      const status = await refreshReturnModelStatus();
+      const hasResearch = !!(status && status.research && status.research.exists);
+      if (typeof q.setHeadSuiteView === "function") {
+        q.setHeadSuiteView("oo", "live", { paint: true });
+      } else if (typeof q.syncBacktestRoleFromSuite === "function") {
+        q.syncBacktestRoleFromSuite("live");
+      }
+      paintOoStatus({
+        state: "ok",
+        chip: "已拟合",
+        message: hasResearch
+          ? "执行套已全样本部署 · 因子表仍为研究套 Holdout OOS"
+          : "执行套已全样本部署",
+        suiteView: "live",
+      });
+    } catch (err) {
+      stopBusy();
+      paintOoStatus({
+        state: "error",
+        chip: "失败",
+        message: q.describeNetworkFetchError(err),
+        error: true,
+      });
+    } finally {
+      stopBusy();
+      ooFitInflight = false;
+    }
   }
 
   return {

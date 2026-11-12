@@ -134,6 +134,7 @@ def quant_tc_lgb(body: TcLgbRequest) -> Dict[str, Any]:
         tau_end_hm=body.tau_end_hm,
         force_promote=body.force_promote,
         persist_role=body.persist_role,
+        deploy_full_sample=bool(getattr(body, "deploy_full_sample", False)),
         holdout_trading_days=body.holdout_trading_days,
         cross_section_zscore=bool(body.cross_section_zscore),
     )
@@ -180,6 +181,7 @@ def quant_oo_rank(body: OoRankRequest) -> Dict[str, Any]:
             backend=body.backend,
             persist=body.persist,
             persist_role=body.persist_role,
+            deploy_full_sample=bool(getattr(body, "deploy_full_sample", False)),
             note=body.note,
             cross_section_zscore=bool(body.cross_section_zscore),
         )
@@ -210,6 +212,7 @@ def quant_tc_rank(body: TcRankRequest) -> Dict[str, Any]:
             backend=body.backend,
             persist=body.persist,
             persist_role=body.persist_role,
+            deploy_full_sample=bool(getattr(body, "deploy_full_sample", False)),
             note=body.note,
             cross_section_zscore=bool(body.cross_section_zscore),
             tau_end_hm=body.tau_end_hm,
@@ -223,6 +226,99 @@ def quant_tc_rank_model() -> Dict[str, Any]:
     """读取 ŷ_τc_rank 研究台：优先上次拟合草稿，否则已启用研究/执行套。"""
     try:
         return deps.quant.get_tc_rank_model()
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e)) from e
+
+
+@router.get("/api/quant/model-versions")
+def quant_model_versions(
+    head: str = Query(..., description="oo | tau | oo_rank | tc_rank"),
+    role: str = Query("research", description="research | live"),
+) -> Dict[str, Any]:
+    """四头研究/执行套历史版本列表（按拟合时间）。"""
+    try:
+        from core.research.model_versions import list_suite_versions
+
+        return list_suite_versions(head, role)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e)) from e
+
+
+@router.get("/api/quant/model-versions/preview")
+def quant_model_versions_preview(
+    head: str = Query(..., description="oo | tau | oo_rank | tc_rank"),
+    role: str = Query("research", description="research | live"),
+    version_id: str = Query(..., description="版本 id（拟合时间戳）"),
+) -> Dict[str, Any]:
+    """预览历史版本面板（不写槽、不启用）。"""
+    try:
+        from core.research.model_versions import preview_suite_version
+
+        out = preview_suite_version(head, role, version_id)
+        if not out.get("success"):
+            raise HTTPException(
+                status_code=404, detail=out.get("error") or "version not found"
+            )
+        return out
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e)) from e
+
+
+@router.post("/api/quant/model-versions/restore")
+def quant_model_versions_restore(
+    body: Dict[str, Any] = Body(...),
+) -> Dict[str, Any]:
+    """把历史版本写回当前研究/执行槽，并刷新卡头展示。"""
+    try:
+        from core.research.model_versions import restore_suite_version
+
+        head = str((body or {}).get("head") or "")
+        role = str((body or {}).get("role") or "research")
+        version_id = str((body or {}).get("version_id") or "")
+        out = restore_suite_version(head, role, version_id)
+        if not out.get("success"):
+            raise HTTPException(status_code=400, detail=out.get("error") or "restore failed")
+        return out
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e)) from e
+
+
+@router.post("/api/quant/model-versions/delete")
+def quant_model_versions_delete(
+    body: Dict[str, Any] = Body(...),
+) -> Dict[str, Any]:
+    """删除版本库中的指定版本（不改当前槽）。"""
+    try:
+        from core.research.model_versions import delete_suite_version
+
+        head = str((body or {}).get("head") or "")
+        role = str((body or {}).get("role") or "research")
+        version_id = str((body or {}).get("version_id") or "")
+        out = delete_suite_version(head, role, version_id)
+        if not out.get("success"):
+            raise HTTPException(status_code=400, detail=out.get("error") or "delete failed")
+        return out
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e)) from e
+
+
+@router.post("/api/quant/model-versions/purge-incomplete")
+def quant_model_versions_purge_incomplete(
+    body: Dict[str, Any] = Body(...),
+) -> Dict[str, Any]:
+    """清理版本库里的残缺包（样本/特征过少）。"""
+    try:
+        from core.research.model_versions import purge_incomplete_versions
+
+        head = str((body or {}).get("head") or "")
+        role = str((body or {}).get("role") or "research")
+        return purge_incomplete_versions(head, role)
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e)) from e
 

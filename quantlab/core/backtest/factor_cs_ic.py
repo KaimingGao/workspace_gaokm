@@ -161,14 +161,14 @@ def compute_factor_cross_section_ic(
         score_ys: List[float] = []
         for code, dm in date_maps.items():
             start = max(0, i - max_window + 1)
-            window = [dm[d] for d in dates[start : i + 1] if d in dm]
-            if len(window) < 2:
+            hist = [dm[d] for d in dates[start:i] if d in dm]
+            if len(hist) < 2:
                 continue
-            quote = _mock_quote_from_bars(window, len(window) - 1)
+            quote = _mock_quote_from_bars(hist, len(hist) - 1)
             fund = _fund_for(code, decision_date)
             item = score_window_as_item(
                 code,
-                window,
+                hist,
                 horizon_days=horizon_days,
                 quote=quote,
                 fundamentals=fund,

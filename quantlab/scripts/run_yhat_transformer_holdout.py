@@ -1,4 +1,4 @@
-"""离线 Holdout：ŷ_oo 多臂对照（研究轨，不入库）。
+"""离线 Holdout：四头 ŷ_* 多臂对照（默认 head=oo；研究轨，不入库）。
 
 臂：
   0 = 因子 + LightGBM（轻量 CS-z，不强制 L2 cube）
@@ -8,7 +8,7 @@
 
 默认因子集 aoo_core（``--full-aoo`` 开全量 raw_aoo）。
 用法:
-  PYTHONUNBUFFERED=1 .venv/bin/python scripts/run_oo_transformer_holdout.py --arms 0,A,B,C
+  PYTHONUNBUFFERED=1 .venv/bin/python scripts/run_yhat_transformer_holdout.py --arms 0,A,B,C
 """
 
 from __future__ import annotations
@@ -82,7 +82,7 @@ def _load_bars(codes: Sequence[str], *, lookback: int) -> Dict[str, List[dict]]:
 
 
 def _eval_pack(preds, ys, metas) -> Dict[str, Any]:
-    from core.research.oo_transformer.metrics import (
+    from core.research.yhat_transformer.metrics import (
         daily_cs_ic_report,
         pooled_pearson,
         sign_hit,
@@ -120,19 +120,75 @@ def _cs_z_by_date(X: np.ndarray, dates: Sequence[str]) -> np.ndarray:
     return out
 
 
-def _run_arm0_lgb(fac, train_idx, test_idx) -> Dict[str, Any]:
+def _run_arm0_lgb(fac, train_idx, test_idx, *, rank: bool = False) -> Dict[str, Any]:
     import lightgbm as lgb
-    from core.research.horizon_lgb import HORIZON_LGB
 
     t0 = time.time()
     Xz = _cs_z_by_date(fac.X, fac.dates)
     y = np.asarray(fac.y, dtype=np.float64)
-    tr = np.asarray(list(train_idx), dtype=np.int64)
     te = np.asarray(list(test_idx), dtype=np.int64)
-    params = dict(HORIZON_LGB)
-    params["verbosity"] = -1
-    dtrain = lgb.Dataset(Xz[tr], label=y[tr], free_raw_data=True)
-    booster = lgb.train(params, dtrain, num_boost_round=int(params.get("n_estimators") or 300))
+    if rank:
+        from core.research.oo_rank_lambdarank import _rank_labels
+
+        tr_sorted = sorted(
+            list(train_idx),
+            key=lambda i: (str(fac.dates[i])[:10], str(fac.codes[i])),
+        )
+        X_tr: List[np.ndarray] = []
+        y_tr: List[int] = []
+        groups: List[int] = []
+        by: Dict[str, List[int]] = {}
+        for i in tr_sorted:
+            by.setdefault(str(fac.dates[i])[:10], []).append(int(i))
+        for rows in by.values():
+            if len(rows) < 4:
+                continue
+            labs = _rank_labels([float(y[i]) for i in rows])
+            if len(set(labs)) < 2:
+                continue
+            X_tr.append(Xz[np.asarray(rows, dtype=np.int64)])
+            y_tr.extend(labs)
+            groups.append(len(rows))
+        if not X_tr:
+            return {
+                "arm": "0_lambdarank",
+                "success": False,
+                "error": "no_rank_groups",
+                "elapsed_sec": round(time.time() - t0, 2),
+            }
+        X_fit = np.concatenate(X_tr, axis=0)
+        y_fit = np.asarray(y_tr, dtype=np.float64)
+        y_max = int(y_fit.max()) if y_fit.size else 0
+        params = {
+            "objective": "lambdarank",
+            "metric": ["ndcg"],
+            "label_gain": [float(i) for i in range(y_max + 1)],
+            "learning_rate": 0.05,
+            "num_leaves": 31,
+            "min_data_in_leaf": 20,
+            "lambda_l2": 1.0,
+            "verbose": -1,
+            "num_threads": 1,
+            "seed": 42,
+        }
+        dtrain = lgb.Dataset(X_fit, label=y_fit, group=np.asarray(groups, dtype=np.int32))
+        booster = lgb.train(params, dtrain, num_boost_round=200)
+        note = "factor CS-z + LightGBM LambdaRank (research arm0)"
+        arm = "0_lambdarank"
+        n_train = int(X_fit.shape[0])
+    else:
+        from core.research.horizon_lgb import HORIZON_LGB
+
+        tr = np.asarray(list(train_idx), dtype=np.int64)
+        params = dict(HORIZON_LGB)
+        params["verbosity"] = -1
+        dtrain = lgb.Dataset(Xz[tr], label=y[tr], free_raw_data=True)
+        booster = lgb.train(
+            params, dtrain, num_boost_round=int(params.get("n_estimators") or 300)
+        )
+        note = "factor CS-z + LightGBM (research, not cube path)"
+        arm = "0_lgb"
+        n_train = int(tr.size)
     preds = booster.predict(Xz[te])
     metrics = _eval_pack(
         list(np.asarray(preds, dtype=np.float64)),
@@ -141,21 +197,21 @@ def _run_arm0_lgb(fac, train_idx, test_idx) -> Dict[str, Any]:
     )
     metrics.update(
         {
-            "arm": "0_lgb",
+            "arm": arm,
             "success": True,
             "n_features": int(Xz.shape[1]),
-            "n_train": int(tr.size),
+            "n_train": n_train,
             "n_test": int(te.size),
             "elapsed_sec": round(time.time() - t0, 2),
             "rss_mb": _rss_mb(),
-            "note": "factor CS-z + LightGBM (research, not cube path)",
+            "note": note,
         }
     )
     return metrics
 
 
 def _run_arm_a(fac, train_idx, test_idx, args) -> Dict[str, Any]:
-    from core.research.oo_transformer.train import predict_factor_mlp, train_factor_mlp
+    from core.research.yhat_transformer.train import predict_factor_mlp, train_factor_mlp
 
     seeds = [int(s) for s in str(args.seeds).split(",") if s.strip()]
     rows = []
@@ -175,6 +231,7 @@ def _run_arm_a(fac, train_idx, test_idx, args) -> Dict[str, Any]:
             device=args.device,
             patience=args.patience,
             max_train_rows=args.max_train_rows,
+            loss=getattr(args, "loss", "smooth_l1"),
         )
         Xz = report.pop("Xz")
         preds = predict_factor_mlp(
@@ -221,10 +278,10 @@ def _run_arm_a(fac, train_idx, test_idx, args) -> Dict[str, Any]:
 
 
 def _run_arm_b(panel, train_idx, test_idx, args) -> Dict[str, Any]:
-    from core.research.oo_transformer.seq_dataset import panel_metas
-    from core.research.oo_transformer.train import (
-        predict_oo_transformer,
-        train_oo_transformer,
+    from core.research.yhat_transformer.seq_dataset import panel_metas
+    from core.research.yhat_transformer.train import (
+        predict_yhat_transformer,
+        train_yhat_transformer,
     )
 
     seeds = [int(s) for s in str(args.seeds).split(",") if s.strip()]
@@ -232,7 +289,7 @@ def _run_arm_b(panel, train_idx, test_idx, args) -> Dict[str, Any]:
     pred_sum = None
     for seed in seeds:
         t0 = time.time()
-        state, report = train_oo_transformer(
+        state, report = train_yhat_transformer(
             panel,
             train_idx,
             d_model=args.d_model,
@@ -245,8 +302,9 @@ def _run_arm_b(panel, train_idx, test_idx, args) -> Dict[str, Any]:
             device=args.device,
             patience=args.patience,
             max_train_rows=args.max_train_rows,
+            loss=getattr(args, "loss", "smooth_l1"),
         )
-        preds = predict_oo_transformer(
+        preds = predict_yhat_transformer(
             state,
             panel,
             test_idx,
@@ -283,8 +341,8 @@ def _run_arm_b(panel, train_idx, test_idx, args) -> Dict[str, Any]:
 
 
 def _run_arm_c(seq, fac, train_idx, test_idx, args) -> Dict[str, Any]:
-    from core.research.oo_transformer.seq_dataset import panel_metas
-    from core.research.oo_transformer.train import (
+    from core.research.yhat_transformer.seq_dataset import panel_metas
+    from core.research.yhat_transformer.train import (
         predict_seq_factor_fusion,
         train_seq_factor_fusion,
     )
@@ -309,6 +367,7 @@ def _run_arm_c(seq, fac, train_idx, test_idx, args) -> Dict[str, Any]:
             device=args.device,
             patience=args.patience,
             max_train_rows=args.max_train_rows,
+            loss=getattr(args, "loss", "smooth_l1"),
         )
         Xseq = report.pop("Xseq")
         gap = report.pop("gap")
@@ -371,7 +430,7 @@ def _metric_row(tag: str, pack: Dict[str, Any]) -> Dict[str, Any]:
 
 
 def main() -> int:
-    p = argparse.ArgumentParser(description="ŷ_oo 多臂 Holdout 对照（研究轨）")
+    p = argparse.ArgumentParser(description="四头 ŷ_* 多臂 Holdout（默认 head=oo；研究轨）")
     p.add_argument("--codes", default="")
     p.add_argument("--watching-limit", type=int, default=120)
     p.add_argument("--lookback", type=int, default=400)
@@ -389,10 +448,44 @@ def main() -> int:
     p.add_argument("--seeds", default="42,43")
     p.add_argument("--device", default="cpu")
     p.add_argument("--max-train-rows", type=int, default=40000)
+    p.add_argument(
+        "--head",
+        type=str,
+        default="oo",
+        help="oo|tc|oo_rank|tc_rank；排序头用 listwise / Arm0=LambdaRank",
+    )
+    p.add_argument(
+        "--tau-end",
+        type=str,
+        default="09:30",
+        help="ŷ_τc / ŷ_τc_rank 前缀；本期仅支持 09:30（开盘）",
+    )
     p.add_argument("--arms", default="0,A,B,C")
-    p.add_argument("--full-aoo", action="store_true", help="因子臂用全量 raw_aoo（更慢）")
+    p.add_argument("--full-aoo", action="store_true", help="因子臂用全量 raw_aoo（更慢；仅 oo）")
     p.add_argument("--out", default="")
     args = p.parse_args()
+    from core.research.yhat_transformer.heads import assert_trainable, get_head
+
+    head_spec = get_head(args.head)
+    try:
+        assert_trainable(head_spec)
+    except NotImplementedError as exc:
+        raise SystemExit(str(exc)) from exc
+    args.loss = head_spec.loss
+    args.task_type = head_spec.task_type
+    if head_spec.id in ("tc", "tc_rank") and str(args.tau_end or "09:30").strip() not in (
+        "09:30",
+        "0930",
+        "open",
+    ):
+        raise SystemExit(f"本期 head={head_spec.id} 仅支持 --tau-end 09:30（开盘）")
+    if head_spec.task_type == "rank" and not str(args.arms or "").strip():
+        args.arms = "0,C"
+    print(
+        f"head={head_spec.id} ({head_spec.label}) package=yhat_transformer "
+        f"loss={args.loss} live_allowed=False tau_end={args.tau_end}",
+        flush=True,
+    )
     arms = _parse_arms(args.arms)
     need_fac = any(a in arms for a in ("0", "A", "C"))
     need_seq = any(a in arms for a in ("B", "C"))
@@ -422,7 +515,10 @@ def main() -> int:
     print(f"有效日线 {len(stock_bars)} 只 rss={_rss_mb()}", flush=True)
 
     summary: Dict[str, Any] = {
-        "role": "research_oo_multiarm_holdout",
+        "role": "research_yhat_multiarm_holdout",
+        "package": "yhat_transformer",
+        "head": head_spec.id,
+        "live_allowed": False,
         "arms": arms,
         "codes_n": len(stock_bars),
         "args": vars(args),
@@ -432,37 +528,41 @@ def main() -> int:
     seq = None
     fac = None
     if need_seq:
-        from core.research.oo_transformer.seq_dataset import build_oo_seq_panel
+        from core.research.yhat_transformer.seq_dataset import build_seq_panel
 
         t0 = time.time()
-        seq = build_oo_seq_panel(
-            stock_bars, seq_len=args.seq_len, horizon_days=args.horizon_days
+        seq = build_seq_panel(
+            stock_bars,
+            head=head_spec,
+            seq_len=args.seq_len,
+            horizon_days=args.horizon_days,
         )
         print(
-            f"序列面板 N={seq.n} L={seq.seq_len} F={seq.X.shape[-1]} "
-            f"{time.time()-t0:.1f}s rss={_rss_mb()}",
+            f"序列面板 head={head_spec.id} N={seq.n} L={seq.seq_len} "
+            f"F={seq.X.shape[-1]} {time.time()-t0:.1f}s rss={_rss_mb()}",
             flush=True,
         )
     if need_fac:
-        from core.research.oo_transformer.factor_panel import build_oo_factor_panel
+        from core.research.yhat_transformer.factor_panel import build_factor_panel
 
         t0 = time.time()
-        print("构建因子面板…", flush=True)
-        fac = build_oo_factor_panel(
+        print(f"构建因子面板 head={head_spec.id} pack={head_spec.factor_pack}…", flush=True)
+        fac = build_factor_panel(
             stock_bars,
+            head=head_spec,
             horizon_days=args.horizon_days,
             ridge_core_only=not bool(args.full_aoo),
             progress_every=20,
         )
         print(
-            f"因子面板 N={fac.n} F={fac.X.shape[1]} core_only={not args.full_aoo} "
+            f"因子面板 N={fac.n} F={fac.X.shape[1]} "
             f"{time.time()-t0:.1f}s rss={_rss_mb()}",
             flush=True,
         )
 
     # Arm C / 公平切分：有 fac+seq 则对齐后共用索引
     if "C" in arms and seq is not None and fac is not None:
-        from core.research.oo_transformer.factor_panel import align_seq_and_factor
+        from core.research.yhat_transformer.factor_panel import align_seq_and_factor
 
         seq_c, fac_c = align_seq_and_factor(seq, fac)
         print(f"对齐后 N={seq_c.n}（原 seq={seq.n} fac={fac.n}）", flush=True)
@@ -503,7 +603,9 @@ def main() -> int:
         }
         print(f"Arm0 切分 train={len(tr)} test={len(te)}", flush=True)
         if te:
-            summary["arm_0"] = _run_arm0_lgb(fac, tr, te)
+            summary["arm_0"] = _run_arm0_lgb(
+                fac, tr, te, rank=(head_spec.task_type == "rank")
+            )
             a0 = summary["arm_0"]
             print(
                 f"  Arm0 rankIC={a0.get('cs_rank_ic')} ICIR={a0.get('cs_rank_icir')} "
@@ -522,6 +624,24 @@ def main() -> int:
             summary["arm_A"] = {"success": False, "error": "empty holdout"}
 
     if "C" in arms and seq_c is not None and fac_c is not None and seq_c.n > 0:
+        import gc
+
+        # O/A 已算完：丢掉原始大面板，只留对齐后的 seq_c/fac_c，压峰值
+        try:
+            del stock_bars
+        except Exception:
+            pass
+        if seq is not None and seq_c is not seq:
+            try:
+                del seq
+            except Exception:
+                pass
+        if fac is not None and fac_c is not fac:
+            try:
+                del fac
+            except Exception:
+                pass
+        gc.collect()
         tr, te, meta = _split_for(seq_c.dates)
         summary["split_C"] = {
             "fit_end": meta.get("fit_end"),
@@ -529,18 +649,41 @@ def main() -> int:
             "n_train": len(tr),
             "n_test": len(te),
         }
-        print(f"ArmC 切分 train={len(tr)} test={len(te)}", flush=True)
+        print(
+            f"ArmC 切分 train={len(tr)} test={len(te)} rss={_rss_mb()}",
+            flush=True,
+        )
         if te:
-            summary["arm_C"] = _run_arm_c(seq_c, fac_c, tr, te, args)
+            try:
+                summary["arm_C"] = _run_arm_c(seq_c, fac_c, tr, te, args)
+            except Exception as exc:  # noqa: BLE001
+                summary["arm_C"] = {
+                    "success": False,
+                    "error": f"{type(exc).__name__}: {exc}",
+                }
+                print(f"  ArmC 失败：{summary['arm_C']['error']}", flush=True)
         else:
             summary["arm_C"] = {"success": False, "error": "empty holdout"}
 
-    # 对比表 + 硬门（相对 Arm0）
-    from core.research.oo_transformer.metrics import hard_gate_vs_baseline
+    # 对比表 + 硬门（相对 Arm0）；排序头 gate=gate_lift
+    from core.research.yhat_transformer.metrics import (
+        gate_lift_vs_baseline,
+        hard_gate_vs_baseline,
+    )
 
+    gate_fn = (
+        gate_lift_vs_baseline
+        if head_spec.gate == "gate_lift"
+        else hard_gate_vs_baseline
+    )
+    arm0_tag = (
+        "0_lambdarank"
+        if head_spec.task_type == "rank"
+        else "0_lgb"
+    )
     table = []
     for key, tag in (
-        ("arm_0", "0_lgb"),
+        ("arm_0", arm0_tag),
         ("arm_A", "A_mlp"),
         ("arm_B", "B_seq_tf"),
         ("arm_C", "C_fusion"),
@@ -556,8 +699,9 @@ def main() -> int:
             if not pack.get("success"):
                 continue
             cand = pack.get("mean_over_seeds") or pack
-            gates[tag] = hard_gate_vs_baseline(base, cand)
+            gates[tag] = gate_fn(base, cand)
     summary["hard_gate_vs_arm0"] = gates
+    summary["gate"] = head_spec.gate
     summary["rss_mb_end"] = _rss_mb()
 
     print("\n=== 对比 ===", flush=True)
@@ -580,7 +724,7 @@ def main() -> int:
     out = args.out.strip()
     if not out:
         ts = time.strftime("%Y%m%d_%H%M%S")
-        out_dir = os.path.join(ROOT, "data", "experiments", "oo_transformer", ts)
+        out_dir = os.path.join(ROOT, "data", "experiments", "yhat_transformer", ts)
         os.makedirs(out_dir, exist_ok=True)
         out = os.path.join(out_dir, "summary.json")
     else:

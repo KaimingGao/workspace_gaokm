@@ -228,7 +228,13 @@ def fit_tc_rank_report(
 
     bars = [it for it in (stock_bars or []) if isinstance(it, dict)]
     calendar = calendar_dates_from_stock_bars(bars)
-    hold_n = int(holdout_trading_days or DEFAULT_HOLDOUT_TRADING_DAYS_TC_RANK)
+    if holdout_trading_days is None:
+        hold_n = int(DEFAULT_HOLDOUT_TRADING_DAYS_TC_RANK)
+    else:
+        try:
+            hold_n = max(0, int(holdout_trading_days))
+        except (TypeError, ValueError):
+            hold_n = int(DEFAULT_HOLDOUT_TRADING_DAYS_TC_RANK)
     # 日历预切：raw 入模列只看训窗（与旧 collect→feature_dates 同口径）
     _pre_tr, _pre_te, split_pre = resolve_ridge_split(
         calendar,
@@ -456,9 +462,13 @@ def fit_tc_rank_report(
 
 
 def persist_tc_rank_model(
-    report: Dict[str, Any], *, note: str = "", role: str = "live"
+    report: Dict[str, Any],
+    *,
+    note: str = "",
+    role: str = "live",
+    deploy_full_sample: bool = False,
 ) -> Dict[str, Any]:
-    """启用研究=报告→研究槽；启用执行=研究槽→执行槽。固定落盘 LambdaRank。"""
+    """拟合研究=报告→研究槽；晋级执行=研究槽→执行槽（或全样本报告直写执行槽）。"""
     from core.numbers import now_iso_utc
     from core.research.holdout import (
         MODEL_ROLE_LIVE,
@@ -483,14 +493,94 @@ def persist_tc_rank_model(
     role_n = normalize_model_role(role)
     if role_n == MODEL_ROLE_LIVE:
         research_doc, err = require_research_suite(live)
+        has_research = isinstance(research_doc, dict) and not err
+        if deploy_full_sample:
+            if not isinstance(report, dict) or not report.get("success"):
+                return {
+                    "success": False,
+                    "error": "全样本晋级须先 Holdout=0 拟合出成功报告",
+                }
+            stamp_oo_rank_fitted_at(report)
+            backend = select_oo_rank_backend()
+            pack = _backend_pack_from_report(report, backend)
+            if not isinstance(pack, dict) or not isinstance(pack.get("return_model"), dict):
+                return {"success": False, "error": "lambdarank pack missing（全样本重训失败）"}
+            view = dict(report)
+            view["return_model"] = pack.get("return_model")
+            model = select_fit_return_model(view)
+            if not isinstance(model, dict) or not _oo_rank_use_booster(model):
+                return {"success": False, "error": "全样本报告缺少可用 LambdaRank 包"}
+            model = _scrub_rank_label_meta(dict(model))
+            model["model_role"] = MODEL_ROLE_LIVE
+            model["backend"] = backend
+            if has_research:
+                doc = stamp_live_suite_doc(
+                    research_doc,
+                    note=note
+                    or "tc_rank full-sample refit → live（研究套 OOS 作门禁溯源）",
+                )
+                if isinstance(research_doc.get("oos"), dict):
+                    doc["oos"] = dict(research_doc["oos"])
+                    doc["gate_oos_source"] = "research"
+            else:
+                from core.numbers import now_iso_utc
+
+                doc = {
+                    "success": True,
+                    "task": TASK,
+                    "schema": SCHEMA,
+                    "fitted_at": report.get("fitted_at") or model.get("fitted_at"),
+                    "promoted_at": now_iso_utc(),
+                    "promoted_from": "full_sample_refit",
+                    "gate_oos_source": "none",
+                    "oos": None,
+                    "note": note
+                    or "tc_rank full-sample refit → live（未挂研究套）",
+                }
+            doc["return_model"] = model
+            doc["backend"] = backend
+            doc["recommended_backend"] = backend
+            doc["model_role"] = MODEL_ROLE_LIVE
+            doc["deploy_full_sample"] = True
+            doc["promoted_from"] = "full_sample_refit"
+            from core.research.holdout import stamp_full_sample_live_fitted_at
+
+            stamp_full_sample_live_fitted_at(doc, source=report)
+            from core.research.model_versions import refuse_incomplete_suite_doc
+
+            blocked_inc = refuse_incomplete_suite_doc(doc, sink="执行套")
+            if blocked_inc:
+                return blocked_inc
+            os.makedirs(os.path.dirname(live), exist_ok=True)
+            atomic_write_json(live, doc)
+            out_fs = {
+                "success": True,
+                "path": live,
+                "promoted_at": doc.get("promoted_at"),
+                "model_role": MODEL_ROLE_LIVE,
+                "backend": backend,
+                "recommended_backend": backend,
+                "promoted_from": "full_sample_refit",
+                "deploy_full_sample": True,
+                "live": live,
+            }
+            from core.research.model_versions import archive_persist_safe
+
+            archive_persist_safe("tc_rank", MODEL_ROLE_LIVE, out_fs)
+            return out_fs
         if err:
             return err
         doc = stamp_live_suite_doc(
             research_doc, note=note or "tc_rank research → live promote"
         )
+        from core.research.model_versions import refuse_incomplete_suite_doc
+
+        blocked_inc = refuse_incomplete_suite_doc(doc, sink="执行套")
+        if blocked_inc:
+            return blocked_inc
         os.makedirs(os.path.dirname(live), exist_ok=True)
         atomic_write_json(live, doc)
-        return {
+        out_live = {
             "success": True,
             "path": live,
             "promoted_at": doc.get("promoted_at"),
@@ -500,6 +590,10 @@ def persist_tc_rank_model(
             "promoted_from": "research",
             "live": live,
         }
+        from core.research.model_versions import archive_persist_safe
+
+        archive_persist_safe("tc_rank", MODEL_ROLE_LIVE, out_live)
+        return out_live
 
     if not isinstance(report, dict) or not report.get("success"):
         return {
@@ -599,11 +693,16 @@ def persist_tc_rank_model(
     doc.pop("ridge_return_model_research", None)
     doc.pop("shadow_track", None)
     doc = _scrub_rank_label_meta(doc)
+    from core.research.model_versions import refuse_incomplete_suite_doc
+
+    blocked_inc = refuse_incomplete_suite_doc(doc, sink="研究套")
+    if blocked_inc:
+        return blocked_inc
     path = research_model_path(live)
     os.makedirs(os.path.dirname(path), exist_ok=True)
     atomic_write_json(path, doc)
     save_tc_rank_last_report(report)
-    return {
+    out_res = {
         "success": True,
         "path": path,
         "promoted_at": promoted_at,
@@ -612,6 +711,10 @@ def persist_tc_rank_model(
         "recommended_backend": backend,
         "research": path,
     }
+    from core.research.model_versions import archive_persist_safe
+
+    archive_persist_safe("tc_rank", MODEL_ROLE_RESEARCH, out_res)
+    return out_res
 
 
 def _resolve_tc_rank_fit(model_doc: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:

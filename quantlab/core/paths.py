@@ -107,4 +107,7 @@ T75_RIDGE_JOB_PATH = os.path.join(JOBS_DIR, "t75_ridge.json")
 T90_RIDGE_JOB_PATH = os.path.join(JOBS_DIR, "t90_ridge.json")
 TAU_LGB_JOB_PATH = os.path.join(JOBS_DIR, "tau_lgb.json")
 ROLL_GATE_JOB_PATH = os.path.join(JOBS_DIR, "roll_gate.json")
+# L4 四头 ŷ Transformer 研究台（⌘⇧K 隐藏页）：draft / research / last；不写 live score
+YHAT_TF_DIR = os.path.join(LIVE_DIR, "yhat_tf")
+YHAT_TF_LAST_PATH = os.path.join(YHAT_TF_DIR, "last_status.json")
 

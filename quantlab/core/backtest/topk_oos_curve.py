@@ -441,7 +441,7 @@ def run_oos_topk_curve(
                 "return_pct": round(port_ret, 2),
             }
         )
-        i += horizon_days
+        i += horizon_days + 1  # 让下一笔入场日跳过上一笔平仓日，避免 next_open 模式 1 日重叠
 
     metrics = _trade_metrics(returns, holding_days=horizon_days)
     return {

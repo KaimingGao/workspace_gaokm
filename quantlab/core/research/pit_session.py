@@ -386,7 +386,7 @@ def _build_final_open_from_lake(
         )
         return out
     try:
-        forget_dates([day], clock="open")
+        forget_dates([day], clocks=["open"])
     except Exception:  # noqa: BLE001
         logger.debug("forget open cube mem after lake build failed", exc_info=True)
     status = day_cube_status(day, code_list, clock="open")

@@ -545,7 +545,13 @@ def fit_tau_model_matrices(
         resolve_ridge_split,
     )
 
-    hold_n = int(holdout_trading_days or DEFAULT_HOLDOUT_TRADING_DAYS)
+    if holdout_trading_days is None:
+        hold_n = int(DEFAULT_HOLDOUT_TRADING_DAYS)
+    else:
+        try:
+            hold_n = max(0, int(holdout_trading_days))
+        except (TypeError, ValueError):
+            hold_n = int(DEFAULT_HOLDOUT_TRADING_DAYS)
     train_idx, test_idx, split_meta = resolve_ridge_split(
         dates_use,
         holdout_trading_days=hold_n,

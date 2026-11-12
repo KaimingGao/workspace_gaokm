@@ -314,10 +314,13 @@ def promote_return_model_draft(
     *,
     note: str = "",
     role: str = "live",
+    refit_full_sample: bool = False,
 ) -> Dict[str, Any]:
-    """启用研究 = 草稿→研究槽；启用执行 = 研究槽→执行槽（晋级）。
+    """拟合研究 = 草稿→研究槽；晋级执行 = 研究槽→执行槽。
 
-    两槽同一份 Holdout 前训 LightGBM；禁止从草稿直接写执行槽。
+    ``refit_full_sample=True``（仅 live）：要求已有研究套，把**当前草稿**
+    （应由 Holdout=0 全样本重训写入）写入执行槽，研究槽保持不动；门禁依据
+    仍来自研究套 OOS。
     """
     from core.research.holdout import (
         MODEL_ROLE_LIVE,
@@ -332,71 +335,153 @@ def promote_return_model_draft(
     if role_n == MODEL_ROLE_LIVE:
         # ŷ_oo 研究槽是独立文件名，不是 active 的 *_research sidecar
         research_doc = load_return_model_payload(RETURN_SCORE_MODEL_RESEARCH_PATH)
-        if not isinstance(research_doc, dict) or not (
+        has_research = isinstance(research_doc, dict) and (
             isinstance(research_doc.get("model"), dict)
             or isinstance(research_doc.get("return_model"), dict)
-        ):
-            return {
-                "success": False,
-                "error": "无研究套可晋级；请先「启用研究」并通过回测后再启用执行",
-                "research_path": RETURN_SCORE_MODEL_RESEARCH_PATH,
-                "live_path": RETURN_SCORE_MODEL_ACTIVE_PATH,
-            }
-        selected = select_fit_return_model(research_doc) or research_doc.get("model")
+        )
         from core.research.oo_lgb import is_oo_lightgbm_blob
+
+        if refit_full_sample:
+            # Holdout=0 全样本草稿 → 执行槽；研究套可选（有则挂 OOS 溯源）
+            raw_draft = load_return_model_payload(RETURN_SCORE_MODEL_DRAFT_PATH)
+            view = _draft_persist_view(raw_draft or {})
+            selected = select_fit_return_model(view or {})
+            coef_source = "full_sample_draft"
+            promoted_from = "full_sample_refit"
+            if has_research:
+                base_doc = dict(research_doc)
+            else:
+                base_doc = dict(raw_draft or {}) if isinstance(raw_draft, dict) else {}
+            note_default = (
+                "执行套 ŷ_oo（Holdout=0 全样本重训"
+                + ("；研究套 OOS 作门禁溯源" if has_research else "；未挂研究套")
+                + "）；scoring.rank_mode=predicted_score 时按 ŷ 排序。"
+            )
+        else:
+            if not has_research:
+                return {
+                    "success": False,
+                    "error": "无研究套可晋级；请先在研究视图点「拟合」，或切到执行视图全样本拟合",
+                    "research_path": RETURN_SCORE_MODEL_RESEARCH_PATH,
+                    "live_path": RETURN_SCORE_MODEL_ACTIVE_PATH,
+                }
+            selected = select_fit_return_model(research_doc) or research_doc.get("model")
+            coef_source = "research_suite"
+            promoted_from = "research"
+            base_doc = research_doc
+            note_default = (
+                "执行套 ŷ_oo（由研究槽晋级）；scoring.rank_mode=predicted_score 时按 ŷ 排序。"
+            )
 
         if not is_oo_lightgbm_blob(selected):
             return {
                 "success": False,
-                "error": "ŷ_oo 已切换为 LightGBM；研究套须为 booster 包（旧 Ridge 不可晋级，请重新拟合）",
+                "error": (
+                    "ŷ_oo 已切换为 LightGBM；"
+                    + (
+                        "全样本草稿须为 booster 包，请先 Holdout=0 重训"
+                        if refit_full_sample
+                        else "研究套须为 booster 包（旧 Ridge 不可晋级，请重新拟合）"
+                    )
+                ),
                 "research_path": RETURN_SCORE_MODEL_RESEARCH_PATH,
             }
         model_blob, blocked = _guard_promote_coefs(selected, note=note)
         if blocked:
             return blocked
+        from core.research.model_versions import refuse_incomplete_suite_doc
+
+        blocked_inc = refuse_incomplete_suite_doc(
+            {
+                "sample_count": (model_blob or {}).get("sample_count"),
+                "return_model": model_blob,
+            },
+            sink="执行套",
+        )
+        if blocked_inc:
+            return blocked_inc
         live_doc = stamp_live_suite_doc(
-            research_doc,
-            note=note
-            or "执行套 ŷ_oo（由研究槽晋级）；scoring.rank_mode=predicted_score 时按 ŷ 排序。",
+            base_doc,
+            note=note or note_default,
         )
         live_doc["role"] = "active"
         live_doc["model_role"] = MODEL_ROLE_LIVE
         live_doc["model"] = dict(model_blob)
         live_doc["return_model"] = dict(model_blob)
+        # 全样本部署：执行权重来自草稿；有研究套时挂 OOS 作门禁溯源
+        if refit_full_sample and has_research and isinstance(research_doc.get("oos"), dict):
+            live_doc["oos"] = dict(research_doc["oos"])
+            live_doc["gate_oos_source"] = "research"
+        elif refit_full_sample:
+            live_doc.pop("oos", None)
+            live_doc["gate_oos_source"] = "none"
+        if refit_full_sample:
+            from core.research.holdout import stamp_full_sample_live_fitted_at
+
+            stamp_full_sample_live_fitted_at(
+                live_doc,
+                source=raw_draft if isinstance(raw_draft, dict) else model_blob,
+            )
+            live_doc["deploy_full_sample"] = True
+            live_doc["promoted_from"] = "full_sample_refit"
         be = str(
-            research_doc.get("backend")
-            or research_doc.get("recommended_backend")
-            or model_blob.get("backend")
+            model_blob.get("backend")
             or model_blob.get("solver")
+            or base_doc.get("backend")
+            or base_doc.get("recommended_backend")
             or "lightgbm"
         )
         live_doc["backend"] = be
         live_doc["recommended_backend"] = be
         live_doc["schema"] = str(
             model_blob.get("schema")
-            or research_doc.get("schema")
+            or base_doc.get("schema")
             or "oo_lgb_v1"
         )
-        if isinstance(research_doc.get("backends"), dict):
-            live_doc["backends"] = dict(research_doc["backends"])
+        if isinstance(base_doc.get("backends"), dict) and not refit_full_sample:
+            live_doc["backends"] = dict(base_doc["backends"])
+        elif refit_full_sample:
+            live_doc["backends"] = {
+                "lightgbm": {
+                    "return_model": dict(model_blob),
+                    "oos": dict((research_doc or {}).get("oos") or {})
+                    if has_research
+                    else {},
+                }
+            }
         meta_out = dict(live_doc.get("meta") or {})
         meta_out["promote_note"] = str(note or "")
         meta_out["persist_role"] = MODEL_ROLE_LIVE
-        meta_out["coef_source"] = "research_suite"
-        meta_out["promoted_from"] = "research"
+        meta_out["coef_source"] = coef_source
+        meta_out["promoted_from"] = promoted_from
+        if refit_full_sample:
+            meta_out["holdout_trading_days_fit"] = 0
         live_doc["meta"] = meta_out
         atomic_write_json(RETURN_SCORE_MODEL_ACTIVE_PATH, live_doc)
-        return {
+        out_live = {
             "success": True,
             "path": RETURN_SCORE_MODEL_ACTIVE_PATH,
             "role": MODEL_ROLE_LIVE,
             "persist_role": MODEL_ROLE_LIVE,
+            "fitted_at": live_doc.get("fitted_at"),
             "promoted_at": live_doc.get("promoted_at"),
             "sample_count": model_blob.get("sample_count"),
-            "coef_source": "research_suite",
-            "promoted_from": "research",
-            "note": "已由研究套晋级写入执行套；请确认 scoring.rank_mode=predicted_score。",
+            "coef_source": coef_source,
+            "promoted_from": promoted_from,
+            "refit_full_sample": bool(refit_full_sample),
+            "deploy_full_sample": bool(refit_full_sample),
+            "note": (
+                "已全样本重训并写入执行套"
+                + ("（研究套未改）" if has_research else "（未挂研究套）")
+                + "；请确认 scoring.rank_mode=predicted_score。"
+                if refit_full_sample
+                else "已由研究套晋级写入执行套；请确认 scoring.rank_mode=predicted_score。"
+            ),
         }
+        from core.research.model_versions import archive_persist_safe
+
+        archive_persist_safe("oo", MODEL_ROLE_LIVE, out_live)
+        return out_live
 
     raw = load_return_model_payload(RETURN_SCORE_MODEL_DRAFT_PATH)
     view = _draft_persist_view(raw or {})
@@ -412,6 +497,19 @@ def promote_return_model_draft(
     model_blob, blocked = _guard_promote_coefs(selected, note=note)
     if blocked:
         return blocked
+    from core.research.model_versions import refuse_incomplete_suite_doc
+
+    blocked_inc = refuse_incomplete_suite_doc(
+        {
+            "sample_count": (model_blob or {}).get("sample_count"),
+            "return_model": model_blob,
+            "oos": raw.get("oos") if isinstance(raw, dict) else None,
+        },
+        sink="研究套",
+    )
+    if blocked_inc:
+        blocked_inc["draft_path"] = RETURN_SCORE_MODEL_DRAFT_PATH
+        return blocked_inc
     promoted_at = _utc_now()
     meta_out = {
         **(raw.get("meta") or {}),
@@ -454,7 +552,7 @@ def promote_return_model_draft(
     if isinstance(raw.get("backends"), dict):
         payload["backends"] = dict(raw["backends"])
     atomic_write_json(RETURN_SCORE_MODEL_RESEARCH_PATH, payload)
-    return {
+    out_res = {
         "success": True,
         "path": RETURN_SCORE_MODEL_RESEARCH_PATH,
         "role": MODEL_ROLE_RESEARCH,
@@ -464,6 +562,10 @@ def promote_return_model_draft(
         "coef_source": "return_model_research",
         "note": "已写入研究套；历史回测优先加载。验证后再「启用执行」晋级。",
     }
+    from core.research.model_versions import archive_persist_safe
+
+    archive_persist_safe("oo", MODEL_ROLE_RESEARCH, out_res)
+    return out_res
 
 
 def _payload_oos(payload: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
@@ -529,13 +631,34 @@ def return_model_status() -> Dict[str, Any]:
                 return True
         return False
 
+    def _is_full_sample_oos_pack(payload: Optional[Dict[str, Any]]) -> bool:
+        """Holdout=0 全样本草稿：无评估窗，不能抢研究套因子表 OOS。"""
+        oos = _payload_oos(payload)
+        if not isinstance(oos, dict):
+            return False
+        try:
+            hold_n = int(oos.get("holdout_trading_days"))
+        except (TypeError, ValueError):
+            hold_n = -1
+        if hold_n == 0:
+            return True
+        n_test = oos.get("n_test")
+        try:
+            n_test_i = int(n_test) if n_test is not None else -1
+        except (TypeError, ValueError):
+            n_test_i = -1
+        return n_test_i == 0 and oos.get("eval_start") in (None, "")
+
     # 研究枢纽模型表：
     # 1. 草稿 saved_at 晚于任一启用套的 source → 画草稿（刚拟合、尚未启用）
     # 2. 否则画较新的启用套。研究槽来源草稿新于执行槽时画研究套
     #    （刚「启用研究」、执行仍是上一轮）；来源相同则画执行套（研究已晋级）
+    # 3. Holdout=0 全样本草稿不抢展示（晋级执行重训用；因子表仍用研究套 OOS）
     display_role = None
     display_raw = None
     draft_ts = _ts(draft) if _has_model(draft) else ""
+    if draft_ts and _is_full_sample_oos_pack(draft):
+        draft_ts = ""
     active_src = _source_ts(active) if _has_model(active) else ""
     research_src = _source_ts(research) if _has_model(research) else ""
     live_src = max(active_src, research_src)
@@ -548,7 +671,10 @@ def return_model_status() -> Dict[str, Any]:
     elif active_src:
         display_role = "active"
         display_raw = active
-    elif _has_model(draft):
+    elif _has_model(research):
+        display_role = "research"
+        display_raw = research
+    elif _has_model(draft) and not _is_full_sample_oos_pack(draft):
         display_role = "draft"
         display_raw = draft
 
@@ -623,6 +749,32 @@ def return_model_status() -> Dict[str, Any]:
     if "cross_section_zscore" not in fit_bits:
         fit_bits = _cs_z_bit(display_raw)
 
+    def _suite_return_model(payload: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
+        if not isinstance(payload, dict):
+            return None
+        view = _draft_persist_view(payload)
+        cand = None
+        if isinstance(payload.get("model"), dict):
+            cand = dict(payload["model"])
+        elif isinstance(view.get("return_model"), dict):
+            cand = dict(view["return_model"])
+        elif isinstance(view.get("return_model_research"), dict):
+            cand = dict(view["return_model_research"])
+        if cand is None:
+            return None
+        from core.research.oo_lgb import is_oo_lightgbm_blob
+
+        if not is_oo_lightgbm_blob(cand):
+            return None
+        cand.setdefault("backend", "lightgbm")
+        cand.setdefault("solver", "lightgbm")
+        return cand
+
+    research_rm = _suite_return_model(research)
+    active_rm = _suite_return_model(active)
+    research_oos = _payload_oos(research)
+    active_oos = _payload_oos(active)
+
     out: Dict[str, Any] = {
         "success": True,
         "rank_mode": clamp_rank_mode(scoring.get("rank_mode")),
@@ -641,6 +793,8 @@ def return_model_status() -> Dict[str, Any]:
             "promoted_at": (active or {}).get("promoted_at"),
             "source_saved_at": (active or {}).get("source_saved_at"),
             "sample_count": ((active or {}).get("model") or {}).get("sample_count"),
+            "return_model": active_rm,
+            "oos": active_oos,
         },
         "research": {
             "exists": bool(research),
@@ -650,6 +804,8 @@ def return_model_status() -> Dict[str, Any]:
             "promoted_at": (research or {}).get("promoted_at"),
             "source_saved_at": (research or {}).get("source_saved_at"),
             "sample_count": ((research or {}).get("model") or {}).get("sample_count"),
+            "return_model": research_rm,
+            "oos": research_oos,
         },
         "display_role": display_role,
         "oos_source": oos_source,
@@ -657,6 +813,39 @@ def return_model_status() -> Dict[str, Any]:
         "oos": oos_out,
         "note": "草稿 / 研究槽 / 执行槽；回测 prefer research，交易 prefer active；执行=研究晋级。",
     }
+    # 同页研究|执行切换：压缩双套（研究带 OOS；执行仅因子）
+    if research_rm is not None:
+        out["suite_research"] = {
+            "return_model": research_rm,
+            "oos": research_oos,
+            "fitted_at": out["research"].get("fitted_at"),
+            "promoted_at": out["research"].get("promoted_at"),
+            "backend": "lightgbm",
+        }
+    if active_rm is not None:
+        active_meta = (active or {}).get("meta") if isinstance(active, dict) else None
+        active_meta = active_meta if isinstance(active_meta, dict) else {}
+        promoted_from = str(
+            (active or {}).get("promoted_from")
+            or active_meta.get("promoted_from")
+            or ""
+        )
+        deploy_full = bool((active or {}).get("deploy_full_sample")) or (
+            promoted_from == "full_sample_refit"
+        )
+        gate_oos = (active or {}).get("gate_oos_source")
+        if gate_oos is None and deploy_full and research_rm is not None:
+            gate_oos = "research"
+        out["suite_live"] = {
+            "return_model": active_rm,
+            "oos": None,
+            "fitted_at": out["active"].get("fitted_at"),
+            "promoted_at": out["active"].get("promoted_at"),
+            "backend": "lightgbm",
+            "deploy_full_sample": deploy_full,
+            "gate_oos_source": gate_oos,
+            "promoted_from": promoted_from or None,
+        }
     out.update(fit_bits)
     return out
 
@@ -772,6 +961,15 @@ def fit_watching_return_model(
     if len(use_codes) < 2:
         return {"success": False, "error": "标的不足 2 只"}
 
+    import time as _time
+
+    t0 = _time.perf_counter()
+    logger.info(
+        "oo fit start stocks=%s lookback=%s holdout=%s",
+        len(use_codes),
+        lookback,
+        holdout_trading_days,
+    )
     stock_bars, failures, _fund = load_portfolio_stock_bars(
         use_codes,
         lookback=lookback,
@@ -783,6 +981,11 @@ def fit_watching_return_model(
             "error": f"有效日线不足（失败 {len(failures)}）",
             "failures": failures[:8],
         }
+    logger.info(
+        "oo fit bars loaded stocks=%s elapsed=%.1fs",
+        len(stock_bars),
+        _time.perf_counter() - t0,
+    )
 
     codes_used = list(stock_bars.keys())
     as_of = None
@@ -799,13 +1002,30 @@ def fit_watching_return_model(
             if len(day) >= 10:
                 cal_days.add(day)
         items.append((code, bars))
+    t_panel = _time.perf_counter()
     x_mat, y_mat, feat_names, all_dates = assemble_oo_panels(
         items,
         horizon_days=horizon_days,
     )
     del items
+    shape = getattr(x_mat, "shape", None) or ()
+    n_rows = int(shape[0]) if len(shape) >= 1 else 0
+    n_cols = int(shape[1]) if len(shape) >= 2 else 0
+    logger.info(
+        "oo fit panel rows=%s cols=%s feats=%s elapsed=%.1fs",
+        n_rows,
+        n_cols,
+        len(feat_names or []),
+        _time.perf_counter() - t_panel,
+    )
 
-    hold_n = int(holdout_trading_days or DEFAULT_HOLDOUT_TRADING_DAYS)
+    if holdout_trading_days is None:
+        hold_n = int(DEFAULT_HOLDOUT_TRADING_DAYS)
+    else:
+        try:
+            hold_n = max(0, int(holdout_trading_days))
+        except (TypeError, ValueError):
+            hold_n = int(DEFAULT_HOLDOUT_TRADING_DAYS)
     train_idx, test_idx, split_meta = resolve_ridge_split(
         all_dates,
         holdout_trading_days=hold_n,
@@ -815,6 +1035,12 @@ def fit_watching_return_model(
     ys_te = [as_float(y_mat[i]) for i in test_idx]
 
     try:
+        t_lgb = _time.perf_counter()
+        logger.info(
+            "oo fit lightgbm begin n_train=%s n_test=%s",
+            len(train_idx),
+            len(test_idx),
+        )
         lgb_blob, lgb_report = fit_oo_lgb_matrix(
             x_mat,
             y_mat,
@@ -825,6 +1051,11 @@ def fit_watching_return_model(
             fitted_as_of=as_of,
             row_dates=all_dates,
             cross_section_zscore=True,
+        )
+        logger.info(
+            "oo fit lightgbm done elapsed=%.1fs total=%.1fs",
+            _time.perf_counter() - t_lgb,
+            _time.perf_counter() - t0,
         )
     except Exception as exc:  # noqa: BLE001
         logger.warning("oo lightgbm fit failed: %s", exc, exc_info=True)

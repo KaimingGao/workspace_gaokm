@@ -1,0 +1,31 @@
+"""四头 ŷ_* L4 Transformer 研究轨（不进生产 score）。
+
+公共包：按 HeadSpec 服务 ŷ_oo / ŷ_τc / ŷ_oo_rank / ŷ_τc_rank。
+一次 holdout run 只训一个 head；硬闸对照各头 Arm O。
+"""
+
+from __future__ import annotations
+
+from core.research.yhat_transformer.heads import (
+    HeadSpec,
+    assert_trainable,
+    get_head,
+    head_ids,
+    iter_heads,
+)
+from core.research.yhat_transformer.seq_dataset import (
+    SEQ_FEATURE_NAMES,
+    SeqPanel,
+    build_seq_panel,
+)
+
+__all__ = [
+    "HeadSpec",
+    "get_head",
+    "iter_heads",
+    "head_ids",
+    "assert_trainable",
+    "SEQ_FEATURE_NAMES",
+    "SeqPanel",
+    "build_seq_panel",
+]

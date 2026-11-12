@@ -1282,9 +1282,12 @@ def simulate_t0_day_slots(
     ref = open_px_m
 
     outs: List[dict] = []
-    cash_now = _finite_float(cash, 0.0)
-    shares_now = float(shares)
-    sellable_now = float(sellable_cap)
+    _init_cash = _finite_float(cash, 0.0)
+    _init_shares = float(shares)
+    _init_sellable = float(sellable_cap)
+    cash_now = _init_cash
+    shares_now = _init_shares
+    sellable_now = _init_sellable
     used_ratio = 0.0
     cover_committed = 0.0  # 正T已开轮将占用的底仓回补额度
     leg1_rounds = 0
@@ -1356,6 +1359,11 @@ def simulate_t0_day_slots(
             break
         if idx <= last_leg1_idx:
             continue
+        # 每轮槽位扫描都从日初固定额度开始，不跨轮递减
+        # （反T不因已卖出缩小、正T不因已买入放大）
+        cash_now = _init_cash
+        shares_now = _init_shares
+        sellable_now = _init_sellable
         hm = parse_bar_hm(mb)
         if not hm_allows_leg1(hm, last_hm):
             break

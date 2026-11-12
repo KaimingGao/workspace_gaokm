@@ -2427,6 +2427,63 @@ class MaterializeL2UniverseHashTests(unittest.TestCase):
         self.assertEqual(out["by_clock"]["09:35"]["cubes_hit"], 5)
         self.assertEqual(out["by_clock"]["10:30"]["cubes_hit"], 5)
 
+    def test_clip_minute_days_to_l1_drops_short_head(self) -> None:
+        from core.research.materialize.l2_jobs import _clip_minute_days_to_l1
+
+        days = ["2026-09-02", "2026-09-03", "2026-09-04"]
+        codes = [f"{i:06d}" for i in range(4)]
+
+        def _peek(family: str, code: str):
+            self.assertEqual(family, "tc_0935")
+            # 4 票里只有 1 票有窗头日 → 不够 min_codes=2
+            if code == "000000":
+                return True, set(days)
+            return True, {"2026-09-03", "2026-09-04"}
+
+        with mock.patch(
+            "core.research.feature_lake.peek_stock_dates", side_effect=_peek
+        ):
+            kept, dropped = _clip_minute_days_to_l1(
+                codes, days, family="tc_0935", min_codes=2
+            )
+        self.assertEqual(kept, ["2026-09-03", "2026-09-04"])
+        self.assertEqual(dropped, ["2026-09-02"])
+
+    def test_auto_minute_window_clips_days_without_l1(self) -> None:
+        from core.research.materialize.l2_jobs import materialize_l2
+
+        calendar = [f"2024-06-{day:02d}" for day in range(1, 11)]
+        covered = calendar[:5]
+        seen = []
+
+        def _load(day, *_a, **_k):
+            seen.append(str(day)[:10])
+            return object()
+
+        def _peek(family: str, code: str):
+            # 5m 有 01..05；L1 只有 02..05 → 裁掉 01
+            return True, set(covered[1:])
+
+        with mock.patch(
+            "core.research.materialize.l2_jobs._resolve_dates", return_value=calendar
+        ), mock.patch(
+            "core.store.list_minute_covered_dates", return_value=covered
+        ), mock.patch(
+            "core.research.feature_lake.peek_stock_dates", side_effect=_peek
+        ), mock.patch(
+            "core.research.day_cube.load_day_cube", side_effect=_load
+        ):
+            out = materialize_l2(
+                ["000001", "000002"],
+                clocks=["09:35"],
+            )
+        self.assertTrue(out.get("ok"), out)
+        self.assertEqual(out.get("minute_days"), 4)
+        self.assertEqual(out.get("minute_span"), "2024-06-02→2024-06-05")
+        self.assertEqual(out.get("minute_l1_clipped"), ["2024-06-01"])
+        self.assertEqual(seen, list(reversed(covered[1:])))
+        self.assertEqual(out["by_clock"]["09:35"]["cubes_hit"], 4)
+
     def test_explicit_dates_do_not_query_minute_store(self) -> None:
         from core.research.materialize.l2_jobs import materialize_l2
 

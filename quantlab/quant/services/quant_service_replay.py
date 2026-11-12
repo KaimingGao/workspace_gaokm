@@ -2,9 +2,14 @@
 
 
 import logging
+import threading
 from typing import Any, Dict, List, Optional, Sequence
 
 logger = logging.getLogger(__name__)
+
+# ŷ_oo 全池 LightGBM 拟合极重（~1600×窗 ≈ 百万行）；禁止叠跑把内存打到十余 GB
+_OO_FIT_LOCK = threading.Lock()
+_OO_FIT_RUNNING = False
 
 
 def resolve_replay_candidates(
@@ -892,36 +897,63 @@ class QuantReplayMixin:
         }
 
     def fit_return_score_model(self, **kwargs: Any) -> Dict[str, Any]:
+        global _OO_FIT_RUNNING
         from core.research.materialize.consumer import MaterializeRequired, materialized_consumer
         from core.research.oo_model import fit_oo_model as fit_watching_return_model
 
-        with materialized_consumer():
-            try:
-                return fit_watching_return_model(
-                    codes=kwargs.get("codes"),
-                    lookback=int(kwargs.get("lookback") or 600),
-                    horizon_days=int(kwargs.get("horizon_days") or 3),
-                    ridge_lambda=float(kwargs.get("ridge_lambda") or 0.0),
-                    watching_limit=int(kwargs.get("watching_limit") or 12),
-                    min_samples=int(kwargs.get("min_samples") or 24),
-                    save_draft=bool(kwargs.get("save_draft", True)),
-                    holdout_trading_days=int(kwargs.get("holdout_trading_days") or 20),
-                    cross_section_zscore=bool(
-                        kwargs["cross_section_zscore"]
-                        if kwargs.get("cross_section_zscore") is not None
-                        else True
-                    ),
-                )
-            except MaterializeRequired as exc:
-                logger.warning("y_oo fit blocked: %s", exc)
-                return exc.to_dict()
+        if not _OO_FIT_LOCK.acquire(blocking=False):
+            return {
+                "success": False,
+                "error": "ŷ_oo 正在拟合中，请等待当前任务结束后再点",
+                "error_code": "oo_fit_busy",
+            }
+        _OO_FIT_RUNNING = True
+        try:
+            hold_raw = kwargs.get("holdout_trading_days")
+            if hold_raw is None:
+                hold_n = 20
+            else:
+                try:
+                    hold_n = max(0, int(hold_raw))
+                except (TypeError, ValueError):
+                    hold_n = 20
+            with materialized_consumer():
+                try:
+                    return fit_watching_return_model(
+                        codes=kwargs.get("codes"),
+                        lookback=int(kwargs.get("lookback") or 600),
+                        horizon_days=int(kwargs.get("horizon_days") or 3),
+                        ridge_lambda=float(kwargs.get("ridge_lambda") or 0.0),
+                        watching_limit=int(kwargs.get("watching_limit") or 12),
+                        min_samples=int(kwargs.get("min_samples") or 24),
+                        save_draft=bool(kwargs.get("save_draft", True)),
+                        holdout_trading_days=hold_n,
+                        cross_section_zscore=bool(
+                            kwargs["cross_section_zscore"]
+                            if kwargs.get("cross_section_zscore") is not None
+                            else True
+                        ),
+                    )
+                except MaterializeRequired as exc:
+                    logger.warning("y_oo fit blocked: %s", exc)
+                    return exc.to_dict()
+        finally:
+            _OO_FIT_RUNNING = False
+            _OO_FIT_LOCK.release()
 
     def promote_return_score_model(
-        self, note: str = "", persist_role: str = "live"
+        self,
+        note: str = "",
+        persist_role: str = "live",
+        refit_full_sample: bool = False,
     ) -> Dict[str, Any]:
         from core.research.oo_model import persist_oo_model
 
-        return persist_oo_model(note=note, role=persist_role)
+        return persist_oo_model(
+            note=note,
+            role=persist_role,
+            refit_full_sample=bool(refit_full_sample),
+        )
 
     def return_score_model_status(self) -> Dict[str, Any]:
         from core.research.oo_model import oo_model_status

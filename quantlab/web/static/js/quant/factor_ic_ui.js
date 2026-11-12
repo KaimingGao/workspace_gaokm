@@ -637,11 +637,13 @@ export function createFactorIcUi(deps) {
   /**
    * ŷ_oo / ŷ_τc / ŷ_τ30…90 / ŷ_oo_rank / ŷ_τc_rank 因子表：入模因子；KPI + β/gain 图。
    * @param {object|null} rm return_model 或含 coefficients 的报告块
-   * @param {{ oos?: object, head?: "τc"|"tc"|"tau"|"oo"|"path"|"r"|"t30"|"t45"|"t60"|"t75"|"t90"|"oo_rank", topN?: number } } [opts]
+   * @param {{ oos?: object, showOos?: boolean, suiteNote?: string, head?: "τc"|"tc"|"tau"|"oo"|"path"|"r"|"t30"|"t45"|"t60"|"t75"|"t90"|"oo_rank"|"tc_rank", topN?: number } } [opts]
    *   ``topN`` 默认 10：表体只展 |β| TopN，其余进折叠。
    */
   function remCoefTableHtml(rm, opts = {}) {
     if (!rm || typeof rm !== "object") return "";
+    // 同页研究|执行：研究 showOos=true（默认）；执行仅因子 + 脚注
+    const showOos = opts.showOos !== false;
     const isOo = opts.head === "oo";
     const isTcRank = opts.head === "tc_rank";
     const isOoRank = opts.head === "oo_rank" || isTcRank;
@@ -1019,8 +1021,10 @@ export function createFactorIcUi(deps) {
       ySpecObj.formula ||
       (isPath
         ? "extreme_order(low,high)"
-        : isOoRank
-          ? "rank(open[T]->open[T+1])"
+        : isTcRank
+          ? "rank(price[τ]->close[T])"
+          : opts.head === "oo_rank"
+            ? "rank(open[T]->open[T+1])"
         : isOo
           ? "open[T+1]/open[T]-1"
           : isT90
@@ -1050,7 +1054,9 @@ export function createFactorIcUi(deps) {
       ""
     );
     const ySpecClocks = _tauClocksFromYSpec(ySpecRaw, ySpecObj);
-    const oos = opts.oos || {};
+    const oosAll = opts.oos && typeof opts.oos === "object" ? opts.oos : {};
+    // 执行视图不挂 OOS / Gate KPI（禁止用全样本或研究 OOS 冒充执行指标）
+    const oos = showOos ? oosAll : {};
     const useProbKpis =
       isHorizon &&
       ((oos.auc != null && Number.isFinite(Number(oos.auc))) ||
@@ -1122,7 +1128,7 @@ export function createFactorIcUi(deps) {
     const csIcTip = "对齐 Qlib IC：每日截面 Pearson 再对日平均";
     const csRankTip = "对齐 Qlib Rank IC：每日截面 Spearman 再对日平均";
 
-    // 样本 n / Holdout / 训·测：ŷ_oo / ŷ_τc / rank 挂表头；ŷ_τ* 已有对照板
+    // 样本 n / Holdout / 训·测：ŷ_oo / ŷ_τc / rank 挂因子表 KPI；ŷ_τ* 仍走对照板
     const sampleKpis =
       isHorizon
         ? ""
@@ -1544,16 +1550,15 @@ export function createFactorIcUi(deps) {
             .join("")}</span>` +
           `</div>`
         : "";
-    // ŷ_oo_rank：标签在区块说明；ŷ_τ* 保留 y 公式 + 5m τ 网格 + OOS·τ
-    const specY = isOoRank
-      ? ""
-      : `<div class="quant-rem-coef-spec-y" title="${esc(ySpecTip)}">` +
-        `<span class="quant-rem-coef-spec-k">y</span>` +
-        `<span class="quant-rem-coef-spec-f">${esc(yBase)}</span>` +
-        (yGrid ? `<span class="quant-rem-coef-spec-grid">${esc(yGrid)}</span>` : "") +
-        `</div>`;
+    // 与 ŷ_oo / ŷ_τc 同壳：rank 也挂 y 定义公式（+ Gate KPI）
+    const specY =
+      `<div class="quant-rem-coef-spec-y" title="${esc(ySpecTip)}">` +
+      `<span class="quant-rem-coef-spec-k">y</span>` +
+      `<span class="quant-rem-coef-spec-f">${esc(yBase)}</span>` +
+      (yGrid ? `<span class="quant-rem-coef-spec-grid">${esc(yGrid)}</span>` : "") +
+      `</div>`;
     const specRow =
-      isOoRank && !specTau && !metrics
+      !specY && !specTau && !metrics
         ? ""
         : `<div class="quant-rem-coef-spec" role="group" aria-label="${esc(
             `${yhatTag} 标签与 OOS`
@@ -1993,51 +1998,24 @@ export function createFactorIcUi(deps) {
     const headTitle = isTcRank
       ? String(headTitle0).replaceAll("ŷ_oo_rank", "ŷ_τc_rank")
       : headTitle0;
-    // ŷ_τ*：副标题（gain%/|β|/TopN/折叠）也下掉，表头只留「因子表」
-    const headSub = isHorizon
-      ? ""
-      : isOoLgb
-        ? `LightGBM gain% · 按 gain 降序 · 默认 Top${topN}${
-            restRows.length ? ` · 其余 ${restRows.length} 折叠` : ""
-          }`
-      : isOoRank
-        ? isOoRankGain
-          ? `按 gain 降序 · 归一化份额 · 默认 Top${topN}${
-              restRows.length ? ` · 其余 ${restRows.length} 折叠` : ""
-            }`
-          : isDual
-            ? hasOoGain
-              ? `gain% + β（Σ≈100%）· 按 |β| 降序 · Top${topN}${
-                  restRows.length ? ` · 其余 ${restRows.length} 折叠` : ""
-                }`
-              : `Ridge β · 按 |β| 降序 · 默认 Top${topN}${
-                  restRows.length ? ` · 其余 ${restRows.length} 折叠` : ""
-                }`
-            : `按 |β| 降序 · 默认 Top${topN}${
-                restRows.length ? ` · 其余 ${restRows.length} 折叠` : ""
-              }`
-        : useProbKpis
-          ? `按 |β| 降序 · logit · 默认 Top${topN}${
-              restRows.length ? ` · 其余 ${restRows.length} 折叠` : ""
-            }`
-          : `按 |β| 降序 · 默认 Top${topN}${
-              restRows.length ? ` · 其余 ${restRows.length} 折叠` : ""
-            }`;
+    // 副标题（gain%/|β|/TopN/折叠）下掉，表头只留「因子表」
     const head =
       `<div class="quant-rem-coef-head">` +
       `<div class="quant-rem-coef-head-main">` +
       `<span class="quant-rem-coef-title">${esc(headTitle)}</span>` +
       sampleRow +
-      (headSub
-        ? `<span class="quant-rem-coef-sub">${esc(headSub)}</span>`
-        : "") +
       `</div>` +
       headLegend +
       `</div>`;
 
+    const suiteNoteHtml = opts.suiteNote
+      ? `<div class="quant-rem-coef-suite-note">${esc(String(opts.suiteNote))}</div>`
+      : "";
+
     return (
       `<div class="quant-rem-coef">` +
       head +
+      suiteNoteHtml +
       specRow +
       ooLgbMissingGain +
       `<div class="quant-rem-coef-frame">${topGrid}${restFold}</div>` +

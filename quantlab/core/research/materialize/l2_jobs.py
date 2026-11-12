@@ -281,6 +281,64 @@ def _minute_store_days(
     return [], "本地 5m 没有够格的交易日"
 
 
+def _clip_minute_days_to_l1(
+    codes: Sequence[str],
+    days: Sequence[str],
+    *,
+    family: str,
+    min_codes: int,
+) -> tuple:
+    """自动 5m 窗再按 τ L1 截面裁日。
+
+    分钟仓够格、但 ``tc_HHMM`` 写不满 ``min_codes`` 的日子（常见窗头）建立方必
+    skip，按日齐套会整窗失败。湖里读不到任何日期时不裁（测试/空湖保底）。
+
+    返回 ``(kept, dropped)``，顺序与 ``days`` 一致。
+    """
+    day_list = [str(d)[:10] for d in (days or []) if len(str(d or "")[:10]) >= 10]
+    fam = str(family or "").strip()
+    if not day_list or not fam:
+        return day_list, []
+    try:
+        need = max(1, int(min_codes or 0))
+    except (TypeError, ValueError):
+        need = 1
+    try:
+        from core.research.feature_lake import peek_stock_dates
+    except Exception:  # noqa: BLE001
+        logger.debug("clip minute days: feature_lake unavailable", exc_info=True)
+        return day_list, []
+
+    want = set(day_list)
+    counts = {d: 0 for d in day_list}
+    for code in codes or []:
+        key = str(code or "").strip()
+        if not key:
+            continue
+        try:
+            ok, found = peek_stock_dates(fam, key)
+        except Exception:  # noqa: BLE001
+            continue
+        if not ok or not found:
+            continue
+        for raw in found:
+            day = str(raw)[:10]
+            if day in want:
+                counts[day] = int(counts.get(day) or 0) + 1
+    # 窗内完全没有 L1 命中 → 湖与本窗无关（单测/空对齐），不裁
+    if not any(int(v or 0) > 0 for v in counts.values()):
+        return day_list, []
+
+    kept: List[str] = []
+    dropped: List[str] = []
+    for day in day_list:
+        if int(counts.get(day) or 0) >= need:
+            kept.append(day)
+        else:
+            dropped.append(day)
+    return kept, dropped
+
+
 def _fail_minute_clocks(report: Dict[str, Any], clocks: Sequence[str], note: str) -> None:
     for clock in clocks:
         report["by_clock"][str(clock)] = {
@@ -346,11 +404,38 @@ def _materialize_l2_with_minute(
         minute_days, minute_note = _minute_store_days(
             code_list, day_list, min_codes=need
         )
+    fams = {str(clock): family_for_tc(tau_hm=str(clock)) for clock in minute_clocks}
+    # 自动 5m 窗：再按首个分钟钟的 τ L1 截面裁掉建不成的日（显式 dates 不裁）
+    if clip_minute_store and minute_days and minute_clocks:
+        gate_fam = fams.get(str(minute_clocks[0])) or family_for_tc(
+            tau_hm=str(minute_clocks[0])
+        )
+        kept, dropped = _clip_minute_days_to_l1(
+            code_list,
+            minute_days,
+            family=str(gate_fam),
+            min_codes=need,
+        )
+        if dropped:
+            report["minute_l1_clipped"] = list(dropped)
+            logger.info(
+                "l2 minute window L1-clip drop=%s keep=%s fam=%s need≥%s",
+                len(dropped),
+                len(kept),
+                gate_fam,
+                need,
+            )
+        minute_days = list(kept)
+    if clip_minute_store:
         report["minute_days"] = len(minute_days)
         report["minute_span"] = (
             f"{minute_days[0]}→{minute_days[-1]}" if minute_days else ""
         )
         if minute_note:
+            report["minute_skip"] = minute_note
+            logger.info("l2 minute window skipped: %s", minute_note)
+        elif not minute_days:
+            minute_note = "τ L1 截面不够，自动 5m 窗为空"
             report["minute_skip"] = minute_note
             logger.info("l2 minute window skipped: %s", minute_note)
         else:
@@ -367,7 +452,6 @@ def _materialize_l2_with_minute(
     n_clocks = max(1, len(minute_clocks))
     n_steps = open_steps + n_clocks
     n_days = max(1, len(minute_days))
-    fams = {str(clock): family_for_tc(tau_hm=str(clock)) for clock in minute_clocks}
     def _minute_horizon_ok(cube: Any) -> bool:
         # 真 DayCube 必有 names；无该属性的探测桩视为「已存在」。
         # names=[] 的空立方不当覆盖通过（须重建）。

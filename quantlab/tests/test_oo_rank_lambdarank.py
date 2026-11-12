@@ -1403,7 +1403,7 @@ class TestOoRankPersistSkipsRefit(unittest.TestCase):
         fit.assert_not_called()
         universe.assert_not_called()
         self.assertFalse(out.get("success"))
-        self.assertIn("请先点拟合", str(out.get("error") or ""))
+        self.assertIn("请先点「拟合」", str(out.get("error") or ""))
 
 class TestRankCrossSectionZ(unittest.TestCase):
     def test_z_day_cross_section_uses_l2_api_only(self):

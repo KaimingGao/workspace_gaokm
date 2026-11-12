@@ -10,9 +10,12 @@
 
 from __future__ import annotations
 
+import logging
 import os
 from contextlib import contextmanager
 from contextvars import ContextVar
+
+logger = logging.getLogger(__name__)
 from typing import Any, Callable, Dict, Iterator, List, Mapping, Optional, Sequence, Tuple
 
 MODEL_ROLE_LIVE = "live"
@@ -177,7 +180,14 @@ def split_by_holdout_days(
     隔夜等标签较短的面板仍对齐同一 eval_start。
     """
     n = len(dates)
-    requested = max(1, int(holdout_trading_days or DEFAULT_HOLDOUT_TRADING_DAYS))
+    # 0 = 全样本训练、无 Holdout 评估窗（部署重训）；None/缺省用默认 N
+    if holdout_trading_days is None:
+        requested = int(DEFAULT_HOLDOUT_TRADING_DAYS)
+    else:
+        try:
+            requested = max(0, int(holdout_trading_days))
+        except (TypeError, ValueError):
+            requested = int(DEFAULT_HOLDOUT_TRADING_DAYS)
     hold_n = requested
     h = max(0, int(label_horizon_days or 0))
     row_days = [str(d)[:10] for d in dates]
@@ -200,8 +210,40 @@ def split_by_holdout_days(
         "requested_holdout_trading_days": requested,
     }
     if n < 4 or len(uniq) < 4:
+        logger.warning(
+            "split_by_holdout_days: 样本过少（n=%d, uniq=%d），退回全量训练、无 OOS 评估",
+            n, len(uniq),
+        )
         all_idx = list(range(n))
         return all_idx, [], dict(empty_meta)
+
+    # Holdout=0：全训不测（可选 label embargo，避免末端未实现标签进训）
+    if hold_n == 0:
+        embargo_n = min(h, max(0, len(uniq) - 3))
+        train_end_idx = max(0, len(uniq) - embargo_n)
+        train_days = uniq[:train_end_idx]
+        embargo_days = uniq[train_end_idx:]
+        train_set = set(train_days)
+        train_idx = [i for i, d in enumerate(row_days) if d in train_set]
+        if len(train_idx) < 4:
+            logger.warning(
+                "split_by_holdout_days(hold_n=0): embargo 后训练样本不足（%d 行），退回全量训练",
+                len(train_idx),
+            )
+            return list(range(n)), [], dict(empty_meta)
+        return train_idx, [], {
+            "fit_end": train_days[-1] if train_days else None,
+            "eval_start": None,
+            "holdout_trading_days": 0,
+            "label_horizon_days": h,
+            "n_train_days": len(train_days),
+            "n_test_days": 0,
+            "train_days": list(train_days),
+            "test_days": [],
+            "embargo_days": list(embargo_days),
+            "split_mode": "full_sample",
+            "requested_holdout_trading_days": 0,
+        }
 
     hold_n = min(hold_n, max(1, len(uniq) - 3))
     eval_start = uniq[-hold_n]
@@ -215,9 +257,13 @@ def split_by_holdout_days(
     embargo_days = uniq[train_end_idx:idx_d]
     test_days = uniq[idx_d:]
     if len(train_days) < 3 or len(test_days) < 1:
-        cut = max(3, len(uniq) - hold_n)
-        train_days = uniq[:cut]
-        embargo_days = []
+        logger.warning(
+            "split_by_holdout_days: 训练日=%d / 测试日=%d 不足，按 cut 兜底（embargo 保留 %d 日）",
+            len(train_days), len(test_days), h,
+        )
+        cut = max(3 + h, len(uniq) - hold_n)
+        train_days = uniq[: max(0, cut - h)]
+        embargo_days = uniq[max(0, cut - h) : cut]  # 保留 label embargo
         test_days = uniq[cut:]
         eval_start = test_days[0] if test_days else None
 
@@ -338,10 +384,41 @@ def require_research_suite(
         return doc, {}
     return None, {
         "success": False,
-        "error": "无研究套可晋级；请先「启用研究」并通过回测后再启用执行",
+        "error": "无研究套可晋级；请先在研究视图点「拟合」，或切到执行视图全样本拟合",
         "research_path": path,
         "live_path": live_path,
     }
+
+
+def stamp_full_sample_live_fitted_at(
+    live_doc: Dict[str, Any],
+    *,
+    source: Optional[Mapping[str, Any]] = None,
+) -> Dict[str, Any]:
+    """全样本写入执行槽：用新拟合时间覆盖从研究套拷贝来的 ``fitted_at``。
+
+    研究→执行晋级可同 β 同 fitted_at；Holdout=0 重训是新模型，卡头/版本不得与研究套撞时间。
+    """
+    if not isinstance(live_doc, dict):
+        return live_doc
+    fit_id = model_fit_id(source) if isinstance(source, Mapping) else None
+    if not fit_id:
+        for key in ("return_model", "model"):
+            blob = live_doc.get(key)
+            if isinstance(blob, Mapping):
+                fit_id = model_fit_id(blob)
+                if fit_id:
+                    break
+    if not fit_id:
+        from core.numbers import now_iso_utc
+
+        fit_id = now_iso_utc()
+    live_doc["fitted_at"] = fit_id
+    for key in ("return_model", "model"):
+        blob = live_doc.get(key)
+        if isinstance(blob, dict):
+            blob["fitted_at"] = fit_id
+    return live_doc
 
 
 def stamp_live_suite_doc(

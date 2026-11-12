@@ -2618,7 +2618,7 @@ export function createScoreTooltipController() {
         termsHtml ||
           `<div class="score-formula-section">` +
             `<div class="score-section-title">ŷ_τc_rank 组成</div>` +
-            `<div class="score-formula-caption">无因子拆解（旧回测未落盘）。重跑回测后悬停可见 LightGBM / LambdaRank pred_contrib。进合成 rank_score。</div>` +
+            `<div class="score-formula-caption">无因子拆解（旧回测未落盘）。重跑回测后悬停可见 LambdaRank pred_contrib。进合成 rank_score。</div>` +
             `</div>`,
       ].filter(Boolean);
       showCompactScoreTip(cell, parts.join(""), { sticky });
@@ -2632,7 +2632,7 @@ export function createScoreTooltipController() {
         termsHtml ||
           `<div class="score-formula-section">` +
             `<div class="score-section-title">ŷ_oo_rank 组成</div>` +
-            `<div class="score-formula-caption">无因子拆解（旧回测未落盘）。重跑回测后悬停可见 LightGBM / LambdaRank pred_contrib。</div>` +
+            `<div class="score-formula-caption">无因子拆解（旧回测未落盘）。重跑回测后悬停可见 LambdaRank pred_contrib。</div>` +
             `</div>`,
       ].filter(Boolean);
       showCompactScoreTip(cell, parts.join(""), { sticky });

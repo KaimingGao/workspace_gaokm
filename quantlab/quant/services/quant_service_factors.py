@@ -132,12 +132,67 @@ def _peek_json_key(path: str, key: str) -> Optional[str]:
     return None
 
 
+def _suite_pack_from_doc(doc: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
+    """研究/执行切换用：压缩 return_model + oos（无则 None）。
+
+    附带 y_spec / Holdout 日数，供 rank 因子表 KPI 与 y 公式在研究↔执行切换后仍可读。
+    """
+    if not isinstance(doc, dict):
+        return None
+    rm = doc.get("return_model") if isinstance(doc.get("return_model"), dict) else None
+    if rm is None and isinstance(doc.get("return_model_research"), dict):
+        rm = doc.get("return_model_research")
+    if rm is None and isinstance(doc.get("model"), dict):
+        rm = doc.get("model")
+    backends = doc.get("backends") if isinstance(doc.get("backends"), dict) else None
+    if rm is None and isinstance(backends, dict):
+        for key in ("lambdarank", "lightgbm", "ridge"):
+            pack = backends.get(key)
+            if not isinstance(pack, dict):
+                continue
+            cand = pack.get("return_model_research") or pack.get("return_model")
+            if isinstance(cand, dict):
+                rm = cand
+                break
+    if not isinstance(rm, dict):
+        return None
+    oos = doc.get("oos") if isinstance(doc.get("oos"), dict) else None
+    y_spec = None
+    if isinstance(doc.get("y_spec"), dict):
+        y_spec = dict(doc["y_spec"])
+    elif isinstance(rm.get("y_spec"), dict):
+        y_spec = dict(rm["y_spec"])
+    return {
+        "return_model": dict(rm),
+        "oos": dict(oos) if oos else None,
+        "fitted_at": doc.get("fitted_at") or rm.get("fitted_at"),
+        "promoted_at": doc.get("promoted_at"),
+        "backend": doc.get("backend") or doc.get("recommended_backend") or rm.get("backend"),
+        "backends": backends,
+        "gate_oos_source": doc.get("gate_oos_source"),
+        "deploy_full_sample": bool(doc.get("deploy_full_sample")),
+        "feature_importance": doc.get("feature_importance")
+        if isinstance(doc.get("feature_importance"), list)
+        else rm.get("feature_importance"),
+        "y_spec": y_spec,
+        "n_train_days": doc.get("n_train_days"),
+        "n_test_days": doc.get("n_test_days"),
+        "holdout_trading_days": doc.get("holdout_trading_days"),
+        "tau_end_hm": doc.get("tau_end_hm"),
+        "sample_count": doc.get("sample_count")
+        if doc.get("sample_count") is not None
+        else rm.get("sample_count"),
+    }
+
+
 def _attach_ridge_role_flags(
     out: Dict[str, Any],
     live_path: str,
     *,
     live_present: Optional[bool] = None,
     accept_research: Optional[Any] = None,
+    suite_research_doc: Optional[Dict[str, Any]] = None,
+    suite_live_doc: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
     """给 ŷ_* GET/POST 打上执行套 / 研究套是否已落盘及各自拟合时间标识。"""
     from core.research.holdout import research_model_path, research_sidecar_flags
@@ -169,6 +224,15 @@ def _attach_ridge_role_flags(
         fitted = _peek_model_stamp(last_path) or _file_mtime_iso(last_path)
     if fitted:
         out["fitted_at"] = fitted
+    # 同页研究/执行切换：调用方显式传入双套文档时附带压缩包
+    if suite_research_doc is not None:
+        pack = _suite_pack_from_doc(suite_research_doc)
+        if pack is not None:
+            out["suite_research"] = pack
+    if suite_live_doc is not None:
+        pack_l = _suite_pack_from_doc(suite_live_doc)
+        if pack_l is not None:
+            out["suite_live"] = pack_l
     return out
 
 
@@ -758,6 +822,7 @@ class QuantFactorMixin:
         tau_end_hm: Optional[str] = None,
         force_promote: bool = False,
         persist_role: str = "live",
+        deploy_full_sample: bool = False,
         holdout_trading_days: int = 20,
         cross_section_zscore: bool = True,
         progress_cb: Optional[Any] = None,
@@ -832,6 +897,7 @@ class QuantFactorMixin:
                     note=note or "persist last tau report",
                     force=bool(force_promote),
                     role=persist_role,
+                    deploy_full_sample=bool(deploy_full_sample),
                 )
                 out = dict(last)
                 out["persisted"] = saved
@@ -1014,9 +1080,10 @@ class QuantFactorMixin:
             tau_promote_gate,
         )
 
-        live = load_tau_model()
+        live = load_tau_model(role="live")
+        research = load_tau_model(role="research")
         last = load_tau_last_report()
-        if not live and not last:
+        if not live and not last and not research:
             return _attach_ridge_role_flags(
                 {
                     "success": False,
@@ -1028,6 +1095,8 @@ class QuantFactorMixin:
                 tau_model_path(),
                 live_present=False,
                 accept_research=_usable_tau_lgb_doc,
+                suite_research_doc=research,
+                suite_live_doc=live,
             )
 
         _doc, use_last = _select_ridge_desk_doc(live, last)
@@ -1052,6 +1121,8 @@ class QuantFactorMixin:
                 tau_model_path(),
                 live_present=bool(live),
                 accept_research=_usable_tau_lgb_doc,
+                suite_research_doc=research,
+                suite_live_doc=live,
             )
 
         if not live:
@@ -1073,6 +1144,8 @@ class QuantFactorMixin:
                 tau_model_path(),
                 live_present=False,
                 accept_research=_usable_tau_lgb_doc,
+                suite_research_doc=research,
+                suite_live_doc=live,
             )
 
         return _attach_ridge_role_flags(
@@ -1091,7 +1164,9 @@ class QuantFactorMixin:
             },
             tau_model_path(),
             live_present=True,
-                accept_research=_usable_tau_lgb_doc,
+            accept_research=_usable_tau_lgb_doc,
+            suite_research_doc=research,
+            suite_live_doc=live,
         )
 
     @records_experiment("oo_rank")
@@ -1108,6 +1183,7 @@ class QuantFactorMixin:
         backend: str = "auto",
         persist: bool = False,
         persist_role: str = "live",
+        deploy_full_sample: bool = False,
         note: str = "",
         cross_section_zscore: bool = True,
     ) -> Dict[str, Any]:
@@ -1117,7 +1193,7 @@ class QuantFactorMixin:
         本地仓够长则不补远端，避免拟合时把当日 K 线刷进仓里）。
         截面 z 与损失宇宙均用整观察池（训练档已下线）。
         成交明细 oo_rank=1..n；不进 ranking 融合分；进合成 rank_score（买序/阈值）。
-        ``persist=True``：research=写入研究槽；live=研究槽晋级执行槽；落盘 LambdaRank，不重训。
+        ``persist=True``：research=写入研究槽；live=研究槽晋级或全样本部署；落盘不重训。
         """
         from core.research.feature_standardize import ZSCORE_UNIVERSE_POOL
         from core.research.oo_rank_panel import resolve_rank_fit_plan
@@ -1136,12 +1212,15 @@ class QuantFactorMixin:
             if not last:
                 return {
                     "success": False,
-                    "error": "尚无上次拟合，请先点拟合再启用",
+                    "error": "尚无上次拟合，请先点「拟合」",
                     "task": "oo_rank",
                     "path": oo_rank_model_path(),
                 }
             saved = persist_oo_rank_model(
-                last, note=note or "", role=persist_role or "live"
+                last,
+                note=note or "",
+                role=persist_role or "live",
+                deploy_full_sample=bool(deploy_full_sample),
             )
             if not saved.get("success"):
                 return {
@@ -1248,7 +1327,9 @@ class QuantFactorMixin:
         )
 
         path = oo_rank_model_path()
-        persisted = load_oo_rank_model(prefer_research=True)
+        research = load_oo_rank_model(prefer_research=True)
+        live = load_oo_rank_model(prefer_research=False)
+        persisted = research or live
         last_path = oo_rank_last_report_path()
         last = load_oo_rank_last_report()
         from core.research.holdout import model_fit_id
@@ -1271,6 +1352,8 @@ class QuantFactorMixin:
                 },
                 path,
                 live_present=False,
+                suite_research_doc=research,
+                suite_live_doc=live,
             )
         out = dict(chosen)
         # 单头 LambdaRank：若落盘缺 backends.lambdarank，从同窗 last_report 补
@@ -1340,7 +1423,13 @@ class QuantFactorMixin:
         )
         if fitted:
             out["fitted_at"] = fitted
-        return _attach_ridge_role_flags(out, path, live_present=live_file)
+        return _attach_ridge_role_flags(
+            out,
+            path,
+            live_present=live_file,
+            suite_research_doc=research,
+            suite_live_doc=live,
+        )
 
     @records_experiment("tc_rank")
     @consume_materialized
@@ -1356,6 +1445,7 @@ class QuantFactorMixin:
         backend: str = "auto",
         persist: bool = False,
         persist_role: str = "live",
+        deploy_full_sample: bool = False,
         note: str = "",
         cross_section_zscore: bool = True,
         tau_end_hm: Optional[str] = None,
@@ -1385,12 +1475,15 @@ class QuantFactorMixin:
             if not last:
                 return {
                     "success": False,
-                    "error": "尚无上次拟合，请先点拟合再启用",
+                    "error": "尚无上次拟合，请先点「拟合」",
                     "task": "tc_rank",
                     "path": tc_rank_model_path(),
                 }
             saved = persist_tc_rank_model(
-                last, note=note or "", role=persist_role or "live"
+                last,
+                note=note or "",
+                role=persist_role or "live",
+                deploy_full_sample=bool(deploy_full_sample),
             )
             if not saved.get("success"):
                 return {
@@ -1492,7 +1585,9 @@ class QuantFactorMixin:
         )
 
         path = tc_rank_model_path()
-        persisted = load_tc_rank_model(prefer_research=True)
+        research = load_tc_rank_model(prefer_research=True)
+        live = load_tc_rank_model(prefer_research=False)
+        persisted = research or live
         last_path = tc_rank_last_report_path()
         last = load_tc_rank_last_report()
         chosen, use_last = _select_ridge_desk_doc(persisted, last)
@@ -1512,6 +1607,8 @@ class QuantFactorMixin:
                 },
                 path,
                 live_present=False,
+                suite_research_doc=research,
+                suite_live_doc=live,
             )
         out = dict(chosen)
 
@@ -1592,7 +1689,13 @@ class QuantFactorMixin:
         )
         if fitted:
             out["fitted_at"] = fitted
-        return _attach_ridge_role_flags(out, path, live_present=live_file)
+        return _attach_ridge_role_flags(
+            out,
+            path,
+            live_present=live_file,
+            suite_research_doc=research,
+            suite_live_doc=live,
+        )
 
     def _run_horizon_ridge_experiment(
         self,

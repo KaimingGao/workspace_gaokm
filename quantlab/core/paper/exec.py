@@ -1296,16 +1296,17 @@ def simulate_buys(
                 continue
 
             budget = cash * position_ratio
-            if budget != budget or budget in (float("inf"), float("-inf")) or budget < price * 100:
+            # 先用含滑点的 fill_px 算股数，避免 price 低估导致现金透支
+            fill_px = apply_fill_price(
+                "buy", float(price), model=cost_model, params=fee_params
+            )
+            if budget != budget or budget in (float("inf"), float("-inf")) or budget < fill_px * 100:
                 continue
-            shares = int(budget // price // 100) * 100
+            shares = int(budget // fill_px // 100) * 100
             if shares <= 0:
                 continue
 
             # --- 换手预算裁剪（按含滑点的成交价，与记入 amount 的名义一致） ---
-            fill_px = apply_fill_price(
-                "buy", float(price), model=cost_model, params=fee_params
-            )
             turnover_note = ""
             if turnover_enabled and buy_budget_amt is not None:
                 from core.paper.rebalance.turnover import clip_shares_to_turnover_budget

@@ -292,6 +292,9 @@ def score_and_rank_watching(
             it["rank_key"] = rk_name
             # picks 第二元始终是 ŷ_oo；第三元为实际排序键
             ranked.append((code, oo_f, sort_f))
+        # dual_cfg 分支也应用 min_score 过滤（非 dual 分支由 rank_by_predicted_score 处理）
+        if float(min_score) > 0:
+            ranked = [r for r in ranked if float(r[2]) >= float(min_score)]
         ranked.sort(key=lambda x: (-float(x[2]), str(x[0])))
         picks = [(c, oo) for c, oo, _b in ranked]
         meta["dual_score_tau_gated"] = gated

@@ -8,6 +8,13 @@ const COMMANDS = [
   { id: "nav-quant", label: "前往 · 研究枢纽", hint: "/quant", href: "/quant", keywords: "研究 因子 ic ols 运维 日报 hub" },
   { id: "nav-platform", label: "前往 · 平台", hint: "/platform", href: "/platform", keywords: "调度 日更 平台 系统设置" },
   {
+    id: "nav-yhat-tf",
+    label: "前往 · 模型中心",
+    hint: "/yhat-tf",
+    href: "/yhat-tf",
+    keywords: "模型中心 隐藏 yhat transformer oo τc tau rank fusion scheme c l4 拟合 看板 管理",
+  },
+  {
     id: "ai-open",
     label: "打开 AI",
     hint: "⌘K",

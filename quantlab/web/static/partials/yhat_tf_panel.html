@@ -1,0 +1,264 @@
+<div class="dashboard-head quant-head yhat-tf-head">
+  <div class="dashboard-head-text quant-head-text">
+    <p class="dashboard-eyebrow">Model Desk · L4 Research</p>
+    <div class="yhat-tf-title-row">
+      <h2>模型中心</h2>
+      <span class="yhat-tf-live-lock">生产禁用</span>
+    </div>
+    <p id="yhat-tf-meta" class="dashboard-meta quant-meta" aria-live="polite">正在读取模型状态…</p>
+    <p class="dashboard-section-desc quant-head-path">
+      <a class="quant-hero-link" href="#yhat-tf-section-overview">概览</a>
+      →
+      <a class="quant-hero-link" href="#yhat-tf-section-oo">ŷ_oo</a>
+      →
+      <a class="quant-hero-link" href="#yhat-tf-section-tc">ŷ_τc</a>
+      →
+      <a class="quant-hero-link" href="#yhat-tf-section-oo-rank">ŷ_oo_rank</a>
+      →
+      <a class="quant-hero-link" href="#yhat-tf-section-tc-rank">ŷ_τc_rank</a>
+      →
+      <a class="quant-hero-link" href="/quant">研究枢纽（LGB）</a>
+      · draft / research only
+    </p>
+  </div>
+  <div class="dashboard-head-actions quant-head-actions">
+    <span class="quant-desk-badge" title="仅 ⌘⇧K 可达；侧栏不展示">隐藏页</span>
+    <button type="button" id="yhat-tf-refresh" class="dialog-btn secondary" title="刷新四头槽位状态">
+      <span data-refresh-label>刷新</span>
+    </button>
+  </div>
+</div>
+
+<div class="quant-body quant-page yhat-tf-page" aria-busy="true">
+  <div id="yhat-tf-load-error" class="yhat-tf-load-error" role="alert" hidden>
+    <span data-load-error-text>状态加载失败，请重试。</span>
+    <button type="button" id="yhat-tf-retry" class="dialog-btn secondary">重试</button>
+  </div>
+
+  <section
+    class="dashboard-section quant-section quant-overview-section"
+    id="yhat-tf-section-overview"
+    aria-labelledby="yhat-tf-overview-title"
+  >
+    <header class="dashboard-section-head quant-section-head">
+      <h3 id="yhat-tf-overview-title" class="dashboard-section-title">四头总览</h3>
+      <p class="dashboard-section-desc quant-section-desc">先比较状态，再进入单头操作</p>
+      <details class="quant-help-fold quant-pro-help-fold yhat-tf-overview-help">
+        <summary class="quant-pro-help-summary"><span class="quant-pro-help-icon" aria-hidden="true">?</span> 说明</summary>
+        <div class="quant-help-body quant-pro-help-body">
+          <p>
+            输入：<strong>Seq encoder</strong>（日线 L×F + gap）∥ <strong>Factor MLP</strong>（aoo / atc core）→
+            候选 <strong>Arm·C Fusion</strong> → 硬闸 <strong>CS rank IC / Gate lift</strong>（对照 Arm·O LGB）。
+            本页只写 draft / research；禁止 live / active / 生产 score。
+          </p>
+        </div>
+      </details>
+    </header>
+
+    <div class="dashboard-overview-band quant-pro-desk-top yhat-tf-overview">
+      <div class="dashboard-kpi-row quant-pro-overview-kpis">
+        <div class="dashboard-kpi-row-body yhat-tf-overview-kpis">
+          <div class="dashboard-kpi-card quant-pro-kpi-card" data-overview="ready">
+            <div class="dashboard-kpi-label quant-pro-kpi-label">Holdout 就绪</div>
+            <div class="dashboard-kpi-value quant-pro-kpi-value"><span data-ov-n>—</span><span class="yhat-tf-kpi-den">/4</span></div>
+            <div class="yhat-tf-meter" aria-hidden="true"><i data-ov-bar style="--p:0%"></i></div>
+            <div class="dashboard-kpi-sub quant-pro-kpi-sub">四头可训</div>
+          </div>
+          <div class="dashboard-kpi-card quant-pro-kpi-card" data-overview="draft">
+            <div class="dashboard-kpi-label quant-pro-kpi-label">草稿槽</div>
+            <div class="dashboard-kpi-value quant-pro-kpi-value"><span data-ov-n>—</span><span class="yhat-tf-kpi-den">/4</span></div>
+            <div class="yhat-tf-meter is-draft" aria-hidden="true"><i data-ov-bar style="--p:0%"></i></div>
+            <div class="dashboard-kpi-sub quant-pro-kpi-sub">draft</div>
+          </div>
+          <div class="dashboard-kpi-card quant-pro-kpi-card" data-overview="research">
+            <div class="dashboard-kpi-label quant-pro-kpi-label">研究槽</div>
+            <div class="dashboard-kpi-value quant-pro-kpi-value"><span data-ov-n>—</span><span class="yhat-tf-kpi-den">/4</span></div>
+            <div class="yhat-tf-meter is-research" aria-hidden="true"><i data-ov-bar style="--p:0%"></i></div>
+            <div class="dashboard-kpi-sub quant-pro-kpi-sub">research</div>
+          </div>
+          <div class="dashboard-kpi-card quant-pro-kpi-card is-bad" data-overview="live">
+            <div class="dashboard-kpi-label quant-pro-kpi-label">生产</div>
+            <div class="dashboard-kpi-value quant-pro-kpi-value">禁 live</div>
+            <div class="yhat-tf-meter is-lock" aria-hidden="true"><i style="--p:100%"></i></div>
+            <div class="dashboard-kpi-sub quant-pro-kpi-sub">不写 active / score</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="yhat-tf-head-grid" aria-label="选择模型详情">
+        <button type="button" class="yhat-tf-head-card is-active" data-head-select="oo" aria-pressed="true" aria-controls="yhat-tf-section-oo">
+          <span class="yhat-tf-head-card-top"><strong>ŷ_oo</strong><span class="quant-pro-status-chip" data-head-summary-status="oo" data-state="idle">加载中</span></span>
+          <span class="yhat-tf-head-card-target">open[T] → open[T+1]</span>
+          <span class="yhat-tf-head-card-slots" data-head-summary-slots="oo">draft — · research —</span>
+          <span class="yhat-tf-head-card-gate" data-head-summary-gate="oo">Gate · Arm·O</span>
+        </button>
+        <button type="button" class="yhat-tf-head-card" data-head-select="tc" aria-pressed="false" aria-controls="yhat-tf-section-tc">
+          <span class="yhat-tf-head-card-top"><strong>ŷ_τc</strong><span class="quant-pro-status-chip" data-head-summary-status="tc" data-state="idle">加载中</span></span>
+          <span class="yhat-tf-head-card-target">price[τ] → close[T]</span>
+          <span class="yhat-tf-head-card-slots" data-head-summary-slots="tc">draft — · research —</span>
+          <span class="yhat-tf-head-card-gate" data-head-summary-gate="tc">Gate · Arm·O</span>
+        </button>
+        <button type="button" class="yhat-tf-head-card" data-head-select="oo_rank" aria-pressed="false" aria-controls="yhat-tf-section-oo-rank">
+          <span class="yhat-tf-head-card-top"><strong>ŷ_oo_rank</strong><span class="quant-pro-status-chip" data-head-summary-status="oo_rank" data-state="idle">加载中</span></span>
+          <span class="yhat-tf-head-card-target">open→open · CS rank</span>
+          <span class="yhat-tf-head-card-slots" data-head-summary-slots="oo_rank">draft — · research —</span>
+          <span class="yhat-tf-head-card-gate" data-head-summary-gate="oo_rank">Gate · Gate lift</span>
+        </button>
+        <button type="button" class="yhat-tf-head-card" data-head-select="tc_rank" aria-pressed="false" aria-controls="yhat-tf-section-tc-rank">
+          <span class="yhat-tf-head-card-top"><strong>ŷ_τc_rank</strong><span class="quant-pro-status-chip" data-head-summary-status="tc_rank" data-state="idle">加载中</span></span>
+          <span class="yhat-tf-head-card-target">price[τ]→close · CS rank</span>
+          <span class="yhat-tf-head-card-slots" data-head-summary-slots="tc_rank">draft — · research —</span>
+          <span class="yhat-tf-head-card-gate" data-head-summary-gate="tc_rank">Gate · Gate lift</span>
+        </button>
+      </div>
+
+      <div class="yhat-tf-view-bar">
+        <span id="yhat-tf-view-desc">单头详情 · 选择上方卡片切换</span>
+        <button type="button" id="yhat-tf-toggle-view" class="dialog-btn secondary" aria-pressed="false">全部展开</button>
+      </div>
+
+      <details class="yhat-tf-arms-fold">
+        <summary>实验臂与 Gate 说明</summary>
+        <nav class="quant-path-rail quant-pro-path-rail yhat-tf-arms" aria-label="Holdout 对照臂">
+          <a class="quant-path-step quant-pro-path-step" href="#yhat-tf-section-oo" data-state="done" title="现网 LGB 因子基线"><span class="quant-pro-path-num">Arm·O</span> LGB</a>
+          <span class="quant-path-sep quant-pro-path-sep" aria-hidden="true">/</span>
+          <span class="quant-path-step quant-pro-path-step" data-state="idle" title="因子 MLP（无序列）"><span class="quant-pro-path-num">Arm·A</span> MLP</span>
+          <span class="quant-path-sep quant-pro-path-sep" aria-hidden="true">/</span>
+          <span class="quant-path-step quant-pro-path-step" data-state="idle" title="日线序列 Transformer"><span class="quant-pro-path-num">Arm·B</span> Seq</span>
+          <span class="quant-path-sep quant-pro-path-sep" aria-hidden="true">/</span>
+          <span class="quant-path-step quant-pro-path-step is-active" data-state="busy" title="序列 ∥ 因子融合候选"><span class="quant-pro-path-num">Arm·C</span> Fusion</span>
+          <span class="quant-path-sep quant-pro-path-sep" aria-hidden="true">/</span>
+          <span class="quant-path-step quant-pro-path-step" data-state="warn" title="Holdout 硬闸"><span class="quant-pro-path-num">Gate</span> CS-IC</span>
+        </nav>
+      </details>
+    </div>
+  </section>
+
+  <!-- ŷ_oo -->
+  <section class="dashboard-section quant-section" id="yhat-tf-section-oo" data-head-section="oo" aria-labelledby="yhat-tf-oo-title">
+    <details class="quant-primary-fold" open data-head-panel="oo">
+      <summary class="quant-primary-fold-sum dashboard-section-head quant-section-head">
+        <h3 id="yhat-tf-oo-title" class="dashboard-section-title">ŷ_oo</h3>
+        <p class="dashboard-section-desc quant-section-desc">open[T]→open[T+1] · SmoothL1 · Scheme C</p>
+      </summary>
+      <div class="dashboard-card quant-pro-card">
+        <div class="dashboard-card-head quant-pro-card-head quant-card-head--tools quant-card-head--fit">
+          <div class="quant-desk-status-strip quant-card-head-status" data-status-for="oo" aria-live="polite"><span class="quant-pro-status-chip" data-state="idle">待命</span><span class="yhat-tf-status-msg quant-desk-status-msg">状态加载中…</span></div>
+          <div class="quant-fit-params yhat-tf-fit-params" role="group" aria-label="ŷ_oo 拟合参数">
+            <fieldset class="yhat-tf-param-group"><legend>数据</legend><div class="yhat-tf-param-fields">
+              <label class="quant-inline-num"><span>池子</span><input data-param="pool_n" type="number" min="50" max="2000" step="50" value="800" /></label>
+              <label class="quant-inline-num"><span>训练窗</span><input data-param="lookback" type="number" min="100" max="1200" step="10" value="900" /><span aria-hidden="true">日</span></label>
+              <label class="quant-inline-num"><span>Holdout</span><input data-param="holdout_trading_days" type="number" min="5" max="90" step="1" value="60" /><span aria-hidden="true">日</span></label>
+            </div></fieldset>
+            <fieldset class="yhat-tf-param-group"><legend>模型</legend><div class="yhat-tf-param-fields">
+              <label class="quant-inline-num"><span>d_model</span><input data-param="d_model" type="number" min="16" max="128" step="8" value="64" /></label>
+              <label class="quant-inline-num"><span>layers</span><input data-param="nlayers" type="number" min="1" max="6" step="1" value="3" /></label>
+            </div></fieldset>
+            <fieldset class="yhat-tf-param-group"><legend>训练</legend><div class="yhat-tf-param-fields">
+              <label class="quant-inline-num"><span>batch</span><input data-param="batch_size" type="number" min="8" max="256" step="8" value="32" /></label>
+              <label class="quant-inline-num"><span>epochs</span><input data-param="epochs" type="number" min="1" max="40" step="1" value="12" /></label>
+              <label class="quant-inline-num"><span>arms</span><input data-param="arms" type="text" value="0,A,C" /></label>
+            </div></fieldset>
+          </div>
+          <div class="dashboard-card-tools quant-pro-card-tools quant-fit-actions" role="group" aria-label="ŷ_oo 操作">
+            <button type="button" class="dialog-btn primary" data-act="fit">生成拟合命令</button>
+            <button type="button" class="dialog-btn secondary" data-act="save-draft">存草稿</button>
+            <button type="button" class="dialog-btn warn" data-act="promote-research" aria-describedby="yhat-tf-gate-oo" disabled>晋级研究</button>
+            <details class="yhat-tf-more"><summary class="dialog-btn secondary">更多</summary><div class="yhat-tf-more-actions"><button type="button" class="dialog-btn secondary" data-act="clear-draft" disabled>清草稿</button><button type="button" class="dialog-btn secondary" data-act="clear-research" disabled>清研究</button></div></details>
+          </div>
+        </div>
+        <div class="quant-pro-card-body">
+          <div class="yhat-tf-slot-row" data-slots-for="oo" aria-label="槽位"><span data-slot="draft">draft · —</span><span data-slot="research">research · —</span><span data-slot="gate">gate · Arm·O</span></div>
+          <div class="yhat-tf-gate-list" id="yhat-tf-gate-oo" data-gate-for="oo"><span data-gate-item="holdout">Holdout · —</span><span data-gate-item="draft">草稿 · —</span><span data-gate-item="oos">OOS 指标 · 待回传</span></div>
+          <div class="yhat-tf-result-grid" data-result-summary-for="oo">
+            <div><span>最近拟合记录</span><strong data-result-field="last">—</strong></div>
+            <div><span>草稿更新</span><strong data-result-field="draft">—</strong></div>
+            <div><span>研究槽更新</span><strong data-result-field="research">—</strong></div>
+            <div><span>Gate 对照</span><strong data-result-field="gate">Arm·O</strong></div>
+          </div>
+          <div class="yhat-tf-inline-notice" data-notice-for="oo" role="alert" hidden></div>
+          <details class="yhat-tf-tech"><summary>技术详情 · CLI / 原始 JSON</summary><div class="yhat-tf-tech-body"><button type="button" class="dialog-btn secondary" data-copy-cli="oo">复制 CLI</button><pre class="yhat-tf-cli" data-cli-for="oo" hidden></pre><pre class="yhat-tf-pre" data-result-for="oo">状态加载中…</pre></div></details>
+        </div>
+      </div>
+    </details>
+  </section>
+
+  <!-- ŷ_τc -->
+  <section class="dashboard-section quant-section" id="yhat-tf-section-tc" data-head-section="tc" aria-labelledby="yhat-tf-tc-title" hidden>
+    <details class="quant-primary-fold" open data-head-panel="tc">
+      <summary class="quant-primary-fold-sum dashboard-section-head quant-section-head"><h3 id="yhat-tf-tc-title" class="dashboard-section-title">ŷ_τc</h3><p class="dashboard-section-desc quant-section-desc">price[τ]→close[T] · SmoothL1 · Scheme C</p></summary>
+      <div class="dashboard-card quant-pro-card">
+        <div class="dashboard-card-head quant-pro-card-head quant-card-head--tools quant-card-head--fit">
+          <div class="quant-desk-status-strip quant-card-head-status" data-status-for="tc" aria-live="polite"><span class="quant-pro-status-chip" data-state="idle">待命</span><span class="yhat-tf-status-msg quant-desk-status-msg">状态加载中…</span></div>
+          <div class="quant-fit-params yhat-tf-fit-params" role="group" aria-label="ŷ_τc 拟合参数">
+            <fieldset class="yhat-tf-param-group"><legend>数据</legend><div class="yhat-tf-param-fields">
+              <label class="quant-inline-num"><span>池子</span><input data-param="pool_n" type="number" min="50" max="2000" step="50" value="800" /></label><label class="quant-inline-num"><span>训练窗</span><input data-param="lookback" type="number" min="100" max="1200" step="10" value="120" /><span aria-hidden="true">日</span></label><label class="quant-inline-num"><span>Holdout</span><input data-param="holdout_trading_days" type="number" min="5" max="90" step="1" value="20" /><span aria-hidden="true">日</span></label><label class="quant-inline-num"><span>前缀</span><input data-param="tau_end" type="text" value="09:30" /></label>
+            </div></fieldset>
+            <fieldset class="yhat-tf-param-group"><legend>模型</legend><div class="yhat-tf-param-fields"><label class="quant-inline-num"><span>d_model</span><input data-param="d_model" type="number" min="16" max="128" step="8" value="64" /></label><label class="quant-inline-num"><span>layers</span><input data-param="nlayers" type="number" min="1" max="6" step="1" value="3" /></label></div></fieldset>
+            <fieldset class="yhat-tf-param-group"><legend>训练</legend><div class="yhat-tf-param-fields"><label class="quant-inline-num"><span>batch</span><input data-param="batch_size" type="number" min="8" max="256" step="8" value="32" /></label><label class="quant-inline-num"><span>arms</span><input data-param="arms" type="text" value="0,A,C" /></label></div></fieldset>
+          </div>
+          <div class="dashboard-card-tools quant-pro-card-tools quant-fit-actions" role="group" aria-label="ŷ_τc 操作"><button type="button" class="dialog-btn primary" data-act="fit">生成拟合命令</button><button type="button" class="dialog-btn secondary" data-act="save-draft">存草稿</button><button type="button" class="dialog-btn warn" data-act="promote-research" aria-describedby="yhat-tf-gate-tc" disabled>晋级研究</button><details class="yhat-tf-more"><summary class="dialog-btn secondary">更多</summary><div class="yhat-tf-more-actions"><button type="button" class="dialog-btn secondary" data-act="clear-draft" disabled>清草稿</button><button type="button" class="dialog-btn secondary" data-act="clear-research" disabled>清研究</button></div></details></div>
+        </div>
+        <div class="quant-pro-card-body">
+          <div class="yhat-tf-slot-row" data-slots-for="tc" aria-label="槽位"><span data-slot="draft">draft · —</span><span data-slot="research">research · —</span><span data-slot="gate">gate · Arm·O</span></div>
+          <div class="yhat-tf-gate-list" id="yhat-tf-gate-tc" data-gate-for="tc"><span data-gate-item="holdout">Holdout · —</span><span data-gate-item="draft">草稿 · —</span><span data-gate-item="oos">OOS 指标 · 待回传</span></div>
+          <div class="yhat-tf-result-grid" data-result-summary-for="tc"><div><span>最近拟合记录</span><strong data-result-field="last">—</strong></div><div><span>草稿更新</span><strong data-result-field="draft">—</strong></div><div><span>研究槽更新</span><strong data-result-field="research">—</strong></div><div><span>Gate 对照</span><strong data-result-field="gate">Arm·O</strong></div></div>
+          <div class="yhat-tf-inline-notice" data-notice-for="tc" role="alert" hidden></div>
+          <details class="yhat-tf-tech"><summary>技术详情 · CLI / 原始 JSON</summary><div class="yhat-tf-tech-body"><button type="button" class="dialog-btn secondary" data-copy-cli="tc">复制 CLI</button><pre class="yhat-tf-cli" data-cli-for="tc" hidden></pre><pre class="yhat-tf-pre" data-result-for="tc">状态加载中…</pre></div></details>
+        </div>
+      </div>
+    </details>
+  </section>
+
+  <!-- ŷ_oo_rank -->
+  <section class="dashboard-section quant-section" id="yhat-tf-section-oo-rank" data-head-section="oo_rank" aria-labelledby="yhat-tf-oo-rank-title" hidden>
+    <details class="quant-primary-fold" open data-head-panel="oo_rank">
+      <summary class="quant-primary-fold-sum dashboard-section-head quant-section-head"><h3 id="yhat-tf-oo-rank-title" class="dashboard-section-title">ŷ_oo_rank</h3><p class="dashboard-section-desc quant-section-desc">CS rank · ListNet · Gate lift vs Arm·O</p></summary>
+      <div class="dashboard-card quant-pro-card">
+        <div class="dashboard-card-head quant-pro-card-head quant-card-head--tools quant-card-head--fit">
+          <div class="quant-desk-status-strip quant-card-head-status" data-status-for="oo_rank" aria-live="polite"><span class="quant-pro-status-chip" data-state="idle">待命</span><span class="yhat-tf-status-msg quant-desk-status-msg">状态加载中…</span></div>
+          <div class="quant-fit-params yhat-tf-fit-params" role="group" aria-label="ŷ_oo_rank 拟合参数">
+            <fieldset class="yhat-tf-param-group"><legend>数据</legend><div class="yhat-tf-param-fields"><label class="quant-inline-num"><span>池子</span><input data-param="pool_n" type="number" min="50" max="2000" step="50" value="800" /></label><label class="quant-inline-num"><span>训练窗</span><input data-param="lookback" type="number" min="100" max="1200" step="10" value="700" /><span aria-hidden="true">日</span></label><label class="quant-inline-num"><span>Holdout</span><input data-param="holdout_trading_days" type="number" min="5" max="90" step="1" value="20" /><span aria-hidden="true">日</span></label></div></fieldset>
+            <fieldset class="yhat-tf-param-group"><legend>模型</legend><div class="yhat-tf-param-fields"><label class="quant-inline-num"><span>d_model</span><input data-param="d_model" type="number" min="16" max="128" step="8" value="64" /></label><label class="quant-inline-num"><span>layers</span><input data-param="nlayers" type="number" min="1" max="6" step="1" value="3" /></label><label class="quant-inline-num"><span>loss</span><input data-param="loss" type="text" value="listwise" /></label></div></fieldset>
+            <fieldset class="yhat-tf-param-group"><legend>训练</legend><div class="yhat-tf-param-fields"><label class="quant-inline-num"><span>arms</span><input data-param="arms" type="text" value="0,C" /></label></div></fieldset>
+          </div>
+          <div class="dashboard-card-tools quant-pro-card-tools quant-fit-actions" role="group" aria-label="ŷ_oo_rank 操作"><button type="button" class="dialog-btn primary" data-act="fit">生成拟合命令</button><button type="button" class="dialog-btn secondary" data-act="save-draft">存草稿</button><button type="button" class="dialog-btn warn" data-act="promote-research" aria-describedby="yhat-tf-gate-oo-rank" disabled>晋级研究</button><details class="yhat-tf-more"><summary class="dialog-btn secondary">更多</summary><div class="yhat-tf-more-actions"><button type="button" class="dialog-btn secondary" data-act="clear-draft" disabled>清草稿</button><button type="button" class="dialog-btn secondary" data-act="clear-research" disabled>清研究</button></div></details></div>
+        </div>
+        <div class="quant-pro-card-body">
+          <div class="yhat-tf-slot-row" data-slots-for="oo_rank" aria-label="槽位"><span data-slot="draft">draft · —</span><span data-slot="research">research · —</span><span data-slot="gate">gate · Gate lift</span></div>
+          <div class="yhat-tf-gate-list" id="yhat-tf-gate-oo-rank" data-gate-for="oo_rank"><span data-gate-item="holdout">Holdout · —</span><span data-gate-item="draft">草稿 · —</span><span data-gate-item="oos">OOS 指标 · 待回传</span></div>
+          <div class="yhat-tf-result-grid" data-result-summary-for="oo_rank"><div><span>最近拟合记录</span><strong data-result-field="last">—</strong></div><div><span>草稿更新</span><strong data-result-field="draft">—</strong></div><div><span>研究槽更新</span><strong data-result-field="research">—</strong></div><div><span>Gate 对照</span><strong data-result-field="gate">Gate lift</strong></div></div>
+          <div class="yhat-tf-inline-notice" data-notice-for="oo_rank" role="alert" hidden></div>
+          <details class="yhat-tf-tech"><summary>技术详情 · CLI / 原始 JSON</summary><div class="yhat-tf-tech-body"><button type="button" class="dialog-btn secondary" data-copy-cli="oo_rank">复制 CLI</button><pre class="yhat-tf-cli" data-cli-for="oo_rank" hidden></pre><pre class="yhat-tf-pre" data-result-for="oo_rank">状态加载中…</pre></div></details>
+        </div>
+      </div>
+    </details>
+  </section>
+
+  <!-- ŷ_τc_rank -->
+  <section class="dashboard-section quant-section" id="yhat-tf-section-tc-rank" data-head-section="tc_rank" aria-labelledby="yhat-tf-tc-rank-title" hidden>
+    <details class="quant-primary-fold" open data-head-panel="tc_rank">
+      <summary class="quant-primary-fold-sum dashboard-section-head quant-section-head"><h3 id="yhat-tf-tc-rank-title" class="dashboard-section-title">ŷ_τc_rank</h3><p class="dashboard-section-desc quant-section-desc">CS rank · ListNet · Gate lift vs Arm·O</p></summary>
+      <div class="dashboard-card quant-pro-card">
+        <div class="dashboard-card-head quant-pro-card-head quant-card-head--tools quant-card-head--fit">
+          <div class="quant-desk-status-strip quant-card-head-status" data-status-for="tc_rank" aria-live="polite"><span class="quant-pro-status-chip" data-state="idle">待命</span><span class="yhat-tf-status-msg quant-desk-status-msg">状态加载中…</span></div>
+          <div class="quant-fit-params yhat-tf-fit-params" role="group" aria-label="ŷ_τc_rank 拟合参数">
+            <fieldset class="yhat-tf-param-group"><legend>数据</legend><div class="yhat-tf-param-fields"><label class="quant-inline-num"><span>池子</span><input data-param="pool_n" type="number" min="50" max="2000" step="50" value="800" /></label><label class="quant-inline-num"><span>训练窗</span><input data-param="lookback" type="number" min="100" max="1200" step="10" value="120" /><span aria-hidden="true">日</span></label><label class="quant-inline-num"><span>Holdout</span><input data-param="holdout_trading_days" type="number" min="5" max="90" step="1" value="20" /><span aria-hidden="true">日</span></label><label class="quant-inline-num"><span>前缀</span><input data-param="tau_end" type="text" value="09:30" /></label></div></fieldset>
+            <fieldset class="yhat-tf-param-group"><legend>模型</legend><div class="yhat-tf-param-fields"><label class="quant-inline-num"><span>d_model</span><input data-param="d_model" type="number" min="16" max="128" step="8" value="64" /></label><label class="quant-inline-num"><span>loss</span><input data-param="loss" type="text" value="listwise" /></label></div></fieldset>
+            <fieldset class="yhat-tf-param-group"><legend>训练</legend><div class="yhat-tf-param-fields"><label class="quant-inline-num"><span>arms</span><input data-param="arms" type="text" value="0,C" /></label></div></fieldset>
+          </div>
+          <div class="dashboard-card-tools quant-pro-card-tools quant-fit-actions" role="group" aria-label="ŷ_τc_rank 操作"><button type="button" class="dialog-btn primary" data-act="fit">生成拟合命令</button><button type="button" class="dialog-btn secondary" data-act="save-draft">存草稿</button><button type="button" class="dialog-btn warn" data-act="promote-research" aria-describedby="yhat-tf-gate-tc-rank" disabled>晋级研究</button><details class="yhat-tf-more"><summary class="dialog-btn secondary">更多</summary><div class="yhat-tf-more-actions"><button type="button" class="dialog-btn secondary" data-act="clear-draft" disabled>清草稿</button><button type="button" class="dialog-btn secondary" data-act="clear-research" disabled>清研究</button></div></details></div>
+        </div>
+        <div class="quant-pro-card-body">
+          <div class="yhat-tf-slot-row" data-slots-for="tc_rank" aria-label="槽位"><span data-slot="draft">draft · —</span><span data-slot="research">research · —</span><span data-slot="gate">gate · Gate lift</span></div>
+          <div class="yhat-tf-gate-list" id="yhat-tf-gate-tc-rank" data-gate-for="tc_rank"><span data-gate-item="holdout">Holdout · —</span><span data-gate-item="draft">草稿 · —</span><span data-gate-item="oos">OOS 指标 · 待回传</span></div>
+          <div class="yhat-tf-result-grid" data-result-summary-for="tc_rank"><div><span>最近拟合记录</span><strong data-result-field="last">—</strong></div><div><span>草稿更新</span><strong data-result-field="draft">—</strong></div><div><span>研究槽更新</span><strong data-result-field="research">—</strong></div><div><span>Gate 对照</span><strong data-result-field="gate">Gate lift</strong></div></div>
+          <div class="yhat-tf-inline-notice" data-notice-for="tc_rank" role="alert" hidden></div>
+          <details class="yhat-tf-tech"><summary>技术详情 · CLI / 原始 JSON</summary><div class="yhat-tf-tech-body"><button type="button" class="dialog-btn secondary" data-copy-cli="tc_rank">复制 CLI</button><pre class="yhat-tf-cli" data-cli-for="tc_rank" hidden></pre><pre class="yhat-tf-pre" data-result-for="tc_rank">状态加载中…</pre></div></details>
+        </div>
+      </div>
+    </details>
+  </section>
+
+  <div id="yhat-tf-toast" class="yhat-tf-toast" role="status" aria-live="polite" hidden></div>
+</div>

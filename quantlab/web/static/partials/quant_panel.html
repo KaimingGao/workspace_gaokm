@@ -504,17 +504,38 @@
       <summary class="quant-primary-fold-sum dashboard-section-head quant-section-head">
         <h3 id="quant-section-factors-title" class="dashboard-section-title">ŷ_oo</h3>
         <p class="dashboard-section-desc quant-section-desc">open[T]→open[T+1]</p>
+        <div
+          class="quant-suite-switch"
+          data-suite-head="oo"
+        >
+          <div
+            class="quant-suite-toggle"
+            role="tablist"
+            aria-label="ŷ_oo 研究 / 执行视图"
+            data-active="research"
+          >
+            <button type="button" class="quant-suite-btn is-on" data-suite="research" role="tab" aria-selected="true" title="研究套：因子 + Holdout OOS">研究</button>
+            <button type="button" class="quant-suite-btn" data-suite="live" role="tab" aria-selected="false" title="执行套：仅因子（全样本部署）">执行</button>
+          </div>
+        </div>
       </summary>
-    <div class="dashboard-card quant-pro-card">
-      <div class="dashboard-card-head quant-pro-card-head quant-card-head--tools quant-card-head--fit">
+    <div class="dashboard-card quant-pro-card is-suite-research" data-suite-view="research">
+      <div class="dashboard-card-head quant-pro-card-head quant-card-head--tools quant-card-head--fit is-suite-research">
         <div id="quant-ols-summary" class="quant-rem-status quant-card-head-status" aria-live="polite">
           <span class="quant-pro-status-chip" data-state="idle">待命</span>
-          <span class="quant-rem-status-msg">拟合后看 gain · 再启用研究/执行</span>
+          <span class="quant-rem-status-msg">研究 Holdout OOS</span>
+        </div>
+        <div class="quant-suite-fit-pick" data-suite-fit-wrap="oo">
+          <span class="quant-suite-fit-pick-lab">版本</span>
+          <select class="quant-suite-fit-id" data-suite-fit-head="oo" aria-label="模型版本（拟合时间）" title="选择历史拟合版本，再点启用写回当前套">
+            <option value="">—</option>
+          </select>
+          <button type="button" class="dialog-btn quant-suite-fit-enable" data-suite-fit-enable="oo" title="把所选版本写回当前套" disabled>启用</button>
         </div>
         <div class="quant-fit-params" role="group" aria-label="ŷ_oo 拟合参数">
           <label
-            class="quant-inline-num quant-inline-num--sm"
-            title="近 N 个交易日不进本头研究套训练。与观察池分档 Holdout 独立（分档卡另有配置，默认 60）。回测天数用 /replay「窗口」。默认 20（1～60）。"
+            class="quant-inline-num quant-inline-num--sm quant-fit-param--holdout"
+            title="近 N 个交易日不进本头研究套训练（拟合研究用）。拟合执行固定 Holdout=0 全样本重训，因子表指标仍用研究套 OOS。与观察池分档 Holdout 独立。默认 20（1～60）。"
           >
             <span>Holdout</span>
             <input id="quant-holdout-days" type="number" min="1" max="60" step="1" value="20" inputmode="numeric" aria-label="Holdout 交易日数" />
@@ -529,11 +550,11 @@
             <span aria-hidden="true">日</span>
           </label>
         </div>
+        <div class="quant-fit-tools" data-suite-fit-tools="oo">
         <div class="dashboard-card-tools quant-pro-card-tools quant-fit-actions" role="group" aria-label="ŷ_oo 操作">
-          <button type="button" id="quant-return-model-fit" class="dialog-btn primary" title="观察池满池拟合全局 ŷ（训练窗见左侧），保存草稿">拟合</button>
-          <button type="button" id="quant-return-model-persist-research" class="dialog-btn warn" data-persist-role="research" title="草稿 → return_score_model_research.json（Holdout 前训 LightGBM，供历史回测）" disabled>启用研究</button>
-          <button type="button" id="quant-return-model-promote" class="dialog-btn warn" data-persist-role="live" title="研究槽 → return_score_model_active.json（晋级；须先启用研究并回测）" disabled>启用执行</button>
-          <button type="button" id="quant-return-model-status" class="dialog-btn secondary" title="读取研究 / 执行 / 上次拟合">状态</button>
+          <button type="button" id="quant-return-model-fit" class="dialog-btn primary" data-suite-action="research" title="按 Holdout 拟合 → 写入研究槽；因子表展示本次 Holdout OOS">拟合</button>
+          <button type="button" id="quant-return-model-promote" class="dialog-btn warn" data-suite-action="live" data-persist-role="live" title="Holdout=0 全样本重训 → 执行槽；研究套可选（有则因子表仍用其 Holdout OOS）" hidden>拟合</button>
+        </div>
         </div>
       </div>
       <div class="quant-pro-card-body">
@@ -563,12 +584,33 @@
       <summary class="quant-primary-fold-sum dashboard-section-head quant-section-head">
         <h3 id="quant-section-tau-title" class="dashboard-section-title">ŷ_τc</h3>
         <p class="dashboard-section-desc quant-section-desc">price[τ]→close[T]</p>
+        <div
+          class="quant-suite-switch"
+          data-suite-head="tau"
+        >
+          <div
+            class="quant-suite-toggle"
+            role="tablist"
+            aria-label="ŷ_τc 研究 / 执行视图"
+            data-active="research"
+          >
+            <button type="button" class="quant-suite-btn is-on" data-suite="research" role="tab" aria-selected="true" title="研究套：因子 + Holdout OOS">研究</button>
+            <button type="button" class="quant-suite-btn" data-suite="live" role="tab" aria-selected="false" title="执行套：仅因子（全样本部署）">执行</button>
+          </div>
+        </div>
       </summary>
-    <div class="dashboard-card quant-pro-card">
-      <div class="dashboard-card-head quant-pro-card-head quant-card-head--tools quant-card-head--fit">
+    <div class="dashboard-card quant-pro-card is-suite-research" data-suite-view="research">
+      <div class="dashboard-card-head quant-pro-card-head quant-card-head--tools quant-card-head--fit is-suite-research">
         <div id="quant-tau-summary" class="quant-rem-status quant-card-head-status" aria-live="polite">
           <span class="quant-pro-status-chip" data-state="idle">待命</span>
-          <span class="quant-rem-status-msg">拟合后看 gain · 再启用研究/执行</span>
+          <span class="quant-rem-status-msg">研究 Holdout OOS</span>
+        </div>
+        <div class="quant-suite-fit-pick" data-suite-fit-wrap="tau">
+          <span class="quant-suite-fit-pick-lab">版本</span>
+          <select class="quant-suite-fit-id" data-suite-fit-head="tau" aria-label="模型版本（拟合时间）" title="选择历史拟合版本，再点启用写回当前套">
+            <option value="">—</option>
+          </select>
+          <button type="button" class="dialog-btn quant-suite-fit-enable" data-suite-fit-enable="tau" title="把所选版本写回当前套" disabled>启用</button>
         </div>
         <div class="quant-fit-params" role="group" aria-label="ŷ_τc 拟合参数">
           <label
@@ -613,7 +655,7 @@
             <option value="17" label="11:00"></option>
           </datalist>
           <label
-            class="quant-inline-num quant-inline-num--sm"
+            class="quant-inline-num quant-inline-num--sm quant-fit-param--holdout"
             title="近 N 个交易日不进本头研究套训练。默认 20（1～60）。"
           >
             <span>Holdout</span>
@@ -629,11 +671,11 @@
             <span aria-hidden="true">日</span>
           </label>
         </div>
+        <div class="quant-fit-tools" data-suite-fit-tools="tau">
         <div class="dashboard-card-tools quant-pro-card-tools quant-fit-actions" role="group" aria-label="ŷ_τc 操作">
-          <button type="button" id="quant-tau-lgb-run" class="dialog-btn primary" title="观察池拟合 ŷ_τc（特征包 alpha_τc=Z∪raw_atc_*）+ Holdout OOS（前缀 / 训练窗见左侧；09:30=0 前缀 open→close；不写盘；只训 Holdout 前一套）">拟合</button>
-          <button type="button" id="quant-tau-lgb-persist-research" class="dialog-btn warn" data-persist-role="research" title="草稿/报告 → tau_lgb_model_research.json，供历史回测">启用研究</button>
-          <button type="button" id="quant-tau-lgb-persist" class="dialog-btn warn" data-persist-role="live" title="研究槽 → live/tau_lgb_model.json（晋级；须先启用研究）">启用执行</button>
-          <button type="button" id="quant-tau-lgb-status" class="dialog-btn secondary" title="读取研究 / 执行 / 上次拟合">状态</button>
+          <button type="button" id="quant-tau-lgb-run" class="dialog-btn primary" data-suite-action="research" title="按 Holdout 拟合 → 写入研究槽；因子表展示本次 Holdout OOS">拟合</button>
+          <button type="button" id="quant-tau-lgb-persist" class="dialog-btn warn" data-suite-action="live" data-persist-role="live" title="Holdout=0 全样本重训 → 执行槽；研究套可选（有则因子表仍用其 Holdout OOS）" hidden>拟合</button>
+        </div>
         </div>
       </div>
       <div class="quant-pro-card-body">
@@ -649,16 +691,37 @@
       <summary class="quant-primary-fold-sum dashboard-section-head quant-section-head">
         <h3 id="quant-section-oo-rank-title" class="dashboard-section-title">ŷ_oo_rank</h3>
         <p class="dashboard-section-desc quant-section-desc">rank(open[T]->open[T+1])</p>
+        <div
+          class="quant-suite-switch"
+          data-suite-head="oo_rank"
+        >
+          <div
+            class="quant-suite-toggle"
+            role="tablist"
+            aria-label="ŷ_oo_rank 研究 / 执行视图"
+            data-active="research"
+          >
+            <button type="button" class="quant-suite-btn is-on" data-suite="research" role="tab" aria-selected="true" title="研究套：因子 + Holdout Gate lift">研究</button>
+            <button type="button" class="quant-suite-btn" data-suite="live" role="tab" aria-selected="false" title="执行套：仅因子（全样本部署）">执行</button>
+          </div>
+        </div>
       </summary>
-    <div class="dashboard-card quant-pro-card">
-      <div class="dashboard-card-head quant-pro-card-head quant-card-head--tools quant-card-head--fit">
+    <div class="dashboard-card quant-pro-card is-suite-research" data-suite-view="research">
+      <div class="dashboard-card-head quant-pro-card-head quant-card-head--tools quant-card-head--fit is-suite-research">
         <div id="quant-oo-rank-summary" class="quant-rem-status quant-card-head-status" aria-live="polite">
           <span class="quant-pro-status-chip" data-state="idle">待命</span>
-          <span class="quant-rem-status-msg">拟合后看 Gate lift · 再启用研究/执行</span>
+          <span class="quant-rem-status-msg">研究 Gate lift</span>
+        </div>
+        <div class="quant-suite-fit-pick" data-suite-fit-wrap="oo_rank">
+          <span class="quant-suite-fit-pick-lab">版本</span>
+          <select class="quant-suite-fit-id" data-suite-fit-head="oo_rank" aria-label="模型版本（拟合时间）" title="选择历史拟合版本，再点启用写回当前套">
+            <option value="">—</option>
+          </select>
+          <button type="button" class="dialog-btn quant-suite-fit-enable" data-suite-fit-enable="oo_rank" title="把所选版本写回当前套" disabled>启用</button>
         </div>
         <div class="quant-fit-params" role="group" aria-label="ŷ_oo_rank 拟合参数">
           <label
-            class="quant-inline-num quant-inline-num--sm"
+            class="quant-inline-num quant-inline-num--sm quant-fit-param--holdout"
             title="近 N 个交易日不进本头训练。默认 20（1～60）。"
           >
             <span>Holdout</span>
@@ -675,11 +738,11 @@
           </label>
         </div>
 
+        <div class="quant-fit-tools" data-suite-fit-tools="oo_rank">
         <div class="dashboard-card-tools quant-pro-card-tools quant-fit-actions" role="group" aria-label="ŷ_oo_rank 操作">
-          <button type="button" id="quant-oo-rank-run" class="dialog-btn primary" title="观察池拟合 LambdaRank · Holdout OOS（不写盘）">拟合</button>
-          <button type="button" id="quant-oo-rank-persist-research" class="dialog-btn warn" data-persist-role="research" title="Holdout 前训 → oo_rank_model_research.json；成交 oo_rank=1..n；进合成 rank_score（买序/阈值）">启用研究</button>
-          <button type="button" id="quant-oo-rank-persist" class="dialog-btn warn" data-persist-role="live" title="研究槽 → live/oo_rank_model.json（晋级；须先启用研究）">启用执行</button>
-          <button type="button" id="quant-oo-rank-status" class="dialog-btn secondary" title="读取研究 / 执行 / 上次拟合">状态</button>
+          <button type="button" id="quant-oo-rank-run" class="dialog-btn primary" data-suite-action="research" title="按 Holdout 拟合 → 写入研究槽；因子表展示本次 Holdout Gate lift">拟合</button>
+          <button type="button" id="quant-oo-rank-persist" class="dialog-btn warn" data-suite-action="live" data-persist-role="live" title="Holdout=0 全样本重训 → 执行槽；研究套可选（有则因子表仍用其 Holdout OOS）" hidden>拟合</button>
+        </div>
         </div>
       </div>
       <div class="quant-pro-card-body">
@@ -696,12 +759,33 @@
       <summary class="quant-primary-fold-sum dashboard-section-head quant-section-head">
         <h3 id="quant-section-tc-rank-title" class="dashboard-section-title">ŷ_τc_rank</h3>
         <p class="dashboard-section-desc quant-section-desc">rank(price[τ]->close[T])</p>
+        <div
+          class="quant-suite-switch"
+          data-suite-head="tc_rank"
+        >
+          <div
+            class="quant-suite-toggle"
+            role="tablist"
+            aria-label="ŷ_τc_rank 研究 / 执行视图"
+            data-active="research"
+          >
+            <button type="button" class="quant-suite-btn is-on" data-suite="research" role="tab" aria-selected="true" title="研究套：因子 + Holdout Gate lift">研究</button>
+            <button type="button" class="quant-suite-btn" data-suite="live" role="tab" aria-selected="false" title="执行套：仅因子（全样本部署）">执行</button>
+          </div>
+        </div>
       </summary>
-    <div class="dashboard-card quant-pro-card">
-      <div class="dashboard-card-head quant-pro-card-head quant-card-head--tools quant-card-head--fit">
+    <div class="dashboard-card quant-pro-card is-suite-research" data-suite-view="research">
+      <div class="dashboard-card-head quant-pro-card-head quant-card-head--tools quant-card-head--fit is-suite-research">
         <div id="quant-tc-rank-summary" class="quant-rem-status quant-card-head-status" aria-live="polite">
           <span class="quant-pro-status-chip" data-state="idle">待命</span>
-          <span class="quant-rem-status-msg">拟合后看 Gate lift · 再启用研究/执行</span>
+          <span class="quant-rem-status-msg">研究 Gate lift</span>
+        </div>
+        <div class="quant-suite-fit-pick" data-suite-fit-wrap="tc_rank">
+          <span class="quant-suite-fit-pick-lab">版本</span>
+          <select class="quant-suite-fit-id" data-suite-fit-head="tc_rank" aria-label="模型版本（拟合时间）" title="选择历史拟合版本，再点启用写回当前套">
+            <option value="">—</option>
+          </select>
+          <button type="button" class="dialog-btn quant-suite-fit-enable" data-suite-fit-enable="tc_rank" title="把所选版本写回当前套" disabled>启用</button>
         </div>
         <div class="quant-fit-params" role="group" aria-label="ŷ_τc_rank 拟合参数">
           <label
@@ -733,7 +817,7 @@
             </span>
           </label>
           <label
-            class="quant-inline-num quant-inline-num--sm"
+            class="quant-inline-num quant-inline-num--sm quant-fit-param--holdout"
             title="近 N 个交易日不进本头训练。默认 20（1～60）。"
           >
             <span>Holdout</span>
@@ -750,11 +834,11 @@
           </label>
         </div>
 
+        <div class="quant-fit-tools" data-suite-fit-tools="tc_rank">
         <div class="dashboard-card-tools quant-pro-card-tools quant-fit-actions" role="group" aria-label="ŷ_τc_rank 操作">
-          <button type="button" id="quant-tc-rank-run" class="dialog-btn primary" title="观察池拟合 LambdaRank · Holdout OOS（前缀 / 训练窗见左侧；与 ŷ_τc 同组前缀；不写盘）">拟合</button>
-          <button type="button" id="quant-tc-rank-persist-research" class="dialog-btn warn" data-persist-role="research" title="Holdout 前训 → tc_rank_model_research.json；不进 fuse；进合成 rank_score（买序/阈值）">启用研究</button>
-          <button type="button" id="quant-tc-rank-persist" class="dialog-btn warn" data-persist-role="live" title="研究槽 → live/tc_rank_model.json（晋级；须先启用研究；进合成 rank_score（买序/阈值））">启用执行</button>
-          <button type="button" id="quant-tc-rank-status" class="dialog-btn secondary" title="读取研究 / 执行 / 上次拟合">状态</button>
+          <button type="button" id="quant-tc-rank-run" class="dialog-btn primary" data-suite-action="research" title="按 Holdout 拟合 → 写入研究槽；因子表展示本次 Holdout Gate lift">拟合</button>
+          <button type="button" id="quant-tc-rank-persist" class="dialog-btn warn" data-suite-action="live" data-persist-role="live" title="Holdout=0 全样本重训 → 执行槽；研究套可选（有则因子表仍用其 Holdout OOS）" hidden>拟合</button>
+        </div>
         </div>
       </div>
       <div class="quant-pro-card-body">
@@ -829,12 +913,11 @@
           <button type="button" id="quant-t30-ridge-run" class="dialog-btn primary" title="观察池后台双训 ŷ_τ30 LightGBM + Ridge（特征包 alpha_τh）+ Holdout AUC 择优（前缀 / 训练窗见左侧；不写盘；页面轮询进度）">拟合</button>
           <button type="button" id="quant-t30-ridge-persist-research" class="dialog-btn warn" data-persist-role="research" title="按 Holdout AUC 择优写入研究槽 t30_ridge_model_research.json">启用研究</button>
           <button type="button" id="quant-t30-ridge-persist" class="dialog-btn warn" data-persist-role="live" title="研究槽 → live/t30_ridge_model.json（晋级；backend 不变）">启用执行</button>
-          <button type="button" id="quant-t30-ridge-status" class="dialog-btn secondary" title="读取研究 / 执行 / 上次拟合">状态</button>
         </div>
       </div>
       <div class="quant-pro-card-body">
         <div id="quant-t30-result" class="quant-weight-table-wrap" aria-label="ŷ_τ30 拟合摘要"></div>
-        <div id="quant-t30-coef-table" class="quant-weight-table-wrap" aria-label="ŷ_τ30 因子表（Ridge β + LightGBM gain）"></div>
+        <div id="quant-t30-coef-table" class="quant-weight-table-wrap" aria-label="ŷ_τ30 因子表"></div>
       </div>
     </div>
     </details>
@@ -904,12 +987,11 @@
           <button type="button" id="quant-t45-ridge-run" class="dialog-btn primary" title="观察池后台双训 ŷ_τ45 LightGBM + Ridge（特征包 alpha_τh）+ Holdout AUC 择优（前缀 / 训练窗见左侧；不写盘；页面轮询进度）">拟合</button>
           <button type="button" id="quant-t45-ridge-persist-research" class="dialog-btn warn" data-persist-role="research" title="按 Holdout AUC 择优写入研究槽 t45_ridge_model_research.json">启用研究</button>
           <button type="button" id="quant-t45-ridge-persist" class="dialog-btn warn" data-persist-role="live" title="研究槽 → live/t45_ridge_model.json（晋级；backend 不变）">启用执行</button>
-          <button type="button" id="quant-t45-ridge-status" class="dialog-btn secondary" title="读取研究 / 执行 / 上次拟合">状态</button>
         </div>
       </div>
       <div class="quant-pro-card-body">
         <div id="quant-t45-result" class="quant-weight-table-wrap" aria-label="ŷ_τ45 拟合摘要"></div>
-        <div id="quant-t45-coef-table" class="quant-weight-table-wrap" aria-label="ŷ_τ45 因子表（Ridge β + LightGBM gain）"></div>
+        <div id="quant-t45-coef-table" class="quant-weight-table-wrap" aria-label="ŷ_τ45 因子表"></div>
       </div>
     </div>
     </details>
@@ -979,12 +1061,11 @@
           <button type="button" id="quant-t60-ridge-run" class="dialog-btn primary" title="观察池后台双训 ŷ_τ60 LightGBM + Ridge（特征包 alpha_τh）+ Holdout AUC 择优（前缀 / 训练窗见左侧；不写盘；页面轮询进度）">拟合</button>
           <button type="button" id="quant-t60-ridge-persist-research" class="dialog-btn warn" data-persist-role="research" title="按 Holdout AUC 择优写入研究槽 t60_ridge_model_research.json">启用研究</button>
           <button type="button" id="quant-t60-ridge-persist" class="dialog-btn warn" data-persist-role="live" title="研究槽 → live/t60_ridge_model.json（晋级；backend 不变）">启用执行</button>
-          <button type="button" id="quant-t60-ridge-status" class="dialog-btn secondary" title="读取研究 / 执行 / 上次拟合">状态</button>
         </div>
       </div>
       <div class="quant-pro-card-body">
         <div id="quant-t60-result" class="quant-weight-table-wrap" aria-label="ŷ_τ60 拟合摘要"></div>
-        <div id="quant-t60-coef-table" class="quant-weight-table-wrap" aria-label="ŷ_τ60 因子表（Ridge β + LightGBM gain）"></div>
+        <div id="quant-t60-coef-table" class="quant-weight-table-wrap" aria-label="ŷ_τ60 因子表"></div>
       </div>
     </div>
     </details>
@@ -1054,12 +1135,11 @@
           <button type="button" id="quant-t75-ridge-run" class="dialog-btn primary" title="观察池至少 2 只才可跑 ŷ_τ75；后台双训 LightGBM + Ridge（特征包 alpha_τh）+ Holdout AUC 择优（前缀 / 训练窗见左侧；不写盘）">拟合</button>
           <button type="button" id="quant-t75-ridge-persist-research" class="dialog-btn warn" data-persist-role="research" title="按 Holdout AUC 择优写入研究槽 t75_ridge_model_research.json">启用研究</button>
           <button type="button" id="quant-t75-ridge-persist" class="dialog-btn warn" data-persist-role="live" title="研究槽 → live/t75_ridge_model.json（晋级；backend 不变）">启用执行</button>
-          <button type="button" id="quant-t75-ridge-status" class="dialog-btn secondary" title="读取研究 / 执行 / 上次拟合">状态</button>
         </div>
       </div>
       <div class="quant-pro-card-body">
         <div id="quant-t75-result" class="quant-weight-table-wrap" aria-label="ŷ_τ75 拟合摘要"></div>
-        <div id="quant-t75-coef-table" class="quant-weight-table-wrap" aria-label="ŷ_τ75 因子表（Ridge β + LightGBM gain）"></div>
+        <div id="quant-t75-coef-table" class="quant-weight-table-wrap" aria-label="ŷ_τ75 因子表"></div>
       </div>
     </div>
     </details>
@@ -1129,12 +1209,11 @@
           <button type="button" id="quant-t90-ridge-run" class="dialog-btn primary" title="观察池后台双训 ŷ_τ90 LightGBM + Ridge（特征包 alpha_τh）+ Holdout AUC 择优（前缀 / 训练窗见左侧；不写盘；页面轮询进度）">拟合</button>
           <button type="button" id="quant-t90-ridge-persist-research" class="dialog-btn warn" data-persist-role="research" title="按 Holdout AUC 择优写入研究槽 t90_ridge_model_research.json">启用研究</button>
           <button type="button" id="quant-t90-ridge-persist" class="dialog-btn warn" data-persist-role="live" title="研究槽 → live/t90_ridge_model.json（晋级；backend 不变）">启用执行</button>
-          <button type="button" id="quant-t90-ridge-status" class="dialog-btn secondary" title="读取研究 / 执行 / 上次拟合">状态</button>
         </div>
       </div>
       <div class="quant-pro-card-body">
         <div id="quant-t90-result" class="quant-weight-table-wrap" aria-label="ŷ_τ90 拟合摘要"></div>
-        <div id="quant-t90-coef-table" class="quant-weight-table-wrap" aria-label="ŷ_τ90 因子表（Ridge β + LightGBM gain）"></div>
+        <div id="quant-t90-coef-table" class="quant-weight-table-wrap" aria-label="ŷ_τ90 因子表"></div>
       </div>
     </div>
     </details>

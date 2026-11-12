@@ -244,6 +244,7 @@ def quant_return_model_promote(body: ReturnModelPromoteRequest) -> Dict[str, Any
         return deps.quant.promote_return_score_model(
             note=body.note,
             persist_role=body.persist_role,
+            refit_full_sample=bool(getattr(body, "refit_full_sample", False)),
         )
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e)) from e

@@ -263,7 +263,9 @@ def _finalize_lgb_xy(
         if test_dates is not None and len(test_dates) == int(x_raw_te.shape[0]):
             x_te = cs_z_matrix_prefer_cube(x_raw_te, names, test_dates)
         else:
-            x_te = np.where(np.isfinite(x_raw_te), x_raw_te, 0.0)
+            # 测试集缺日期无法做 CS-z：用训练集的总体 μ/σ 做 population z 兜底，保证训推口径一致
+            z_means, z_stds = _population_z_stats(x_raw_tr)
+            x_te = _apply_feature_z(_impute_matrix(x_raw_te, z_means), z_means, z_stds)
         means = np.zeros(int(x_tr.shape[1]), dtype=np.float64)
         stamp_cross_section_zscore(patch)
         return x_tr, x_te, means, patch

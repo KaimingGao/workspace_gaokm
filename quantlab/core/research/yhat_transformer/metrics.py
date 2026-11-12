@@ -123,9 +123,19 @@ def hard_gate_vs_baseline(
     }
 
 
+def gate_lift_vs_baseline(
+    base: Dict[str, Any],
+    cand: Dict[str, Any],
+    **kwargs: Any,
+) -> Dict[str, Any]:
+    """排序头硬闸别名（HeadSpec.gate=gate_lift → CS rank IC lift）。"""
+    return hard_gate_vs_baseline(base, cand, **kwargs)
+
+
 __all__ = [
     "daily_cs_ic_report",
     "pooled_pearson",
     "sign_hit",
     "hard_gate_vs_baseline",
+    "gate_lift_vs_baseline",
 ]

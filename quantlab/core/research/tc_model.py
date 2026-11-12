@@ -644,8 +644,9 @@ def persist_tau_model(
     note: str = "",
     force: bool = False,
     role: str = "live",
+    deploy_full_sample: bool = False,
 ) -> Dict[str, Any]:
-    """启用研究=报告→研究槽；启用执行=研究槽→执行槽（晋级）。"""
+    """拟合研究=报告→研究槽；晋级执行=研究槽→执行槽（或全样本报告直写执行槽）。"""
     from core.research.holdout import (
         MODEL_ROLE_LIVE,
         MODEL_ROLE_RESEARCH,
@@ -664,10 +665,100 @@ def persist_tau_model(
             live_path,
             accept=_usable_tau_lgb_doc,
         )
-        if err:
-            return err
+        has_research = isinstance(research_doc, dict) and not err
         from core.research.tc_lgb import is_tc_lightgbm_blob
 
+        if deploy_full_sample:
+            if not isinstance(report, dict) or not report.get("success"):
+                return {
+                    "success": False,
+                    "error": "全样本晋级须先 Holdout=0 拟合出成功报告",
+                }
+            rm = select_fit_return_model(report)
+            if not is_tc_lightgbm_blob(rm):
+                return {
+                    "success": False,
+                    "error": "全样本报告须为 LightGBM booster 包",
+                }
+            rm = dict(rm)
+            rm["model_role"] = MODEL_ROLE_LIVE
+            if has_research:
+                doc = stamp_live_suite_doc(
+                    research_doc,
+                    note=note
+                    or "tau_lgb full-sample refit → live（研究套 OOS 作门禁溯源）",
+                )
+                if isinstance(research_doc.get("oos"), dict):
+                    doc["oos"] = dict(research_doc["oos"])
+                    doc["gate_oos_source"] = "research"
+                if isinstance(research_doc.get("promote_gate"), dict):
+                    doc["promote_gate"] = dict(research_doc["promote_gate"])
+            else:
+                from core.numbers import now_iso_utc
+
+                doc = {
+                    "success": True,
+                    "fitted_at": report.get("fitted_at") or now_iso_utc(),
+                    "promoted_at": now_iso_utc(),
+                    "note": note
+                    or "tau_lgb full-sample refit → live（未挂研究套）",
+                    "oos": None,
+                    "gate_oos_source": "none",
+                    "promoted_from": "full_sample_refit",
+                }
+                for k in (
+                    "sample_count",
+                    "stock_count",
+                    "schema",
+                    "target",
+                    "tau",
+                    "as_of_tau",
+                    "y_spec",
+                    "promote_gate",
+                    "fit_end",
+                    "eval_start",
+                    "holdout_trading_days",
+                    "cross_section_zscore",
+                ):
+                    if report.get(k) is not None:
+                        doc[k] = report.get(k)
+            doc["role"] = "live"
+            doc["model_role"] = MODEL_ROLE_LIVE
+            doc["return_model"] = dict(rm)
+            doc["deploy_full_sample"] = True
+            doc["promoted_from"] = "full_sample_refit"
+            for k in ("tau", "schema", "y_spec", "as_of_tau", "target"):
+                if report.get(k) is not None:
+                    doc[k] = report.get(k)
+            from core.research.holdout import stamp_full_sample_live_fitted_at
+
+            stamp_full_sample_live_fitted_at(doc, source=report)
+            from core.research.model_versions import refuse_incomplete_suite_doc
+
+            blocked_inc = refuse_incomplete_suite_doc(doc, sink="执行套")
+            if blocked_inc:
+                return blocked_inc
+            os.makedirs(os.path.dirname(live_path), exist_ok=True)
+            atomic_write_json(live_path, doc)
+            _JSON_MODEL_CACHE.pop(live_path, None)
+            out_fs = {
+                "success": True,
+                "path": live_path,
+                "promoted_at": doc.get("promoted_at"),
+                "tau": (doc.get("return_model") or {}).get("tau") or doc.get("tau"),
+                "schema": doc.get("schema"),
+                "promote_gate": doc.get("promote_gate"),
+                "model_role": MODEL_ROLE_LIVE,
+                "promoted_from": "full_sample_refit",
+                "deploy_full_sample": True,
+            }
+            from core.research.model_versions import archive_persist_safe
+
+            archive_persist_safe("tau", MODEL_ROLE_LIVE, out_fs)
+            return out_fs
+
+        if err:
+            return err
         research_rm = (
             research_doc.get("return_model")
             if isinstance(research_doc.get("return_model"), dict)
@@ -683,10 +774,15 @@ def persist_tau_model(
             note=note or "tau_lgb research → live promote",
         )
         doc["role"] = "live"
+        from core.research.model_versions import refuse_incomplete_suite_doc
+
+        blocked_inc = refuse_incomplete_suite_doc(doc, sink="执行套")
+        if blocked_inc:
+            return blocked_inc
         os.makedirs(os.path.dirname(live_path), exist_ok=True)
         atomic_write_json(live_path, doc)
         _JSON_MODEL_CACHE.pop(live_path, None)
-        return {
+        out_live = {
             "success": True,
             "path": live_path,
             "promoted_at": doc.get("promoted_at"),
@@ -696,6 +792,10 @@ def persist_tau_model(
             "model_role": MODEL_ROLE_LIVE,
             "promoted_from": "research",
         }
+        from core.research.model_versions import archive_persist_safe
+
+        archive_persist_safe("tau", MODEL_ROLE_LIVE, out_live)
+        return out_live
 
     if not report.get("success"):
         return {"success": False, "error": report.get("error") or "no report"}
@@ -793,6 +893,11 @@ def persist_tau_model(
     }
     if isinstance(report, dict) and "cross_section_zscore" in report:
         doc["cross_section_zscore"] = bool(report.get("cross_section_zscore"))
+    from core.research.model_versions import refuse_incomplete_suite_doc
+
+    blocked_inc = refuse_incomplete_suite_doc(doc, sink="研究套")
+    if blocked_inc:
+        return blocked_inc
     path = research_model_path(live_path)
     os.makedirs(os.path.dirname(path), exist_ok=True)
     atomic_write_json(path, doc)
@@ -806,6 +911,9 @@ def persist_tau_model(
         "promote_gate": gate,
         "model_role": MODEL_ROLE_RESEARCH,
     }
+    from core.research.model_versions import archive_persist_safe
+
+    archive_persist_safe("tau", MODEL_ROLE_RESEARCH, out)
     return out
 
 
