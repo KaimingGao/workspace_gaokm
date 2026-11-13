@@ -527,7 +527,7 @@ class TestIncrementalPanel(unittest.TestCase):
         behind = full[:-1]
         short = behind[-18:]
         meta = stem_extra_meta(full)
-        stored_fp = make_fingerprint(bars_fp=meta["bars_fp"], horizon=1, ridge_core_only=0)
+        stored_fp = make_fingerprint(bars_fp=meta["bars_fp"], horizon=1, aoo_core_only=0)
         dates = [str(b["date"])[:10] for b in full]
         write_stock_panel(
             FAMILY_OO,
@@ -541,7 +541,7 @@ class TestIncrementalPanel(unittest.TestCase):
         )
 
         def _spec(bars_fp: str) -> str:
-            return make_fingerprint(bars_fp=bars_fp, horizon=1, ridge_core_only=0)
+            return make_fingerprint(bars_fp=bars_fp, horizon=1, aoo_core_only=0)
 
         with patch(
             "core.research.incremental_panel._offline_daily_bars",
@@ -623,7 +623,7 @@ class TestIncrementalPanel(unittest.TestCase):
         store = prefix + list(old) + [newer]
         fit_bars = list(old[-18:]) + [newer]
         meta = stem_extra_meta(old)
-        stored_fp = make_fingerprint(bars_fp=meta["bars_fp"], horizon=1, ridge_core_only=0)
+        stored_fp = make_fingerprint(bars_fp=meta["bars_fp"], horizon=1, aoo_core_only=0)
         dates = [str(b["date"])[:10] for b in old]
         write_stock_panel(
             FAMILY_OO,
@@ -637,7 +637,7 @@ class TestIncrementalPanel(unittest.TestCase):
         )
 
         def _spec(bars_fp: str) -> str:
-            return make_fingerprint(bars_fp=bars_fp, horizon=1, ridge_core_only=0)
+            return make_fingerprint(bars_fp=bars_fp, horizon=1, aoo_core_only=0)
 
         with patch(
             "core.research.incremental_panel._offline_daily_bars",
@@ -725,7 +725,7 @@ class TestIncrementalPanel(unittest.TestCase):
         short = full[-30:]
         meta = stem_extra_meta(full)
         meta.pop("n_bars", None)
-        stored_fp = make_fingerprint(bars_fp=meta["bars_fp"], horizon=1, ridge_core_only=0)
+        stored_fp = make_fingerprint(bars_fp=meta["bars_fp"], horizon=1, aoo_core_only=0)
         dates = [str(b["date"])[:10] for b in full[12:]]
         write_stock_panel(
             FAMILY_OO,
@@ -739,7 +739,7 @@ class TestIncrementalPanel(unittest.TestCase):
         )
 
         def _spec(bars_fp: str) -> str:
-            return make_fingerprint(bars_fp=bars_fp, horizon=1, ridge_core_only=0)
+            return make_fingerprint(bars_fp=bars_fp, horizon=1, aoo_core_only=0)
 
         with patch(
             "core.research.incremental_panel._offline_daily_bars",
@@ -773,7 +773,7 @@ class TestIncrementalPanel(unittest.TestCase):
         fp0 = make_fingerprint(
             bars_fp=bars_fingerprint(bars),
             horizon=horizon,
-            ridge_core_only=0,
+            aoo_core_only=0,
         )
         hit = load_stock_panel(FAMILY_OO, code, fingerprint=fp0)
         self.assertIsNotNone(hit)

@@ -431,7 +431,18 @@ def select_horizon_backend(
     """按 Holdout AUC 选更好的 backend；打平或缺指标 → ``ridge``。
 
     次序：AUC（高更好）→ Brier（低更好）→ 默认 ridge。
+    臂上 ``success is False`` 的不参与。两臂都失败时返回空串。
     """
+    tree_failed = isinstance(oos_tree, dict) and oos_tree.get("success") is False
+    ridge_failed = isinstance(oos_ridge, dict) and oos_ridge.get("success") is False
+    if tree_failed:
+        oos_tree = None
+    if ridge_failed:
+        oos_ridge = None
+    if ridge_failed and oos_tree is None:
+        return ""
+    if tree_failed and oos_ridge is None:
+        return ""
     ta = _oos_metric_float(oos_tree, "auc")
     ra = _oos_metric_float(oos_ridge, "auc")
     if ta is not None and ra is not None:

@@ -12,6 +12,10 @@ from core.research.holdout import (
     current_scoring_model_role,
     model_fit_id,
     normalize_backtest_model_role,
+    normalize_model_role,
+    parse_persist_role,
+    refuse_insufficient_holdout,
+    refuse_ungated_full_sample,
     research_model_path,
     research_sidecar_flags,
     scoring_model_role_context,
@@ -19,6 +23,7 @@ from core.research.holdout import (
     split_by_holdout_days,
     stamp_fitted_at,
     stamp_full_sample_live_fitted_at,
+    stamp_persist_outcome,
 )
 
 
@@ -80,6 +85,48 @@ class TestHoldoutSplit(unittest.TestCase):
         for i in te_cal:
             self.assertGreaterEqual(panel[i], meta_cal["eval_start"])
 
+    def test_short_holdout_does_not_train(self):
+        dates = ["2026-01-01", "2026-01-02", "2026-01-03"]
+        train_idx, test_idx, meta = split_by_holdout_days(dates, holdout_trading_days=20)
+        self.assertEqual(meta["split_mode"], "insufficient")
+        self.assertEqual(train_idx, [])
+        self.assertEqual(test_idx, [])
+        blocked = refuse_insufficient_holdout(meta)
+        self.assertFalse(blocked["success"])
+        self.assertIn("Holdout", blocked["error"])
+
+    def test_holdout_zero_short_sample_still_trains(self):
+        dates = ["2026-01-01", "2026-01-02"]
+        train_idx, test_idx, meta = split_by_holdout_days(dates, holdout_trading_days=0)
+        self.assertEqual(test_idx, [])
+        self.assertEqual(len(train_idx), 2)
+        self.assertIsNone(refuse_insufficient_holdout(meta))
+
+    def test_parse_persist_role_rejects_unknown(self):
+        role, err = parse_persist_role("draft")
+        self.assertIsNone(role)
+        self.assertIn("live", err)
+        role, err = parse_persist_role("")
+        self.assertIsNone(role)
+        self.assertTrue(err)
+        self.assertEqual(parse_persist_role("live")[0], MODEL_ROLE_LIVE)
+        self.assertEqual(parse_persist_role("research")[0], MODEL_ROLE_RESEARCH)
+        self.assertEqual(parse_persist_role("backtest")[0], MODEL_ROLE_RESEARCH)
+        self.assertEqual(normalize_model_role("draft"), MODEL_ROLE_LIVE)
+        self.assertEqual(current_scoring_model_role(), MODEL_ROLE_LIVE)
+
+    def test_stamp_persist_outcome_flips_success(self):
+        report = {"success": True}
+        stamp_persist_outcome(report, {"success": False, "error": "写盘失败"})
+        self.assertFalse(report["success"])
+        self.assertEqual(report["error"], "写盘失败")
+        self.assertFalse(report["persisted"]["success"])
+
+    def test_ungated_full_sample_refused(self):
+        blocked = refuse_ungated_full_sample(False)
+        self.assertFalse(blocked["success"])
+        self.assertIsNone(refuse_ungated_full_sample(True))
+
     def test_resolve_ridge_split_does_not_fall_back_to_time_frac(self):
         from core.research.holdout import resolve_ridge_split
 
@@ -87,7 +134,8 @@ class TestHoldoutSplit(unittest.TestCase):
         train_idx, test_idx, meta = resolve_ridge_split(dates, holdout_trading_days=10)
         self.assertNotEqual(meta.get("split_mode"), "time_frac")
         self.assertNotIn("train_frac", meta)
-        self.assertEqual(len(train_idx), 2)
+        self.assertEqual(meta.get("split_mode"), "insufficient")
+        self.assertEqual(train_idx, [])
         self.assertEqual(test_idx, [])
 
     def test_research_model_path(self):
@@ -145,22 +193,67 @@ class TestHoldoutSplit(unittest.TestCase):
         self.assertTrue(fresh.get("fitted_at"))
 
     def test_stamp_full_sample_live_fitted_at_overrides_research_stamp(self):
-        """全样本写入执行槽不得沿用研究套 fitted_at。"""
+        """全样本写入执行槽必须现铸，不得沿用研究套或草稿 fitted_at。"""
+        research = "2026-11-12T09:04:39Z"
+        draft = "2026-11-12T09:13:59Z"
         live = {
-            "fitted_at": "2026-11-12T09:04:39Z",
+            "fitted_at": research,
             "return_model": {
-                "fitted_at": "2026-11-12T09:04:39Z",
+                "fitted_at": research,
                 "sample_count": 1_500_000,
+            },
+            "backends": {
+                "lambdarank": {
+                    "return_model": {"fitted_at": research, "sample_count": 1},
+                }
             },
             "promoted_from": "full_sample_refit",
         }
-        stamp_full_sample_live_fitted_at(
-            live, source={"fitted_at": "2026-11-12T09:13:59Z"}
-        )
-        self.assertEqual(live["fitted_at"], "2026-11-12T09:13:59Z")
+        stamp_full_sample_live_fitted_at(live, source={"fitted_at": draft})
+        self.assertNotEqual(live["fitted_at"], research)
+        self.assertNotEqual(live["fitted_at"], draft)
+        self.assertEqual(live["return_model"]["fitted_at"], live["fitted_at"])
         self.assertEqual(
-            live["return_model"]["fitted_at"], "2026-11-12T09:13:59Z"
+            live["backends"]["lambdarank"]["return_model"]["fitted_at"],
+            live["fitted_at"],
         )
+
+    def test_stamp_full_sample_mints_when_source_collides_research(self):
+        """即使 source 与研究套同 stamp，也须现铸，否则版本库不增。"""
+        stamp = "2026-11-12T09:59:41Z"
+        live = {
+            "fitted_at": stamp,
+            "return_model": {"fitted_at": stamp, "sample_count": 1_500_000},
+        }
+        stamp_full_sample_live_fitted_at(live, source={"fitted_at": stamp})
+        self.assertNotEqual(live["fitted_at"], stamp)
+        self.assertTrue(live["fitted_at"])
+
+    def test_require_full_sample_report_rejects_nonzero_holdout(self):
+        from core.research.holdout import require_full_sample_report
+
+        bad = require_full_sample_report(
+            {"success": True, "holdout_trading_days": 30}
+        )
+        self.assertIsNotNone(bad)
+        self.assertFalse(bad["success"])
+        ok = require_full_sample_report(
+            {"success": True, "holdout_trading_days": 0}
+        )
+        self.assertIsNone(ok)
+        # ŷ_oo 草稿常无顶层 success，Holdout=0 仍应放行
+        ok_draft = require_full_sample_report(
+            {
+                "role": "draft",
+                "return_model": {"booster": {}},
+                "oos": {"holdout_trading_days": 0},
+            }
+        )
+        self.assertIsNone(ok_draft)
+        rejected = require_full_sample_report(
+            {"success": False, "holdout_trading_days": 0}
+        )
+        self.assertIsNotNone(rejected)
 
     def test_horizon_ridge_persist_keeps_fitted_at(self):
         import json
@@ -412,6 +505,26 @@ class TestTauDeskPrefersHoldout(unittest.TestCase):
         self.assertAlmostEqual(
             float((doc2.get("return_model") or {}).get("intercept") or 0), 0.047
         )
+
+    def test_select_ridge_desk_skips_full_sample_last_over_research(self):
+        """Holdout=0 last（执行全样本）不得盖有 Holdout 的研究槽。"""
+        from quant.services.quant_service_factors import _select_ridge_desk_doc
+
+        research = {
+            "return_model": {"coefficients": {"a": 1.0}},
+            "fitted_at": "2026-11-12T08:00:00Z",
+            "holdout_trading_days": 30,
+            "oos": {"n_test": 30, "holdout_trading_days": 30},
+        }
+        last_fs = {
+            "return_model": {"coefficients": {"a": 0.9}},
+            "fitted_at": "2026-11-12T09:00:00Z",
+            "holdout_trading_days": 0,
+            "oos": {"holdout_trading_days": 0},
+        }
+        doc, use_last = _select_ridge_desk_doc(research, last_fs)
+        self.assertFalse(use_last)
+        self.assertEqual(doc.get("holdout_trading_days"), 30)
 
 if __name__ == "__main__":
     unittest.main()

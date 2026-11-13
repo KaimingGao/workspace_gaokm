@@ -111,6 +111,11 @@ def find_bars_suffix_start(
 
 
 def make_fingerprint(*, bars_fp: str, **kwargs: Any) -> str:
+    # ``ridge_core_only`` remains the on-disk fingerprint field name (L1 lake wire).
+    # Callers should pass ``aoo_core_only=...``; we rewrite to the wire key before hash.
+    if "aoo_core_only" in kwargs and "ridge_core_only" not in kwargs:
+        kwargs = dict(kwargs)
+        kwargs["ridge_core_only"] = kwargs.pop("aoo_core_only")
     parts = [f"schema={PANEL_CACHE_SCHEMA}", f"bars={bars_fp}"]
     for key in sorted(kwargs):
         parts.append(f"{key}={kwargs[key]}")

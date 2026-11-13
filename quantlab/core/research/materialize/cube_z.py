@@ -76,8 +76,8 @@ def _l2_materialize_hint(
     return "日线物化", clocks
 
 
-def _cube_disk_span_note(clock: str) -> str:
-    """本地该钟已有 Cube 的日期跨度（便于区分「没物化」vs「物化窗短于 lookback」）。"""
+def _cube_disk_span(clock: str) -> Tuple[str, ...]:
+    """本地该钟已有 ``.npz`` 的排序日期；无则空元组。"""
     try:
         import os
 
@@ -86,41 +86,63 @@ def _cube_disk_span_note(clock: str) -> str:
 
         uh = universe_hash(universe_codes())
         if not uh:
-            return ""
+            return ()
         root = _disk_paths(uh, clock, "1970-01-01").get("dir") or ""
         if not root or not os.path.isdir(root):
-            return ""
-
-        days = sorted(
-            {
-                name[:10]
-                for name in os.listdir(root)
-                if name.endswith(".npz") and len(name) >= 14
-            }
+            return ()
+        return tuple(
+            sorted(
+                {
+                    name[:10]
+                    for name in os.listdir(root)
+                    if name.endswith(".npz") and len(name) >= 14
+                }
+            )
         )
-        if not days:
-            return ""
-        if len(days) == 1:
-            return f"；本地 {clock} Cube 仅有 {days[0]}（n=1）"
-        return f"；本地 {clock} Cube 仅有 {days[0]}→{days[-1]}（n={len(days)}）"
     except Exception:  # noqa: BLE001
-        logger.debug("cube disk span note failed", exc_info=True)
+        logger.debug("cube disk span failed", exc_info=True)
+        return ()
+
+
+def _cube_disk_span_note(clock: str, *, miss_day: str = "") -> str:
+    """本地该钟已有 Cube 的日期跨度（便于区分「没物化」vs「物化窗短于 lookback」）。"""
+    days = _cube_disk_span(clock)
+    if not days:
         return ""
+    if len(days) == 1:
+        note = f"；本地 {clock} Cube 仅有 {days[0]}（n=1，多半只跑过会话日 open L2）"
+    else:
+        note = f"；本地 {clock} Cube 仅有 {days[0]}→{days[-1]}（n={len(days)}）"
+    md = str(miss_day or "")[:10]
+    if len(md) >= 10 and md < days[0]:
+        note += f"；缺日早于立方起点，请加大日线物化 lookback（或减小 Holdout lookback）"
+    elif len(md) >= 10 and md > days[-1]:
+        note += f"；缺日晚于立方末端，请重跑日线物化补近端"
+    return note
 
 
 def _format_l2_miss_error(meta: Optional[Mapping[str, Any]], *, default_clock: str) -> str:
     base = str((meta or {}).get("error") or "截面立方缺失")
     # cube miss YYYY-MM-DD|HH:MM → 附本地已有跨度
     clk = str((meta or {}).get("clock") or "").strip()
-    if not clk and "cube miss" in base and "|" in base:
-        clk = base.rsplit("|", 1)[-1].strip()
+    miss_day = ""
+    if "cube miss" in base and "|" in base:
+        # "cube miss 2022-09-22|open"
+        token = base.split("cube miss", 1)[-1].strip()
+        day_part, _, clk_part = token.partition("|")
+        miss_day = day_part.strip()[:10]
+        if not clk:
+            clk = clk_part.strip()
     if not clk:
         clk = str(default_clock or "open")
-    note = _cube_disk_span_note(clk)
-    if note and "→" in note:
-        open_clk = str(clk).lower() in ("", "open", "09:30", "0930")
-        which = "日线物化" if open_clk else "分钟线物化"
-        note += f"；请先跑{which}覆盖该窗（或加大 lookback），并确认宇宙键一致"
+    note = _cube_disk_span_note(clk, miss_day=miss_day)
+    open_clk = str(clk).lower() in ("", "open", "09:30", "0930")
+    which = "日线物化" if open_clk else "分钟线物化"
+    if note:
+        if "请加大" not in note and "请重跑" not in note:
+            note += f"；请先跑{which}覆盖该窗（lookback≥Holdout），并确认宇宙键一致"
+    else:
+        note = f"；本地无 {clk} Cube，请先跑{which}"
     return "请先物化 L2：" + base + note
 
 

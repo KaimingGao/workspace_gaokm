@@ -57,6 +57,27 @@ def _patch_paths(td: str):
 
 
 class TestReturnScoreStore(unittest.TestCase):
+    def test_full_sample_without_research_does_not_write_live(self):
+        blob = _lgb_blob(sample_count=40, mark=0.2, names=("momentum", "value"))
+        with tempfile.TemporaryDirectory() as td:
+            p_draft, p_active, p_research, p_rep, p_live, _draft, active, _research = (
+                _patch_paths(td)
+            )
+            with p_draft, p_active, p_research, p_rep, p_live:
+                saved = store.save_return_model_draft(
+                    blob, oos={"holdout_trading_days": 0}
+                )
+                self.assertTrue(saved["success"], saved)
+                blocked = store.promote_return_model_draft(
+                    note="full", role="live", refit_full_sample=True
+                )
+                self.assertFalse(blocked.get("success"), blocked)
+                self.assertIn("研究套", str(blocked.get("error") or ""))
+                self.assertFalse(os.path.isfile(active))
+                unknown = store.promote_return_model_draft(note="x", role="draft")
+                self.assertFalse(unknown.get("success"), unknown)
+                self.assertIn("persist_role", str(unknown.get("error") or ""))
+
     def test_draft_promote_roundtrip(self):
         blob = _lgb_blob(sample_count=40, mark=0.1, names=("momentum", "value"))
         with tempfile.TemporaryDirectory() as td:

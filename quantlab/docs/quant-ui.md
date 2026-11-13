@@ -60,6 +60,7 @@ AI 只解读，**不得改写** `score` / `stance_label`。
 | `/replay` **历史回测** | 历史回测 | rank_lots 指标、净值柱、分票贡献、成交账 |
 | `/strategy` **策略中心** | 先验旁路 | M prior（上）· Regime 只读（下）· 因子字典 |
 | `/quant` **研究枢纽** | 因子 · 运维 · 日报 | 侧栏主入口；不自动写生产配置 |
+| `/yhat-tf` **模型中心** | 四头 Transformer Holdout | 研究轨 only；不写 live |
 | `/platform` **平台** | 调度 · 日更 | 纸面日更调度 · last-run / 告警 |
 | AI 抽屉（⌘K） | 解读 · 问答 · 命令 · LLM 模型 | 顶栏「AI 助手」；模型名在抽屉「设置」；Esc / ⌘K / 点遮罩关闭；**全屏 `/chat` 302 → `/watching`** |
 
@@ -528,6 +529,7 @@ OMS 级盘口布局仍禁止。
 **研究枢纽主区**
 
 - **概览五卡**：观察池（`data-kpi=watching`）· 分钟 Ready · ŷ_oo · ŷ_τ · 落地；观察池上限默认 300、最大 1600（写入 `watching.json`）；旁路单按钮「重建并对齐」（严筛研究宇宙并裁观察池 ⊆ 研究宇宙；进行中浅色禁用，完成后恢复主色；概览旁路无状态条——分档卡 `#quant-ru-strip` 另论）
+- **四头选卡**：概览 `.quant-desk-head-grid`（oo / τc / oo_rank / τc_rank）展示研究·执行槽摘要；默认四头全开，点卡进单头聚焦，再点当前卡回到全开；**各头内 `研究|执行` 双 panel 保留**（`.quant-suite-switch`）；数据轨（分档 / 日线 / 分钟）与 τ30…90 不进选卡隐藏；概览不挂 path rail / 视图说明条（交易执行仍经页头 path / 侧栏）
 - **观察池分档**：Holdout 前 60 日四头猜涨 lift（排序头 oo_rank / τc_rank = 内存 LambdaRank；收益头 **oo / τc = 落盘 LightGBM**）；工具栏 Holdout 默认 **60**（与各头拟合 Holdout 默认 **20** 独立）；A/B 默认 100/300；定档不覆盖研究套；卡头显示上次更新时间
 - **落地条**：对照/启用 · 关闭/回滚/导出/刷新簿/建议重估；探针
 - **各头卡**：Holdout 1～60（默认 20）；日截面 Z 恒开（无勾选；训练窗全局 μ/σ 已下线）；ŷ_oo / ŷ_τc / ŷ_τ30…90 / ŷ_oo_rank / ŷ_τc_rank
@@ -535,6 +537,19 @@ OMS 级盘口布局仍禁止。
 - **ŷ_τc_rank**：同协议（样式对齐 ŷ_τc）；**前缀滑条与 ŷ_τc 同组同步**（默认 09:30）；拟合固定全池；不进 fuse；进合成 rank_score；因子表 KPI 同 ŷ_oo_rank（Gate lift 主）
 - **ŷ_τ30…90**：`P(窗收益>0)` 双 backend；Holdout AUC 择优
 - **滚动验证**（`#quant-section-roll-gate`）：Walk-forward 相对分闸 · **A 档** lookback 500 · holdout 10×3 · ŷ>0.5% ∧ `rank_score>0.5` · 按分最多 **top_n=10** 等权 · oo/τc 两臂；不写模型；蓝主按钮 + 上次执行时间；Job `roll-gate`
+
+### `/yhat-tf` 模型中心
+
+| | 约定 |
+|--|------|
+| **唯一任务** | 四头 ŷ Transformer Holdout 研究台（oo / τc / oo_rank / τc_rank） |
+| **主区** | KPI · 头卡网格 · 单头/全开；每头「拟合」后台 Holdout → 回写 last metrics |
+| **信息窗** | 仅本次拟合（启动时清旧 log / job / metrics）；进行中不展示旧 OOS；失败态 `holdout_failed` 仍展示本轮日志；参数提示落在信息窗 |
+| **Toast** | 顶栏居中宽条；warn/error 更久；点击关闭 |
+| **任务收尾** | ingest 同步 job done/error；父进程 `waitpid` 收割；`run_web.sh stop` 中断中的 Holdout 并落盘，防假「拟合中」；空 metrics 不算成功 |
+| **参数** | 未在跑时表单优先 draft；τc 长窗与 Holdout 不改数、不告警；arms 仅 L/T；Arm·L 固定全量，因子 core/full 只作用于 Arm·T |
+| **内存 / 稳定** | d_model 须整除 nhead；子进程单线程；Arm·L float32 + 按 F 子采样；Arm·T numpy batch；异常回写 `holdout_failed` |
+| **禁止** | live / active / 生产 score；无 promote-live |
 
 ### `/platform` 平台
 
@@ -609,6 +624,7 @@ OMS 级盘口布局仍禁止。
 |----|----------|
 | `/paper` | 假账初始化 / 高级配置（日常用模拟） |
 | `/quant` | 研究枢纽（落地向导·探针·全局对照/日报） |
+| `/yhat-tf` | 模型中心（⌘⇧K；四头 Transformer Holdout；信息窗仅本次拟合） |
 | 平台面板 | 审计 · 调度（LLM 在 AI 抽屉） |
 
 ---

@@ -300,7 +300,7 @@ def _run_materialize(
         tau_clocks = [c for c in clks if str(c).lower() not in ("open", "09:30", "0930")]
         if not tau_clocks:
             tau_clocks = suggested_tau_clocks()
-        # 与分钟 L2 同窗：禁止 lookback=1000 写一长段无立方可消费的 tc_HHMM
+        # 与分钟 L2 同窗：禁止用日线长 lookback 写一长段无立方可消费的 tc_HHMM
         tau_lb = resolve_l2_lookback(int(lookback or 0), minute=True)
         out["l1_tau_grid"] = materialize_l1_tau_grid(
             code_list,

@@ -23,7 +23,7 @@ class TestBarsStatus(unittest.TestCase):
         from core.data.policy import BARS_DAILY_LOOKBACK, DAILY_BARS_MAX_KEEP
         from quant.research.bars_status import bars_daily_fetch_limit
 
-        self.assertEqual(BARS_DAILY_LOOKBACK, 1000)
+        self.assertEqual(BARS_DAILY_LOOKBACK, 1060)
         fetch = bars_daily_fetch_limit(BARS_DAILY_LOOKBACK)
         self.assertEqual(fetch, BARS_DAILY_LOOKBACK + 62)
         self.assertGreaterEqual(DAILY_BARS_MAX_KEEP, fetch)

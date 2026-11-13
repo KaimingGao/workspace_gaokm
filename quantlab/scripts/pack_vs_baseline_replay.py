@@ -45,8 +45,8 @@ from core.research.tc_model import TAU_FIT_DROP_ALIASES, TAU_Z_FEATURES
 from core.research_universe import resolve_research_codes
 from core.signal.factors.alpha_oo import (
     ALPHA_OO_MIN_BARS,
-    alpha_oo_ridge_raw_names,
-    apply_aoo_core_ridge_policy,
+    alpha_oo_core_raw_names,
+    apply_aoo_core_policy,
     is_alpha_oo_raw_key,
 )
 from core.signal.factors.alpha_tc import (
@@ -124,7 +124,7 @@ def _assemble_oo_with_codes(
             [],
             [],
         )
-    x, y, names, dates = _stack_blocks(parts, ridge_core_only=False)
+    x, y, names, dates = _stack_blocks(parts, aoo_core_only=False)
     if len(codes_flat) != len(dates):
         raise RuntimeError(
             f"oo code/date mismatch {len(codes_flat)} vs {len(dates)}"
@@ -136,11 +136,11 @@ def _oo_feat_names(all_names: Sequence[str], *, mode: str) -> List[str]:
     z = [n for n in all_names if is_z_oo_key(str(n))]
     aoo = [n for n in all_names if is_alpha_oo_raw_key(str(n))]
     have = set(all_names)
-    core = [n for n in alpha_oo_ridge_raw_names() if n in have]
+    core = [n for n in alpha_oo_core_raw_names() if n in have]
     if mode == "prod":
         return list(z) + [n for n in aoo if n not in set(z)]
     if mode == "aoo_core_prod":
-        return apply_aoo_core_ridge_policy(list(z) + list(core))
+        return apply_aoo_core_policy(list(z) + list(core))
     raise ValueError(mode)
 
 

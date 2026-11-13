@@ -232,7 +232,7 @@ preset（`advisor` / `quant` / `quant_paper` / `full`）、cron / launchd、报�
 ```text
 【层 1 · ŷ_oo】历史日线（X 到 T−1 收；T 开可进 quote）→ `z_oo_*`∪**`raw_aoo_*` 全量**（~206）→ y_oo / predicted_score；面板仍写裸名
          → 预测 open[T+1]/open[T]−1（现网 h=1）→ **入池地板 + 主字段**；收盘后 eod_next 排序
-         → aoo_core=GAP+YK+LAG 仅作消融对照（``ridge_core_only=True``）
+         → aoo_core=GAP+YK+LAG 仅作消融对照（``aoo_core_only=True``）
 
 【层 2 · ŷ_τc】alpha_τc := z_τc_*（开盘 + ≤τ 分钟 Z）∪ alpha_tc（raw_atc_*）→ y_τc
          → 预测 close[T]/price(τ)−1 → 调仓 y_oo_fuse 的 τc 项
@@ -490,7 +490,7 @@ score_stock(code) 续——
 | | |
 |--|--|
 | 训练宇宙 | 截面 z 与损失 / Holdout **均整观察池**（训练档 UI/API 已下线）。落盘 `train_universe=pool`（`zscore_universe` 恒 `pool`）。观察池分档只管交易可买集，不进本头损失宇宙。拟合 `watching_limit` 默认满池（`MODEL_FIT_MAX_SIZE`；UI 走 `readWatchingLimit()`） |
-| 训练窗 | 允许 **100～1000** 交易日；默认 **700** |
+| 训练窗 | 允许 **100～1060** 交易日；默认 **700** |
 | Holdout | 卡头 **1～60** 交易日，默认 **20**；拟合按该值切分 |
 | 训练 | `POST /api/quant/oo-rank` 拟合写 last report（单头 LambdaRank）；标签为日截面 **稠密名次** ``0..n-1``；鲁棒默认：truncation=100、截面 z 裁 ±3、min_leaf=50、num_leaves=16、L2=5（API/UI 同默认）；人审「启用研究 / 启用执行」写入槽（须有 booster；旧 Ridge 顶层戳若同窗已有 LambdaRank 包，重新启用即可改写，不重训；无包则拒晋级），不重训 |
 | 回测 / live | 加载已启用模型（无 backend 开关），打相对分再编名次写入 `y_oo_rank`；成交明细 **oo_rank** 列。过门槛后买序按 `oo_rank_score`。`oo_tc_score_min` 开则未过强档另须 oo_rank / τc_rank 相对分均 ≥ 阈值（不是 y_oo / y_τc）；fuse 过强档改看 `oo_tc_score_strong_min`。排序头截面 z **只吃全池 L2**（不进批现算；缺 Cube 跳过写分）。分档打开时名次只写允许档。旧落盘 `train_universe` / `zscore_universe=tier_a` 只审计 |
@@ -508,7 +508,7 @@ score_stock(code) 续——
 |--|--|
 | 前缀 | 与 ŷ_τc **同组滑条**（`tau_end_hm` 09:30…11:00，默认 **09:30**）；`resolve_tau_train_prefix` 同口径；晚钟服务仍走 `refresh_tau_heads_after_prefix` |
 | 训练宇宙 | 与 ŷ_oo_rank 同：截面 z 与损失均整池；`watching_limit` 同满池默认 |
-| 训练窗 | 默认 **700**（100～1000） |
+| 训练窗 | 默认 **700**（100～1060） |
 | Holdout | 与 ŷ_oo_rank 同：卡头 **1～60**，默认 **20**，按交易日切分（多钟同日同侧） |
 | 训练 | `POST /api/quant/tc-rank` 拟合写 last report；「启用研究 / 启用执行」只落盘，不重训 |
 | 回测 / live | 按所选模型槽严格加载；缺槽不挂分。成交明细旁路名次；参与 rank 阈值（相对分）。宇宙语义与 ŷ_oo_rank 相同 |

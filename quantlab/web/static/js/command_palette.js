@@ -12,7 +12,7 @@ const COMMANDS = [
     label: "前往 · 模型中心",
     hint: "/yhat-tf",
     href: "/yhat-tf",
-    keywords: "模型中心 隐藏 yhat transformer oo τc tau rank fusion scheme c l4 拟合 看板 管理",
+    keywords: "模型中心 隐藏 yhat transformer oo τc tau rank arm-l arm-t 双支路晚融合 lightgbm scheme lt l4 拟合 看板 管理",
   },
   {
     id: "ai-open",

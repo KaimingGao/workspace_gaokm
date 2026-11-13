@@ -13,11 +13,11 @@ from core.signal.factors.alpha_oo import (
     Z_OO_DROP_WHEN_AOO_CORE,
     _gap_fields,
     _yk_fields,
-    alpha_oo_ridge_raw_names,
-    apply_aoo_core_ridge_policy,
-    expand_ridge_feature_names,
+    alpha_oo_core_raw_names,
+    apply_aoo_core_policy,
+    expand_oo_feature_names,
     is_alpha_oo_raw_key,
-    is_alpha_oo_ridge_raw_key,
+    is_alpha_oo_core_raw_key,
     raw_aoo_from_bars,
     score_alpha_oo,
 )
@@ -57,7 +57,7 @@ def test_alpha_oo_field_count():
     assert "OVSUMN5" in ALPHA_OO_FIELD_NAMES
     assert "OVSUMD5" in ALPHA_OO_FIELD_NAMES
     assert len(ALPHA_OO_CORE_FIELD_NAMES) == 49
-    assert len(alpha_oo_ridge_raw_names()) == 49
+    assert len(alpha_oo_core_raw_names()) == 49
     assert "OROC5" not in ALPHA_OO_CORE_FIELD_NAMES
     assert "OO_LAG1" in ALPHA_OO_CORE_FIELD_NAMES
     assert "MOM3_C" in ALPHA_OO_CORE_FIELD_NAMES
@@ -73,11 +73,11 @@ def test_alpha_oo_key_fields_listed():
     assert "YRANGE_PCT" in ALPHA_OO_FIELD_NAMES
     assert "MOM3_C" in ALPHA_OO_FIELD_NAMES
 
-def test_aoo_core_ridge_policy():
+def test_aoo_core_policy():
     from core.signal.factors.alpha_oo import drop_aoo_overlap_z_oo
 
-    assert is_alpha_oo_ridge_raw_key(f"{ALPHA_OO_RAW_PREFIX}GAP")
-    assert not is_alpha_oo_ridge_raw_key(f"{ALPHA_OO_RAW_PREFIX}OROC5")
+    assert is_alpha_oo_core_raw_key(f"{ALPHA_OO_RAW_PREFIX}GAP")
+    assert not is_alpha_oo_core_raw_key(f"{ALPHA_OO_RAW_PREFIX}OROC5")
     assert frozenset(
         {"momentum", "gap_risk", "overheat"}
     ) == Z_OO_DROP_WHEN_AOO_CORE
@@ -90,7 +90,7 @@ def test_aoo_core_ridge_policy():
         f"{ALPHA_OO_RAW_PREFIX}OROC5",
         f"{ALPHA_OO_RAW_PREFIX}YKMID",
     ]
-    out = apply_aoo_core_ridge_policy(names)
+    out = apply_aoo_core_policy(names)
     assert "z_oo_momentum" not in out
     assert "z_oo_gap_risk" not in out
     assert "z_oo_overheat" not in out
@@ -105,7 +105,7 @@ def test_aoo_core_ridge_policy():
     assert f"{ALPHA_OO_RAW_PREFIX}OROC5" in kept
     assert "z_oo_value" in kept
 
-def test_expand_ridge_feature_names_defaults_to_full_union():
+def test_expand_oo_feature_names_defaults_to_full_union():
     xs = [
         {
             "momentum": 55.0,
@@ -115,7 +115,7 @@ def test_expand_ridge_feature_names_defaults_to_full_union():
             f"{ALPHA_OO_RAW_PREFIX}YKMID": 0.03,
         }
     ]
-    names = expand_ridge_feature_names(xs)
+    names = expand_oo_feature_names(xs)
     assert f"{ALPHA_OO_RAW_PREFIX}GAP" in names
     assert f"{ALPHA_OO_RAW_PREFIX}YKMID" in names
     assert f"{ALPHA_OO_RAW_PREFIX}OROC5" in names
@@ -123,7 +123,7 @@ def test_expand_ridge_feature_names_defaults_to_full_union():
     assert "z_oo_momentum" not in names
     assert "z_oo_gap_risk" not in names
     assert "z_oo_value" in names
-    core = expand_ridge_feature_names(xs, ridge_core_only=True)
+    core = expand_oo_feature_names(xs, aoo_core_only=True)
     assert f"{ALPHA_OO_RAW_PREFIX}OROC5" not in core
     assert "z_oo_momentum" not in core
     assert f"{ALPHA_OO_RAW_PREFIX}GAP" in core

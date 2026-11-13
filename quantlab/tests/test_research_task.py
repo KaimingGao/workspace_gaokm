@@ -93,6 +93,23 @@ class TestResearchTask(unittest.TestCase):
         self.assertFalse(windows["ok"])
         self.assertEqual(windows["error"], "oos_used_live_model")
 
+    def test_dispatch_rejects_force_promote(self):
+        class _Svc:
+            def run_tau_lgb_experiment(self, **kwargs):
+                return {"success": True, "got": kwargs}
+
+        from core.research.task import _HEADS
+
+        _HEADS["tc_lgb"] = "run_tau_lgb_experiment"
+        out = dispatch_research_task(
+            _Svc(),
+            "tc_lgb",
+            persist_role="research",
+            force_promote=True,
+        )
+        self.assertFalse(out["success"])
+        self.assertIn("force_promote", out["error"])
+
     def test_dispatch_unknown_head(self):
         out = dispatch_research_task(object(), "not_a_head")
         self.assertFalse(out["success"])

@@ -11,6 +11,7 @@ import {
   l0DoneHead,
   l0CoverageFacts,
   isJobHeartbeatStale,
+  JOB_RESTART_INTERRUPT_ERR,
 } from "./cluster_job_ui.js";
 import {
   BARS_WATCHING_LIMIT,
@@ -692,24 +693,25 @@ export function installMinuteUi(q) {
     lastStatusJob = job.status && job.status !== "idle" ? job : lastStatusJob;
     const st = job.status;
     if (st === "running") {
-      clearJobPanels();
-      if (!inflight) {
-        setMinuteButtonsDisabled(true);
-        inflight = (async () => {
-          try {
-            const result = await waitMinuteJob(job.id);
-            clearJobPanels();
-            applyJobSuccess({ ...job, result_summary: result?.minute_warmup, result });
-            setMinuteBusy(false);
-            await refreshStatus();
-          } catch (err) {
-            applyJobFailure(err, lastPolledJob);
-          } finally {
-            setMinuteButtonsDisabled(false);
-            inflight = null;
-          }
-        })();
-      }
+      // 已在轮询时勿 clear：refreshStatus 回放会把进度蓝条打没
+      if (inflight) return job;
+      setMinuteButtonsDisabled(true);
+      setMinuteBusy(true);
+      paintProgressPanel(job, { pollStartedAt: Date.now() });
+      inflight = (async () => {
+        try {
+          const result = await waitMinuteJob(job.id, activeMode, job);
+          clearJobPanels();
+          applyJobSuccess({ ...job, result_summary: result?.minute_warmup, result });
+          setMinuteBusy(false);
+          await refreshStatus();
+        } catch (err) {
+          applyJobFailure(err, lastPolledJob);
+        } finally {
+          setMinuteButtonsDisabled(false);
+          inflight = null;
+        }
+      })();
       return job;
     }
     if (st === "failed") {
@@ -723,7 +725,7 @@ export function installMinuteUi(q) {
     return job;
   }
 
-  async function waitMinuteJob(jobId, mode = "full") {
+  async function waitMinuteJob(jobId, mode = "full", seedJob = null) {
     const started = Date.now();
     // 软上限：心跳仍新鲜则继续挂着，避免健康的长任务被标成 WAIT。
     // 心跳停了且已过软上限 → 提示刷新接管（勿 FAIL）。硬上限 8h。
@@ -733,7 +735,15 @@ export function installMinuteUi(q) {
     let sawOwnJob = false;
     let pollN = 0;
     const waitLabel = mode === "topup" ? "增量补齐（L0）" : "强更 5m（L0）";
-    paintProgressPanel({ message: `提交${waitLabel}…（排队后台 Job）`, pct: 0 }, { pollStartedAt: started, mode });
+    if (seedJob && seedJob.status === "running") {
+      paintProgressPanel(seedJob, { pollStartedAt: started, mode });
+      if (jobId && seedJob.id === jobId) sawOwnJob = true;
+    } else {
+      paintProgressPanel(
+        { message: `提交${waitLabel}…（排队后台 Job）`, pct: 0 },
+        { pollStartedAt: started, mode }
+      );
+    }
     while (Date.now() - started < hardCapMs) {
       let ok = false;
       let data = null;
@@ -776,8 +786,10 @@ export function installMinuteUi(q) {
       if (st === "failed") {
         throw new Error(job.error || job.message || `${waitLabel}失败`);
       }
-      if (st === "idle" && sawOwnJob) {
-        throw new Error("5m 任务已结束但未返回结果");
+      if (st === "idle" && (sawOwnJob || jobId)) {
+        // 分钟槽重启/死属主会清成 idle（非 failed）。
+        // 须认 jobId：POST 后首轮 poll 前就被清掉时 sawOwnJob 仍为 false。
+        throw new Error(JOB_RESTART_INTERRUPT_ERR);
       }
       const view = l0RunningHead(job, { pollStartedAt: started });
       setProStatusChip(chip, "busy", view.chip);

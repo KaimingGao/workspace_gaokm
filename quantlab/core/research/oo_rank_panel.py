@@ -182,14 +182,18 @@ def _load_oo_panel_for_rank(
     bars: Sequence[dict],
     horizon_days: int,
 ):
-    """按 ŷ_oo 的指纹读 L1 ``oo/``。``ridge_core_only=0`` 与默认 assemble 一致。"""
+    """按 ŷ_oo 的指纹读 L1 ``oo/``。
+
+    传 ``aoo_core_only=0``；``make_fingerprint`` 仍序列化为线字段 ``ridge_core_only=0``，
+    与默认 assemble / 湖一致。
+    """
     from core.research.lake_bridge import FAMILY_OO, load_training_matrix
     from core.research.panel_fingerprint import bars_fingerprint, make_fingerprint
 
     oo_fp = make_fingerprint(
         bars_fp=bars_fingerprint(bars),
         horizon=int(horizon_days),
-        ridge_core_only=0,
+        aoo_core_only=0,
     )
     return load_training_matrix(FAMILY_OO, code, oo_fp)
 
@@ -393,7 +397,7 @@ def _oo_rank_stock_job(
                 return make_fingerprint(
                     bars_fp=bars_fp,
                     horizon=horizon_i,
-                    ridge_core_only=0,
+                    aoo_core_only=0,
                 )
 
             sliced = try_slice_shorter_lookback(

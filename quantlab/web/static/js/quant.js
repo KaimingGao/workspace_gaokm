@@ -24,7 +24,7 @@ import {
   watchingNameFromEl,
   applyWatchingNameEl,
 } from "./quant/names.js";
-import { createResearchParams } from "./quant/params.js";
+import { createResearchParams, watchingPoolLimitReady } from "./quant/params.js";
 const _V = (typeof window !== "undefined" && window.__ASSET_V__) || "dev";
 const { createFactorMetaCache } = await import(
   `./quant/factor_meta.js?v=${encodeURIComponent(_V)}`
@@ -111,9 +111,6 @@ const { createFactorIcUi } = await import(
  * A4: 禁止再往根文件堆域逻辑；新能力进 quant/domain_* 或子模块，按页懒加载。
  */
 export function initQuant(ctx) {
-  void import(`./quant/fit_tier_ui.js?v=${encodeURIComponent(_QV)}`).then((m) =>
-    m.ensureFitTierMap()
-  );
   const researchParams = createResearchParams();
   const {
     clampHorizonDays,
@@ -179,11 +176,9 @@ export function initQuant(ctx) {
     quantWatchingMeta: document.getElementById("quant-watching-meta"),
     quantWatchingList: document.getElementById("quant-watching-list"),
     quantFactorList: document.getElementById("quant-factor-list"),
-    quantOlsHealth: document.getElementById("quant-ols-health"),
     quantWeightSuggest: document.getElementById("quant-weight-suggest"),
     quantWeightTable: document.getElementById("quant-weight-table"),
     quantOlsSummary: document.getElementById("quant-ols-summary"),
-    quantOlsClusters: document.getElementById("quant-ols-clusters"),
     quantPortfolioSummary: document.getElementById("quant-portfolio-summary"),
     quantBtProgress: document.getElementById("quant-bt-progress"),
     quantBtProgressText: document.getElementById("quant-bt-progress-text"),
@@ -309,6 +304,11 @@ export function initQuant(ctx) {
     oo_rank: { research: null, live: null },
     tc_rank: { research: null, live: null },
   };
+  /** 按头隔离 busy：oo_rank / tc_rank 互不掐对方计时；须早于 bindSuiteToggles */
+  const _rankFitBusyByHead = {
+    oo_rank: { timer: null, gen: 0, inflight: false, btnId: "quant-oo-rank-run" },
+    tc_rank: { timer: null, gen: 0, inflight: false, btnId: "quant-tc-rank-run" },
+  };
   const SUITE_HEAD_UI = {
     oo: {
       fitId: "quant-return-model-fit",
@@ -400,22 +400,31 @@ export function initQuant(ctx) {
     }
     if (extra.persistOk && extra.persistRole === "research") {
       stamp.researchOn = true;
+      // 落盘后优先新 fitted_at，勿被旧 stamp.researchAt 钉死
       stamp.researchAt =
-        stamp.researchAt ||
+        data.research_fitted_at ||
+        (data.persisted && data.persisted.fitted_at) ||
         data.fitted_at ||
+        data.research_promoted_at ||
         data.promoted_at ||
         (data.persisted && data.persisted.promoted_at) ||
+        stamp.researchAt ||
         null;
     }
     if (extra.persistOk && extra.persistRole === "live") {
       stamp.liveOn = true;
+      // 落盘后优先新 fitted_at，勿被旧 stamp.liveAt 钉死
       stamp.liveAt =
-        stamp.liveAt ||
+        data.live_fitted_at ||
+        (data.persisted && data.persisted.fitted_at) ||
         data.fitted_at ||
+        data.live_promoted_at ||
         data.promoted_at ||
         (data.persisted && data.persisted.promoted_at) ||
+        stamp.liveAt ||
         null;
     }
+    if (typeof syncDeskHeadMatrix === "function") syncDeskHeadMatrix();
   }
 
   const _suiteVersionsByHead = {
@@ -433,6 +442,12 @@ export function initQuant(ctx) {
   };
   let _suiteFitSelectBusy = false;
   let _suitePreviewSeq = 0;
+  const _suiteFitSelectSeqByHead = {
+    oo: 0,
+    tau: 0,
+    oo_rank: 0,
+    tc_rank: 0,
+  };
 
   function fmtVerLab(it) {
     if (!it) return "—";
@@ -552,11 +567,18 @@ export function initQuant(ctx) {
         const on = id === pick;
         const cur = id === currentId;
         const blocked = cur || !canDeleteAny;
-        const delTitle = cur
-          ? "当前槽版本不可删"
-          : !canDeleteAny
-            ? "至少保留一个版本"
-            : `删除版本 ${lab}`;
+        const trail = cur
+          ? `<span class="quant-suite-fit-dd-on" title="当前槽已启用" aria-label="当前槽已启用">●</span>`
+          : (() => {
+              const delTitle = !canDeleteAny
+                ? "至少保留一个版本"
+                : `删除版本 ${lab}`;
+              return `<button type="button" class="quant-suite-fit-dd-del" data-id="${escapeHtml(
+                id
+              )}" title="${escapeHtml(delTitle)}" aria-label="${escapeHtml(
+                delTitle
+              )}"${blocked ? " disabled" : ""}>×</button>`;
+            })();
         rows.push(
           `<li class="quant-suite-fit-dd-item${on ? " is-on" : ""}${
             cur ? " is-current" : ""
@@ -564,11 +586,7 @@ export function initQuant(ctx) {
             on ? "true" : "false"
           }"><span class="quant-suite-fit-dd-lab">${escapeHtml(
             lab
-          )}</span><button type="button" class="quant-suite-fit-dd-del" data-id="${escapeHtml(
-            id
-          )}" title="${escapeHtml(delTitle)}" aria-label="${escapeHtml(
-            delTitle
-          )}"${blocked ? " disabled" : ""}>×</button></li>`
+          )}</span>${trail}</li>`
         );
       });
     }
@@ -583,41 +601,23 @@ export function initQuant(ctx) {
     btn.classList.toggle("is-empty", !items.length);
   }
 
-  function syncSuiteFitId(head) {
-    void refreshSuiteFitSelect(head);
+  function syncSuiteFitId(head, opts = {}) {
+    void refreshSuiteFitSelect(head, opts);
   }
 
-  async function refreshSuiteFitSelect(head) {
-    const el = document.querySelector(
-      `.quant-suite-fit-id[data-suite-fit-head="${head}"]`
-    );
+  function paintSuiteFitSelectPack(head, el, v, pack, { keepPrev = true } = {}) {
     if (!el || el.tagName !== "SELECT") return;
-    ensureSuiteFitDropdown(el);
-    const v = normalizeSuiteView(_suiteViewByHead[head] || "research");
     const stamp = _suiteStampByHead[head] || {};
     const iso = v === "live" ? stamp.liveAt : stamp.researchAt;
     const on = v === "live" ? !!stamp.liveOn : !!stamp.researchOn;
     const role = v === "live" ? "执行" : "研究";
-    let pack = (_suiteVersionsByHead[head] || {})[v];
-    try {
-      const res = await fetch(
-        `/api/quant/model-versions?head=${encodeURIComponent(head)}&role=${encodeURIComponent(v)}`
-      );
-      const data = await res.json().catch(() => null);
-      if (res.ok && data && data.success) {
-        pack = data;
-        if (_suiteVersionsByHead[head]) _suiteVersionsByHead[head][v] = data;
-      }
-    } catch (_) {
-      /* keep cache */
-    }
     const items = (pack && Array.isArray(pack.items) ? pack.items : []) || [];
     const currentId =
       (pack && pack.current_id) ||
       (items.find((it) => it && it.fitted_at && iso && it.fitted_at === iso) || {})
         .id ||
       "";
-    const prev = el.value;
+    const prev = keepPrev ? el.value : "";
     const opts = [];
     const emptyLabel = iso ? fmtRemTs(iso) : on ? "已写盘" : "暂无版本";
     if (!items.length) {
@@ -642,17 +642,23 @@ export function initQuant(ctx) {
       [...el.options].some((o) => o.value === String(preview.versionId))
         ? String(preview.versionId)
         : "";
-    const pick =
-      previewVid ||
-      (prev && [...el.options].some((o) => o.value === prev) ? prev : "") ||
-      (currentId && [...el.options].some((o) => o.value === currentId)
+    // keepPrev=false（刚拟合/落盘）：钉 current_id，预览不得盖住新时间
+    // 日常刷新：预览中仍由 previewVid 保住所选
+    const currentMatch =
+      currentId && [...el.options].some((o) => o.value === currentId)
         ? currentId
-        : "") ||
-      (el.options[0] ? el.options[0].value : "");
+        : "";
+    const prevMatch =
+      prev && [...el.options].some((o) => o.value === prev) ? prev : "";
+    const first = el.options[0] ? el.options[0].value : "";
+    const pick = !keepPrev
+      ? currentMatch || first
+      : previewVid || currentMatch || prevMatch || first;
     el.value = pick;
     el.disabled = !items.length && !on;
     el.setAttribute("data-empty", items.length || iso || on ? "0" : "1");
     el.dataset.currentId = currentId || "";
+    el.dataset.suiteRole = v;
     const wrap = el.closest(".quant-suite-fit-pick");
     if (wrap) wrap.setAttribute("data-empty", el.getAttribute("data-empty"));
     const slotInc =
@@ -671,6 +677,46 @@ export function initQuant(ctx) {
       pick,
       currentId,
       emptyLabel,
+    });
+  }
+
+  async function refreshSuiteFitSelect(head, opts = {}) {
+    const el = document.querySelector(
+      `.quant-suite-fit-id[data-suite-fit-head="${head}"]`
+    );
+    if (!el || el.tagName !== "SELECT") return;
+    ensureSuiteFitDropdown(el);
+    const v = normalizeSuiteView(_suiteViewByHead[head] || "research");
+    const roleChanged = !!(el.dataset.suiteRole && el.dataset.suiteRole !== v);
+    const forceCurrent = opts.keepPrev === false;
+    const keepPrev = forceCurrent ? false : !roleChanged;
+    const cached = (_suiteVersionsByHead[head] || {})[v] || null;
+    // 切套立刻换成目标套缓存（或空），避免仍显示另一套版本列表
+    paintSuiteFitSelectPack(head, el, v, cached, { keepPrev });
+    const seq = (_suiteFitSelectSeqByHead[head] =
+      (_suiteFitSelectSeqByHead[head] || 0) + 1);
+    let pack = cached;
+    let fetched = null;
+    try {
+      const res = await fetch(
+        `/api/quant/model-versions?head=${encodeURIComponent(head)}&role=${encodeURIComponent(v)}`
+      );
+      const data = await res.json().catch(() => null);
+      if (res.ok && data && data.success) {
+        pack = data;
+        fetched = data;
+      }
+    } catch (_) {
+      /* keep cache */
+    }
+    if (seq !== _suiteFitSelectSeqByHead[head]) return;
+    if (normalizeSuiteView(_suiteViewByHead[head] || "research") !== v) return;
+    // 仅最新请求写缓存，避免慢响应把拟合后的新版本列表盖回旧快照
+    if (fetched && _suiteVersionsByHead[head]) {
+      _suiteVersionsByHead[head][v] = fetched;
+    }
+    paintSuiteFitSelectPack(head, el, v, pack, {
+      keepPrev: forceCurrent ? false : el.dataset.suiteRole === v,
     });
   }
 
@@ -698,6 +744,11 @@ export function initQuant(ctx) {
       ddBtn.classList.toggle("is-preview-ver", !!(vid && !isEnabled));
     }
     if (!btn) return;
+    // 研究套启用 ↔ 研究拟合(primary)；执行套启用 ↔ 执行拟合(warn)
+    const liveOn =
+      normalizeSuiteView(_suiteViewByHead[head] || "research") === "live";
+    btn.classList.toggle("primary", !liveOn);
+    btn.classList.toggle("warn", liveOn);
     const can = !!vid && vid !== cur && !_suiteFitSelectBusy;
     btn.disabled = !can;
     btn.title = !vid
@@ -999,12 +1050,15 @@ export function initQuant(ctx) {
       return;
     }
     if (head === "oo_rank" || head === "tc_rank") {
+      // 拟合进行中勿用 GET hydrate 冲掉「拟合中」卡头
+      if (anyRankFitBusy()) return;
       const path =
         head === "tc_rank"
           ? "/api/quant/tc-rank/model"
           : "/api/quant/oo-rank/model";
       const res = await fetch(path);
       const data = await res.json().catch(() => ({}));
+      if (anyRankFitBusy()) return;
       const sumId =
         head === "tc_rank" ? "quant-tc-rank-summary" : "quant-oo-rank-summary";
       const sum = document.getElementById(sumId);
@@ -1111,13 +1165,21 @@ export function initQuant(ctx) {
     if (ui) {
       const fitBtn = document.getElementById(ui.fitId);
       const promoBtn = document.getElementById(ui.promoteId);
+      // oo_rank / tc_rank 共享忙锁：任一在跑则两头拟合/写入都禁，避免叠读日线
+      const rankBusy =
+        head === "oo_rank" || head === "tc_rank" ? anyRankFitBusy() : false;
       if (fitBtn) {
         const showFit = !liveOn;
         fitBtn.hidden = !showFit;
+        // 拟合进行中勿因切套重新启用（防双点叠跑）
+        fitBtn.disabled = !showFit || rankBusy;
+        fitBtn.tabIndex = showFit && !rankBusy ? 0 : -1;
         fitBtn.setAttribute("aria-hidden", showFit ? "false" : "true");
       }
       if (promoBtn) {
         promoBtn.hidden = !liveOn;
+        promoBtn.disabled = !liveOn || rankBusy;
+        promoBtn.tabIndex = liveOn && !rankBusy ? 0 : -1;
         promoBtn.setAttribute("aria-hidden", liveOn ? "false" : "true");
       }
       const statusEl = document.getElementById(ui.headStatusId);
@@ -1125,19 +1187,24 @@ export function initQuant(ctx) {
       if (cardHead) {
         cardHead.classList.toggle("is-suite-live", liveOn);
         cardHead.classList.toggle("is-suite-research", !liveOn);
+        // 执行套 CSS display:none 收起 Holdout；同步禁用以免仍可 Tab 聚焦
+        cardHead.querySelectorAll(".quant-fit-param--holdout input").forEach((inp) => {
+          inp.disabled = liveOn;
+          inp.setAttribute("aria-hidden", liveOn ? "true" : "false");
+        });
       }
     }
     syncSuiteFitEnableBtn(head);
   }
 
-  function syncSuiteChrome(head) {
+  function syncSuiteChrome(head, opts = {}) {
     syncSuiteChromeShell(head);
-    syncSuiteFitId(head);
+    syncSuiteFitId(head, opts);
   }
 
-  function syncSuiteToggleUi(head, view) {
+  function syncSuiteToggleUi(head, view, opts = {}) {
     _suiteViewByHead[head] = normalizeSuiteView(view);
-    syncSuiteChrome(head);
+    syncSuiteChrome(head, opts);
   }
 
   function cacheHeadSuitePacks(head, data) {
@@ -1230,35 +1297,45 @@ export function initQuant(ctx) {
         };
       }
     }
-    // 拟合研究刚返回：顶层 return_model+oos 即研究套
+    // 拟合研究刚返回：顶层 return_model+oos 即研究套。
+    // Holdout=0（全样本/执行拟合）不得灌进研究包，否则因子表 Holdout 变 0 日。
     if (
       !slot.research &&
       (data.return_model || data.model) &&
       data.oos &&
       typeof data.oos === "object"
     ) {
-      const topRm = data.return_model || data.model || null;
-      slot.research = {
-        return_model: topRm,
-        oos: data.oos,
-        fitted_at: data.fitted_at || null,
-        backend: data.backend || (topRm && topRm.backend),
-        backends: data.backends || null,
-        feature_importance: data.feature_importance || null,
-        y_spec:
-          (data.y_spec && typeof data.y_spec === "object" ? data.y_spec : null) ||
-          (topRm && topRm.y_spec && typeof topRm.y_spec === "object"
-            ? topRm.y_spec
-            : null),
-        n_train_days: data.n_train_days != null ? data.n_train_days : null,
-        n_test_days: data.n_test_days != null ? data.n_test_days : null,
-        holdout_trading_days:
-          data.holdout_trading_days != null ? data.holdout_trading_days : null,
-        tau_end_hm: data.tau_end_hm != null ? data.tau_end_hm : null,
-      };
+      const holdTop =
+        data.holdout_trading_days != null
+          ? Number(data.holdout_trading_days)
+          : data.oos && data.oos.holdout_trading_days != null
+            ? Number(data.oos.holdout_trading_days)
+            : null;
+      if (holdTop == null || !Number.isFinite(holdTop) || holdTop > 0) {
+        const topRm = data.return_model || data.model || null;
+        slot.research = {
+          return_model: topRm,
+          oos: data.oos,
+          fitted_at: data.fitted_at || null,
+          backend: data.backend || (topRm && topRm.backend),
+          backends: data.backends || null,
+          feature_importance: data.feature_importance || null,
+          y_spec:
+            (data.y_spec && typeof data.y_spec === "object" ? data.y_spec : null) ||
+            (topRm && topRm.y_spec && typeof topRm.y_spec === "object"
+              ? topRm.y_spec
+              : null),
+          n_train_days: data.n_train_days != null ? data.n_train_days : null,
+          n_test_days: data.n_test_days != null ? data.n_test_days : null,
+          holdout_trading_days:
+            data.holdout_trading_days != null ? data.holdout_trading_days : null,
+          tau_end_hm: data.tau_end_hm != null ? data.tau_end_hm : null,
+        };
+      }
     }
     rememberSuiteStamps(head, data);
-    syncSuiteChrome(head);
+    // 只刷壳层，勿无 keepPrev 默认刷新把刚拟合的 keepPrev:false 请求挤掉
+    syncSuiteChromeShell(head);
   }
 
   function syncBacktestRoleFromSuite(view) {
@@ -1279,12 +1356,17 @@ export function initQuant(ctx) {
     }
   }
 
-  function setHeadSuiteView(head, view, { paint = true, syncBacktest = true } = {}) {
+  function setHeadSuiteView(
+    head,
+    view,
+    { paint = true, syncBacktest = true, keepPrev } = {}
+  ) {
     if (!_suiteViewByHead[head]) return;
     const v = normalizeSuiteView(view);
     // 切研究|执行时丢掉另一侧预览，避免串套
     clearSuiteFitPreview(head);
-    syncSuiteToggleUi(head, v);
+    const chromeOpts = keepPrev === false ? { keepPrev: false } : {};
+    syncSuiteToggleUi(head, v, chromeOpts);
     restoreSuiteStatus(head);
     if (syncBacktest) syncBacktestRoleFromSuite(v);
     if (paint) void paintHeadSuiteCoef(head);
@@ -1299,7 +1381,8 @@ export function initQuant(ctx) {
     if (!el) return;
     const v = normalizeSuiteView(view);
     _suiteViewByHead[head] = v;
-    syncSuiteChrome(head);
+    // 状态刷卡头时勿拉版本列表，避免切套下拉闪一下
+    syncSuiteChromeShell(head);
     const statusOpts = {
       state: opts.state || (opts.busy ? "busy" : "idle"),
       chip: opts.chip || (opts.busy ? "拟合中" : "待命"),
@@ -1349,7 +1432,26 @@ export function initQuant(ctx) {
         : (_suitePackByHead[head] && _suitePackByHead[head][view]) || null;
     const showOos = view === "research";
     const rm = pack && pack.return_model ? pack.return_model : null;
-    let oos = showOos && pack && pack.oos ? pack.oos : {};
+    let oos = showOos && pack && pack.oos ? { ...pack.oos } : {};
+    // 研究套：pack 顶层 Holdout/训测日并入 oos，供因子表 KPI（ŷ_oo / ŷ_τc 与 rank 同口径）
+    if (showOos && pack && typeof pack === "object" && oos && typeof oos === "object") {
+      if (oos.holdout_trading_days == null && pack.holdout_trading_days != null) {
+        oos.holdout_trading_days = pack.holdout_trading_days;
+      }
+      // attach_holdout_meta 写 n_train_days；因子表读 n_train
+      if (oos.n_train == null && oos.n_train_days != null) {
+        oos.n_train = oos.n_train_days;
+      }
+      if (oos.n_test == null && oos.n_test_days != null) {
+        oos.n_test = oos.n_test_days;
+      }
+      if (oos.n_train == null && pack.n_train_days != null) {
+        oos.n_train = pack.n_train_days;
+      }
+      if (oos.n_test == null && pack.n_test_days != null) {
+        oos.n_test = pack.n_test_days;
+      }
+    }
     // rank：盘上 oos 常挂在 oos.oo_rank / oos.tc_rank；因子表 KPI 读扁平字段
     if (
       showOos &&
@@ -1430,6 +1532,155 @@ export function initQuant(ctx) {
     });
   }
   bindSuiteToggles();
+
+  /** 概览四头矩阵 + 单头聚焦（对齐模型中心；研究|执行双套仍在各头卡内） */
+  const DESK_HEADS = ["oo", "tau", "oo_rank", "tc_rank"];
+  const DESK_HEAD_GATE = {
+    oo: "研究|执行 · Holdout IC",
+    tau: "研究|执行 · Holdout IC",
+    oo_rank: "研究|执行 · Gate lift",
+    tc_rank: "研究|执行 · Gate lift",
+  };
+  let _deskActiveHead = "oo";
+  let _deskViewMode = "all";
+
+  function deskSectionOf(head) {
+    return document.querySelector(`[data-head-section="${head}"]`);
+  }
+
+  function deskPanelOf(head) {
+    return document.querySelector(`[data-head-panel="${head}"]`);
+  }
+
+  function fmtDeskSlotTs(iso) {
+    const s = fmtRemTs(iso);
+    if (!s) return "有";
+    return s.length >= 16 ? s.slice(5, 16) : s;
+  }
+
+  function applyDeskHeadView({ scroll = false } = {}) {
+    DESK_HEADS.forEach((head) => {
+      const section = deskSectionOf(head);
+      const selected = head === _deskActiveHead;
+      if (section) section.hidden = _deskViewMode === "single" && !selected;
+      if (selected) {
+        const panel = deskPanelOf(head);
+        if (panel) panel.open = true;
+      }
+      const card = document.querySelector(
+        `.quant-desk-head-card[data-head-select="${head}"]`
+      );
+      if (card) {
+        const focused = _deskViewMode === "single" && selected;
+        card.classList.toggle("is-active", focused);
+        card.setAttribute("aria-pressed", String(focused));
+        card.title = focused ? "再点一次展开全部四头" : "聚焦此头";
+      }
+    });
+    if (_deskViewMode === "all") {
+      DESK_HEADS.forEach((head) => {
+        const panel = deskPanelOf(head);
+        if (panel) panel.open = true;
+      });
+    }
+    if (scroll) {
+      const behavior = window.matchMedia("(prefers-reduced-motion: reduce)")
+        .matches
+        ? "auto"
+        : "smooth";
+      deskSectionOf(_deskActiveHead)?.scrollIntoView({
+        block: "start",
+        behavior,
+      });
+    }
+  }
+
+  function selectDeskHead(head, { scroll = true } = {}) {
+    if (!DESK_HEADS.includes(head)) return;
+    // 单头下再点当前卡 → 回到四头全开
+    if (_deskViewMode === "single" && head === _deskActiveHead) {
+      _deskViewMode = "all";
+      applyDeskHeadView({ scroll: false });
+      return;
+    }
+    _deskActiveHead = head;
+    _deskViewMode = "single";
+    applyDeskHeadView({ scroll });
+  }
+
+  function syncDeskHeadMatrix() {
+    DESK_HEADS.forEach((head) => {
+      const stamp = _suiteStampByHead[head] || {};
+      const resOn = !!stamp.researchOn;
+      const liveOn = !!stamp.liveOn;
+      let state = "idle";
+      let label = "待命";
+      if (resOn && liveOn) {
+        state = "ok";
+        label = "双套";
+      } else if (resOn) {
+        state = "warn";
+        label = "研究";
+      } else if (liveOn) {
+        state = "warn";
+        label = "执行";
+      }
+      const chip = document.querySelector(
+        `[data-head-summary-status="${head}"]`
+      );
+      if (chip) {
+        chip.dataset.state = state;
+        chip.textContent = label;
+      }
+      const slots = document.querySelector(
+        `[data-head-summary-slots="${head}"]`
+      );
+      if (slots) {
+        const resBit = resOn ? fmtDeskSlotTs(stamp.researchAt) : "无";
+        const liveBit = liveOn ? fmtDeskSlotTs(stamp.liveAt) : "无";
+        slots.textContent = `研究 ${resBit} · 执行 ${liveBit}`;
+      }
+      const gate = document.querySelector(
+        `[data-head-summary-gate="${head}"]`
+      );
+      if (gate) gate.textContent = DESK_HEAD_GATE[head] || "研究|执行";
+    });
+  }
+
+  function bindDeskHeadMatrix() {
+    const grid = document.querySelector(".quant-desk-head-grid");
+    if (!grid || grid.dataset.deskBound === "1") return;
+    grid.dataset.deskBound = "1";
+    grid.querySelectorAll("[data-head-select]").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        const head = btn.getAttribute("data-head-select");
+        selectDeskHead(head, { scroll: true });
+      });
+    });
+    // 页内锚点进四头时同步选中态（不强制单头，避免深链藏其它头）
+    document
+      .querySelectorAll(
+        'a[href="#quant-section-factors"],a[href="#quant-section-tau"],a[href="#quant-section-oo-rank"],a[href="#quant-section-tc-rank"]'
+      )
+      .forEach((a) => {
+        a.addEventListener("click", () => {
+          const href = a.getAttribute("href") || "";
+          const map = {
+            "#quant-section-factors": "oo",
+            "#quant-section-tau": "tau",
+            "#quant-section-oo-rank": "oo_rank",
+            "#quant-section-tc-rank": "tc_rank",
+          };
+          const head = map[href];
+          if (!head) return;
+          _deskActiveHead = head;
+          applyDeskHeadView({ scroll: false });
+        });
+      });
+    applyDeskHeadView({ scroll: false });
+    syncDeskHeadMatrix();
+  }
+  bindDeskHeadMatrix();
 
   async function renderOoCoefTable(rm, opts = {}) {
     const host = document.getElementById("quant-oo-coef-table");
@@ -1627,6 +1878,7 @@ export function initQuant(ctx) {
   q.cacheHeadSuitePacks = cacheHeadSuitePacks;
   q.setHeadSuiteView = setHeadSuiteView;
   q.paintHeadSuiteCoef = paintHeadSuiteCoef;
+  q.refreshSuiteFitSelect = refreshSuiteFitSelect;
   q.normalizeSuiteView = normalizeSuiteView;
   q.syncBacktestRoleFromSuite = syncBacktestRoleFromSuite;
 
@@ -1797,8 +2049,11 @@ export function initQuant(ctx) {
     let suiteHead = extra.suiteHead || suiteHeadFromStatusEl(el);
     let suiteView = extra.suiteView || null;
     if (suiteHead) {
-      // 研究拟合 / 拟合执行：状态只写入对应套，并钉住视图，避免串到另一侧
-      if (extra.justFitted || extra.persistRole === "research") {
+      // 显式 suiteView 优先：执行全样本重训带 suiteView=live，不被 justFitted 串到研究
+      if (extra.suiteView) {
+        suiteView = normalizeSuiteView(extra.suiteView);
+        _suiteViewByHead[suiteHead] = suiteView;
+      } else if (extra.justFitted || extra.persistRole === "research") {
         suiteView = "research";
         _suiteViewByHead[suiteHead] = "research";
       } else if (extra.persistRole === "live") {
@@ -1882,7 +2137,23 @@ export function initQuant(ctx) {
         researchAt,
         liveAt,
       });
-      syncSuiteChrome(suiteHead);
+      // 拟合/启用成功：清该套版本缓存并选中 current_id（同套 keepPrev 会钉旧时间）
+      if (extra.persistOk || extra.justFitted) {
+        const role =
+          extra.persistOk && extra.persistRole === "live"
+            ? "live"
+            : extra.persistOk && extra.persistRole === "research"
+              ? "research"
+              : normalizeSuiteView(
+                  extra.suiteView || _suiteViewByHead[suiteHead] || "research"
+                );
+        if (_suiteVersionsByHead[suiteHead]) {
+          _suiteVersionsByHead[suiteHead][role] = null;
+        }
+        syncSuiteChrome(suiteHead, { keepPrev: false });
+      } else {
+        syncSuiteChrome(suiteHead);
+      }
     }
     const statusOpts = {
       state: extra.state || painted.state,
@@ -2041,10 +2312,6 @@ export function initQuant(ctx) {
     const be =
       data.backends && typeof data.backends === "object" ? data.backends : {};
     const lrBe = be.lambdarank && typeof be.lambdarank === "object" ? be.lambdarank : null;
-    const lr =
-      (lrBe && lrBe.return_model_research) ||
-      (lrBe && lrBe.return_model) ||
-      null;
     const attachYSpec = (model) => {
       if (!model || typeof model !== "object") return model;
       if (model.y_spec && typeof model.y_spec === "object") return model;
@@ -2053,29 +2320,36 @@ export function initQuant(ctx) {
       }
       return model;
     };
-    if (lr && typeof lr === "object" && (lr.booster_b64 || lr.coefficients)) {
-      const model = attachYSpec({ ...lr });
-      model.backend = "lambdarank";
-      model.solver = model.solver || "lambdarank";
-      return { model };
-    }
-    const candidates = [
-      data.return_model_research,
+    const usable = (rm) =>
+      !!(rm && typeof rm === "object" && (rm.booster_b64 || rm.coefficients));
+    // 槽顶层 return_model 优先；backends 仅当 fitted_at 对齐才用，避免研究 booster 盖住执行套新时间
+    const wantFit =
+      (data.return_model && data.return_model.fitted_at) ||
+      data.live_fitted_at ||
+      data.fitted_at ||
+      null;
+    const pool = [
       data.return_model,
+      lrBe && lrBe.return_model,
+      lrBe && lrBe.return_model_research,
+      data.return_model_research,
       data.coefficients && typeof data.coefficients === "object" ? data : null,
-    ].filter((x) => x && typeof x === "object");
-    const lambdaTop = candidates.find(
-      (rm) => !_ooRankLooksRidge(rm) && (rm.booster_b64 || rm.coefficients)
-    );
-    if (lambdaTop) {
-      const model = attachYSpec({ ...lambdaTop });
-      model.backend = "lambdarank";
-      model.solver = model.solver || "lambdarank";
+    ].filter(usable);
+    let lr =
+      (wantFit &&
+        pool.find((rm) => String(rm.fitted_at || "") === String(wantFit))) ||
+      pool.find((rm) => !_ooRankLooksRidge(rm)) ||
+      pool[0] ||
+      null;
+    if (lr) {
+      const model = attachYSpec({ ...lr });
+      if (!_ooRankLooksRidge(model)) {
+        model.backend = "lambdarank";
+        model.solver = model.solver || "lambdarank";
+      }
       return { model };
     }
-    const rm = candidates[0] || null;
-    if (!rm) return null;
-    return { model: attachYSpec(rm) };
+    return null;
   }
 
   function rankBackendBox(rec) {
@@ -2553,10 +2827,28 @@ export function initQuant(ctx) {
         message = "草稿已存 · 可启用研究 / 执行";
       }
     }
+    const suiteHead = desk.head === "tc_rank" ? "tc_rank" : "oo_rank";
+    const suiteView = extra.suiteView
+      ? normalizeSuiteView(extra.suiteView)
+      : extra.persistOk && extra.persistRole === "live"
+        ? "live"
+        : extra.justFitted || (extra.persistOk && extra.persistRole === "research")
+          ? "research"
+          : normalizeSuiteView(_suiteViewByHead[suiteHead] || "research");
+    // hydrate / 晚到 GET 勿冲掉进行中的「拟合中」与套包
+    if (
+      anyRankFitBusy() &&
+      !extra.justFitted &&
+      !extra.persistOk &&
+      !extra.forceStatus
+    ) {
+      return;
+    }
     paintRidgeEnableStatus(sum, src, {
       persistOk: !!extra.persistOk,
       persistRole: extra.persistRole || "",
       justFitted: !!extra.justFitted,
+      suiteView,
       // τc_rank 与 ŷ_τc 同前缀族：非默认钟显示「前缀HH:MM」；oo_rank 无前缀
       omitTauEndBit: desk.head !== "tc_rank",
       message,
@@ -2570,78 +2862,72 @@ export function initQuant(ctx) {
     // 对齐 ŷ_oo / ŷ_τc：摘要区清空，OOS KPI 挂因子表；同页研究|执行切换
     const box = document.getElementById(desk.resultId);
     if (box) box.innerHTML = "";
-    const suiteHead = desk.head === "tc_rank" ? "tc_rank" : "oo_rank";
     cacheHeadSuitePacks(suiteHead, src);
-    // 当前 GET 包也作当前视图的兜底（缺 suite_* 时）；研究套 OOS 一律扁平化
-    if (rm && typeof rm === "object") {
-      const view = normalizeSuiteView(_suiteViewByHead[suiteHead]);
+    // 仅「刚拟合」写入当前套包。hydrate 时勿用 holdout=0 的 last 盖掉研究套 OOS
+    if (rm && typeof rm === "object" && extra.justFitted) {
       const slot = _suitePackByHead[suiteHead];
-      if (slot && !slot[view]) {
-        slot[view] = {
+      if (slot) {
+        const ySpec =
+          (src.y_spec && typeof src.y_spec === "object" ? src.y_spec : null) ||
+          (rm.y_spec && typeof rm.y_spec === "object" ? rm.y_spec : null);
+        const fi = ooRankFeatureImportance(src);
+        const holdN =
+          src.holdout_trading_days != null
+            ? src.holdout_trading_days
+            : oosFlat && oosFlat.holdout_trading_days != null
+              ? oosFlat.holdout_trading_days
+              : null;
+        const base = {
           return_model: rm,
-          oos: view === "research" ? oosFlat : null,
           fitted_at: src.fitted_at || rm.fitted_at || null,
           backend: src.backend || rm.backend,
           backends: src.backends || null,
-          feature_importance: ooRankFeatureImportance(src),
-          y_spec:
-            (src.y_spec && typeof src.y_spec === "object" ? src.y_spec : null) ||
-            (rm.y_spec && typeof rm.y_spec === "object" ? rm.y_spec : null),
+          feature_importance: fi,
+          y_spec: ySpec,
           n_train_days: src.n_train_days != null ? src.n_train_days : null,
           n_test_days: src.n_test_days != null ? src.n_test_days : null,
-          holdout_trading_days:
-            src.holdout_trading_days != null ? src.holdout_trading_days : null,
+          holdout_trading_days: holdN,
           tau_end_hm: src.tau_end_hm != null ? src.tau_end_hm : null,
         };
-      } else if (slot && slot.research) {
-        const nested = slot.research.oos;
-        const needsFlat =
-          !nested ||
-          (typeof nested === "object" &&
-            nested.gate_lift == null &&
-            (nested.oo_rank || nested.tc_rank));
-        const patch = {};
-        if (needsFlat && oosFlat) patch.oos = oosFlat;
-        if (
-          !slot.research.y_spec &&
-          ((src.y_spec && typeof src.y_spec === "object") ||
-            (rm.y_spec && typeof rm.y_spec === "object"))
-        ) {
-          patch.y_spec = src.y_spec || rm.y_spec;
+        if (suiteView === "research") {
+          // Holdout=0 全样本不得写入研究包（与 cacheHeadSuitePacks 同口径）
+          const holdNum = holdN != null ? Number(holdN) : null;
+          if (holdNum == null || !Number.isFinite(holdNum) || holdNum > 0) {
+            slot.research = {
+              ...(slot.research || {}),
+              ...base,
+              oos: oosFlat && typeof oosFlat === "object" ? oosFlat : null,
+            };
+          }
+        } else {
+          slot.live = {
+            ...(slot.live || {}),
+            ...base,
+            oos: null,
+          };
         }
-        if (
-          slot.research.n_train_days == null &&
-          src.n_train_days != null
-        ) {
-          patch.n_train_days = src.n_train_days;
-        }
-        if (slot.research.n_test_days == null && src.n_test_days != null) {
-          patch.n_test_days = src.n_test_days;
-        }
-        if (
-          slot.research.holdout_trading_days == null &&
-          src.holdout_trading_days != null
-        ) {
-          patch.holdout_trading_days = src.holdout_trading_days;
-        }
-        if (Object.keys(patch).length) {
-          slot.research = { ...slot.research, ...patch };
-        }
-      }
-      if (slot && slot.research && !slot.research.feature_importance) {
-        slot.research = {
-          ...slot.research,
-          feature_importance: ooRankFeatureImportance(src),
-        };
       }
     }
     if (!hasBody && !(_suitePackByHead[suiteHead] || {}).research && !(_suitePackByHead[suiteHead] || {}).live) {
       await renderRankCoefTable(desk, null);
       return;
     }
-    if (extra.justFitted) {
-      setHeadSuiteView(suiteHead, "research", { paint: true });
+    if (extra.justFitted && suiteView === "research" && rm) {
+      // 刚拟合研究：直接刷因子表 KPI，避免 pack 竞态丢 oos
+      setHeadSuiteView(suiteHead, "research", { paint: false, keepPrev: false });
+      await renderRankCoefTable(desk, rm, {
+        oos: oosFlat,
+        showOos: true,
+        feature_importance: ooRankFeatureImportance(src),
+      });
       return;
+    }
+    if (extra.justFitted) {
+      setHeadSuiteView(suiteHead, suiteView, { paint: true, keepPrev: false });
+      return;
+    }
+    if (extra.persistOk) {
+      void refreshSuiteFitSelect(suiteHead, { keepPrev: false });
     }
     await paintHeadSuiteCoef(suiteHead);
   }
@@ -3204,19 +3490,34 @@ export function initQuant(ctx) {
       const chip = painted.chip;
       syncTauPersistBtn(gate, { hasReport: true });
       cacheHeadSuitePacks("tau", data);
+      // 与 cacheHeadSuitePacks 同口径：Holdout=0 顶层不得灌进研究包
       if (
         data.return_model &&
         !_suitePackByHead.tau.research &&
         oos &&
         typeof oos === "object"
       ) {
-        _suitePackByHead.tau.research = {
-          return_model: data.return_model,
-          oos,
-          fitted_at: data.fitted_at || data.research_fitted_at || null,
-          backend: data.backend,
-          backends: data.backends || null,
-        };
+        const holdTop =
+          data.holdout_trading_days != null
+            ? Number(data.holdout_trading_days)
+            : oos.holdout_trading_days != null
+              ? Number(oos.holdout_trading_days)
+              : null;
+        if (holdTop == null || !Number.isFinite(holdTop) || holdTop > 0) {
+          _suitePackByHead.tau.research = {
+            return_model: data.return_model,
+            oos,
+            fitted_at: data.fitted_at || data.research_fitted_at || null,
+            backend: data.backend,
+            backends: data.backends || null,
+            holdout_trading_days:
+              data.holdout_trading_days != null
+                ? data.holdout_trading_days
+                : oos.holdout_trading_days != null
+                  ? oos.holdout_trading_days
+                  : null,
+          };
+        }
       }
       await paintHeadSuiteCoef("tau");
       // 仅当概览仍空时写入（拟合/启用后再刷）
@@ -3243,6 +3544,7 @@ export function initQuant(ctx) {
     try {
       const res = await fetch("/api/quant/oo-rank/model");
       const data = await res.json().catch(() => ({}));
+      if (anyRankFitBusy()) return;
       const sum = document.getElementById("quant-oo-rank-summary");
       if (!sum) return;
       await paintOoRankDesk(sum, data);
@@ -3256,6 +3558,7 @@ export function initQuant(ctx) {
     try {
       const res = await fetch("/api/quant/tc-rank/model");
       const data = await res.json().catch(() => ({}));
+      if (anyRankFitBusy()) return;
       const sum = document.getElementById("quant-tc-rank-summary");
       if (!sum) return;
       restoreTauEndFromFitReport(data, "tc_rank");
@@ -3265,7 +3568,6 @@ export function initQuant(ctx) {
     }
   })();
 
-  cluster.wireOosGateTips(els.quantOlsClusters);
   cluster.wireOosGateTips(els.quantFactorList);
   cluster.wireOosGateTips(els.quantWeightSuggest);
 
@@ -3887,11 +4189,18 @@ export function initQuant(ctx) {
     holdoutOverride = null,
     deployFullSample = false,
     note = "",
+    suiteView = null,
   } = {}) {
     const sum = document.getElementById("quant-tau-summary");
     const persistBtn = document.getElementById("quant-tau-lgb-persist");
     const runBtn = document.getElementById("quant-tau-lgb-run");
     const roleLabel = persistRole === "research" ? "研究套" : "执行套";
+    const viewKey = suiteView
+      ? normalizeSuiteView(suiteView)
+      : persist && persistRole === "live"
+        ? "live"
+        : "research";
+    await watchingPoolLimitReady;
     const holdN =
       holdoutOverride != null ? holdoutOverride : readHoldoutTradingDays("tc");
     if (runBtn) runBtn.disabled = true;
@@ -3911,14 +4220,7 @@ export function initQuant(ctx) {
             : "ŷ_τc 拟合 + Holdout OOS…",
         busy: true,
       };
-      if (!persist || persistRole === "research") {
-        paintSuiteResearchBusy("tau", busyOpts);
-      } else {
-        _suiteViewByHead.tau = "live";
-        syncSuiteChrome("tau");
-        rememberSuiteStatus("tau", "live", busyOpts);
-        renderRemStatus(sum, { ...busyOpts, omitRoleMetas: true, omitFitMeta: true });
-      }
+      paintSuiteHeadStatus("tau", viewKey, busyOpts);
     }
     try {
       const res = await fetch("/api/quant/tc-lgb", {
@@ -3954,6 +4256,8 @@ export function initQuant(ctx) {
         modelPath: "/api/quant/tc-lgb/model",
         sumEl: sum,
         label: "ŷ_τc",
+        suiteHead: "tau",
+        suiteView: viewKey,
       });
       const data = awaited.data || {};
       const httpOk = awaited.httpOk;
@@ -3985,7 +4289,7 @@ export function initQuant(ctx) {
           syncTauPersistBtn(gate, { hasReport: true });
         }
         _tauPromoteGate = gate;
-        return;
+        return false;
       }
       const oos = data.oos || {};
       restoreTauEndFromFitReport(data, "tc");
@@ -3998,6 +4302,7 @@ export function initQuant(ctx) {
         persistOk: !!persist,
         persistRole,
         justFitted: !persist,
+        suiteView: viewKey,
         message: persist ? "" : [packBit, "未写盘"].filter(Boolean).join(" · "),
       });
       _tauPromoteGate = gate;
@@ -4005,24 +4310,57 @@ export function initQuant(ctx) {
       syncOverviewTauFromOos(oos, painted.chip);
       cacheHeadSuitePacks("tau", data);
       if (data.return_model) {
-        const viewKey = persist && persistRole === "live" ? "live" : "research";
-        _suitePackByHead.tau[viewKey] = {
-          return_model: data.return_model,
-          oos: viewKey === "research" ? oos : null,
-          fitted_at: data.fitted_at || null,
-          backend: data.backend,
-          backends: data.backends || null,
-        };
+        const holdN =
+          data.holdout_trading_days != null
+            ? data.holdout_trading_days
+            : oos.holdout_trading_days != null
+              ? oos.holdout_trading_days
+              : null;
+        const holdNum = holdN != null ? Number(holdN) : null;
+        // Holdout=0 全样本勿写入研究包
+        const allowResearchPack =
+          viewKey !== "research" ||
+          holdNum == null ||
+          !Number.isFinite(holdNum) ||
+          holdNum > 0;
+        if (allowResearchPack || viewKey === "live") {
+          _suitePackByHead.tau[viewKey] = {
+            return_model: data.return_model,
+            oos: viewKey === "research" ? oos : null,
+            fitted_at:
+              (data.persisted && data.persisted.fitted_at) ||
+              (viewKey === "live"
+                ? data.live_fitted_at || data.fitted_at
+                : data.research_fitted_at || data.fitted_at) ||
+              null,
+            backend: data.backend,
+            backends: data.backends || null,
+            holdout_trading_days: holdN,
+            n_train_days:
+              data.n_train_days != null
+                ? data.n_train_days
+                : oos.n_train != null
+                  ? oos.n_train
+                  : null,
+            n_test_days:
+              data.n_test_days != null
+                ? data.n_test_days
+                : oos.n_test != null
+                  ? oos.n_test
+                  : null,
+          };
+        }
         if (viewKey === "research" || !persist) {
-          setHeadSuiteView("tau", "research", { paint: true });
+          setHeadSuiteView("tau", viewKey, { paint: true });
         } else {
           await paintHeadSuiteCoef("tau");
         }
       } else {
         await paintHeadSuiteCoef("tau");
       }
+      return true;
     } catch (err) {
-      renderRemStatus(sum, {
+      paintSuiteHeadStatus("tau", viewKey, {
         state: "error",
         chip: "失败",
         message: describeNetworkFetchError(err),
@@ -4036,6 +4374,61 @@ export function initQuant(ctx) {
   }
 
   /** 刷新后若 tau-lgb 仍在跑：接回进度，避免「拟合」看似死锁且卡头无状态。 */
+
+  async function resumeRankFitJobIfRunning(jobName, head, modelPath, label) {
+    const sum = document.getElementById(
+      head === "tc_rank" ? "quant-tc-rank-summary" : "quant-oo-rank-summary"
+    );
+    if (rankFitHeadBusy(head)) return;
+    try {
+      const { ok, data } = await apiFetch(`/api/jobs/${jobName}?progress=1`);
+      const job = (data && data.job) || {};
+      if (!ok || !job.id || (job.status !== "running" && job.status !== "queued")) {
+        return;
+      }
+      const viewKey = "research";
+      markRankFitInflight(head);
+      paintSuiteHeadStatus(head, viewKey, {
+        state: "busy",
+        chip: "拟合中",
+        message: job.message || `${label} 拟合中…`,
+        busy: true,
+      });
+      try {
+        const done = await pollRidgeJobUntilDone(jobName, {
+          jobId: job.id,
+          sumEl: sum,
+          label,
+          suiteHead: head,
+          suiteView: viewKey,
+        });
+        let status =
+          done && done.result && typeof done.result === "object" ? { ...done.result } : {};
+        try {
+          const stRes = await fetch(modelPath);
+          const stData = await stRes.json().catch(() => ({}));
+          if (stData && typeof stData === "object") status = { ...stData, ...status };
+        } catch (_) {}
+        if (head === "tc_rank") restoreTauEndFromFitReport(status, "tc_rank");
+        await paintOoRankDesk(sum, status, {
+          persistOk: false,
+          persistRole: "live",
+          justFitted: true,
+          suiteView: viewKey,
+        }, head === "tc_rank" ? TC_RANK_DESK : OO_RANK_DESK);
+      } catch (err) {
+        paintSuiteHeadStatus(head, viewKey, {
+          state: "error",
+          chip: "失败",
+          message: describeNetworkFetchError(err),
+          error: true,
+        });
+      } finally {
+        stopRankFitBusy(head);
+      }
+    } catch (_) {}
+  }
+
   async function resumeTauLgbJobIfRunning() {
     const sum = document.getElementById("quant-tau-summary");
     const runBtn = document.getElementById("quant-tau-lgb-run");
@@ -4085,55 +4478,139 @@ export function initQuant(ctx) {
       syncTauPersistBtn(_tauPromoteGate, { hasReport: true });
     }
   }
-  if (document.body.dataset.page === "quant") {
-    void resumeTauLgbJobIfRunning();
-  }
-
-  let rankFitBusyTimer = null;
-  let rankFitBusyGen = 0;
-
-  function stopRankFitBusy(btnId) {
-    rankFitBusyGen += 1;
-    if (rankFitBusyTimer) {
-      clearInterval(rankFitBusyTimer);
-      rankFitBusyTimer = null;
-    }
-    if (btnId) {
-      const btn = document.getElementById(btnId);
-      if (btn) btn.disabled = false;
-    }
-  }
-
-  function rankFitBusyHint(elapsedSec) {
-    const s = Number(elapsedSec) || 0;
-    if (s < 20) return "拉观察池日线";
-    if (s < 180) return "组因子面板";
-    return "LambdaRank · Holdout";
-  }
-
-  function startRankFitBusy(sumEl, btnId, suiteHead = null) {
-    stopRankFitBusy(btnId);
-    const btn = btnId ? document.getElementById(btnId) : null;
-    if (btn) btn.disabled = true;
-    const gen = rankFitBusyGen;
-    const t0 = Date.now();
-    const tick = () => {
-      if (gen !== rankFitBusyGen) return;
-      const s = Math.max(0, Math.round((Date.now() - t0) / 1000));
-      const busyOpts = {
+  async function resumeOoLgbJobIfRunning() {
+    const sum = document.getElementById("quant-ols-summary");
+    try {
+      const { ok, data } = await apiFetch("/api/jobs/oo-lgb?progress=1");
+      if (!ok) return false;
+      const job = (data && data.job) || {};
+      if (job.status !== "running" && job.status !== "queued") return false;
+      setHeadSuiteView("oo", "research", { paint: false });
+      paintSuiteResearchBusy("oo", {
         state: "busy",
         chip: "拟合中",
-        message: `${rankFitBusyHint(s)} · 已 ${fmtHorizonTreeSec(s)}`,
+        message: job.message || "ŷ_oo 后台拟合进行中…",
         busy: true,
-      };
-      if (suiteHead) {
-        paintSuiteResearchBusy(suiteHead, busyOpts);
-      } else {
-        renderRemStatus(sumEl, busyOpts);
+      });
+      await pollRidgeJobUntilDone("oo-lgb", {
+        jobId: job.id,
+        sumEl: sum,
+        label: "ŷ_oo",
+        suiteHead: "oo",
+        suiteView: "research",
+      });
+      if (suggest && typeof suggest.refreshReturnModelStatus === "function") {
+        await suggest.refreshReturnModelStatus({ justFitted: true });
       }
-    };
-    tick();
-    rankFitBusyTimer = setInterval(tick, 1000);
+      return true;
+    } catch (err) {
+      paintSuiteResearchBusy("oo", {
+        state: "error",
+        chip: "失败",
+        message: describeNetworkFetchError(err),
+        error: true,
+      });
+      return false;
+    }
+  }
+
+  const _horizonFitBusy = {};
+
+  if (document.body.dataset.page === "quant") {
+    void resumeTauLgbJobIfRunning();
+    void resumeOoLgbJobIfRunning();
+    void resumeRankFitJobIfRunning("oo-rank", "oo_rank", "/api/quant/oo-rank/model", "ŷ_oo_rank");
+    void resumeRankFitJobIfRunning("tc-rank", "tc_rank", "/api/quant/tc-rank/model", "ŷ_τc_rank");
+    for (const horizonHead of ["t30", "t45", "t60", "t75", "t90"]) {
+      void resumeHorizonJobIfRunning(horizonHead);
+    }
+  }
+
+  async function resumeHorizonJobIfRunning(head) {
+    const sum = document.getElementById(`quant-${head}-summary`);
+    if (!sum) return false;
+    if (_horizonFitBusy[head]) return false;
+    _horizonFitBusy[head] = true;
+    try {
+      const { ok, data } = await apiFetch(`/api/jobs/${head}-ridge?progress=1`);
+      if (!ok) return false;
+      const job = (data && data.job) || {};
+      if (job.status !== "running" && job.status !== "queued") return false;
+      renderRemStatus(sum, {
+        state: "busy",
+        chip: "拟合中",
+        message: job.message || "后台拟合进行中…",
+        busy: true,
+      });
+      await pollRidgeJobUntilDone(`${head}-ridge`, {
+        jobId: job.id,
+        sumEl: sum,
+        label: `ŷ_τ${head.slice(1)}`,
+      });
+      const modelRes = await fetch(`/api/quant/${head}-ridge/model`);
+      const modelData = await modelRes.json().catch(() => ({}));
+      if (modelData && typeof modelData === "object") {
+        paintHorizonFitStatus(sum, modelData, { justFitted: true });
+      }
+      return true;
+    } catch (err) {
+      renderRemStatus(sum, {
+        state: "error",
+        chip: "失败",
+        message: describeNetworkFetchError(err),
+        error: true,
+      });
+      return false;
+    } finally {
+      _horizonFitBusy[head] = false;
+    }
+  }
+
+  function rankFitHeadBusy(head) {
+    return !!(_rankFitBusyByHead[head] && _rankFitBusyByHead[head].inflight);
+  }
+
+  function anyRankFitBusy() {
+    return rankFitHeadBusy("oo_rank") || rankFitHeadBusy("tc_rank");
+  }
+
+  function syncRankFitChromeShells() {
+    syncSuiteChromeShell("oo_rank");
+    syncSuiteChromeShell("tc_rank");
+  }
+
+  function stopRankFitBusy(headOrBtnId) {
+    const head =
+      headOrBtnId === "oo_rank" || headOrBtnId === "tc_rank"
+        ? headOrBtnId
+        : headOrBtnId === "quant-oo-rank-run"
+          ? "oo_rank"
+          : headOrBtnId === "quant-tc-rank-run"
+            ? "tc_rank"
+            : null;
+    if (!head || !_rankFitBusyByHead[head]) return;
+    const st = _rankFitBusyByHead[head];
+    st.gen += 1;
+    st.inflight = false;
+    if (st.timer) {
+      clearInterval(st.timer);
+      st.timer = null;
+    }
+    // 按当前套视图重同步禁用态（勿盲开按钮；两头共享忙锁）
+    syncRankFitChromeShells();
+  }
+
+  /** 占忙锁；真阶段文案由 job.message 轮询写入，不再猜秒。 */
+  function markRankFitInflight(head) {
+    if (!head || !_rankFitBusyByHead[head]) return;
+    const st = _rankFitBusyByHead[head];
+    st.inflight = true;
+    st.gen += 1;
+    if (st.timer) {
+      clearInterval(st.timer);
+      st.timer = null;
+    }
+    syncRankFitChromeShells();
   }
 
   async function runOoRank({
@@ -4142,32 +4619,46 @@ export function initQuant(ctx) {
     holdoutOverride = null,
     deployFullSample = false,
     note = "",
+    suiteView = null,
   } = {}) {
     const sum = document.getElementById("quant-oo-rank-summary");
     const roleLabel = persistRole === "research" ? "研究套" : "执行套";
+    const viewKey = suiteView
+      ? normalizeSuiteView(suiteView)
+      : persist && persistRole === "live"
+        ? "live"
+        : "research";
+    if (anyRankFitBusy()) {
+      paintSuiteHeadStatus("oo_rank", viewKey, {
+        state: "busy",
+        chip: "拟合中",
+        message: "ŷ_oo_rank / ŷ_τc_rank 正在拟合，请等待当前任务结束",
+        busy: true,
+      });
+      return false;
+    }
+    await watchingPoolLimitReady;
     const holdN =
       holdoutOverride != null
         ? holdoutOverride
         : readHoldoutTradingDays("oo_rank");
+    markRankFitInflight("oo_rank");
     if (persist) {
-      const busyOpts = {
+      paintSuiteHeadStatus("oo_rank", viewKey, {
         state: "busy",
         chip: "写入中",
         message: deployFullSample
           ? "全样本包写入执行套…"
           : `写入上次拟合（${roleLabel}）…`,
         busy: true,
-      };
-      if (persistRole === "research") {
-        paintSuiteResearchBusy("oo_rank", busyOpts);
-      } else {
-        _suiteViewByHead.oo_rank = "live";
-        syncSuiteChrome("oo_rank");
-        rememberSuiteStatus("oo_rank", "live", busyOpts);
-        renderRemStatus(sum, { ...busyOpts, omitRoleMetas: true, omitFitMeta: true });
-      }
+      });
     } else {
-      startRankFitBusy(sum, "quant-oo-rank-run", "oo_rank");
+      paintSuiteHeadStatus("oo_rank", viewKey, {
+        state: "busy",
+        chip: "拟合中",
+        message: holdN === 0 ? "ŷ_oo_rank 全样本重训…" : "ŷ_oo_rank 拟合 + Holdout…",
+        busy: true,
+      });
     }
     try {
       const res = await fetch("/api/quant/oo-rank", {
@@ -4183,6 +4674,7 @@ export function initQuant(ctx) {
           persist_role: persistRole || "live",
           deploy_full_sample: !!deployFullSample,
           backend: "lambdarank",
+          sync: false,
           ...readCrossSectionFitParams("oo_rank"),
           note:
             note ||
@@ -4193,14 +4685,25 @@ export function initQuant(ctx) {
               : ""),
         }),
       });
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok || !data.success) {
+      const posted = await res.json().catch(() => ({}));
+      const awaited = await awaitRidgeFitIfBackground(res, posted, {
+        persist: !!persist,
+        jobName: "oo-rank",
+        modelPath: "/api/quant/oo-rank/model",
+        sumEl: sum,
+        label: "ŷ_oo_rank",
+        suiteHead: "oo_rank",
+        suiteView: viewKey,
+      });
+      const data = awaited.data || {};
+      const httpOk = awaited.httpOk;
+      if (!httpOk || !data.success) {
         // 业务 error 优先；detail 可能是 fit 字典，勿 String(obj) → [object Object]
         const err = formatApiDetail(
           (data && (data.error || data.detail)) || `HTTP ${res.status}`,
           "ŷ_oo_rank 失败"
         );
-        renderRemStatus(sum, {
+        paintSuiteHeadStatus("oo_rank", viewKey, {
           state: "error",
           chip: "失败",
           message: err,
@@ -4208,7 +4711,7 @@ export function initQuant(ctx) {
         });
         clearOoRankResultBox();
         renderOoRankCoefTable(null);
-        return;
+        return false;
       }
       let status = data;
       try {
@@ -4216,6 +4719,21 @@ export function initQuant(ctx) {
         const stData = await stRes.json().catch(() => ({}));
         if (stData && typeof stData === "object") {
           status = { ...stData, ...data };
+          // 槽位 stamp / suite 包以 GET 为准；勿被 last report 顶层盖掉
+          status.live_fitted_at =
+            (data.persisted && data.persisted.fitted_at) ||
+            (stData.suite_live && stData.suite_live.fitted_at) ||
+            stData.live_fitted_at ||
+            data.live_fitted_at ||
+            null;
+          status.research_fitted_at =
+            (persist && persistRole === "research" && data.persisted && data.persisted.fitted_at) ||
+            (stData.suite_research && stData.suite_research.fitted_at) ||
+            stData.research_fitted_at ||
+            data.research_fitted_at ||
+            null;
+          if (stData.suite_live) status.suite_live = stData.suite_live;
+          if (stData.suite_research) status.suite_research = stData.suite_research;
           // 优先保留带 LambdaRank booster 的 backends
           const beA =
             data.backends && typeof data.backends === "object"
@@ -4235,17 +4753,19 @@ export function initQuant(ctx) {
         persistOk: !!persist,
         persistRole: persistRole || "live",
         justFitted: !persist,
+        suiteView: viewKey,
       });
+      return true;
     } catch (err) {
-      renderRemStatus(sum, {
+      paintSuiteHeadStatus("oo_rank", viewKey, {
         state: "error",
         chip: "失败",
-        message: String(err.message || err),
+        message: describeNetworkFetchError(err),
         error: true,
       });
       throw err;
     } finally {
-      stopRankFitBusy("quant-oo-rank-run");
+      stopRankFitBusy("oo_rank");
     }
   }
 
@@ -4255,32 +4775,46 @@ export function initQuant(ctx) {
     holdoutOverride = null,
     deployFullSample = false,
     note = "",
+    suiteView = null,
   } = {}) {
     const sum = document.getElementById("quant-tc-rank-summary");
     const roleLabel = persistRole === "research" ? "研究套" : "执行套";
+    const viewKey = suiteView
+      ? normalizeSuiteView(suiteView)
+      : persist && persistRole === "live"
+        ? "live"
+        : "research";
+    if (anyRankFitBusy()) {
+      paintSuiteHeadStatus("tc_rank", viewKey, {
+        state: "busy",
+        chip: "拟合中",
+        message: "ŷ_oo_rank / ŷ_τc_rank 正在拟合，请等待当前任务结束",
+        busy: true,
+      });
+      return false;
+    }
+    await watchingPoolLimitReady;
     const holdN =
       holdoutOverride != null
         ? holdoutOverride
         : readHoldoutTradingDays("tc_rank");
+    markRankFitInflight("tc_rank");
     if (persist) {
-      const busyOpts = {
+      paintSuiteHeadStatus("tc_rank", viewKey, {
         state: "busy",
         chip: "写入中",
         message: deployFullSample
           ? "全样本包写入执行套…"
           : `写入上次拟合（${roleLabel}）…`,
         busy: true,
-      };
-      if (persistRole === "research") {
-        paintSuiteResearchBusy("tc_rank", busyOpts);
-      } else {
-        _suiteViewByHead.tc_rank = "live";
-        syncSuiteChrome("tc_rank");
-        rememberSuiteStatus("tc_rank", "live", busyOpts);
-        renderRemStatus(sum, { ...busyOpts, omitRoleMetas: true, omitFitMeta: true });
-      }
+      });
     } else {
-      startRankFitBusy(sum, "quant-tc-rank-run", "tc_rank");
+      paintSuiteHeadStatus("tc_rank", viewKey, {
+        state: "busy",
+        chip: "拟合中",
+        message: holdN === 0 ? "ŷ_τc_rank 全样本重训…" : "ŷ_τc_rank 拟合 + Holdout…",
+        busy: true,
+      });
     }
     try {
       const res = await fetch("/api/quant/tc-rank", {
@@ -4296,6 +4830,7 @@ export function initQuant(ctx) {
           persist_role: persistRole || "live",
           deploy_full_sample: !!deployFullSample,
           backend: "lambdarank",
+          sync: false,
           ...readTauEndFitParams("tc_rank"),
           ...readCrossSectionFitParams("tc_rank"),
           note:
@@ -4307,19 +4842,34 @@ export function initQuant(ctx) {
               : ""),
         }),
       });
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok || !data.success) {
-        const err = (data && (data.detail || data.error)) || `HTTP ${res.status}`;
-        renderRemStatus(sum, {
+      const posted = await res.json().catch(() => ({}));
+      const awaited = await awaitRidgeFitIfBackground(res, posted, {
+        persist: !!persist,
+        jobName: "tc-rank",
+        modelPath: "/api/quant/tc-rank/model",
+        sumEl: sum,
+        label: "ŷ_τc_rank",
+        suiteHead: "tc_rank",
+        suiteView: viewKey,
+      });
+      const data = awaited.data || {};
+      const httpOk = awaited.httpOk;
+      if (!httpOk || !data.success) {
+        // 业务 error 优先；detail 可能是 fit 字典，勿 String(obj) → [object Object]
+        const err = formatApiDetail(
+          (data && (data.error || data.detail)) || `HTTP ${res.status}`,
+          "ŷ_τc_rank 失败"
+        );
+        paintSuiteHeadStatus("tc_rank", viewKey, {
           state: "error",
           chip: "失败",
-          message: String(err),
+          message: err,
           error: true,
         });
         const box = document.getElementById("quant-tc-rank-result");
         if (box) box.innerHTML = "";
         await renderRankCoefTable(TC_RANK_DESK, null);
-        return;
+        return false;
       }
       restoreTauEndFromFitReport(data, "tc_rank");
       let status = data;
@@ -4328,6 +4878,20 @@ export function initQuant(ctx) {
         const stData = await stRes.json().catch(() => ({}));
         if (stData && typeof stData === "object") {
           status = { ...stData, ...data };
+          status.live_fitted_at =
+            (data.persisted && data.persisted.fitted_at) ||
+            (stData.suite_live && stData.suite_live.fitted_at) ||
+            stData.live_fitted_at ||
+            data.live_fitted_at ||
+            null;
+          status.research_fitted_at =
+            (persist && persistRole === "research" && data.persisted && data.persisted.fitted_at) ||
+            (stData.suite_research && stData.suite_research.fitted_at) ||
+            stData.research_fitted_at ||
+            data.research_fitted_at ||
+            null;
+          if (stData.suite_live) status.suite_live = stData.suite_live;
+          if (stData.suite_research) status.suite_research = stData.suite_research;
           const beA =
             data.backends && typeof data.backends === "object" ? data.backends : null;
           const beB =
@@ -4348,19 +4912,21 @@ export function initQuant(ctx) {
           persistOk: !!persist,
           persistRole: persistRole || "live",
           justFitted: !persist,
+          suiteView: viewKey,
         },
         TC_RANK_DESK
       );
+      return true;
     } catch (err) {
-      renderRemStatus(sum, {
+      paintSuiteHeadStatus("tc_rank", viewKey, {
         state: "error",
         chip: "失败",
-        message: String(err.message || err),
+        message: describeNetworkFetchError(err),
         error: true,
       });
       throw err;
     } finally {
-      stopRankFitBusy("quant-tc-rank-run");
+      stopRankFitBusy("tc_rank");
     }
   }
 
@@ -4395,12 +4961,32 @@ export function initQuant(ctx) {
   }
   q.ridgeFitBusyHint = ridgeFitBusyHint;
 
-  async function pollRidgeJobUntilDone(jobName, { jobId, sumEl, label } = {}) {
+  async function pollRidgeJobUntilDone(
+    jobName,
+    { jobId, sumEl, label, suiteHead = null, suiteView = null } = {}
+  ) {
     const pollStarted = Date.now();
     // 观察池扩到 500～600 后，ŷ_τc 面板+LightGBM 常超 40 分钟
     const absoluteCapMs = 90 * 60 * 1000;
     let netFailStreak = 0;
     let sawOwnJob = false;
+    const paintBusy = (message) => {
+      const opts = {
+        state: "busy",
+        chip: "拟合中",
+        message,
+        busy: true,
+      };
+      if (suiteHead) {
+        paintSuiteHeadStatus(
+          suiteHead,
+          normalizeSuiteView(suiteView || "research"),
+          opts
+        );
+      } else {
+        renderRemStatus(sumEl, opts);
+      }
+    };
     while (true) {
       if (Date.now() - pollStarted > absoluteCapMs) {
         throw new Error(
@@ -4410,28 +4996,30 @@ export function initQuant(ctx) {
       const { ok, data, status } = await apiFetch(`/api/jobs/${jobName}?progress=1`);
       if (!ok && (!status || status === 0 || status >= 500)) {
         netFailStreak += 1;
-        renderRemStatus(sumEl, {
-          state: "busy",
-          chip: "拟合中",
-          message: `${label || "拟合"}… ${fmtRidgeJobSec(Date.now() - pollStarted)} · 服务短暂断开，重连中（${netFailStreak}）…`,
-          busy: true,
-        });
+        paintBusy(
+          `${label || "拟合"}… ${fmtRidgeJobSec(Date.now() - pollStarted)} · 服务短暂断开，重连中（${netFailStreak}）…`
+        );
         await new Promise((r) => setTimeout(r, Math.min(4000, 500 * netFailStreak)));
         continue;
       }
       netFailStreak = 0;
       const job = (data && data.job) || {};
-      const sameJob = !jobId || !job.id || job.id === jobId;
-      if (sameJob && job.id) sawOwnJob = true;
-      if (job.status === "idle" || !job.id) {
-        if (sawOwnJob || Date.now() - pollStarted > 2500) {
-          throw new Error(`${label || "拟合"} 已中断（可能服务重启），请再点拟合`);
+      if (jobId && job.id && job.id === jobId) sawOwnJob = true;
+      if (jobId && job.id && job.id !== jobId) {
+        if (sawOwnJob) {
+          throw new Error(`${label || "拟合"} 已被其它任务覆盖，请重试`);
         }
+        paintBusy(`${label || "拟合"}… 等待本任务接管`);
         await new Promise((r) => setTimeout(r, 400));
         continue;
       }
-      if (!sameJob) {
-        throw new Error(`${label || "拟合"} 已被其它任务覆盖，请重试`);
+      if (job.status === "idle" || !job.id) {
+        if (sawOwnJob) {
+          throw new Error(`${label || "拟合"} 已中断（可能服务重启），请再点拟合`);
+        }
+        paintBusy(`${label || "拟合"}… 等待本任务接管`);
+        await new Promise((r) => setTimeout(r, 400));
+        continue;
       }
       if (job.status === "failed") {
         throw new Error(job.error || `${label || "拟合"} 失败`);
@@ -4442,17 +5030,18 @@ export function initQuant(ctx) {
       }
       const sec = Math.max(1, Math.round((Date.now() - pollStarted) / 1000));
       const hint = job.message || ridgeFitBusyHint(sec);
-      renderRemStatus(sumEl, {
-        state: "busy",
-        chip: "拟合中",
-        message: `${label || "拟合"}… ${fmtRidgeJobSec(Date.now() - pollStarted)} · ${hint}`,
-        busy: true,
-      });
+      paintBusy(
+        `${label || "拟合"}… ${fmtRidgeJobSec(Date.now() - pollStarted)} · ${hint}`
+      );
       await new Promise((r) => setTimeout(r, 1200));
     }
   }
 
-  async function awaitRidgeFitIfBackground(res, data, { persist, jobName, modelPath, sumEl, label }) {
+  async function awaitRidgeFitIfBackground(
+    res,
+    data,
+    { persist, jobName, modelPath, sumEl, label, suiteHead = null, suiteView = null }
+  ) {
     if (persist || !data || !data.background) {
       return { data, httpOk: res.ok };
     }
@@ -4460,6 +5049,8 @@ export function initQuant(ctx) {
       jobId: data.job && data.job.id,
       sumEl,
       label,
+      suiteHead,
+      suiteView,
     });
     let next = job && job.result && typeof job.result === "object" ? { ...job.result } : {};
     const stub = !!(next && next.persisted_truncated);
@@ -4479,8 +5070,11 @@ export function initQuant(ctx) {
     }
     return { data: next, httpOk: true };
   }
+  q.awaitRidgeFitIfBackground = awaitRidgeFitIfBackground;
 
   async function runT30Ridge({ persist = false, forcePromote = false, persistRole = "live" } = {}) {
+    if (_horizonFitBusy.t30) return;
+    _horizonFitBusy.t30 = true;
     const sum = document.getElementById("quant-t30-summary");
     renderRemStatus(sum, {
       state: "busy",
@@ -4493,6 +5087,7 @@ export function initQuant(ctx) {
       busy: true,
     });
     try {
+      await watchingPoolLimitReady;
       const res = await fetch("/api/quant/t30-ridge", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -4575,6 +5170,8 @@ export function initQuant(ctx) {
         error: true,
       });
       throw err;
+    } finally {
+      _horizonFitBusy.t30 = false;
     }
   }
 
@@ -4634,6 +5231,8 @@ export function initQuant(ctx) {
 
   
   async function runT45Ridge({ persist = false, forcePromote = false, persistRole = "live" } = {}) {
+    if (_horizonFitBusy.t45) return;
+    _horizonFitBusy.t45 = true;
     const sum = document.getElementById("quant-t45-summary");
     renderRemStatus(sum, {
       state: "busy",
@@ -4646,6 +5245,7 @@ export function initQuant(ctx) {
       busy: true,
     });
     try {
+      await watchingPoolLimitReady;
       const res = await fetch("/api/quant/t45-ridge", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -4728,6 +5328,8 @@ export function initQuant(ctx) {
         error: true,
       });
       throw err;
+    } finally {
+      _horizonFitBusy.t45 = false;
     }
   }
 
@@ -4786,6 +5388,8 @@ export function initQuant(ctx) {
   }
 
     async function runT60Ridge({ persist = false, forcePromote = false, persistRole = "live" } = {}) {
+    if (_horizonFitBusy.t60) return;
+    _horizonFitBusy.t60 = true;
     const sum = document.getElementById("quant-t60-summary");
     renderRemStatus(sum, {
       state: "busy",
@@ -4798,6 +5402,7 @@ export function initQuant(ctx) {
       busy: true,
     });
     try {
+      await watchingPoolLimitReady;
       const res = await fetch("/api/quant/t60-ridge", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -4880,6 +5485,8 @@ export function initQuant(ctx) {
         error: true,
       });
       throw err;
+    } finally {
+      _horizonFitBusy.t60 = false;
     }
   }
 
@@ -4938,6 +5545,8 @@ export function initQuant(ctx) {
   }
 
     async function runT75Ridge({ persist = false, forcePromote = false, persistRole = "live" } = {}) {
+    if (_horizonFitBusy.t75) return;
+    _horizonFitBusy.t75 = true;
     const sum = document.getElementById("quant-t75-summary");
     renderRemStatus(sum, {
       state: "busy",
@@ -4950,6 +5559,7 @@ export function initQuant(ctx) {
       busy: true,
     });
     try {
+      await watchingPoolLimitReady;
       const res = await fetch("/api/quant/t75-ridge", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -5032,6 +5642,8 @@ export function initQuant(ctx) {
         error: true,
       });
       throw err;
+    } finally {
+      _horizonFitBusy.t75 = false;
     }
   }
 
@@ -5090,6 +5702,8 @@ export function initQuant(ctx) {
   }
 
     async function runT90Ridge({ persist = false, forcePromote = false, persistRole = "live" } = {}) {
+    if (_horizonFitBusy.t90) return;
+    _horizonFitBusy.t90 = true;
     const sum = document.getElementById("quant-t90-summary");
     renderRemStatus(sum, {
       state: "busy",
@@ -5102,6 +5716,7 @@ export function initQuant(ctx) {
       busy: true,
     });
     try {
+      await watchingPoolLimitReady;
       const res = await fetch("/api/quant/t90-ridge", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -5184,6 +5799,8 @@ export function initQuant(ctx) {
         error: true,
       });
       throw err;
+    } finally {
+      _horizonFitBusy.t90 = false;
     }
   }
 
@@ -5246,7 +5863,11 @@ export function initQuant(ctx) {
     e.preventDefault();
     const holdN = readHoldoutTradingDays("tc");
     try {
-      await runTauLgb({ persist: false, holdoutOverride: holdN });
+      await runTauLgb({
+        persist: false,
+        holdoutOverride: holdN,
+        suiteView: "research",
+      });
       const gate = _tauPromoteGate;
       // 未过闸仍写入研究套（无确认弹窗）；闸明细见卡头 / 按钮 title
       const forcePromote = !!(gate && gate.ok === false);
@@ -5254,11 +5875,11 @@ export function initQuant(ctx) {
         persist: true,
         persistRole: "research",
         forcePromote,
+        suiteView: "research",
         note: `ui tau fit-research Holdout=${holdN}`,
       });
     } catch (err) {
-      const sum = document.getElementById("quant-tau-summary");
-      renderRemStatus(sum, {
+      paintSuiteHeadStatus("tau", "research", {
         state: "error",
         chip: "失败",
         message: describeNetworkFetchError(err),
@@ -5271,13 +5892,20 @@ export function initQuant(ctx) {
   async function onTauPersistClick(e) {
     e.preventDefault();
     try {
-      await runTauLgb({ persist: false, holdoutOverride: 0 });
-      await runTauLgb({
+      const fitOk = await runTauLgb({
+        persist: false,
+        holdoutOverride: 0,
+        suiteView: "live",
+      });
+      if (!fitOk) return;
+      const persistOk = await runTauLgb({
         persist: true,
         persistRole: "live",
         deployFullSample: true,
+        suiteView: "live",
         note: "ui tau promote-exec full-sample",
       });
+      if (!persistOk) return;
       const sum = document.getElementById("quant-tau-summary");
       const hasResearch = !!(
         (_suiteStampByHead.tau && _suiteStampByHead.tau.researchOn) ||
@@ -5285,14 +5913,15 @@ export function initQuant(ctx) {
           _suitePackByHead.tau.research &&
           _suitePackByHead.tau.research.return_model)
       );
-      setHeadSuiteView("tau", "live", { paint: true });
+      setHeadSuiteView("tau", "live", { paint: true, keepPrev: false });
       paintSuiteHeadStatus("tau", "live", {
         state: "ok",
         chip: "已拟合",
         message: hasResearch
-          ? "执行套已全样本部署 · 因子表仍为研究套 Holdout OOS"
+          ? "执行套已全样本部署 · Holdout OOS 见研究套"
           : "执行套已全样本部署",
       });
+      void refreshSuiteFitSelect("tau", { keepPrev: false });
     } catch (err) {
       paintSuiteHeadStatus("tau", "live", {
         state: "error",
@@ -5307,15 +5936,23 @@ export function initQuant(ctx) {
     e.preventDefault();
     const holdN = readHoldoutTradingDays("oo_rank");
     try {
-      await runOoRank({ persist: false, holdoutOverride: holdN });
-      await runOoRank({
+      const fitOk = await runOoRank({
+        persist: false,
+        holdoutOverride: holdN,
+        suiteView: "research",
+      });
+      if (!fitOk) return;
+      const persistOk = await runOoRank({
         persist: true,
         persistRole: "research",
+        suiteView: "research",
         note: `ui oo_rank fit-research Holdout=${holdN}`,
       });
+      if (!persistOk) return;
+      clearSuiteFitPreview("oo_rank");
+      void refreshSuiteFitSelect("oo_rank", { keepPrev: false });
     } catch (err) {
-      const sum = document.getElementById("quant-oo-rank-summary");
-      renderRemStatus(sum, {
+      paintSuiteHeadStatus("oo_rank", "research", {
         state: "error",
         chip: "失败",
         message: String(err.message || err),
@@ -5328,27 +5965,35 @@ export function initQuant(ctx) {
   async function onOoRankPersistClick(e) {
     e.preventDefault();
     try {
-      await runOoRank({ persist: false, holdoutOverride: 0 });
-      await runOoRank({
+      const fitOk = await runOoRank({
+        persist: false,
+        holdoutOverride: 0,
+        suiteView: "live",
+      });
+      if (!fitOk) return;
+      const persistOk = await runOoRank({
         persist: true,
         persistRole: "live",
         deployFullSample: true,
+        suiteView: "live",
         note: "ui oo_rank promote-exec full-sample",
       });
+      if (!persistOk) return;
       const hasResearch = !!(
         (_suiteStampByHead.oo_rank && _suiteStampByHead.oo_rank.researchOn) ||
         (_suitePackByHead.oo_rank &&
           _suitePackByHead.oo_rank.research &&
           _suitePackByHead.oo_rank.research.return_model)
       );
-      setHeadSuiteView("oo_rank", "live", { paint: true });
+      setHeadSuiteView("oo_rank", "live", { paint: true, keepPrev: false });
       paintSuiteHeadStatus("oo_rank", "live", {
         state: "ok",
         chip: "已拟合",
         message: hasResearch
-          ? "执行套已全样本部署 · 因子表仍为研究套 Holdout OOS"
+          ? "执行套已全样本部署 · Holdout OOS 见研究套"
           : "执行套已全样本部署",
       });
+      void refreshSuiteFitSelect("oo_rank", { keepPrev: false });
     } catch (err) {
       paintSuiteHeadStatus("oo_rank", "live", {
         state: "error",
@@ -5364,15 +6009,23 @@ export function initQuant(ctx) {
     e.preventDefault();
     const holdN = readHoldoutTradingDays("tc_rank");
     try {
-      await runTcRank({ persist: false, holdoutOverride: holdN });
-      await runTcRank({
+      const fitOk = await runTcRank({
+        persist: false,
+        holdoutOverride: holdN,
+        suiteView: "research",
+      });
+      if (!fitOk) return;
+      const persistOk = await runTcRank({
         persist: true,
         persistRole: "research",
+        suiteView: "research",
         note: `ui tc_rank fit-research Holdout=${holdN}`,
       });
+      if (!persistOk) return;
+      clearSuiteFitPreview("tc_rank");
+      void refreshSuiteFitSelect("tc_rank", { keepPrev: false });
     } catch (err) {
-      const sum = document.getElementById("quant-tc-rank-summary");
-      renderRemStatus(sum, {
+      paintSuiteHeadStatus("tc_rank", "research", {
         state: "error",
         chip: "失败",
         message: String(err.message || err),
@@ -5385,27 +6038,35 @@ export function initQuant(ctx) {
   async function onTcRankPersistClick(e) {
     e.preventDefault();
     try {
-      await runTcRank({ persist: false, holdoutOverride: 0 });
-      await runTcRank({
+      const fitOk = await runTcRank({
+        persist: false,
+        holdoutOverride: 0,
+        suiteView: "live",
+      });
+      if (!fitOk) return;
+      const persistOk = await runTcRank({
         persist: true,
         persistRole: "live",
         deployFullSample: true,
+        suiteView: "live",
         note: "ui tc_rank promote-exec full-sample",
       });
+      if (!persistOk) return;
       const hasResearch = !!(
         (_suiteStampByHead.tc_rank && _suiteStampByHead.tc_rank.researchOn) ||
         (_suitePackByHead.tc_rank &&
           _suitePackByHead.tc_rank.research &&
           _suitePackByHead.tc_rank.research.return_model)
       );
-      setHeadSuiteView("tc_rank", "live", { paint: true });
+      setHeadSuiteView("tc_rank", "live", { paint: true, keepPrev: false });
       paintSuiteHeadStatus("tc_rank", "live", {
         state: "ok",
         chip: "已拟合",
         message: hasResearch
-          ? "执行套已全样本部署 · 因子表仍为研究套 Holdout OOS"
+          ? "执行套已全样本部署 · Holdout OOS 见研究套"
           : "执行套已全样本部署",
       });
+      void refreshSuiteFitSelect("tc_rank", { keepPrev: false });
     } catch (err) {
       paintSuiteHeadStatus("tc_rank", "live", {
         state: "error",
@@ -5493,19 +6154,7 @@ export function initQuant(ctx) {
     }
   });
 
-  // 路径轨：点击切换当前步高亮；深链到次要块时展开
-  const pathRail = document.querySelector(".quant-page .quant-path-rail");
-  if (pathRail) {
-    pathRail.addEventListener("click", (e) => {
-      const step = e.target.closest?.("a.quant-path-step");
-      if (!step) return;
-      pathRail.querySelectorAll("a.quant-path-step").forEach((a) => {
-        a.classList.toggle("is-active", a === step);
-        if (a === step) a.setAttribute("aria-current", "step");
-        else a.removeAttribute("aria-current");
-      });
-    });
-  }
+  // 深链到次要块时展开（概览 path rail 已由四头选卡替代）
   const openSecondaryByHash = () => {
     const id = String(location.hash || "").replace(/^#/, "");
     if (!id) return;

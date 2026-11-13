@@ -6,6 +6,7 @@ import logging
 import time
 from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple
 
+from core.data.policy import BARS_DAILY_LOOKBACK
 from core.research.lake_bridge import (
     FAMILY_OO,
     FAMILY_OO_RANK,
@@ -630,7 +631,7 @@ def materialize_l1(
     families: Sequence[str],
     codes: Sequence[str],
     *,
-    lookback: int = 1000,
+    lookback: int = BARS_DAILY_LOOKBACK,
     horizon_days: int = 1,
     progress_cb: ProgressCb = None,
     cancel_cb: CancelCb = None,
@@ -656,7 +657,7 @@ def _materialize_l1_body(
     families: Sequence[str],
     codes: Sequence[str],
     *,
-    lookback: int = 1000,
+    lookback: int = BARS_DAILY_LOOKBACK,
     horizon_days: int = 1,
     progress_cb: ProgressCb = None,
     cancel_cb: CancelCb = None,

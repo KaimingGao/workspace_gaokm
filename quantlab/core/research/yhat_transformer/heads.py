@@ -1,6 +1,7 @@
 """四头 ŷ_* HeadSpec：公共 yhat_transformer 的唯一分叉点。
 
 一次 run 只服务一个 head；不写生产 score。
+CLI 真源在 ``yhat_tf_desk.build_holdout_cli``。
 """
 
 from __future__ import annotations
@@ -20,9 +21,7 @@ class HeadSpec:
     group_key: Optional[str]
     loss: str
     gate: str
-    arm0: str
     status: str  # holdout_ready | in_progress | planned
-    default_cli: Optional[str]
     role: str = ""
 
     def to_dict(self) -> Dict[str, Any]:
@@ -35,16 +34,12 @@ _HEADS: Dict[str, HeadSpec] = {
         label="ŷ_oo",
         task_type="regression",
         target_desc="open[T]→open[T+1]",
-        factor_pack="aoo_core",
+        factor_pack="aoo_full",
         seq_label="y_oo",
         group_key=None,
         loss="smooth_l1",
         gate="cs_rank_ic",
-        arm0="lgb_oo",
         status="holdout_ready",
-        default_cli=(
-            "scripts/run_yhat_transformer_holdout.py --head oo --arms 0,A,C"
-        ),
         role="fuse 左端回归头",
     ),
     "tc": HeadSpec(
@@ -52,17 +47,12 @@ _HEADS: Dict[str, HeadSpec] = {
         label="ŷ_τc",
         task_type="regression",
         target_desc="price[τ]→close[T]",
-        factor_pack="atc_core",
+        factor_pack="atc_full",
         seq_label="y_tc",
         group_key=None,
         loss="smooth_l1",
         gate="cs_rank_ic",
-        arm0="lgb_tc",
         status="holdout_ready",
-        default_cli=(
-            "scripts/run_yhat_transformer_holdout.py --head tc --arms 0,A,C "
-            "--tau-end 09:30"
-        ),
         role="fuse 右端回归头（本期 τ=开盘 close/open）",
     ),
     "oo_rank": HeadSpec(
@@ -70,16 +60,12 @@ _HEADS: Dict[str, HeadSpec] = {
         label="ŷ_oo_rank",
         task_type="rank",
         target_desc="rank(open[T]→open[T+1])",
-        factor_pack="aoo_core",
+        factor_pack="aoo_full",
         seq_label="y_oo_rank",
         group_key="date",
         loss="listwise",
         gate="gate_lift",
-        arm0="lgb_oo_rank",
         status="holdout_ready",
-        default_cli=(
-            "scripts/run_yhat_transformer_holdout.py --head oo_rank --arms 0,C"
-        ),
         role="rank_score 左端排序头",
     ),
     "tc_rank": HeadSpec(
@@ -87,17 +73,12 @@ _HEADS: Dict[str, HeadSpec] = {
         label="ŷ_τc_rank",
         task_type="rank",
         target_desc="rank(price[τ]→close[T])",
-        factor_pack="atc_core",
+        factor_pack="atc_full",
         seq_label="y_tc_rank",
         group_key="date_tau",
         loss="listwise",
         gate="gate_lift",
-        arm0="lgb_tc_rank",
         status="holdout_ready",
-        default_cli=(
-            "scripts/run_yhat_transformer_holdout.py --head tc_rank --arms 0,C "
-            "--tau-end 09:30"
-        ),
         role="rank_score 右端排序头",
     ),
 }

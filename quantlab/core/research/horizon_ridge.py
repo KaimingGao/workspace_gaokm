@@ -659,10 +659,14 @@ def fit_horizon_ridge_report(
         DEFAULT_HOLDOUT_TRADING_DAYS,
         attach_holdout_meta,
         calendar_dates_from_stock_bars,
+        refuse_insufficient_holdout,
         resolve_ridge_split,
     )
 
-    hold_n = int(holdout_trading_days or DEFAULT_HOLDOUT_TRADING_DAYS)
+    try:
+        hold_n = max(0, int(holdout_trading_days))
+    except (TypeError, ValueError):
+        hold_n = int(DEFAULT_HOLDOUT_TRADING_DAYS)
     cal = (
         list(calendar_dates)
         if calendar_dates is not None
@@ -673,6 +677,10 @@ def fit_horizon_ridge_report(
         holdout_trading_days=hold_n,
         calendar_dates=cal,
     )
+    blocked_split = refuse_insufficient_holdout(split_meta)
+    if blocked_split:
+        blocked_split["task"] = f"{h}_ridge"
+        return blocked_split
     feat_names = [k for k in z_features if k not in Z_TH_FIT_DROP_ALIASES]
     # 只切平行数组 + 行下标；X 保持稠密矩阵，避免 List[dict] 物化
     ys_tr = [ys[i] for i in train_idx]
@@ -744,7 +752,7 @@ def fit_horizon_ridge_report(
             "test": n_te - len(groups_te),
             "miss": miss_keys[:8],
         }
-    if len(ys_tr) < 16 or len(ys_te) < 8:
+    if len(ys_tr) < 16 or (hold_n > 0 and len(ys_te) < 8):
         return {
             "success": False,
             "error": f"Holdout 切分后样本不足 训={len(ys_tr)} 测={len(ys_te)}",
@@ -1175,8 +1183,17 @@ def fit_horizon_dual_report(
 
     recommended = select_horizon_backend(
         oos_tree if tree_rep.get("success") else None,
-        oos_ridge,
+        oos_ridge if ridge_rep.get("success") else {"success": False},
     )
+    if not recommended:
+        failed = dict(ridge_rep)
+        failed["success"] = False
+        failed["error"] = "Ridge 与 Tree 对照均失败"
+        failed["tree_success"] = bool(tree_rep.get("success")) if isinstance(tree_rep, dict) else False
+        failed["tree_error"] = (
+            tree_rep.get("error") if isinstance(tree_rep, dict) else "tree fit failed"
+        )
+        return failed
     if recommended == "tree" and not tree_rep.get("success"):
         recommended = "ridge"
 
@@ -1396,7 +1413,7 @@ def persist_ridge_model(
         MODEL_ROLE_LIVE,
         MODEL_ROLE_RESEARCH,
         model_fit_id,
-        normalize_model_role,
+        parse_persist_role,
         require_research_suite,
         research_model_path,
         select_fit_return_model,
@@ -1409,7 +1426,9 @@ def persist_ridge_model(
     schema = cfg["schema"]
     dual_score_head = cfg["dual_score_head"]
     live_path = ridge_model_path(h)
-    role_n = normalize_model_role(role)
+    role_n, role_err = parse_persist_role(role)
+    if role_err:
+        return {"success": False, "error": role_err}
 
     if role_n == MODEL_ROLE_LIVE:
         research_doc, err = require_research_suite(live_path)
@@ -1418,6 +1437,11 @@ def persist_ridge_model(
         doc = stamp_live_suite_doc(
             research_doc, note=note or f"{h}_ridge research → live promote"
         )
+        from core.research.model_versions import refuse_incomplete_suite_doc
+
+        blocked_inc = refuse_incomplete_suite_doc(doc, sink="执行套")
+        if blocked_inc:
+            return blocked_inc
         os.makedirs(os.path.dirname(live_path), exist_ok=True)
         atomic_write_json(live_path, doc)
         _RIDGE_MODEL_CACHE.pop(h, None)
@@ -1442,6 +1466,12 @@ def persist_ridge_model(
         # 旧扁平报告：整包视为 ridge
         oos_ridge = oos
     backend = select_horizon_backend(oos_tree, oos_ridge)
+    if not backend:
+        return {
+            "success": False,
+            "error": "Ridge 与 Tree 对照均失败",
+            "promote_gate": {"ok": False, "blockers": ["对照臂失败"]},
+        }
     if backend == "tree" and not _backend_pack_from_report(report, "tree"):
         backend = "ridge"
 

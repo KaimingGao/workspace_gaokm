@@ -189,7 +189,7 @@ class OoRankAdoptOoTests(unittest.TestCase):
         oo_fp = make_fingerprint(
             bars_fp=bars_fingerprint(bars),
             horizon=1,
-            ridge_core_only=0,
+            aoo_core_only=0,
         )
         seen = []
 

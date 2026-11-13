@@ -169,22 +169,28 @@ def quant_tc_lgb_model() -> Dict[str, Any]:
 @router.post("/api/quant/oo-rank")
 
 def quant_oo_rank(body: OoRankRequest) -> Dict[str, Any]:
-    """ŷ_oo_rank：单头 LambdaRank（成交 oo_rank=1..n；进合成 rank_score（买序/阈值））。persist 只写盘，不重训。"""
+    """ŷ_oo_rank：单头 LambdaRank（成交 oo_rank=1..n；进合成 rank_score）。
+
+    ``persist=true`` / ``sync=true`` 同步；否则入队 ``GET /api/jobs/oo-rank``。
+    """
+    kwargs = dict(
+        lookback=body.lookback,
+        watching_limit=body.watching_limit,
+        holdout_trading_days=body.holdout_trading_days,
+        topk_track=body.topk_track,
+        ndcg_k=body.ndcg_k,
+        l2=body.l2,
+        backend=body.backend,
+        persist=body.persist,
+        persist_role=body.persist_role,
+        deploy_full_sample=bool(getattr(body, "deploy_full_sample", False)),
+        note=body.note,
+        cross_section_zscore=bool(body.cross_section_zscore),
+    )
     try:
-        return deps.quant.run_oo_rank_experiment(
-            lookback=body.lookback,
-            watching_limit=body.watching_limit,
-            holdout_trading_days=body.holdout_trading_days,
-            topk_track=body.topk_track,
-            ndcg_k=body.ndcg_k,
-            l2=body.l2,
-            backend=body.backend,
-            persist=body.persist,
-            persist_role=body.persist_role,
-            deploy_full_sample=bool(getattr(body, "deploy_full_sample", False)),
-            note=body.note,
-            cross_section_zscore=bool(body.cross_section_zscore),
-        )
+        if body.persist or body.sync:
+            return deps.quant.run_oo_rank_experiment(**kwargs)
+        return deps.quant.start_oo_rank_job(**kwargs)
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e)) from e
 
@@ -200,23 +206,29 @@ def quant_oo_rank_model() -> Dict[str, Any]:
 @router.post("/api/quant/tc-rank")
 
 def quant_tc_rank(body: TcRankRequest) -> Dict[str, Any]:
-    """ŷ_τc_rank：单头 LambdaRank（标签 price[τ]→close[T]；前缀与 ŷ_τc 同组）。persist 只写盘；进合成 rank_score（买序/阈值）。"""
+    """ŷ_τc_rank：单头 LambdaRank（标签 price[τ]→close[T]；前缀与 ŷ_τc 同组）。
+
+    ``persist=true`` / ``sync=true`` 同步；否则入队 ``GET /api/jobs/tc-rank``。
+    """
+    kwargs = dict(
+        lookback=body.lookback,
+        watching_limit=body.watching_limit,
+        holdout_trading_days=body.holdout_trading_days,
+        topk_track=body.topk_track,
+        ndcg_k=body.ndcg_k,
+        l2=body.l2,
+        backend=body.backend,
+        persist=body.persist,
+        persist_role=body.persist_role,
+        deploy_full_sample=bool(getattr(body, "deploy_full_sample", False)),
+        note=body.note,
+        cross_section_zscore=bool(body.cross_section_zscore),
+        tau_end_hm=body.tau_end_hm,
+    )
     try:
-        return deps.quant.run_tc_rank_experiment(
-            lookback=body.lookback,
-            watching_limit=body.watching_limit,
-            holdout_trading_days=body.holdout_trading_days,
-            topk_track=body.topk_track,
-            ndcg_k=body.ndcg_k,
-            l2=body.l2,
-            backend=body.backend,
-            persist=body.persist,
-            persist_role=body.persist_role,
-            deploy_full_sample=bool(getattr(body, "deploy_full_sample", False)),
-            note=body.note,
-            cross_section_zscore=bool(body.cross_section_zscore),
-            tau_end_hm=body.tau_end_hm,
-        )
+        if body.persist or body.sync:
+            return deps.quant.run_tc_rank_experiment(**kwargs)
+        return deps.quant.start_tc_rank_job(**kwargs)
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e)) from e
 
@@ -440,7 +452,14 @@ def quant_research_universe_get(coverage: bool = False) -> Dict[str, Any]:
 
 @router.get("/api/quant/research-universe/predictability-tiers")
 
-def quant_research_universe_predictability_tiers(
+def quant_research_universe_predictability_tiers() -> Dict[str, Any]:
+    """只读上次分档。重算走 POST /predictability-tiers/run。"""
+    return quant_research_universe_predictability_tiers_last(slim=False)
+
+
+@router.post("/api/quant/research-universe/predictability-tiers/run")
+
+def quant_research_universe_predictability_tiers_run(
     holdout: int = Query(
         60,
         ge=2,
@@ -463,8 +482,10 @@ def quant_research_universe_predictability_tiers(
     holdout: 分档专用评测窗（默认 60），与 ŷ_oo 拟合卡 Holdout 独立；不参与定档训练。
     lookback: 面板长度。定档模型只拟合定档窗之前，不覆盖研究套。
     有分数者 top a_count→A、接着 b_count→B、其余→C。
+    缺头时写 last 供页面展示，不刷新已开启的执行闸。
     回测天数由回测页 lookback 独立设置。
     """
+    from core.data.policy import BARS_DAILY_LOOKBACK
     from core.research.predictability_tiers import (
         build_predictability_tiers,
         clamp_a_count,
@@ -477,14 +498,18 @@ def quant_research_universe_predictability_tiers(
             holdout_n=max(2, min(int(holdout or 60), 90)),
             pool=str(pool or "watching"),
             head=str(head or "oo"),
-            lookback=max(100, min(int(lookback or 120), 1000)),
+            lookback=max(100, min(int(lookback or 120), int(BARS_DAILY_LOOKBACK))),
             a_count=clamp_a_count(a_count),
             b_count=clamp_b_count(b_count),
             persist=True,
         )
+        if isinstance(rep, dict) and rep.get("running"):
+            raise HTTPException(status_code=409, detail="分档进行中")
         if isinstance(rep, dict):
             rep["live"] = live_tier_status()
         return rep
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e)) from e
 
@@ -897,50 +922,40 @@ def _watching_factor_items(limit: int = _CORR_UNIVERSE):
 
 @router.get("/api/quant/factor-ir")
 
-def quant_factor_ir(
-    lookback: int = 60,
-    horizon_days: int = 3,
-) -> Dict[str, Any]:
-    """因子 IR 分析：因子信息比率 = IC 均值 / IC 标准差 × sqrt(252/horizon)。"""
+def quant_factor_ir() -> Dict[str, Any]:
+    """观察池当前截面因子分数的均值和离散。不是日频 Rank IC，不做年化。"""
     try:
         items, _source, empty_note = _watching_factor_items()
         if not items:
             return {"ok": True, "factors": [], "note": empty_note or "观察池还没有截面因子分"}
 
-        factor_ic_series: Dict[str, List[float]] = {}
+        factor_scores: Dict[str, List[float]] = {}
         for item in items:
             sub_scores = item.get("sub_scores") or {}
             for factor, score in sub_scores.items():
-                if factor not in factor_ic_series:
-                    factor_ic_series[factor] = []
-                factor_ic_series[factor].append(float(score))
+                factor_scores.setdefault(factor, []).append(float(score))
 
-        factor_ir_list: List[Dict[str, Any]] = []
-        for factor, scores in factor_ic_series.items():
+        factor_rows: List[Dict[str, Any]] = []
+        for factor, scores in factor_scores.items():
             if len(scores) < 3:
                 continue
             import statistics as _stats
-            mean_ic = _stats.mean(scores)
-            std_ic = _stats.stdev(scores) if len(scores) > 1 else 0
-            ir = (mean_ic / std_ic) if std_ic > 1e-12 else 0
-            ann_factor = (252.0 / max(horizon_days, 1)) ** 0.5
-            ir_annual = ir * ann_factor
-            factor_ir_list.append({
+            mean_score = _stats.mean(scores)
+            std_score = _stats.stdev(scores) if len(scores) > 1 else 0.0
+            factor_rows.append({
                 "factor": factor,
-                "mean_ic": round(mean_ic, 4),
-                "std_ic": round(std_ic, 4),
-                "ir": round(ir, 4),
-                "ir_annual": round(ir_annual, 4),
+                "mean_score": round(mean_score, 4),
+                "std_score": round(std_score, 4),
                 "sample_count": len(scores),
                 "positive_rate": round(sum(1 for s in scores if s > 0) / len(scores) * 100, 1),
             })
 
-        factor_ir_list.sort(key=lambda x: abs(x["ir_annual"]), reverse=True)
+        factor_rows.sort(key=lambda x: abs(x["mean_score"]), reverse=True)
 
         return {
             "ok": True,
-            "factors": factor_ir_list,
-            "note": f"基于 {len(items)} 只观察池票的截面因子分数",
+            "factors": factor_rows,
+            "note": f"基于 {len(items)} 只观察池票的截面因子分数，不是 IC",
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e)) from e

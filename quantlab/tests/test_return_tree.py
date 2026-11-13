@@ -38,6 +38,11 @@ class TestRebalanceScoreBackend(unittest.TestCase):
         x = rng.normal(size=(40, 2))
         y = 0.3 * x[:, 0] - 0.2 * x[:, 1]
         w = np.ones(40)
+        seen = []
+
+        def _cb(env) -> None:
+            seen.append(int(env.iteration))
+
         model, _gain = _fit_lightgbm(
             x,
             y,
@@ -46,7 +51,10 @@ class TestRebalanceScoreBackend(unittest.TestCase):
             max_depth=2,
             learning_rate=0.2,
             subsample=1.0,
+            callbacks=[_cb],
         )
+        self.assertIn(0, seen)
+        self.assertIn(7, seen)
         packed = pack_tree_return_model(
             head="oo",
             backend="lightgbm",

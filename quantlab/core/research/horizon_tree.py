@@ -845,10 +845,14 @@ def fit_horizon_tree_report(
         DEFAULT_HOLDOUT_TRADING_DAYS,
         attach_holdout_meta,
         calendar_dates_from_stock_bars,
+        refuse_insufficient_holdout,
         resolve_ridge_split,
     )
 
-    hold_n = int(holdout_trading_days or DEFAULT_HOLDOUT_TRADING_DAYS)
+    try:
+        hold_n = max(0, int(holdout_trading_days))
+    except (TypeError, ValueError):
+        hold_n = int(DEFAULT_HOLDOUT_TRADING_DAYS)
     cal = (
         list(calendar_dates)
         if calendar_dates is not None
@@ -859,6 +863,10 @@ def fit_horizon_tree_report(
         holdout_trading_days=hold_n,
         calendar_dates=cal,
     )
+    blocked_split = refuse_insufficient_holdout(split_meta)
+    if blocked_split:
+        blocked_split["task"] = f"{h}_tree"
+        return blocked_split
     feat_names = [k for k in tree_z_features if k not in Z_TH_FIT_DROP_ALIASES]
     ridge_feat_names = [k for k in z_features if k not in Z_TH_FIT_DROP_ALIASES]
     ys_tr = [ys[i] for i in train_idx]
@@ -923,7 +931,7 @@ def fit_horizon_tree_report(
             "live_hook": False,
             "backtest_hook": False,
         }
-    if len(ys_tr) < 16 or len(ys_te) < 8:
+    if len(ys_tr) < 16 or (hold_n > 0 and len(ys_te) < 8):
         return {
             "success": False,
             "error": f"Holdout 切分后样本不足 训={len(ys_tr)} 测={len(ys_te)}",
@@ -1025,7 +1033,7 @@ def fit_horizon_tree_report(
     else:
         xs_tr, _, _, _ = compact_subset(compact, train_idx, names=ridge_feat_names)
         xs_te, _, _, _ = compact_subset(compact, test_idx, names=ridge_feat_names)
-        _, ridge_preds = _fit_ridge_oos(
+        ridge_fit, ridge_preds = _fit_ridge_oos(
             xs_tr,
             ys_tr,
             xs_te,
@@ -1041,11 +1049,16 @@ def fit_horizon_tree_report(
         )
     ridge_s = round(time.perf_counter() - t_ridge0, 2)
     oos_boost = _oos_pack(boost_preds, ys_te, metas_te, use_minute=True, kind="prob")
-    oos_ridge = (
-        {}
-        if skip_ridge_baseline
-        else _oos_pack(ridge_preds, ys_te, metas_te, use_minute=True, kind="prob")
-    )
+    if skip_ridge_baseline:
+        oos_ridge = {}
+    elif not ridge_fit.get("success"):
+        oos_ridge = {
+            "success": False,
+            "error": ridge_fit.get("error") or "ridge baseline failed",
+        }
+        ridge_preds = []
+    else:
+        oos_ridge = _oos_pack(ridge_preds, ys_te, metas_te, use_minute=True, kind="prob")
     oos_boost.update(
         {
             "n_train": len(ys_tr),

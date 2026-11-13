@@ -620,27 +620,13 @@ export function installSuggest(q) {
     ooFitInflight = true;
     const holdN =
       typeof readHoldoutTradingDays === "function" ? readHoldoutTradingDays("oo") : 20;
-    const t0 = Date.now();
-    let busyTimer = null;
-    const stopBusy = () => {
-      if (busyTimer) {
-        clearInterval(busyTimer);
-        busyTimer = null;
-      }
-    };
-    const tick = () => {
-      const s = Math.max(0, Math.round((Date.now() - t0) / 1000));
-      const msg = `ŷ_oo 拟合… ${q.fmtRidgeFitSec(s)} · ${q.ridgeFitBusyHint(s)}`;
-      paintOoStatus({
-        state: "busy",
-        chip: "拟合中",
-        message: msg,
-        busy: true,
-        suiteView: "research",
-      });
-    };
-    tick();
-    busyTimer = setInterval(tick, 1000);
+    paintOoStatus({
+      state: "busy",
+      chip: "拟合中",
+      message: holdN === 0 ? "ŷ_oo 全样本重训…" : "ŷ_oo 拟合 + Holdout OOS…",
+      busy: true,
+      suiteView: "research",
+    });
     try {
       await ensureFactorMeta();
       const csFit = readCrossSectionFitParams("oo");
@@ -654,17 +640,24 @@ export function installSuggest(q) {
           watching_limit: readWatchingLimit(),
           save_draft: true,
           holdout_trading_days: holdN,
+          sync: false,
           ...csFit,
         }),
       });
-      let data = null;
-      try {
-        data = await res.json();
-      } catch (_) {
-        data = null;
-      }
-      stopBusy();
-      if (!res.ok || !data || data.success === false) {
+      const posted = await res.json().catch(() => ({}));
+      const sumEl = document.getElementById("quant-oo-summary");
+      const awaited = await q.awaitRidgeFitIfBackground(res, posted, {
+        persist: false,
+        jobName: "oo-lgb",
+        modelPath: "/api/quant/return-model/status",
+        sumEl,
+        label: "ŷ_oo",
+        suiteHead: "oo",
+        suiteView: "research",
+      });
+      const data = awaited.data || null;
+      const httpOk = awaited.httpOk;
+      if (!httpOk || !data || data.success === false) {
         const detail = q.formatHorizonFitErrorMessage(
           data,
           "",
@@ -725,7 +718,6 @@ export function installSuggest(q) {
       }
       await refreshReturnModelStatus({ justFitted: true });
     } catch (err) {
-      stopBusy();
       paintOoStatus({
         state: "error",
         chip: "失败",
@@ -733,7 +725,6 @@ export function installSuggest(q) {
         error: true,
       });
     } finally {
-      stopBusy();
       ooFitInflight = false;
     }
   }
@@ -751,26 +742,13 @@ export function installSuggest(q) {
       return;
     }
     ooFitInflight = true;
-    const t0 = Date.now();
-    let busyTimer = null;
-    const stopBusy = () => {
-      if (busyTimer) {
-        clearInterval(busyTimer);
-        busyTimer = null;
-      }
-    };
-    const tick = () => {
-      const s = Math.max(0, Math.round((Date.now() - t0) / 1000));
-      paintOoStatus({
-        state: "busy",
-        chip: "拟合中",
-        message: `ŷ_oo 全样本重训… ${q.fmtRidgeFitSec(s)}`,
-        busy: true,
-        suiteView: "live",
-      });
-    };
-    tick();
-    busyTimer = setInterval(tick, 1000);
+    paintOoStatus({
+      state: "busy",
+      chip: "拟合中",
+      message: "ŷ_oo 全样本重训…",
+      busy: true,
+      suiteView: "live",
+    });
     try {
       await ensureFactorMeta();
       const csFit = readCrossSectionFitParams("oo");
@@ -784,19 +762,30 @@ export function installSuggest(q) {
           watching_limit: readWatchingLimit(),
           save_draft: true,
           holdout_trading_days: 0,
+          sync: false,
           ...csFit,
         }),
       });
-      const fitData = await fitRes.json().catch(() => null);
-      if (!fitRes.ok || !fitData || fitData.success === false) {
-        stopBusy();
+      const posted = await fitRes.json().catch(() => ({}));
+      const sumEl = document.getElementById("quant-oo-summary");
+      const awaited = await q.awaitRidgeFitIfBackground(fitRes, posted, {
+        persist: false,
+        jobName: "oo-lgb",
+        modelPath: "/api/quant/return-model/status",
+        sumEl,
+        label: "ŷ_oo",
+        suiteHead: "oo",
+        suiteView: "live",
+      });
+      const fitData = awaited.data || null;
+      if (!awaited.httpOk || !fitData || fitData.success === false) {
         paintOoStatus({
           state: "error",
           chip: "失败",
           message: q.formatHorizonFitErrorMessage(
             fitData,
             "",
-            !fitRes.ok ? `HTTP ${fitRes.status}` : "全样本重训失败"
+            !awaited.httpOk ? `HTTP ${fitRes.status}` : "全样本重训失败"
           ),
           error: true,
         });
@@ -819,7 +808,6 @@ export function installSuggest(q) {
         }),
       });
       const promoData = await promo.json().catch(() => null);
-      stopBusy();
       if (!promo.ok || !promoData || !promoData.success) {
         paintOoStatus({
           state: "error",
@@ -836,7 +824,7 @@ export function installSuggest(q) {
       const status = await refreshReturnModelStatus();
       const hasResearch = !!(status && status.research && status.research.exists);
       if (typeof q.setHeadSuiteView === "function") {
-        q.setHeadSuiteView("oo", "live", { paint: true });
+        q.setHeadSuiteView("oo", "live", { paint: true, keepPrev: false });
       } else if (typeof q.syncBacktestRoleFromSuite === "function") {
         q.syncBacktestRoleFromSuite("live");
       }
@@ -844,12 +832,16 @@ export function installSuggest(q) {
         state: "ok",
         chip: "已拟合",
         message: hasResearch
-          ? "执行套已全样本部署 · 因子表仍为研究套 Holdout OOS"
+          ? "执行套已全样本部署 · Holdout OOS 见研究套"
           : "执行套已全样本部署",
         suiteView: "live",
+        persistOk: true,
+        persistRole: "live",
       });
+      if (typeof q.refreshSuiteFitSelect === "function") {
+        void q.refreshSuiteFitSelect("oo", { keepPrev: false });
+      }
     } catch (err) {
-      stopBusy();
       paintOoStatus({
         state: "error",
         chip: "失败",
@@ -857,7 +849,6 @@ export function installSuggest(q) {
         error: true,
       });
     } finally {
-      stopBusy();
       ooFitInflight = false;
     }
   }

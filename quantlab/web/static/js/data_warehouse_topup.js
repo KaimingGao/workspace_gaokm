@@ -6,7 +6,10 @@
 
 import { apiFetch } from "./api_client.js";
 import { getDataOfflineOnly } from "./data_offline.js";
-import { unwrapJobSnap } from "./quant/cluster_job_ui.js";
+import {
+  unwrapJobSnap,
+  jobRestartInterruptMessage,
+} from "./quant/cluster_job_ui.js";
 import {
   BARS_DAILY_LOOKBACK,
   BARS_WATCHING_LIMIT,
@@ -54,8 +57,9 @@ async function waitRefreshJob(pollPath, jobId, opts = {}) {
     if (st === "failed") {
       throw new Error(job.error || job.message || `${label}失败`);
     }
-    if (st === "idle" && sawOwn) {
-      throw new Error(`${label}已结束但未返回结果`);
+    if (st === "idle" && (sawOwn || jobId)) {
+      // bars/minute 槽重启会清成 idle；须认 jobId（首轮 poll 前清槽时 sawOwn 仍 false）
+      throw new Error(jobRestartInterruptMessage(label));
     }
     if (typeof onStatus === "function") {
       const pct = Number(job.pct);

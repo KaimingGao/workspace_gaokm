@@ -213,7 +213,7 @@ def paper_page() -> RedirectResponse:
 
 @app.get("/yhat-tf")
 def yhat_tf_page() -> HTMLResponse:
-    """L4 四头 ŷ Transformer 隐藏研究台：仅 ⌘⇧K 入口；不写生产 score。"""
+    """模型中心：四头 ŷ Transformer Holdout；仅 ⌘⇧K 入口；不写生产 score。"""
     return HTMLResponse(
         render_tool_html("yhat_tf"),
         headers={"Cache-Control": "no-store"},

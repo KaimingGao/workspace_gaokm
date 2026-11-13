@@ -62,12 +62,25 @@ class TestPanelFingerprint(unittest.TestCase):
     def test_make_fingerprint_kw_order_stable(self) -> None:
         from core.research.panel_fingerprint import make_fingerprint
 
-        a = make_fingerprint(bars_fp="z", horizon=1, ridge_core_only=0)
-        b = make_fingerprint(bars_fp="z", ridge_core_only=0, horizon=1)
+        a = make_fingerprint(bars_fp="z", horizon=1, aoo_core_only=0)
+        b = make_fingerprint(bars_fp="z", aoo_core_only=0, horizon=1)
         self.assertEqual(a, b)
         self.assertNotEqual(
+            make_fingerprint(bars_fp="z", horizon=1, aoo_core_only=0),
+            make_fingerprint(bars_fp="z", horizon=1, aoo_core_only=1),
+        )
+
+    def test_make_fingerprint_aoo_core_only_wire_alias(self) -> None:
+        """``aoo_core_only`` 与历史线字段 ``ridge_core_only`` 哈希一致。"""
+        from core.research.panel_fingerprint import make_fingerprint
+
+        self.assertEqual(
+            make_fingerprint(bars_fp="z", aoo_core_only=0),
+            make_fingerprint(bars_fp="z", ridge_core_only=0),
+        )
+        self.assertEqual(
+            make_fingerprint(bars_fp="z", horizon=1, aoo_core_only=0),
             make_fingerprint(bars_fp="z", horizon=1, ridge_core_only=0),
-            make_fingerprint(bars_fp="z", horizon=1, ridge_core_only=1),
         )
 
 class TestAssembleUsesL1(unittest.TestCase):
@@ -107,7 +120,7 @@ class TestAssembleUsesL1(unittest.TestCase):
             fp_a = make_fingerprint(
                 bars_fp=bars_fingerprint(items[0][1]),
                 horizon=1,
-                ridge_core_only=0,
+                aoo_core_only=0,
             )
             self.assertIsNotNone(load_stock_panel(FAMILY_OO, "AAA", fingerprint=fp_a))
 

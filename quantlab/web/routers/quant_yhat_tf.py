@@ -1,4 +1,4 @@
-"""L4 四头 ŷ Transformer 研究台 API（/yhat-tf）。不写生产 score。"""
+"""模型中心 API（/yhat-tf）。四头 Holdout 研究轨；不写生产 score。"""
 
 from __future__ import annotations
 
@@ -11,8 +11,8 @@ from core.research.yhat_tf_desk import (
     clear_slot,
     desk_status,
     promote_draft_to_research,
-    record_holdout_intent,
     save_fit_draft,
+    start_holdout_fit,
 )
 
 router = APIRouter(tags=["quant-yhat-tf"])
@@ -54,9 +54,14 @@ def yhat_tf_save_draft(body: YhatTfFitBody) -> Dict[str, Any]:
 
 @router.post("/api/quant/yhat-tf/fit")
 def yhat_tf_fit(body: YhatTfFitBody) -> Dict[str, Any]:
+    """按 Holdout 参数后台启动拟合（研究轨；不写 live）。"""
     try:
-        save_fit_draft(body.head, body.params or {}, note=body.note or "")
-        return record_holdout_intent(body.head, body.params)
+        out = start_holdout_fit(body.head, body.params or {})
+        if not out.get("success"):
+            raise HTTPException(status_code=400, detail=out.get("error") or "拟合启动失败")
+        return out
+    except HTTPException:
+        raise
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e)) from e
     except Exception as e:  # noqa: BLE001

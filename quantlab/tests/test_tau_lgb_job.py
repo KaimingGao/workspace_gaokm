@@ -2,12 +2,14 @@
 
 from __future__ import annotations
 
+import time
 import unittest
+
+from tests.job_slot_isolation import isolated_live_slot
+
 
 class TestTauLgbJob(unittest.TestCase):
     def test_start_tau_lgb_job_returns_background(self):
-        import time
-
         from core.job_progress import tau_lgb_job
         from quant.services.quant_service_factors import QuantFactorMixin
 
@@ -24,24 +26,25 @@ class TestTauLgbJob(unittest.TestCase):
             return {"success": True, "return_model": {"intercept": 0.0}}
 
         svc.run_tau_lgb_experiment = _fake
-        t0 = time.time()
-        out = svc.start_tau_lgb_job(watching_limit=2)
-        self.assertLess(time.time() - t0, 0.5)
-        self.assertTrue(out.get("background"))
-        self.assertTrue(out.get("success"))
-        job_id = (out.get("job") or {}).get("id")
-        self.assertTrue(job_id)
-        deadline = time.time() + 6
-        while time.time() < deadline and tau_lgb_job.is_running():
-            time.sleep(0.05)
-        snap = tau_lgb_job.get()
-        self.assertEqual(snap.get("status"), "done")
-        self.assertEqual(started["n"], 1)
-        self.assertEqual(snap.get("id"), job_id)
-        self.assertTrue((snap.get("result") or {}).get("success"))
-        kw = started["kwargs"] or {}
-        self.assertTrue(callable(kw.get("progress_cb")))
-        self.assertTrue(callable(kw.get("job_alive_cb")))
+        with isolated_live_slot(tau_lgb_job):
+            t0 = time.time()
+            out = svc.start_tau_lgb_job(watching_limit=2)
+            self.assertLess(time.time() - t0, 0.5)
+            self.assertTrue(out.get("background"))
+            self.assertTrue(out.get("success"))
+            job_id = (out.get("job") or {}).get("id")
+            self.assertTrue(job_id)
+            deadline = time.time() + 6
+            while time.time() < deadline and tau_lgb_job.is_running():
+                time.sleep(0.05)
+            snap = tau_lgb_job.get()
+            self.assertEqual(snap.get("status"), "done")
+            self.assertEqual(started["n"], 1)
+            self.assertEqual(snap.get("id"), job_id)
+            self.assertTrue((snap.get("result") or {}).get("success"))
+            kw = started["kwargs"] or {}
+            self.assertTrue(callable(kw.get("progress_cb")))
+            self.assertTrue(callable(kw.get("job_alive_cb")))
 
     def test_tau_orphan_skips_last_report(self):
         from unittest.mock import patch

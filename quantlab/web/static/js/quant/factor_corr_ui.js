@@ -224,10 +224,15 @@ export function renderFactorSummaryCards(data, metaByName) {
     return;
   }
   host.hidden = false;
-  if (countEl) countEl.textContent = `全样本 IC · 共 ${factors.length} 个（≠ 组β）`;
+  const crossSection = factors.some((f) => f && f.mean_score != null && f.ir_annual == null);
+  if (countEl) {
+    countEl.textContent = crossSection
+      ? `截面分数 · 共 ${factors.length} 个（不是 IC）`
+      : `全样本 IC · 共 ${factors.length} 个（≠ 组β）`;
+  }
 
   const topByAbsIR = [...factors]
-    .sort((a, b) => Math.abs(b.ir_annual ?? b.ic_ir ?? 0) - Math.abs(a.ir_annual ?? a.ic_ir ?? 0))
+    .sort((a, b) => Math.abs(b.mean_score ?? b.ir_annual ?? b.ic_ir ?? 0) - Math.abs(a.mean_score ?? a.ir_annual ?? a.ic_ir ?? 0))
     .slice(0, 16);
 
   // 与概览 KPI 同构：一行等分铺满（≤5 列；更多则换行）
@@ -241,23 +246,39 @@ export function renderFactorSummaryCards(data, metaByName) {
     const label = f.label || meta.label || name;
     const desc = f.description || meta.description || name;
     const icMean = Number(f.ic_mean ?? f.ic ?? NaN);
-    const ir = Number(f.ir_annual ?? f.ic_ir ?? f.ir ?? NaN);
+    const score = Number(f.mean_score ?? f.ir_annual ?? f.ic_ir ?? f.ir ?? NaN);
+    const spread = Number(f.std_score ?? NaN);
     const cov = Number(f.coverage ?? f.sample_count ?? NaN);
     const posRate = Number(f.positive_rate ?? f.positive_ratio ?? NaN);
+    const cardCross = f.mean_score != null && f.ir_annual == null;
 
-    // IR 强度标签（研究语义，非生产/上线状态）
     let state = "mid";
-    if (Number.isFinite(ir)) {
-      const absIR = Math.abs(ir);
+    if (cardCross && Number.isFinite(score)) {
+      const absScore = Math.abs(score);
+      if (absScore >= 0.5) state = "strong";
+      else if (absScore < 0.05) state = "faint";
+    } else if (Number.isFinite(score)) {
+      const absIR = Math.abs(score);
       if (absIR >= 1.2) state = "strong";
       else if (absIR < 0.3) state = "faint";
       else if (Number.isFinite(icMean) && Math.abs(icMean) < 0.02) state = "weak";
     }
-    const stateLabel = { strong: "强", mid: "中", weak: "偏弱", faint: "弱" }[state];
+    const stateLabel = cardCross
+      ? { strong: "拉开", mid: "中", faint: "接近零" }[state] || "中"
+      : { strong: "强", mid: "中", weak: "偏弱", faint: "弱" }[state];
 
     const valCls = (n) => (n > 0 ? "is-pos" : n < 0 ? "is-neg" : "");
-    const icCls = Number.isFinite(icMean) ? valCls(icMean) : "";
-    const irCls = Number.isFinite(ir) ? valCls(ir) : "";
+    const leftCls = Number.isFinite(cardCross ? score : icMean) ? valCls(cardCross ? score : icMean) : "";
+    const midCls = Number.isFinite(cardCross ? spread : score) ? valCls(cardCross ? spread : score) : "";
+    const leftLabel = cardCross ? "均值" : "IC";
+    const midLabel = cardCross ? "离散" : "IR";
+    const rightLabel = cardCross ? "正分%" : "正IC%";
+    const leftVal = cardCross ? score : icMean;
+    const midVal = cardCross ? spread : score;
+    const leftText = Number.isFinite(leftVal) ? (cardCross && leftVal >= 0 ? "+" : "") + leftVal.toFixed(cardCross ? 2 : 3) : "—";
+    const midText = Number.isFinite(midVal)
+      ? (midVal >= 0 && !cardCross ? "+" : "") + midVal.toFixed(2)
+      : "—";
 
     html += `
       <div class="quant-pro-factor-card" data-state="${escapeHtml(state)}" title="${escapeHtml(`${name} · ${desc}`)}">
@@ -268,15 +289,15 @@ export function renderFactorSummaryCards(data, metaByName) {
         <div class="quant-pro-factor-card-desc">${escapeHtml(desc)}</div>
         <div class="quant-pro-factor-card-metrics">
           <div class="quant-pro-factor-metric">
-            <span class="quant-pro-factor-metric-label">IC</span>
-            <span class="quant-pro-factor-metric-value ${icCls}">${Number.isFinite(icMean) ? icMean.toFixed(3) : "—"}</span>
+            <span class="quant-pro-factor-metric-label">${leftLabel}</span>
+            <span class="quant-pro-factor-metric-value ${leftCls}">${leftText}</span>
           </div>
           <div class="quant-pro-factor-metric">
-            <span class="quant-pro-factor-metric-label">IR</span>
-            <span class="quant-pro-factor-metric-value ${irCls}">${Number.isFinite(ir) ? (ir >= 0 ? "+" : "") + ir.toFixed(2) : "—"}</span>
+            <span class="quant-pro-factor-metric-label">${midLabel}</span>
+            <span class="quant-pro-factor-metric-value ${midCls}">${midText}</span>
           </div>
           <div class="quant-pro-factor-metric">
-            <span class="quant-pro-factor-metric-label">正IC%</span>
+            <span class="quant-pro-factor-metric-label">${rightLabel}</span>
             <span class="quant-pro-factor-metric-value is-accent">${Number.isFinite(posRate) ? posRate.toFixed(0) + "%" : (Number.isFinite(cov) ? cov : "—")}</span>
           </div>
         </div>
@@ -303,30 +324,30 @@ function renderFactorIR(data, hostId) {
   }
 
   const factors = [...data.factors]
-    .sort((a, b) => Math.abs(b.ir_annual || 0) - Math.abs(a.ir_annual || 0))
+    .sort((a, b) => Math.abs(b.mean_score || 0) - Math.abs(a.mean_score || 0))
     .slice(0, 14);
-  const absIRs = factors.map((f) => Math.abs(f.ir_annual || 0));
-  const maxAbsIR = Math.max(...absIRs, 0.05);
-  const hasAnySignal = absIRs.some((v) => v > 0.01);
+  const absScores = factors.map((f) => Math.abs(f.mean_score || 0));
+  const maxAbs = Math.max(...absScores, 0.05);
+  const hasAnySignal = absScores.some((v) => v > 0.01);
 
   if (!hasAnySignal) {
-    host.innerHTML = vizEmpty("所有因子 IR 接近零 · 暂无有效信号");
+    host.innerHTML = vizEmpty("截面分数接近零 · 暂无拉开的因子");
     return;
   }
 
   let html =
     `<div class="quant-chart-axis-head">` +
-    `<span class="quant-chart-title">年化 IR（|IR| 排序）</span>` +
-    `<span class="quant-chart-axis-hint">中线=0 · 右正左负</span>` +
+    `<span class="quant-chart-title">截面分数（|均值| 排序）</span>` +
+    `<span class="quant-chart-axis-hint">中线=0 · 右正左负 · 不是 IC</span>` +
     `</div>` +
     `<div class="factor-ir-bar">` +
-    `<div class="factor-ir-head"><span>因子</span><span>IR</span><span class="num">值</span><span class="num">正%</span></div>`;
+    `<div class="factor-ir-head"><span>因子</span><span>均值</span><span class="num">值</span><span class="num">正%</span></div>`;
   for (const f of factors) {
-    const ir = Number(f.ir_annual || 0);
-    const half = ir === 0 ? 0 : Math.max(3, (Math.abs(ir) / maxAbsIR) * 50);
+    const ir = Number(f.mean_score || 0);
+    const half = ir === 0 ? 0 : Math.max(3, (Math.abs(ir) / maxAbs) * 50);
     const isPos = ir >= 0;
     const cn = factorCN(f.factor);
-    const tip = `${cn} · IR ${ir >= 0 ? "+" : ""}${ir.toFixed(2)} · 正IC ${f.positive_rate?.toFixed?.(0) ?? "—"}%`;
+    const tip = `${cn} · 截面均值 ${ir >= 0 ? "+" : ""}${ir.toFixed(2)} · 离散 ${Number(f.std_score || 0).toFixed(2)} · 正分 ${f.positive_rate?.toFixed?.(0) ?? "—"}% · 不是 IC`;
     html += `
       <div class="factor-ir-row" title="${escapeHtml(tip)}">
         <span class="factor-ir-name">${escapeHtml(cn)}</span>
@@ -347,8 +368,8 @@ function renderFactorIR(data, hostId) {
   }
   html += `</div>`;
   html += `<p class="factor-ir-footnote">${escapeHtml(
-    data.note || ""
-  )} · IR = IC均值/IC标准差 × √(252/horizon)</p>`;
+    data.note || "截面因子分数的均值和离散，不是 IC"
+  )}</p>`;
 
   host.innerHTML = html;
 }
@@ -363,17 +384,17 @@ function unwrapApi(res, label = "加载失败") {
 export async function loadAndRenderFactorIR(hostId) {
     const host = document.getElementById(hostId);
     if (!host) return;
-    host.innerHTML = `<div class="quant-fingerprint is-busy">计算因子 IR…</div>`;
-    setProStatusChip("quant-pro-factor-status", "busy", "计算 IR…");
+    host.innerHTML = `<div class="quant-fingerprint is-busy">计算截面分数…</div>`;
+    setProStatusChip("quant-pro-factor-status", "busy", "计算截面分数…");
     try {
       const data = unwrapApi(
-        await apiFetch("/api/quant/factor-ir?horizon_days=3"),
-        "IR 加载失败"
+        await apiFetch("/api/quant/factor-ir"),
+        "截面分数加载失败"
       );
       renderFactorIR(data, hostId);
       // 若有 IR 结果，同步渲染因子摘要卡
       if (data && data.factors) renderFactorSummaryCards(data);
-      setProStatusChip("quant-pro-factor-status", "ok", "IR 就绪");
+      setProStatusChip("quant-pro-factor-status", "ok", "截面分数就绪");
     } catch (err) {
       host.innerHTML = vizEmpty(`加载失败: ${err.message || err}`);
       setProStatusChip("quant-pro-factor-status", "error", "加载失败");

@@ -167,26 +167,115 @@ class AkPool:
         timeout: Optional[float] = None,
         **kwargs: Any,
     ) -> List[Any]:
-        """有序并发映射；fn(item, **kwargs) 逐项执行，单项异常返回 None。"""
+        """有序并发映射；fn(item, **kwargs) 逐项执行，单项异常返回 None。
+
+        ``BrokenProcessPool``（worker FATAL / 父进程重启杀池）时重建进程池并
+        **整段重试剩余项一次**，避免同一异常对后续 future 连环刷屏且整批变 None。
+        """
         items = list(items or [])
         if not items:
             return []
+        return self._map_once(
+            fn, items, timeout=timeout, allow_recreate=True, **kwargs
+        )
+
+    def _drain_futures(
+        self,
+        futures: Sequence[Future],
+        items: Sequence[Any],
+        *,
+        timeout: Optional[float],
+    ) -> List[Any]:
+        """尽量取已提交 future 的结果；单项异常 → None。"""
+        out: List[Any] = []
+        for i, fut in enumerate(futures):
+            try:
+                out.append(fut.result(timeout=timeout))
+            except Exception:
+                label = items[i] if i < len(items) else i
+                logger.warning(
+                    "ak_worker map item[%s] failed", label, exc_info=True
+                )
+                out.append(None)
+        return out
+
+    def _map_once(
+        self,
+        fn: Callable,
+        items: Sequence[Any],
+        *,
+        timeout: Optional[float],
+        allow_recreate: bool,
+        **kwargs: Any,
+    ) -> List[Any]:
+        if _SHUTTING_DOWN:
+            return [None] * len(items)
         ex = self._ensure()
-        futures = []
+        futures: List[Future] = []
         for item in items:
             try:
                 futures.append(ex.submit(fn, item, **kwargs))
             except BrokenProcessPool:
-                logger.warning("ak_worker map submit broken, recreating")
+                # 先尽量收割已提交结果，再决定重建或填 None（勿整批抹成 None）
+                partial = self._drain_futures(futures, items, timeout=timeout)
+                rest = items[len(partial) :]
+                if not allow_recreate or _SHUTTING_DOWN:
+                    logger.warning(
+                        "ak_worker map submit broken (no recreate), "
+                        "item=%s; filling %d remaining as None",
+                        item,
+                        len(rest),
+                    )
+                    return partial + [None] * len(rest)
+                logger.warning(
+                    "ak_worker map submit broken at item[%s], "
+                    "recreating + retry %d",
+                    item,
+                    len(rest),
+                )
                 self._reset()
-                ex = self._ensure()
-                futures.append(ex.submit(fn, item, **kwargs))
+                return partial + self._map_once(
+                    fn,
+                    rest,
+                    timeout=timeout,
+                    allow_recreate=False,
+                    **kwargs,
+                )
         results: List[Any] = []
         for i, fut in enumerate(futures):
             try:
                 results.append(fut.result(timeout=timeout))
+            except BrokenProcessPool:
+                rest_n = len(items) - i
+                if not allow_recreate or _SHUTTING_DOWN:
+                    logger.warning(
+                        "ak_worker map broken at item[%s]; "
+                        "filling %d remaining as None",
+                        items[i],
+                        rest_n,
+                    )
+                    results.extend([None] * rest_n)
+                    return results
+                logger.warning(
+                    "ak_worker map broken at item[%s], recreating + retry %d",
+                    items[i],
+                    rest_n,
+                )
+                self._reset()
+                results.extend(
+                    self._map_once(
+                        fn,
+                        items[i:],
+                        timeout=timeout,
+                        allow_recreate=False,
+                        **kwargs,
+                    )
+                )
+                return results
             except Exception:
-                logger.warning("ak_worker map item[%s] failed", items[i], exc_info=True)
+                logger.warning(
+                    "ak_worker map item[%s] failed", items[i], exc_info=True
+                )
                 results.append(None)
         return results
 

@@ -933,6 +933,8 @@ class QuantReplayMixin:
                             if kwargs.get("cross_section_zscore") is not None
                             else True
                         ),
+                        progress_cb=kwargs.get("progress_cb"),
+                        job_alive_cb=kwargs.get("job_alive_cb"),
                     )
                 except MaterializeRequired as exc:
                     logger.warning("y_oo fit blocked: %s", exc)
@@ -940,6 +942,29 @@ class QuantReplayMixin:
         finally:
             _OO_FIT_RUNNING = False
             _OO_FIT_LOCK.release()
+
+    def start_oo_lgb_job(self, **kwargs: Any) -> Dict[str, Any]:
+        """后台 ŷ_oo 拟合；轮询 ``GET /api/jobs/oo-lgb``。"""
+        from core.job_progress import oo_lgb_job
+        from core.watching.store import MODEL_FIT_MAX_SIZE, WATCHING_MAX_SIZE
+        from quant.services.quant_service_factors import _start_ridge_fit_job
+
+        watching_limit = int(kwargs.get("watching_limit") or MODEL_FIT_MAX_SIZE)
+        call_kw = dict(kwargs)
+        call_kw.pop("progress_cb", None)
+        call_kw.pop("job_alive_cb", None)
+        call_kw.pop("sync", None)
+        return _start_ridge_fit_job(
+            slot=oo_lgb_job,
+            kind="oo_lgb",
+            message="ŷ_oo 拟合中…",
+            watching_limit=int(watching_limit or WATCHING_MAX_SIZE),
+            worker_fn=lambda progress_cb=None, job_alive_cb=None: self.fit_return_score_model(
+                **call_kw,
+                progress_cb=progress_cb,
+                job_alive_cb=job_alive_cb,
+            ),
+        )
 
     def promote_return_score_model(
         self,

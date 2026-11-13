@@ -56,13 +56,6 @@ def _utc_now() -> str:
     return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
-def _normalize_persist_role(role: Any) -> str:
-    r = str(role or "live").strip().lower()
-    if r in ("research", "research_suite", "backtest"):
-        return "research"
-    return "live"
-
-
 def _as_model_dict(src: Any) -> Optional[Dict[str, Any]]:
     if src is None:
         return None
@@ -325,11 +318,15 @@ def promote_return_model_draft(
     from core.research.holdout import (
         MODEL_ROLE_LIVE,
         MODEL_ROLE_RESEARCH,
+        parse_persist_role,
+        refuse_ungated_full_sample,
         select_fit_return_model,
         stamp_live_suite_doc,
     )
 
-    role_n = _normalize_persist_role(role)
+    role_n, role_err = parse_persist_role(role)
+    if role_err:
+        return {"success": False, "error": role_err}
     _ensure_dirs()
 
     if role_n == MODEL_ROLE_LIVE:
@@ -342,26 +339,33 @@ def promote_return_model_draft(
         from core.research.oo_lgb import is_oo_lightgbm_blob
 
         if refit_full_sample:
-            # Holdout=0 全样本草稿 → 执行槽；研究套可选（有则挂 OOS 溯源）
+            # Holdout=0 全样本草稿 → 执行槽；必须已有研究套，用来拷贝样本外门禁。
             raw_draft = load_return_model_payload(RETURN_SCORE_MODEL_DRAFT_PATH)
+            from core.research.holdout import require_full_sample_report
+
+            blocked_fs = require_full_sample_report(
+                raw_draft if isinstance(raw_draft, dict) else None
+            )
+            if blocked_fs:
+                return blocked_fs
+            if not has_research:
+                blocked_gate = refuse_ungated_full_sample(False)
+                if blocked_gate:
+                    return blocked_gate
             view = _draft_persist_view(raw_draft or {})
             selected = select_fit_return_model(view or {})
             coef_source = "full_sample_draft"
             promoted_from = "full_sample_refit"
-            if has_research:
-                base_doc = dict(research_doc)
-            else:
-                base_doc = dict(raw_draft or {}) if isinstance(raw_draft, dict) else {}
+            base_doc = dict(research_doc)
             note_default = (
-                "执行套 ŷ_oo（Holdout=0 全样本重训"
-                + ("；研究套 OOS 作门禁溯源" if has_research else "；未挂研究套")
-                + "）；scoring.rank_mode=predicted_score 时按 ŷ 排序。"
+                "执行套 ŷ_oo（Holdout=0 全样本重训；研究套 OOS 作门禁溯源）"
+                "；scoring.rank_mode=predicted_score 时按 ŷ 排序。"
             )
         else:
             if not has_research:
                 return {
                     "success": False,
-                    "error": "无研究套可晋级；请先在研究视图点「拟合」，或切到执行视图全样本拟合",
+                    "error": "无研究套可晋级；请先在研究视图点「拟合」",
                     "research_path": RETURN_SCORE_MODEL_RESEARCH_PATH,
                     "live_path": RETURN_SCORE_MODEL_ACTIVE_PATH,
                 }
@@ -408,13 +412,10 @@ def promote_return_model_draft(
         live_doc["model_role"] = MODEL_ROLE_LIVE
         live_doc["model"] = dict(model_blob)
         live_doc["return_model"] = dict(model_blob)
-        # 全样本部署：执行权重来自草稿；有研究套时挂 OOS 作门禁溯源
-        if refit_full_sample and has_research and isinstance(research_doc.get("oos"), dict):
+        # 全样本部署：执行权重来自草稿；门禁 OOS 来自研究套。
+        if refit_full_sample and isinstance(research_doc.get("oos"), dict):
             live_doc["oos"] = dict(research_doc["oos"])
             live_doc["gate_oos_source"] = "research"
-        elif refit_full_sample:
-            live_doc.pop("oos", None)
-            live_doc["gate_oos_source"] = "none"
         if refit_full_sample:
             from core.research.holdout import stamp_full_sample_live_fitted_at
 
@@ -444,9 +445,7 @@ def promote_return_model_draft(
             live_doc["backends"] = {
                 "lightgbm": {
                     "return_model": dict(model_blob),
-                    "oos": dict((research_doc or {}).get("oos") or {})
-                    if has_research
-                    else {},
+                    "oos": dict((research_doc or {}).get("oos") or {}),
                 }
             }
         meta_out = dict(live_doc.get("meta") or {})
@@ -471,9 +470,7 @@ def promote_return_model_draft(
             "refit_full_sample": bool(refit_full_sample),
             "deploy_full_sample": bool(refit_full_sample),
             "note": (
-                "已全样本重训并写入执行套"
-                + ("（研究套未改）" if has_research else "（未挂研究套）")
-                + "；请确认 scoring.rank_mode=predicted_score。"
+                "已全样本重训并写入执行套（研究套未改）；请确认 scoring.rank_mode=predicted_score。"
                 if refit_full_sample
                 else "已由研究套晋级写入执行套；请确认 scoring.rank_mode=predicted_score。"
             ),
@@ -927,18 +924,22 @@ def fit_watching_return_model(
     save_draft: bool = True,
     holdout_trading_days: int = 20,
     cross_section_zscore: bool = True,
+    progress_cb: Optional[Any] = None,
+    job_alive_cb: Optional[Any] = None,
 ) -> Dict[str, Any]:
     """研究池堆叠面板：只训回归 LightGBM + Holdout OOS，可选落草稿。
 
     近 ``holdout_trading_days`` 个交易日只测；只训 Holdout 前一套。
     ``ridge_lambda`` 保留形参兼容 API，不参与拟合。
     拟合固定日截面 Z；``cross_section_zscore=False`` 已下线。
+    ``progress_cb(cur, tot, msg)`` / ``job_alive_cb()``：后台 Job 进度与孤儿保护。
     """
     del ridge_lambda  # ŷ_oo 已切 LightGBM；形参保留兼容旧请求体
     from core.research.feature_standardize import reject_global_zscore
     from core.research.holdout import (
         DEFAULT_HOLDOUT_TRADING_DAYS,
         attach_holdout_meta,
+        refuse_insufficient_holdout,
         resolve_ridge_split,
     )
     from core.research.oo_lgb import fit_oo_lgb_matrix, predict_oo_lgb_matrix
@@ -946,6 +947,24 @@ def fit_watching_return_model(
     err_cs = reject_global_zscore(cross_section_zscore)
     if err_cs:
         return {"success": False, "error": err_cs}
+
+    def _prog(cur: int, tot: int, msg: str) -> None:
+        if not callable(progress_cb):
+            return
+        try:
+            progress_cb(int(cur), int(tot), str(msg or ""))
+        except Exception:  # noqa: BLE001
+            logger.debug("oo progress_cb failed", exc_info=True)
+
+    def _job_alive() -> bool:
+        if not callable(job_alive_cb):
+            return True
+        try:
+            return bool(job_alive_cb())
+        except Exception:  # noqa: BLE001
+            logger.debug("oo job_alive_cb failed", exc_info=True)
+            return False
+
     from core.research.oo_model_compact import assemble_oo_panels
     from core.research.portfolio_bars import load_portfolio_stock_bars
     from core.research_universe import resolve_model_fit_codes
@@ -970,6 +989,7 @@ def fit_watching_return_model(
         lookback,
         holdout_trading_days,
     )
+    _prog(0, max(1, len(use_codes)), f"ŷ_oo 拉日线 {len(use_codes)} 只…")
     stock_bars, failures, _fund = load_portfolio_stock_bars(
         use_codes,
         lookback=lookback,
@@ -1003,9 +1023,11 @@ def fit_watching_return_model(
                 cal_days.add(day)
         items.append((code, bars))
     t_panel = _time.perf_counter()
+    _prog(0, max(1, len(items)), f"ŷ_oo 组面板 0/{len(items)}")
     x_mat, y_mat, feat_names, all_dates = assemble_oo_panels(
         items,
         horizon_days=horizon_days,
+        progress_cb=progress_cb,
     )
     del items
     shape = getattr(x_mat, "shape", None) or ()
@@ -1032,6 +1054,10 @@ def fit_watching_return_model(
         label_horizon_days=int(horizon_days or 1),
         calendar_dates=sorted(cal_days),
     )
+    blocked_split = refuse_insufficient_holdout(split_meta)
+    if blocked_split:
+        blocked_split["task"] = "oo_lgb"
+        return blocked_split
     ys_te = [as_float(y_mat[i]) for i in test_idx]
 
     try:
@@ -1041,6 +1067,7 @@ def fit_watching_return_model(
             len(train_idx),
             len(test_idx),
         )
+        _prog(0, 1, f"ŷ_oo LightGBM · 训 {len(train_idx)} 行…")
         lgb_blob, lgb_report = fit_oo_lgb_matrix(
             x_mat,
             y_mat,
@@ -1139,6 +1166,11 @@ def fit_watching_return_model(
     }
     out["cross_section_zscore"] = True
     attach_holdout_meta(out, split_meta)
+    if not _job_alive():
+        out["success"] = False
+        out["error"] = "任务已中断或被接替"
+        out["orphaned"] = True
+        return out
     if save_draft:
         saved = save_return_model_draft(
             lgb_blob,

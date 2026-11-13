@@ -5,7 +5,7 @@ PIT：``hist=≤T−1`` 完整日 + ``open_t``（今开）。标签对齐 open[T
 
 计算产出全量 ``raw_aoo_*``；**ŷ_oo LightGBM 入模默认
 ``z_oo_* ∪ raw_aoo_*``（全量）**。精简集 aoo_core=GAP+YK+LAG 仅供消融
-（``ridge_core_only=True`` / ``apply_aoo_core_ridge_policy``）。
+（``aoo_core_only=True`` / ``apply_aoo_core_policy``）。
 ŷ_τc 现网为 **alpha_τc := z_τc_* ∪ raw_atc_***；ŷ_τ* 为 **alpha_τh := z_τh_* ∪ raw_ath_***；均不吃本包。
 """
 
@@ -160,27 +160,27 @@ def is_alpha_oo_raw_key(name: str) -> bool:
     return str(name or "").startswith(ALPHA_OO_RAW_PREFIX)
 
 
-def alpha_oo_ridge_raw_names() -> Tuple[str, ...]:
-    """ŷ_oo 入模用的 ``raw_aoo_*``（GAP+YK+LAG）。"""
+def alpha_oo_core_raw_names() -> Tuple[str, ...]:
+    """ŷ_oo aoo_core 消融用的 ``raw_aoo_*``（GAP+YK+LAG）。"""
     return tuple(f"{ALPHA_OO_RAW_PREFIX}{k}" for k in ALPHA_OO_CORE_FIELD_NAMES)
 
 
-_ALPHA_OO_RIDGE_RAW_SET = frozenset(alpha_oo_ridge_raw_names())
+_ALPHA_OO_CORE_RAW_SET = frozenset(alpha_oo_core_raw_names())
 
 
-def is_alpha_oo_ridge_raw_key(name: str) -> bool:
-    """是否为现网 Ridge/Tree 允许的 ``raw_aoo_*`` 核心列。"""
-    return str(name or "") in _ALPHA_OO_RIDGE_RAW_SET
+def is_alpha_oo_core_raw_key(name: str) -> bool:
+    """是否为 aoo_core 允许的 ``raw_aoo_*`` 核心列。"""
+    return str(name or "") in _ALPHA_OO_CORE_RAW_SET
 
 
 def collect_alpha_oo_raw_keys_from_rows(
     xs: Sequence[dict],
     *,
-    ridge_core_only: bool = False,
+    aoo_core_only: bool = False,
 ) -> List[str]:
     """从面板行收集出现过的 ``raw_aoo_*`` 列名（保序去重）。
 
-    默认收全量；``ridge_core_only=True`` 只收 aoo_core（消融）。
+    默认收全量；``aoo_core_only=True`` 只收 aoo_core（消融）。
     """
     names: List[str] = []
     seen = set()
@@ -191,7 +191,7 @@ def collect_alpha_oo_raw_keys_from_rows(
             sk = str(k)
             if sk in seen or not is_alpha_oo_raw_key(sk):
                 continue
-            if ridge_core_only and not is_alpha_oo_ridge_raw_key(sk):
+            if aoo_core_only and not is_alpha_oo_core_raw_key(sk):
                 continue
             if v is None:
                 continue
@@ -208,11 +208,11 @@ def drop_aoo_overlap_z_oo(names: Sequence[str]) -> List[str]:
     """有 aoo_core（如 ``raw_aoo_GAP*``）时丢掉与之双计的 ``z_oo_*``。
 
     只动 ``momentum`` / ``gap_risk`` / ``overheat``；保留全部 ``raw_aoo_*``。
-    Ridge 与 Tree 入模列共用，避免 Tree 再把 ``z_oo_gap_risk`` 当成主分裂。
+    Linear / Tree 入模列共用，避免 Tree 再把 ``z_oo_gap_risk`` 当成主分裂。
     """
     from core.signal.factors.z_oo import is_z_oo_key, to_legacy_key
 
-    has_core = any(is_alpha_oo_ridge_raw_key(n) for n in names or [])
+    has_core = any(is_alpha_oo_core_raw_key(n) for n in names or [])
     if not has_core:
         return [str(n) for n in names or [] if str(n or "").strip()]
     out: List[str] = []
@@ -228,11 +228,11 @@ def drop_aoo_overlap_z_oo(names: Sequence[str]) -> List[str]:
     return out
 
 
-def apply_aoo_core_ridge_policy(names: Sequence[str]) -> List[str]:
+def apply_aoo_core_policy(names: Sequence[str]) -> List[str]:
     """入模列策略：只留 aoo_core；有 core 时丢掉重叠 z_oo。"""
     from core.signal.factors.z_oo import is_z_oo_key, to_legacy_key
 
-    has_core = any(is_alpha_oo_ridge_raw_key(n) for n in names or [])
+    has_core = any(is_alpha_oo_core_raw_key(n) for n in names or [])
     drop_legs = Z_OO_DROP_WHEN_AOO_CORE if has_core else frozenset()
     out: List[str] = []
     seen = set()
@@ -241,7 +241,7 @@ def apply_aoo_core_ridge_policy(names: Sequence[str]) -> List[str]:
         if not k or k in seen:
             continue
         if is_alpha_oo_raw_key(k):
-            if not is_alpha_oo_ridge_raw_key(k):
+            if not is_alpha_oo_core_raw_key(k):
                 continue
         else:
             leg = to_legacy_key(k) if is_z_oo_key(k) else k
@@ -252,16 +252,16 @@ def apply_aoo_core_ridge_policy(names: Sequence[str]) -> List[str]:
     return out
 
 
-def expand_ridge_feature_names(
+def expand_oo_feature_names(
     xs: Sequence[dict],
     *,
     base_names: Optional[Sequence[str]] = None,
-    ridge_core_only: bool = False,
+    aoo_core_only: bool = False,
 ) -> List[str]:
-    """Ridge 入模列：注册日线 ``z_oo_*`` + 面板 ``raw_aoo_*``；去掉因子包常数分。
+    """ŷ_oo 入模列：注册日线 ``z_oo_*`` + 面板 ``raw_aoo_*``；去掉因子包常数分。
 
     默认全量 ``raw_aoo_*``，但有 aoo_core 时仍丢掉重叠 ``z_oo``（gap_risk 等）。
-    ``ridge_core_only=True`` 时再收成只留 aoo_core。
+    ``aoo_core_only=True`` 时再收成只留 aoo_core。
     """
     from core.signal.factors.meta.registry import registered_factor_names
     from core.signal.factors.z_oo import (
@@ -287,13 +287,13 @@ def expand_ridge_feature_names(
             seen.add(canon)
             names.append(canon)
     for k in collect_alpha_oo_raw_keys_from_rows(
-        xs, ridge_core_only=ridge_core_only
+        xs, aoo_core_only=aoo_core_only
     ):
         if k not in seen:
             seen.add(k)
             names.append(k)
-    if ridge_core_only:
-        return apply_aoo_core_ridge_policy(names)
+    if aoo_core_only:
+        return apply_aoo_core_policy(names)
     return drop_aoo_overlap_z_oo(names)
 
 

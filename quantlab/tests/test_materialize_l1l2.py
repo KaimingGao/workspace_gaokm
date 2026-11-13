@@ -256,9 +256,9 @@ class MaterializeOrchestrateTests(unittest.TestCase):
         )
 
         # open L2 = 请求 lookback；垫窗只在 L1 拉日线时加一次
-        self.assertEqual(resolve_l2_lookback(1000, minute=False), 1000)
-        self.assertEqual(resolve_l2_lookback(0, minute=False), 1000)
-        self.assertEqual(resolve_l2_lookback(1000, minute=True), L2_MINUTE_LOOKBACK)
+        self.assertEqual(resolve_l2_lookback(1060, minute=False), 1060)
+        self.assertEqual(resolve_l2_lookback(0, minute=False), 1060)
+        self.assertEqual(resolve_l2_lookback(1060, minute=True), L2_MINUTE_LOOKBACK)
         self.assertFalse(request_has_minute_clock(["open"]))
         self.assertTrue(request_has_minute_clock(["09:35"]))
         self.assertTrue(request_has_minute_clock(["open"], do_l1_tau_grid=True))

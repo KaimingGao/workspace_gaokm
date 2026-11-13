@@ -178,9 +178,15 @@ export async function ensurePredTierMap() {
   if (_loaded) return _byCode;
   if (_pending) return _pending;
   _pending = fetch("/api/quant/research-universe/predictability-tiers/last?slim=1")
-    .then((res) => (res.ok ? res.json() : null))
+    .then((res) => {
+      if (!res.ok) throw new Error(String(res.status || "tiers"));
+      return res.json();
+    })
     .then((data) => ingestPredTierReport(data || {}))
-    .catch(() => ingestPredTierReport({}))
+    .catch(() => {
+      _loaded = false;
+      return _byCode;
+    })
     .finally(() => {
       _pending = null;
     });

@@ -296,7 +296,8 @@ def persist_oo_rank_model(
     from core.research.holdout import (
         MODEL_ROLE_LIVE,
         MODEL_ROLE_RESEARCH,
-        normalize_model_role,
+        parse_persist_role,
+        refuse_ungated_full_sample,
         require_research_suite,
         research_model_path,
         select_fit_return_model,
@@ -304,17 +305,19 @@ def persist_oo_rank_model(
     )
 
     live = oo_rank_model_path()
-    role_n = normalize_model_role(role)
+    role_n, role_err = parse_persist_role(role)
+    if role_err:
+        return {"success": False, "error": role_err}
 
     if role_n == MODEL_ROLE_LIVE:
         research_doc, err = require_research_suite(live)
         has_research = isinstance(research_doc, dict) and not err
         if deploy_full_sample:
-            if not isinstance(report, dict) or not report.get("success"):
-                return {
-                    "success": False,
-                    "error": "全样本晋级须先 Holdout=0 拟合出成功报告",
-                }
+            from core.research.holdout import require_full_sample_report
+
+            blocked_fs = require_full_sample_report(report)
+            if blocked_fs:
+                return blocked_fs
             stamp_oo_rank_fitted_at(report)
             backend = select_oo_rank_backend()
             pack = _backend_pack_from_report(report, backend)
@@ -322,6 +325,8 @@ def persist_oo_rank_model(
                 return {"success": False, "error": "lambdarank pack missing（全样本重训失败）"}
             view = dict(report)
             view["return_model"] = pack.get("return_model")
+            # 全样本只取 Holdout=0 包，勿被报告里残留的 return_model_research 抢走
+            view.pop("return_model_research", None)
             model = select_fit_return_model(view)
             if not isinstance(model, dict) or not _oo_rank_use_booster(model):
                 return {"success": False, "error": "全样本报告缺少可用 LambdaRank 包"}
@@ -338,24 +343,36 @@ def persist_oo_rank_model(
                     doc["oos"] = dict(research_doc["oos"])
                     doc["gate_oos_source"] = "research"
             else:
-                doc = {
-                    "success": True,
-                    "task": TASK,
-                    "schema": SCHEMA,
-                    "fitted_at": report.get("fitted_at") or model.get("fitted_at"),
-                    "promoted_at": now_iso_utc(),
-                    "promoted_from": "full_sample_refit",
-                    "gate_oos_source": "none",
-                    "oos": None,
-                    "note": note
-                    or "oo_rank full-sample refit → live（未挂研究套）",
-                }
+                blocked_gate = refuse_ungated_full_sample(False)
+                if blocked_gate:
+                    return blocked_gate
+                doc = {}
             doc["return_model"] = model
+            doc.pop("return_model_research", None)
             doc["backend"] = backend
             doc["recommended_backend"] = backend
             doc["model_role"] = MODEL_ROLE_LIVE
             doc["deploy_full_sample"] = True
             doc["promoted_from"] = "full_sample_refit"
+            # 全样本 backends = 本次 Holdout=0 包；剥掉嵌套 research，避免面板读旧 booster
+            doc["backends"] = {
+                "lambdarank": {
+                    "return_model": dict(model),
+                    "oos": dict(doc.get("oos") or {})
+                    if isinstance(doc.get("oos"), dict)
+                    else {},
+                }
+            }
+            for k in (
+                "sample_count",
+                "n_days",
+                "n_train_days",
+                "n_test_days",
+                "holdout_trading_days",
+                "y_spec",
+            ):
+                if report.get(k) is not None:
+                    doc[k] = report.get(k)
             from core.research.holdout import stamp_full_sample_live_fitted_at
 
             stamp_full_sample_live_fitted_at(doc, source=report)
@@ -369,6 +386,7 @@ def persist_oo_rank_model(
             out_fs = {
                 "success": True,
                 "path": live,
+                "fitted_at": doc.get("fitted_at"),
                 "promoted_at": doc.get("promoted_at"),
                 "model_role": MODEL_ROLE_LIVE,
                 "backend": backend,
@@ -466,6 +484,7 @@ def persist_oo_rank_model(
         "n_days": report.get("n_days"),
         "n_train_days": report.get("n_train_days"),
         "n_test_days": report.get("n_test_days"),
+        "holdout_trading_days": report.get("holdout_trading_days"),
         "sample_count": report.get("sample_count") or model.get("sample_count"),
         "fitted_at": fitted_at,
         "promoted_at": promoted_at,
@@ -514,6 +533,7 @@ def persist_oo_rank_model(
     out_res = {
         "success": True,
         "path": path,
+        "fitted_at": fitted_at or doc.get("fitted_at"),
         "promoted_at": promoted_at,
         "model_role": MODEL_ROLE_RESEARCH,
         "backend": backend,
@@ -2222,6 +2242,7 @@ def fit_oo_rank_report(
     lightgbm_params: Optional[Dict[str, Any]] = None,
     cross_section_zscore: bool = True,
     train_codes: Optional[Collection[str]] = None,
+    progress_cb: Optional[Any] = None,
 ) -> Dict[str, Any]:
     """拟合 ŷ_oo_rank：单头 LambdaRank。
 
@@ -2235,15 +2256,25 @@ def fit_oo_rank_report(
     OOS 指标：gate_lift（主）/ gate_mean_y / NDCG@K / TopK；IC / Rank IC 仅对照。
     ``cs_ic`` / ``cs_icir`` 与 ŷ_oo 同口径：Holdout 日截面 Pearson(排序分, y_oo) 的均值，
     ICIR = 该日序列 mean/std（不足 3 日不出）。用原始排序分，不用 1..n 名次。
+    ``progress_cb(cur, tot, msg)``：建面板 / LambdaRank / Holdout 阶段刷新。
     """
     from core.research.feature_standardize import reject_global_zscore
     from core.research.holdout import (
         attach_holdout_meta,
         calendar_dates_from_stock_bars,
         make_research_model,
+        refuse_insufficient_holdout,
         resolve_ridge_split,
     )
     from core.research.rank_day_panels import build_rank_day_panels
+
+    def _prog(cur: int, tot: int, msg: str) -> None:
+        if not callable(progress_cb):
+            return
+        try:
+            progress_cb(int(cur), int(tot), str(msg or ""))
+        except Exception:  # noqa: BLE001
+            logger.debug("oo_rank progress_cb failed", exc_info=True)
 
     err_cs = reject_global_zscore(cross_section_zscore)
     if err_cs:
@@ -2260,6 +2291,7 @@ def fit_oo_rank_report(
     if day_panels is not None:
         days = list(day_panels)
     else:
+        _prog(0, 1, "ŷ_oo_rank 组面板…")
         days = build_rank_day_panels(
             stock_bars,
             family="oo_rank",
@@ -2268,6 +2300,7 @@ def fit_oo_rank_report(
             min_names=min_names,
             index_bars=index_bars,
             excess_mode=excess_mode,
+            progress_cb=progress_cb,
         )
     if len(days) < 8:
         return {
@@ -2291,6 +2324,10 @@ def fit_oo_rank_report(
         label_horizon_days=max(1, int(horizon_days)),
         calendar_dates=calendar_dates_from_stock_bars(stock_bars),
     )
+    blocked_split = refuse_insufficient_holdout(split_meta)
+    if blocked_split:
+        blocked_split["task"] = TASK
+        return blocked_split
     days_tr = [days[i] for i in train_idx]
     days_te = [days[i] for i in test_idx]
     if len(days_tr) < 5:
@@ -2327,6 +2364,7 @@ def fit_oo_rank_report(
         lgb_kw.update(lightgbm_params)
         lgb_kw["cross_section_zscore"] = True
         lgb_kw["train_codes"] = train_allow
+    _prog(0, 1, f"ŷ_oo_rank LambdaRank · 训 {len(days_tr)} 日…")
     fit_tr = fit_lambdarank(
         days_tr,
         feature_names=feat_names,
@@ -2342,6 +2380,7 @@ def fit_oo_rank_report(
             "detail": fit_tr,
         }
 
+    _prog(0, 1, f"ŷ_oo_rank Holdout 评估 · 测 {len(days_te)} 日…")
     oos_rank = _oos_day_metrics(
         days_te,
         fit_tr,

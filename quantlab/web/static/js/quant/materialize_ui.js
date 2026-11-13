@@ -8,6 +8,7 @@ import {
   paintClusterJobPanel,
   unwrapJobSnap,
   setDeskStatusTone,
+  JOB_RESTART_INTERRUPT_ERR,
 } from "./cluster_job_ui.js";
 import { BARS_DAILY_LOOKBACK } from "./params.js";
 
@@ -383,8 +384,8 @@ function installMaterializeRunner(q, cfg) {
       if (status === "failed" || status === "error") {
         return { ok: false, job, error: job.error || "物化失败" };
       }
-      if (status === "idle" && sawOwn) {
-        return { ok: false, job, error: "物化任务已结束但未返回结果" };
+      if (status === "idle" && (sawOwn || jobId)) {
+        return { ok: false, job, error: JOB_RESTART_INTERRUPT_ERR };
       }
 
       const view = macroJobView(job) || job;

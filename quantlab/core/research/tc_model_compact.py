@@ -542,6 +542,7 @@ def fit_tau_model_matrices(
     from core.research.holdout import (
         DEFAULT_HOLDOUT_TRADING_DAYS,
         calendar_dates_from_stock_bars,
+        refuse_insufficient_holdout,
         resolve_ridge_split,
     )
 
@@ -557,6 +558,11 @@ def fit_tau_model_matrices(
         holdout_trading_days=hold_n,
         calendar_dates=calendar_dates_from_stock_bars(stock_bars),
     )
+    blocked_split = refuse_insufficient_holdout(split_meta)
+    if blocked_split:
+        blocked_split["task"] = "tc_lgb"
+        blocked_split["tau"] = tau_key
+        return blocked_split
     ys_tr = [ys_use[i] for i in train_idx]
     ys_te = [ys_use[i] for i in test_idx]
     metas_tr = [metas_use[i] for i in train_idx]

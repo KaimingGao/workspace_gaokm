@@ -1125,16 +1125,18 @@ class TestOoRankFittedAt(unittest.TestCase):
         self.assertIsNone(skipped.get("fitted_at"))
 
         lambda_m = {
-            "coefficients": {"mom3": 1.0},
+            "coefficients": {"mom3": 1.0, "vol": -0.2, "bias": 0.1},
+            "feature_names": ["mom3", "vol", "bias"],
             "model_role": "live",
             "backend": "lambdarank",
             "solver": "lambdarank",
-            "booster_b64": "dGVzdA==",
+            "booster_b64": "not-a-toy-payload",
             "target": "oo_rank",
             "horizon_mode": "oo_rank",
         }
         ridge_m = {
-            "coefficients": {"mom3": 1.0},
+            "coefficients": {"mom3": 1.0, "vol": -0.2, "bias": 0.1},
+            "feature_names": ["mom3", "vol", "bias"],
             "model_role": "live",
             "backend": "ridge",
             "solver": "ridge",
@@ -1159,6 +1161,8 @@ class TestOoRankFittedAt(unittest.TestCase):
                 "oo_rank": {"ndcg_at_k": 0.55, "success": True},
                 "ridge_oo_baseline": {"ndcg_at_k": 0.5, "success": True},
             },
+            "sample_count": 800,
+            "holdout_trading_days": 20,
         }
         stamp_oo_rank_fitted_at(report)
         self.assertTrue(report.get("fitted_at"))
@@ -1171,6 +1175,7 @@ class TestOoRankFittedAt(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as td:
             live = os.path.join(td, "oo_rank_model.json")
+            research = os.path.join(td, "oo_rank_model_research.json")
             last = os.path.join(td, "oo_rank_last_report.json")
             with patch(
                 "core.research.oo_rank_lambdarank.oo_rank_model_path",
@@ -1180,20 +1185,29 @@ class TestOoRankFittedAt(unittest.TestCase):
                 return_value=last,
             ):
                 save_oo_rank_last_report(report)
-                self.assertTrue(
-                    persist_oo_rank_model(report, role="research").get("success")
-                )
-                out = persist_oo_rank_model(report, role="live")
-                self.assertTrue(out.get("success"))
+                research_out = persist_oo_rank_model(report, role="research")
+                self.assertTrue(research_out.get("success"), research_out)
+                # 执行套须全样本；全样本会现铸 fitted_at（勿要求等于研究戳）
+                live_report = {
+                    **report,
+                    "holdout_trading_days": 0,
+                    "oos": {
+                        **(report.get("oos") or {}),
+                        "holdout_trading_days": 0,
+                    },
+                }
+                out = persist_oo_rank_model(live_report, role="live")
+                self.assertTrue(out.get("success"), out)
+            with open(research, encoding="utf-8") as f:
+                research_doc = json.load(f)
             with open(live, encoding="utf-8") as f:
                 doc = json.load(f)
             with open(last, encoding="utf-8") as f:
                 last_doc = json.load(f)
-            self.assertEqual(doc.get("fitted_at"), first)
+            self.assertEqual(research_doc.get("fitted_at"), first)
             self.assertEqual(last_doc.get("fitted_at"), first)
             self.assertEqual(doc.get("model_role"), "live")
-            self.assertEqual(doc.get("promoted_from"), "research")
-            self.assertTrue(doc.get("promoted_at"))
+            self.assertTrue(doc.get("fitted_at"))
 
     def test_get_model_merges_lambdarank_from_last_report(self):
         """落盘包无 backends 时，同窗 last_report 补 LambdaRank；旧 ridge 包剔除。"""

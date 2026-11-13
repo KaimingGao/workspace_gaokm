@@ -650,14 +650,17 @@ def persist_tau_model(
     from core.research.holdout import (
         MODEL_ROLE_LIVE,
         MODEL_ROLE_RESEARCH,
-        normalize_model_role,
+        parse_persist_role,
+        refuse_ungated_full_sample,
         require_research_suite,
         research_model_path,
         select_fit_return_model,
         stamp_live_suite_doc,
     )
 
-    role_n = normalize_model_role(role)
+    role_n, role_err = parse_persist_role(role)
+    if role_err:
+        return {"success": False, "error": role_err}
     live_path = tau_model_path()
 
     if role_n == MODEL_ROLE_LIVE:
@@ -669,11 +672,11 @@ def persist_tau_model(
         from core.research.tc_lgb import is_tc_lightgbm_blob
 
         if deploy_full_sample:
-            if not isinstance(report, dict) or not report.get("success"):
-                return {
-                    "success": False,
-                    "error": "全样本晋级须先 Holdout=0 拟合出成功报告",
-                }
+            from core.research.holdout import require_full_sample_report
+
+            blocked_fs = require_full_sample_report(report)
+            if blocked_fs:
+                return blocked_fs
             rm = select_fit_return_model(report)
             if not is_tc_lightgbm_blob(rm):
                 return {
@@ -694,40 +697,31 @@ def persist_tau_model(
                 if isinstance(research_doc.get("promote_gate"), dict):
                     doc["promote_gate"] = dict(research_doc["promote_gate"])
             else:
-                from core.numbers import now_iso_utc
-
-                doc = {
-                    "success": True,
-                    "fitted_at": report.get("fitted_at") or now_iso_utc(),
-                    "promoted_at": now_iso_utc(),
-                    "note": note
-                    or "tau_lgb full-sample refit → live（未挂研究套）",
-                    "oos": None,
-                    "gate_oos_source": "none",
-                    "promoted_from": "full_sample_refit",
-                }
-                for k in (
-                    "sample_count",
-                    "stock_count",
-                    "schema",
-                    "target",
-                    "tau",
-                    "as_of_tau",
-                    "y_spec",
-                    "promote_gate",
-                    "fit_end",
-                    "eval_start",
-                    "holdout_trading_days",
-                    "cross_section_zscore",
-                ):
-                    if report.get(k) is not None:
-                        doc[k] = report.get(k)
+                blocked_gate = refuse_ungated_full_sample(False)
+                if blocked_gate:
+                    return blocked_gate
             doc["role"] = "live"
             doc["model_role"] = MODEL_ROLE_LIVE
             doc["return_model"] = dict(rm)
             doc["deploy_full_sample"] = True
             doc["promoted_from"] = "full_sample_refit"
-            for k in ("tau", "schema", "y_spec", "as_of_tau", "target"):
+            # 有研究套时也覆盖全样本标量；oos 仍保留研究套作门禁溯源
+            for k in (
+                "sample_count",
+                "stock_count",
+                "schema",
+                "target",
+                "tau",
+                "as_of_tau",
+                "y_spec",
+                "promote_gate",
+                "fit_end",
+                "eval_start",
+                "holdout_trading_days",
+                "n_train_days",
+                "n_test_days",
+                "cross_section_zscore",
+            ):
                 if report.get(k) is not None:
                     doc[k] = report.get(k)
             from core.research.holdout import stamp_full_sample_live_fitted_at
@@ -744,6 +738,7 @@ def persist_tau_model(
             out_fs = {
                 "success": True,
                 "path": live_path,
+                "fitted_at": doc.get("fitted_at"),
                 "promoted_at": doc.get("promoted_at"),
                 "tau": (doc.get("return_model") or {}).get("tau") or doc.get("tau"),
                 "schema": doc.get("schema"),

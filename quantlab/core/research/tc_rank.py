@@ -166,18 +166,21 @@ def fit_tc_rank_report(
     train_codes: Optional[Collection[str]] = None,
     tau_end_hm: Optional[str] = None,
     tau_hm: Optional[str] = None,
+    progress_cb: Optional[Any] = None,
 ) -> Dict[str, Any]:
     """拟合 ŷ_τc_rank。``stock_bars``: ``[{code, bars}, ...]``。不落盘。
 
     前缀与 ŷ_τc 同族：``tau_end_hm`` → ``resolve_tau_train_prefix``。
     拟合固定日截面 Z；``train_codes`` 给定时损失与 Holdout 缩到该子集。
     非开盘前缀按 ``date|clock`` 成 LambdaRank 组。
+    ``progress_cb(cur, tot, msg)``：建面板 / LambdaRank / Holdout 阶段刷新。
     """
     from core.research.feature_standardize import reject_global_zscore
     from core.research.holdout import (
         attach_holdout_meta,
         calendar_dates_from_stock_bars,
         make_research_model,
+        refuse_insufficient_holdout,
         resolve_ridge_split,
     )
     from core.research.oo_rank_lambdarank import (
@@ -191,6 +194,14 @@ def fit_tc_rank_report(
     from core.research.rank_day_panels import build_rank_day_panels
     from core.signal.dual_score import get_dual_score_cfg
     from core.signal.minute_tau_grid import resolve_tau_train_prefix
+
+    def _prog(cur: int, tot: int, msg: str) -> None:
+        if not callable(progress_cb):
+            return
+        try:
+            progress_cb(int(cur), int(tot), str(msg or ""))
+        except Exception:  # noqa: BLE001
+            logger.debug("tc_rank progress_cb failed", exc_info=True)
 
     err_cs = reject_global_zscore(cross_section_zscore)
     if err_cs:
@@ -242,9 +253,14 @@ def fit_tc_rank_report(
         label_horizon_days=0,
         calendar_dates=calendar,
     )
+    blocked_pre = refuse_insufficient_holdout(split_pre)
+    if blocked_pre:
+        blocked_pre["task"] = TASK
+        return blocked_pre
     fit_dates = sorted(split_pre.get("train_days") or [])
     panel_stats: Dict[str, Any] = {}
     try:
+        _prog(0, 1, "ŷ_τc_rank 组面板…")
         days_all = build_rank_day_panels(
             bars,
             family="tc_rank",
@@ -254,6 +270,7 @@ def fit_tc_rank_report(
             stats_out=panel_stats,
             tau_hm=tau_key,
             tau_grid=tau_grid,
+            progress_cb=progress_cb,
         )
     except Exception as exc:  # noqa: BLE001
         # MaterializeRequired 等：透传给 consume_materialized
@@ -292,9 +309,25 @@ def fit_tc_rank_report(
         label_horizon_days=0,
         calendar_dates=calendar,
     )
+    blocked_split = refuse_insufficient_holdout(split_meta)
+    if blocked_split:
+        blocked_split["task"] = TASK
+        return blocked_split
     days_tr = [days_all[i] for i in train_idx]
     days_te = [days_all[i] for i in test_idx]
-    if len(days_tr) < 5 or len(days_te) < 1:
+    # Holdout=0（执行全样本）test 为空属正常；与 oo_rank 同构只卡训练日
+    if len(days_tr) < 5:
+        return {
+            "success": False,
+            "error": f"train_days_insufficient n={len(days_tr)}",
+            "task": TASK,
+            "n_days": len(days_all),
+            "n_train_days": len(days_tr),
+            "n_test_days": len(days_te),
+            "tau_end_hm": resolved_end,
+            "zero_prefix": zero_prefix,
+        }
+    if hold_n > 0 and len(days_te) < 1:
         return {
             "success": False,
             "error": f"split_insufficient train={len(days_tr)} test={len(days_te)}",
@@ -326,6 +359,7 @@ def fit_tc_rank_report(
         str(c).strip() for c in (train_codes or []) if str(c or "").strip()
     } or None
     try:
+        _prog(0, 1, f"ŷ_τc_rank LambdaRank · 训 {len(days_tr)} 日…")
         fit_tr = fit_lambdarank(
             days_tr,
             feature_names=kept_names,
@@ -357,6 +391,7 @@ def fit_tc_rank_report(
             "zero_prefix": zero_prefix,
         }
 
+    _prog(0, 1, f"ŷ_τc_rank Holdout 评估 · 测 {len(days_te)} 日…")
     oos_rank = _relabel_metrics(
         _oos_day_metrics(
             days_te,
@@ -473,7 +508,8 @@ def persist_tc_rank_model(
     from core.research.holdout import (
         MODEL_ROLE_LIVE,
         MODEL_ROLE_RESEARCH,
-        normalize_model_role,
+        parse_persist_role,
+        refuse_ungated_full_sample,
         require_research_suite,
         research_model_path,
         select_fit_return_model,
@@ -490,16 +526,18 @@ def persist_tc_rank_model(
     )
 
     live = tc_rank_model_path()
-    role_n = normalize_model_role(role)
+    role_n, role_err = parse_persist_role(role)
+    if role_err:
+        return {"success": False, "error": role_err}
     if role_n == MODEL_ROLE_LIVE:
         research_doc, err = require_research_suite(live)
         has_research = isinstance(research_doc, dict) and not err
         if deploy_full_sample:
-            if not isinstance(report, dict) or not report.get("success"):
-                return {
-                    "success": False,
-                    "error": "全样本晋级须先 Holdout=0 拟合出成功报告",
-                }
+            from core.research.holdout import require_full_sample_report
+
+            blocked_fs = require_full_sample_report(report)
+            if blocked_fs:
+                return blocked_fs
             stamp_oo_rank_fitted_at(report)
             backend = select_oo_rank_backend()
             pack = _backend_pack_from_report(report, backend)
@@ -507,6 +545,7 @@ def persist_tc_rank_model(
                 return {"success": False, "error": "lambdarank pack missing（全样本重训失败）"}
             view = dict(report)
             view["return_model"] = pack.get("return_model")
+            view.pop("return_model_research", None)
             model = select_fit_return_model(view)
             if not isinstance(model, dict) or not _oo_rank_use_booster(model):
                 return {"success": False, "error": "全样本报告缺少可用 LambdaRank 包"}
@@ -523,26 +562,36 @@ def persist_tc_rank_model(
                     doc["oos"] = dict(research_doc["oos"])
                     doc["gate_oos_source"] = "research"
             else:
-                from core.numbers import now_iso_utc
-
-                doc = {
-                    "success": True,
-                    "task": TASK,
-                    "schema": SCHEMA,
-                    "fitted_at": report.get("fitted_at") or model.get("fitted_at"),
-                    "promoted_at": now_iso_utc(),
-                    "promoted_from": "full_sample_refit",
-                    "gate_oos_source": "none",
-                    "oos": None,
-                    "note": note
-                    or "tc_rank full-sample refit → live（未挂研究套）",
-                }
+                blocked_gate = refuse_ungated_full_sample(False)
+                if blocked_gate:
+                    return blocked_gate
+                doc = {}
             doc["return_model"] = model
+            doc.pop("return_model_research", None)
             doc["backend"] = backend
             doc["recommended_backend"] = backend
             doc["model_role"] = MODEL_ROLE_LIVE
             doc["deploy_full_sample"] = True
             doc["promoted_from"] = "full_sample_refit"
+            doc["backends"] = {
+                "lambdarank": {
+                    "return_model": dict(model),
+                    "oos": dict(doc.get("oos") or {})
+                    if isinstance(doc.get("oos"), dict)
+                    else {},
+                }
+            }
+            for k in (
+                "sample_count",
+                "n_days",
+                "n_train_days",
+                "n_test_days",
+                "holdout_trading_days",
+                "y_spec",
+                "tau_end_hm",
+            ):
+                if report.get(k) is not None:
+                    doc[k] = report.get(k)
             from core.research.holdout import stamp_full_sample_live_fitted_at
 
             stamp_full_sample_live_fitted_at(doc, source=report)
@@ -556,6 +605,7 @@ def persist_tc_rank_model(
             out_fs = {
                 "success": True,
                 "path": live,
+                "fitted_at": doc.get("fitted_at"),
                 "promoted_at": doc.get("promoted_at"),
                 "model_role": MODEL_ROLE_LIVE,
                 "backend": backend,
@@ -654,6 +704,7 @@ def persist_tc_rank_model(
         "n_days": report.get("n_days"),
         "n_train_days": report.get("n_train_days"),
         "n_test_days": report.get("n_test_days"),
+        "holdout_trading_days": report.get("holdout_trading_days"),
         "sample_count": report.get("sample_count") or model.get("sample_count"),
         "fitted_at": fitted_at,
         "promoted_at": promoted_at,
@@ -705,6 +756,7 @@ def persist_tc_rank_model(
     out_res = {
         "success": True,
         "path": path,
+        "fitted_at": fitted_at or doc.get("fitted_at"),
         "promoted_at": promoted_at,
         "model_role": MODEL_ROLE_RESEARCH,
         "backend": backend,

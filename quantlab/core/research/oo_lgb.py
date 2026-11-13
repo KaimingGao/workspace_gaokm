@@ -128,6 +128,7 @@ def fit_oo_lgb_matrix(
     fitted_as_of: Optional[str] = None,
     row_dates: Optional[Sequence[str]] = None,
     cross_section_zscore: bool = True,
+    callbacks: Optional[Sequence[Any]] = None,
 ) -> Tuple[Optional[Dict[str, Any]], Dict[str, Any]]:
     """在与 Ridge 同口径完整行上拟合回归 LightGBM。返回 ``(model_blob|None, report)``。"""
     from core.research.feature_standardize import (
@@ -215,6 +216,7 @@ def fit_oo_lgb_matrix(
         lambda_l1=float(hyper["lambda_l1"]),
         lambda_l2=float(hyper["lambda_l2"]),
         min_data_in_leaf=int(hyper["min_data_in_leaf"]),
+        callbacks=callbacks,
     )
     x_raw = np.asarray(x_c, dtype=np.float64)
     impute = np.nanmean(x_raw, axis=0)

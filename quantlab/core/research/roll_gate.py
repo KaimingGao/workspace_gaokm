@@ -11,6 +11,7 @@ API / Job wire：``roll-gate``；落盘 ``roll_gate_last.json`` / ``jobs/roll_ga
 
 from __future__ import annotations
 
+import atexit
 import json
 import logging
 import os
@@ -23,6 +24,30 @@ from typing import Any, Callable, Dict, List, Optional, Sequence, Set, Tuple
 import numpy as np
 
 logger = logging.getLogger(__name__)
+
+_ROLL_OPEN_JOB: Dict[str, Optional[str]] = {"id": None}
+
+
+def _abandon_open_roll_gate() -> None:
+    """进程退出时，未跑完的滚动验证落成失败，避免 last 文件仍像成功。"""
+    job_id = _ROLL_OPEN_JOB.get("id")
+    if not job_id:
+        return
+    try:
+        persist_last(
+            {
+                "success": False,
+                "partial": True,
+                "error": "进程退出，滚动验证未完成",
+                "job_id": job_id,
+            }
+        )
+    except Exception:  # noqa: BLE001
+        logger.debug("roll_gate abandon persist failed", exc_info=True)
+    _ROLL_OPEN_JOB["id"] = None
+
+
+atexit.register(_abandon_open_roll_gate)
 
 DEFAULT_LOOKBACK = 500
 DEFAULT_HOLDOUT = 10
@@ -462,7 +487,9 @@ def run_roll_gate(
 
     del ridge_lambda  # ŷ_τc 已切 LightGBM；形参保留兼容旧请求体
 
-    lb = max(100, min(1000, int(lookback or DEFAULT_LOOKBACK)))
+    from core.data.policy import BARS_DAILY_LOOKBACK
+
+    lb = max(100, min(int(BARS_DAILY_LOOKBACK), int(lookback or DEFAULT_LOOKBACK)))
     hold_n = max(1, min(30, int(holdout or DEFAULT_HOLDOUT)))
     n_folds = max(1, min(20, int(folds or DEFAULT_FOLDS)))
     try:
@@ -553,16 +580,32 @@ def run_roll_gate(
     for fi in range(n_folds):
         seg = test_days[fi * hold_n : (fi + 1) * hold_n]
         if not seg:
+            fold_rows.append({"fold": fi + 1, "ok": False, "error": "评测窗为空"})
             continue
         eval_start = seg[0]
         try:
             fit_end = _train_cutoff(cal, eval_start, embargo=1)
         except ValueError:
+            fold_rows.append(
+                {"fold": fi + 1, "ok": False, "error": "缺少训练切点", "eval_start": eval_start}
+            )
             continue
         if not fit_end:
+            fold_rows.append(
+                {"fold": fi + 1, "ok": False, "error": "缺少训练切点", "eval_start": eval_start}
+            )
             continue
         train_dates = _rolling_train_dates(cal, fit_end, lb)
         if len(train_dates) < max(60, lb // 2):
+            fold_rows.append(
+                {
+                    "fold": fi + 1,
+                    "ok": False,
+                    "error": "训练窗太短",
+                    "eval_start": eval_start,
+                    "fit_end": fit_end,
+                }
+            )
             continue
 
         t0 = time.time()
@@ -670,7 +713,7 @@ def run_roll_gate(
         }
         fold_rows.append(fold_pack)
         partial: Dict[str, Any] = {
-            "success": True,
+            "success": False,
             "partial": True,
             "params": {
                 "lookback": lb,
@@ -707,8 +750,8 @@ def run_roll_gate(
                 logger.debug("roll_gate partial persist failed", exc_info=True)
 
     ok_folds = [f for f in fold_rows if f.get("ok") is True]
-    if not fold_rows or not ok_folds:
-        err = "无成功折（全部拟合失败或评测窗为空）"
+    if len(ok_folds) < n_folds:
+        err = f"成功 {len(ok_folds)}/{n_folds} 折（跳过或失败的折不算完成）"
         out: Dict[str, Any] = {
             "success": False,
             "error": err,
@@ -734,7 +777,12 @@ def run_roll_gate(
         }
         if run_id:
             out["job_id"] = run_id
-        _set_progress(status="failed", message=err, fold=n_folds, folds=n_folds)
+        _set_progress(status="failed", message=err, fold=n_folds, folds=n_folds, partial=out)
+        if persist:
+            try:
+                persist_last(out)
+            except Exception:  # noqa: BLE001
+                logger.debug("roll_gate failed persist failed", exc_info=True)
         return out
 
     summary = {
@@ -822,6 +870,7 @@ def start_roll_gate_job(
     )
 
     def _worker() -> None:
+        _ROLL_OPEN_JOB["id"] = job_id
         stop_hb = threading.Event()
 
         def _hb() -> None:
@@ -881,8 +930,10 @@ def start_roll_gate_job(
             _set_progress(status="failed", message=str(exc))
         finally:
             stop_hb.set()
+            if _ROLL_OPEN_JOB.get("id") == job_id:
+                _ROLL_OPEN_JOB["id"] = None
 
-    threading.Thread(target=_worker, name="roll-gate", daemon=True).start()
+    threading.Thread(target=_worker, name="roll-gate", daemon=False).start()
     return {
         "ok": True,
         "success": True,

@@ -43,6 +43,19 @@ def _ridge_desk_key(doc: Optional[Dict[str, Any]]) -> tuple:
     )
 
 
+def _desk_holdout_n(doc: Optional[Dict[str, Any]]) -> Optional[int]:
+    """读文档 Holdout 日数（顶层或 oos）；解析失败返回 None。"""
+    if not isinstance(doc, dict):
+        return None
+    raw = doc.get("holdout_trading_days")
+    if raw is None and isinstance(doc.get("oos"), dict):
+        raw = doc["oos"].get("holdout_trading_days")
+    try:
+        return int(raw) if raw is not None else None
+    except (TypeError, ValueError):
+        return None
+
+
 def _select_ridge_desk_doc(
     live: Optional[Dict[str, Any]],
     last: Optional[Dict[str, Any]],
@@ -52,23 +65,32 @@ def _select_ridge_desk_doc(
     - Holdout / 样本口径不同 → 画 last（刚改 Holdout 重拟合）
     - 口径相同但 last.fitted_at 新于 live → 画 last（刚拟合/启用研究，执行仍是上一轮）
     - 否则画 live（研究已晋级，或仅有执行套）
+    - Holdout=0 的 last 是全样本执行重训：有研究/执行槽时不抢研究台顶层
+      （因子表靠 suite_research / suite_live）
     """
     last_ok = isinstance(last, dict) and isinstance(last.get("return_model"), dict)
     live_ok = isinstance(live, dict) and isinstance(live.get("return_model"), dict)
     if last_ok:
         if not live_ok:
             return last, True
-        if _ridge_desk_key(last) != _ridge_desk_key(live):
-            return last, True
-        try:
-            from core.research.holdout import model_fit_id
+        last_hold = _desk_holdout_n(last)
+        slot_hold = _desk_holdout_n(live)
+        # 全样本 last 不抢「有 Holdout 的研究槽」顶层（否则 KPI 被灌成 0 日）
+        skip_full_sample_last = (
+            last_hold == 0 and slot_hold is not None and slot_hold > 0
+        )
+        if not skip_full_sample_last:
+            if _ridge_desk_key(last) != _ridge_desk_key(live):
+                return last, True
+            try:
+                from core.research.holdout import model_fit_id
 
-            last_fit = str(model_fit_id(last) or "")
-            live_fit = str(model_fit_id(live) or "")
-        except Exception:  # noqa: BLE001
-            last_fit, live_fit = "", ""
-        if last_fit and (not live_fit or last_fit > live_fit):
-            return last, True
+                last_fit = str(model_fit_id(last) or "")
+                live_fit = str(model_fit_id(live) or "")
+            except Exception:  # noqa: BLE001
+                last_fit, live_fit = "", ""
+            if last_fit and (not live_fit or last_fit > live_fit):
+                return last, True
     if live_ok:
         return live, False
     return None, False
@@ -175,9 +197,15 @@ def _suite_pack_from_doc(doc: Optional[Dict[str, Any]]) -> Optional[Dict[str, An
         if isinstance(doc.get("feature_importance"), list)
         else rm.get("feature_importance"),
         "y_spec": y_spec,
-        "n_train_days": doc.get("n_train_days"),
-        "n_test_days": doc.get("n_test_days"),
-        "holdout_trading_days": doc.get("holdout_trading_days"),
+        "n_train_days": doc.get("n_train_days")
+        if doc.get("n_train_days") is not None
+        else (oos.get("n_train_days") if isinstance(oos, dict) else None),
+        "n_test_days": doc.get("n_test_days")
+        if doc.get("n_test_days") is not None
+        else (oos.get("n_test_days") if isinstance(oos, dict) else None),
+        "holdout_trading_days": doc.get("holdout_trading_days")
+        if doc.get("holdout_trading_days") is not None
+        else (oos.get("holdout_trading_days") if isinstance(oos, dict) else None),
         "tau_end_hm": doc.get("tau_end_hm"),
         "sample_count": doc.get("sample_count")
         if doc.get("sample_count") is not None
@@ -273,9 +301,12 @@ def _start_ridge_fit_job(
     job_id = slot.start(kind=kind, total=job_total, message=message)
 
     def _progress(cur: int = 0, tot: int = 0, msg: str = "") -> None:
+        # 阶段文案常传 tot=1；面板批进度才抬高 total。勿把进度条总长压扁。
+        tot_i = max(0, int(tot or 0))
+        total = max(job_total, tot_i if tot_i > 1 else job_total)
         slot.update(
             current=max(0, int(cur or 0)),
-            total=max(1, int(tot or job_total)),
+            total=max(1, total),
             message=str(msg or message),
             job_id=job_id,
         )
@@ -858,7 +889,7 @@ class QuantFactorMixin:
                 return bool(job_alive_cb())
             except Exception:  # noqa: BLE001
                 logger.debug("tau_lgb job_alive_cb failed", exc_info=True)
-                return True
+                return False
 
         def _prog(cur: int, tot: int, msg: str) -> None:
             if not callable(progress_cb):
@@ -1009,10 +1040,11 @@ class QuantFactorMixin:
                 force=bool(force_promote),
                 role=persist_role,
             )
-            report["persisted"] = saved
-            report["promote_gate"] = saved.get("promote_gate") or tau_promote_gate(report)
-            if saved.get("promoted_at"):
-                report["promoted_at"] = saved["promoted_at"]
+            from core.research.holdout import stamp_persist_outcome
+
+            stamp_persist_outcome(report, saved)
+            if not report.get("promote_gate"):
+                report["promote_gate"] = tau_promote_gate(report)
         else:
             report["persisted"] = {"success": False, "skipped": True}
             live = load_tau_model()
@@ -1099,7 +1131,9 @@ class QuantFactorMixin:
                 suite_live_doc=live,
             )
 
-        _doc, use_last = _select_ridge_desk_doc(live, last)
+        # 对齐 rank：研究槽优先作 desk 锚；Holdout=0 last 不抢研究套；须用 chosen
+        persisted = research or live
+        chosen, use_last = _select_ridge_desk_doc(persisted, last)
         if use_last and last:
             out = dict(last)
             out.update(
@@ -1125,7 +1159,7 @@ class QuantFactorMixin:
                 suite_live_doc=live,
             )
 
-        if not live:
+        if not isinstance(chosen, dict):
             out = {
                 "success": False,
                 "exists": False,
@@ -1142,28 +1176,49 @@ class QuantFactorMixin:
             return _attach_ridge_role_flags(
                 out,
                 tau_model_path(),
-                live_present=False,
+                live_present=bool(live),
                 accept_research=_usable_tau_lgb_doc,
                 suite_research_doc=research,
                 suite_live_doc=live,
             )
 
-        return _attach_ridge_role_flags(
+        from core.research.holdout import model_fit_id as _tau_fit_id
+
+        live_fit = _tau_fit_id(live) if isinstance(live, dict) else None
+        chosen_fit = _tau_fit_id(chosen)
+        is_live_desk = bool(
+            live
+            and (
+                chosen is live
+                or (live_fit and chosen_fit and live_fit == chosen_fit)
+            )
+        )
+        out = dict(chosen)
+        out.update(
             {
                 "success": True,
                 "exists": True,
                 "path": tau_model_path(),
-                "promoted": True,
+                "promoted": bool(is_live_desk and live),
                 "shadow": False,
                 "last_report_exists": bool(last),
-                "live_model_present": True,
+                "live_model_present": bool(live),
+                "model_role": "live" if is_live_desk else "research",
                 "promote_gate": tau_promote_gate(
-                    live if live.get("oos") else (last or live)
+                    chosen
+                    if isinstance(chosen.get("oos"), dict)
+                    else (last or chosen)
                 ),
-                **live,
-            },
+            }
+        )
+        if last:
+            out["last_report"] = last
+        if is_live_desk and live:
+            out["live_tau"] = (live or {}).get("tau")
+        return _attach_ridge_role_flags(
+            out,
             tau_model_path(),
-            live_present=True,
+            live_present=bool(live),
             accept_research=_usable_tau_lgb_doc,
             suite_research_doc=research,
             suite_live_doc=live,
@@ -1186,6 +1241,8 @@ class QuantFactorMixin:
         deploy_full_sample: bool = False,
         note: str = "",
         cross_section_zscore: bool = True,
+        progress_cb: Optional[Any] = None,
+        job_alive_cb: Optional[Any] = None,
     ) -> Dict[str, Any]:
         """ŷ_oo_rank：单头 LambdaRank。
 
@@ -1194,6 +1251,7 @@ class QuantFactorMixin:
         截面 z 与损失宇宙均用整观察池（训练档已下线）。
         成交明细 oo_rank=1..n；不进 ranking 融合分；进合成 rank_score（买序/阈值）。
         ``persist=True``：research=写入研究槽；live=研究槽晋级或全样本部署；落盘不重训。
+        ``progress_cb(cur, tot, msg)`` / ``job_alive_cb()``：后台 Job 进度与孤儿保护。
         """
         from core.research.feature_standardize import ZSCORE_UNIVERSE_POOL
         from core.research.oo_rank_panel import resolve_rank_fit_plan
@@ -1206,6 +1264,23 @@ class QuantFactorMixin:
             save_oo_rank_last_report,
             stamp_rank_zscore_universe_meta,
         )
+
+        def _prog(cur: int, tot: int, msg: str) -> None:
+            if not callable(progress_cb):
+                return
+            try:
+                progress_cb(int(cur), int(tot), str(msg or ""))
+            except Exception:  # noqa: BLE001
+                logger.debug("oo_rank progress_cb failed", exc_info=True)
+
+        def _job_alive() -> bool:
+            if not callable(job_alive_cb):
+                return True
+            try:
+                return bool(job_alive_cb())
+            except Exception:  # noqa: BLE001
+                logger.debug("oo_rank job_alive_cb failed", exc_info=True)
+                return False
 
         if persist:
             last = load_oo_rank_last_report()
@@ -1259,6 +1334,7 @@ class QuantFactorMixin:
         pool_n = int(plan.get("watching_pool_size") or len(codes))
         train_u = str(plan.get("train_universe") or "pool")
 
+        _prog(0, max(1, len(codes)), f"ŷ_oo_rank 拉日线 {len(codes)} 只…")
         loaded, _failures, _fund = load_portfolio_stock_bars(
             codes,
             lookback=int(lookback or 120),
@@ -1270,6 +1346,7 @@ class QuantFactorMixin:
             bars = loaded.get(str(code))
             if bars:
                 stock_bars.append({"code": str(code), "bars": bars})
+        _prog(0, max(1, len(stock_bars)), f"ŷ_oo_rank 组面板 0/{len(stock_bars)}")
         try:
             report = fit_oo_rank_report(
                 stock_bars,
@@ -1281,6 +1358,7 @@ class QuantFactorMixin:
                 persist=False,
                 cross_section_zscore=bool(cross_section_zscore),
                 train_codes=None,
+                progress_cb=progress_cb,
             )
         finally:
             stock_bars.clear()
@@ -1302,13 +1380,26 @@ class QuantFactorMixin:
         )
         if note:
             report["api_note"] = str(note)[:200]
+        if not _job_alive():
+            report["success"] = False
+            report["error"] = "任务已中断或被接替"
+            report["orphaned"] = True
+            report["persisted"] = {"success": False, "skipped": True, "orphaned": True}
+            report["path"] = oo_rank_model_path()
+            return _attach_ridge_role_flags(
+                report,
+                oo_rank_model_path(),
+                live_present=os.path.isfile(oo_rank_model_path()),
+            )
         if report.get("success"):
             save_oo_rank_last_report(report)
         if persist and report.get("success"):
             saved = persist_oo_rank_model(
                 report, note=note or "", role=persist_role or "live"
             )
-            report["persisted"] = saved
+            from core.research.holdout import stamp_persist_outcome
+
+            stamp_persist_outcome(report, saved)
         else:
             report["persisted"] = {"success": False, "skipped": True}
         report["path"] = oo_rank_model_path()
@@ -1367,7 +1458,20 @@ class QuantFactorMixin:
             rm = pack.get("return_model_research") or pack.get("return_model")
             return isinstance(rm, dict) and bool(rm.get("booster_b64") or rm.get("coefficients"))
 
-        if not _has_lambda_backend(out) and isinstance(last, dict) and _has_lambda_backend(last):
+        _same_fit_last = bool(
+            model_fit_id(out)
+            and isinstance(last, dict)
+            and model_fit_id(last)
+            and model_fit_id(out) == model_fit_id(last)
+        )
+        _allow_last_side = bool(use_last or _same_fit_last)
+        # 缺 backends.lambdarank：仅画 last 或同 fit 时从 last 补，避免全样本 last 污染研究槽
+        if (
+            _allow_last_side
+            and not _has_lambda_backend(out)
+            and isinstance(last, dict)
+            and _has_lambda_backend(last)
+        ):
             be_out = (
                 dict(out["backends"])
                 if isinstance(out.get("backends"), dict)
@@ -1388,8 +1492,10 @@ class QuantFactorMixin:
             out["backends"] = be_clean
         out.pop("ridge_return_model_research", None)
         out.pop("shadow_track", None)
+        # 仅画 last 时回填 OOS；勿把 holdout=0 last 挂到研究/执行槽文档上
         if (
-            not isinstance(out.get("oos"), dict)
+            use_last
+            and not isinstance(out.get("oos"), dict)
             and isinstance(last, dict)
             and isinstance(last.get("oos"), dict)
         ):
@@ -1400,8 +1506,15 @@ class QuantFactorMixin:
             out["oos"] = _scrub_rank_oos(
                 out["oos"], drop_keys=("ridge_oo_baseline", "ridge_tc_baseline")
             )
+        oos_out = out.get("oos") if isinstance(out.get("oos"), dict) else {}
         for _k in ("n_train_days", "n_test_days", "holdout_trading_days"):
-            if out.get(_k) is None and isinstance(last, dict) and last.get(_k) is not None:
+            if out.get(_k) is not None:
+                continue
+            if oos_out.get(_k) is not None:
+                out[_k] = oos_out.get(_k)
+                continue
+            # 训/测/Holdout：仅画 last 或同 fit 时从 last 补（异 fit 全样本 last 勿盖研究槽）
+            if _allow_last_side and isinstance(last, dict) and last.get(_k) is not None:
                 out[_k] = last.get(_k)
         rm = out.get("return_model") if isinstance(out.get("return_model"), dict) else {}
         backend = (
@@ -1431,6 +1544,48 @@ class QuantFactorMixin:
             suite_live_doc=live,
         )
 
+
+    def start_oo_rank_job(
+        self,
+        *,
+        lookback: int = 700,
+        watching_limit: int = MODEL_FIT_MAX_SIZE,
+        holdout_trading_days: int = 20,
+        topk_track: int = 10,
+        ndcg_k: int = 10,
+        l2: float = 5.0,
+        backend: str = "auto",
+        note: str = "",
+        cross_section_zscore: bool = True,
+        **_ignored: Any,
+    ) -> Dict[str, Any]:
+        """后台 ŷ_oo_rank 拟合；轮询 ``GET /api/jobs/oo-rank``。不写盘。"""
+        from core.job_progress import oo_rank_job
+
+        kwargs = dict(
+            lookback=lookback,
+            watching_limit=watching_limit,
+            holdout_trading_days=holdout_trading_days,
+            topk_track=topk_track,
+            ndcg_k=ndcg_k,
+            l2=l2,
+            backend=backend,
+            persist=False,
+            note=note or "",
+            cross_section_zscore=bool(cross_section_zscore),
+        )
+        return _start_ridge_fit_job(
+            slot=oo_rank_job,
+            kind="oo_rank",
+            message="ŷ_oo_rank 拟合中…",
+            watching_limit=int(watching_limit or WATCHING_MAX_SIZE),
+            worker_fn=lambda progress_cb=None, job_alive_cb=None: self.run_oo_rank_experiment(
+                **kwargs,
+                progress_cb=progress_cb,
+                job_alive_cb=job_alive_cb,
+            ),
+        )
+
     @records_experiment("tc_rank")
     @consume_materialized
     def run_tc_rank_experiment(
@@ -1449,6 +1604,8 @@ class QuantFactorMixin:
         note: str = "",
         cross_section_zscore: bool = True,
         tau_end_hm: Optional[str] = None,
+        progress_cb: Optional[Any] = None,
+        job_alive_cb: Optional[Any] = None,
     ) -> Dict[str, Any]:
         """ŷ_τc_rank：单头 LambdaRank。
 
@@ -1457,6 +1614,7 @@ class QuantFactorMixin:
         ``tau_end_hm`` 与 ŷ_τc 同组前缀（默认 09:30）。
         截面 z 与损失宇宙均用整观察池（训练档已下线）。
         启用只落盘；不进 fuse；相对分进合成 rank_score（买序/阈值）。
+        ``progress_cb(cur, tot, msg)`` / ``job_alive_cb()``：后台 Job 进度与孤儿保护。
         """
         from core.research.feature_standardize import ZSCORE_UNIVERSE_POOL
         from core.research.oo_rank_lambdarank import stamp_rank_zscore_universe_meta
@@ -1469,6 +1627,23 @@ class QuantFactorMixin:
             save_tc_rank_last_report,
             tc_rank_model_path,
         )
+
+        def _prog(cur: int, tot: int, msg: str) -> None:
+            if not callable(progress_cb):
+                return
+            try:
+                progress_cb(int(cur), int(tot), str(msg or ""))
+            except Exception:  # noqa: BLE001
+                logger.debug("tc_rank progress_cb failed", exc_info=True)
+
+        def _job_alive() -> bool:
+            if not callable(job_alive_cb):
+                return True
+            try:
+                return bool(job_alive_cb())
+            except Exception:  # noqa: BLE001
+                logger.debug("tc_rank job_alive_cb failed", exc_info=True)
+                return False
 
         if persist:
             last = load_tc_rank_last_report()
@@ -1522,6 +1697,7 @@ class QuantFactorMixin:
         pool_n = int(plan.get("watching_pool_size") or len(codes))
         train_u = str(plan.get("train_universe") or "pool")
 
+        _prog(0, max(1, len(codes)), f"ŷ_τc_rank 拉日线 {len(codes)} 只…")
         loaded, _failures, _fund = load_portfolio_stock_bars(
             codes,
             lookback=int(lookback or 700),
@@ -1533,6 +1709,7 @@ class QuantFactorMixin:
             bars = loaded.get(str(code))
             if bars:
                 stock_bars.append({"code": str(code), "bars": bars})
+        _prog(0, max(1, len(stock_bars)), f"ŷ_τc_rank 组面板 0/{len(stock_bars)}")
         try:
             report = fit_tc_rank_report(
                 stock_bars,
@@ -1544,6 +1721,7 @@ class QuantFactorMixin:
                 cross_section_zscore=bool(cross_section_zscore),
                 train_codes=None,
                 tau_end_hm=tau_end_hm,
+                progress_cb=progress_cb,
             )
         finally:
             stock_bars.clear()
@@ -1565,6 +1743,17 @@ class QuantFactorMixin:
         )
         if note:
             report["api_note"] = str(note)[:200]
+        if not _job_alive():
+            report["success"] = False
+            report["error"] = "任务已中断或被接替"
+            report["orphaned"] = True
+            report["persisted"] = {"success": False, "skipped": True, "orphaned": True}
+            report["path"] = tc_rank_model_path()
+            return _attach_ridge_role_flags(
+                report,
+                tc_rank_model_path(),
+                live_present=os.path.isfile(tc_rank_model_path()),
+            )
         if report.get("success"):
             save_tc_rank_last_report(report)
         report["persisted"] = {"success": False, "skipped": True}
@@ -1603,6 +1792,7 @@ class QuantFactorMixin:
                     "path": path,
                     "last_report_exists": bool(last),
                     "fitted_at": fitted,
+                    "shadow": False,
                     "note": "尚无 ŷ_τc_rank；先拟合再启用研究/执行",
                 },
                 path,
@@ -1624,7 +1814,19 @@ class QuantFactorMixin:
                 rm0.get("booster_b64") or rm0.get("coefficients")
             )
 
-        if not _has_lambda_backend(out) and isinstance(last, dict) and _has_lambda_backend(last):
+        _same_fit_last = bool(
+            model_fit_id(out)
+            and isinstance(last, dict)
+            and model_fit_id(last)
+            and model_fit_id(out) == model_fit_id(last)
+        )
+        _allow_last_side = bool(use_last or _same_fit_last)
+        if (
+            _allow_last_side
+            and not _has_lambda_backend(out)
+            and isinstance(last, dict)
+            and _has_lambda_backend(last)
+        ):
             be_out = dict(out["backends"]) if isinstance(out.get("backends"), dict) else {}
             be_last = last.get("backends") if isinstance(last.get("backends"), dict) else {}
             if isinstance(be_last.get("lambdarank"), dict):
@@ -1639,15 +1841,20 @@ class QuantFactorMixin:
             }
         out.pop("ridge_return_model_research", None)
         out.pop("shadow_track", None)
-        if not isinstance(out.get("oos"), dict) and isinstance(last, dict):
-            if isinstance(last.get("oos"), dict):
-                out["oos"] = last["oos"]
+        if (
+            use_last
+            and not isinstance(out.get("oos"), dict)
+            and isinstance(last, dict)
+            and isinstance(last.get("oos"), dict)
+        ):
+            out["oos"] = last["oos"]
         if isinstance(out.get("oos"), dict):
             from core.research.oo_rank_lambdarank import _scrub_rank_oos
 
             out["oos"] = _scrub_rank_oos(
                 out["oos"], drop_keys=("ridge_oo_baseline", "ridge_tc_baseline")
             )
+        oos_out = out.get("oos") if isinstance(out.get("oos"), dict) else {}
         for _k in (
             "n_train_days",
             "n_test_days",
@@ -1658,7 +1865,13 @@ class QuantFactorMixin:
             "zero_prefix",
             "y_spec",
         ):
-            if out.get(_k) is None and isinstance(last, dict) and last.get(_k) is not None:
+            if out.get(_k) is not None:
+                continue
+            if oos_out.get(_k) is not None:
+                out[_k] = oos_out.get(_k)
+                continue
+            # Holdout/前缀/y_spec：勿用异 fit 的 last（含全样本）盖研究槽
+            if _allow_last_side and isinstance(last, dict) and last.get(_k) is not None:
                 out[_k] = last.get(_k)
         # 落盘包缺前缀戳时，从 return_model.y_spec 抬一层，供 UI restore
         if out.get("tau_end_hm") is None:
@@ -1681,6 +1894,7 @@ class QuantFactorMixin:
                 "success": True,
                 "exists": True,
                 "path": path,
+                "shadow": bool(use_last) or not live_file,
                 "from_last_report": bool(use_last),
                 "last_report_exists": bool(last),
                 "backend": backend,
@@ -1696,6 +1910,50 @@ class QuantFactorMixin:
             suite_research_doc=research,
             suite_live_doc=live,
         )
+
+    def start_tc_rank_job(
+        self,
+        *,
+        lookback: int = 700,
+        watching_limit: int = MODEL_FIT_MAX_SIZE,
+        holdout_trading_days: int = 20,
+        topk_track: int = 10,
+        ndcg_k: int = 10,
+        l2: float = 5.0,
+        backend: str = "auto",
+        note: str = "",
+        cross_section_zscore: bool = True,
+        tau_end_hm: Optional[str] = None,
+        **_ignored: Any,
+    ) -> Dict[str, Any]:
+        """后台 ŷ_τc_rank 拟合；轮询 ``GET /api/jobs/tc-rank``。不写盘。"""
+        from core.job_progress import tc_rank_job
+
+        kwargs = dict(
+            lookback=lookback,
+            watching_limit=watching_limit,
+            holdout_trading_days=holdout_trading_days,
+            topk_track=topk_track,
+            ndcg_k=ndcg_k,
+            l2=l2,
+            backend=backend,
+            persist=False,
+            note=note or "",
+            cross_section_zscore=bool(cross_section_zscore),
+            tau_end_hm=tau_end_hm,
+        )
+        return _start_ridge_fit_job(
+            slot=tc_rank_job,
+            kind="tc_rank",
+            message="ŷ_τc_rank 拟合中…",
+            watching_limit=int(watching_limit or WATCHING_MAX_SIZE),
+            worker_fn=lambda progress_cb=None, job_alive_cb=None: self.run_tc_rank_experiment(
+                **kwargs,
+                progress_cb=progress_cb,
+                job_alive_cb=job_alive_cb,
+            ),
+        )
+
 
     def _run_horizon_ridge_experiment(
         self,
@@ -1776,7 +2034,7 @@ class QuantFactorMixin:
                 return bool(job_alive_cb())
             except Exception:  # noqa: BLE001
                 logger.debug("%s job_alive_cb failed", task, exc_info=True)
-                return True
+                return False
 
         if persist:
             last = load_ridge_last_report(horizon)
@@ -1789,11 +2047,12 @@ class QuantFactorMixin:
                     role=persist_role,
                 )
                 out = dict(last)
-                out["persisted"] = saved
+                from core.research.holdout import stamp_persist_outcome
+
+                stamp_persist_outcome(out, saved)
                 out["from_last_report"] = True
-                out["promote_gate"] = saved.get("promote_gate") or horizon_promote_gate(last)
-                if saved.get("promoted_at"):
-                    out["promoted_at"] = saved["promoted_at"]
+                if not out.get("promote_gate"):
+                    out["promote_gate"] = horizon_promote_gate(last)
                 return _attach_ridge_role_flags(out, ridge_model_path(horizon))
 
         from core.watching.store import MODEL_FIT_MAX_SIZE
@@ -2371,10 +2630,11 @@ class QuantFactorMixin:
                 force=bool(force_promote),
                 role=persist_role,
             )
-            report["persisted"] = saved
-            report["promote_gate"] = saved.get("promote_gate") or horizon_promote_gate(report)
-            if saved.get("promoted_at"):
-                report["promoted_at"] = saved["promoted_at"]
+            from core.research.holdout import stamp_persist_outcome
+
+            stamp_persist_outcome(report, saved)
+            if not report.get("promote_gate"):
+                report["promote_gate"] = horizon_promote_gate(report)
         else:
             report["persisted"] = {"success": False, "skipped": True}
             live = load_ridge_model(horizon)
@@ -2455,9 +2715,10 @@ class QuantFactorMixin:
                     packed["backends"] = be_out
         if isinstance(last, dict):
             oos_last = last.get("oos") if isinstance(last.get("oos"), dict) else {}
-            if not isinstance(packed.get("oos"), dict) and oos_last:
+            # 整包 OOS 仅画 last 时回填；勿把 holdout=0 last 挂到槽文档
+            if use_last and not isinstance(packed.get("oos"), dict) and oos_last:
                 packed["oos"] = dict(oos_last)
-            elif isinstance(packed.get("oos"), dict) and oos_last:
+            elif use_last and isinstance(packed.get("oos"), dict) and oos_last:
                 # 补嵌套对照：落盘常只有胜出侧扁平 oos，缺 oos.tree / oos.ridge
                 oos_out = dict(packed["oos"])
                 if "ridge" not in oos_out and isinstance(oos_last.get("ridge"), dict):
@@ -2465,44 +2726,65 @@ class QuantFactorMixin:
                 if "tree" not in oos_out and isinstance(oos_last.get("tree"), dict):
                     oos_out["tree"] = oos_last["tree"]
                 packed["oos"] = oos_out
-            if (
-                isinstance(packed.get("oos"), dict)
-                and "tree" not in packed["oos"]
-                and isinstance(last.get("tree_oos"), dict)
-                and last.get("tree_oos")
-            ):
-                packed["oos"] = dict(packed["oos"])
-                packed["oos"]["tree"] = last["tree_oos"]
-            if packed.get("tree_oos") is None and isinstance(last.get("tree_oos"), dict):
-                packed["tree_oos"] = last["tree_oos"]
-            if packed.get("ridge_oos") is None and isinstance(last.get("ridge_oos"), dict):
-                packed["ridge_oos"] = last["ridge_oos"]
-            # 扁平 oos 缺训/测行数时从嵌套对照侧回填（旧落盘 / 仅胜出侧）
-            if isinstance(packed.get("oos"), dict):
-                oos_fix = packed["oos"]
-                if oos_fix.get("n_train") is None or oos_fix.get("n_test") is None:
-                    for side in (
-                        oos_fix.get("ridge"),
-                        oos_fix.get("tree"),
-                        packed.get("ridge_oos"),
-                        packed.get("tree_oos"),
-                        last.get("ridge_oos") if isinstance(last, dict) else None,
-                        last.get("tree_oos") if isinstance(last, dict) else None,
-                    ):
-                        if not isinstance(side, dict):
-                            continue
-                        if oos_fix.get("n_train") is None and side.get("n_train") is not None:
-                            oos_fix["n_train"] = side.get("n_train")
-                        if oos_fix.get("n_test") is None and side.get("n_test") is not None:
-                            oos_fix["n_test"] = side.get("n_test")
-                        if (
-                            oos_fix.get("n_train") is not None
-                            and oos_fix.get("n_test") is not None
+            # 嵌套对照 / tree_oos / ridge_oos / 训测日：仅 use_last 才从 last 补，
+            # 避免执行全样本 last 污染研究槽对照板
+            if use_last:
+                if (
+                    isinstance(packed.get("oos"), dict)
+                    and "tree" not in packed["oos"]
+                    and isinstance(last.get("tree_oos"), dict)
+                    and last.get("tree_oos")
+                ):
+                    packed["oos"] = dict(packed["oos"])
+                    packed["oos"]["tree"] = last["tree_oos"]
+                if packed.get("tree_oos") is None and isinstance(
+                    last.get("tree_oos"), dict
+                ):
+                    packed["tree_oos"] = last["tree_oos"]
+                if packed.get("ridge_oos") is None and isinstance(
+                    last.get("ridge_oos"), dict
+                ):
+                    packed["ridge_oos"] = last["ridge_oos"]
+                # 扁平 oos 缺训/测行数时从嵌套对照侧回填（旧落盘 / 仅胜出侧）
+                if isinstance(packed.get("oos"), dict):
+                    oos_fix = packed["oos"]
+                    if oos_fix.get("n_train") is None or oos_fix.get("n_test") is None:
+                        for side in (
+                            oos_fix.get("ridge"),
+                            oos_fix.get("tree"),
+                            packed.get("ridge_oos"),
+                            packed.get("tree_oos"),
+                            last.get("ridge_oos"),
+                            last.get("tree_oos"),
                         ):
-                            break
-        # LightGBM gain：落盘缺 feature_importance 时从同窗 last_report 补
+                            if not isinstance(side, dict):
+                                continue
+                            if (
+                                oos_fix.get("n_train") is None
+                                and side.get("n_train") is not None
+                            ):
+                                oos_fix["n_train"] = side.get("n_train")
+                            if (
+                                oos_fix.get("n_test") is None
+                                and side.get("n_test") is not None
+                            ):
+                                oos_fix["n_test"] = side.get("n_test")
+                            if (
+                                oos_fix.get("n_train") is not None
+                                and oos_fix.get("n_test") is not None
+                            ):
+                                break
+        # LightGBM gain / 特征包：仅画 last 或同窗同 fit 时从 last_report 补
+        _same_fit_last = bool(
+            isinstance(last, dict)
+            and model_fit_id(packed)
+            and model_fit_id(last)
+            and model_fit_id(packed) == model_fit_id(last)
+        )
+        _allow_last_side = bool(use_last or _same_fit_last)
         if (
-            not (
+            _allow_last_side
+            and not (
                 isinstance(packed.get("feature_importance"), list)
                 and packed.get("feature_importance")
             )
@@ -2512,15 +2794,16 @@ class QuantFactorMixin:
         ):
             packed["feature_importance"] = last["feature_importance"]
         if (
-            packed.get("tree_success") is None
+            _allow_last_side
+            and packed.get("tree_success") is None
             and isinstance(last, dict)
             and last.get("tree_success") is not None
         ):
             packed["tree_success"] = last.get("tree_success")
             if last.get("tree_error"):
                 packed["tree_error"] = last.get("tree_error")
-        # alpha_τh 特征包：落盘缺字段时从 last_report 补
-        if isinstance(last, dict):
+        # alpha_τh 特征包：落盘缺字段时从 last_report 补（同 fit / 画 last）
+        if _allow_last_side and isinstance(last, dict):
             for pk in (
                 "feature_pack",
                 "feature_pack_key",

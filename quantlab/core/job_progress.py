@@ -1,24 +1,23 @@
-"""Compat shim — prefer ``core.platform.job_progress``."""
+"""Compat shim — prefer ``core.platform.job_progress``.
 
-from core.platform.job_progress import *  # noqa: F401, F403
-from core.platform.job_progress import (  # noqa: F401
-    JobProgress,
-    JobRegistry,
-    bars_refresh_job,
-    chat_job,
-    job_registry,
-    materialize_job,
-    minute_refresh_job,
-    paper_job,
-    portfolio_backtest_job,
-    public_refresh_job_snapshot,
-    quant_ols_clusters_job,
-    roll_gate_job,
-    t0_backtest_job,
-    t30_ridge_job,
-    t45_ridge_job,
-    t60_ridge_job,
-    t75_ridge_job,
-    t90_ridge_job,
-    tau_lgb_job,
+Re-export existing public names; ensure newer slots exist even if an older
+in-memory ``platform.job_progress`` lacked them (branch switch without restart).
+"""
+
+from core.platform import job_progress as _jp
+
+globals().update(
+    {name: getattr(_jp, name) for name in dir(_jp) if not name.startswith("_")}
 )
+
+_reg = globals()["job_registry"]
+for _attr, _slot in (
+    ("oo_lgb_job", "oo-lgb"),
+    ("oo_rank_job", "oo-rank"),
+    ("tc_rank_job", "tc-rank"),
+    ("roll_gate_job", "roll-gate"),
+):
+    if globals().get(_attr) is None:
+        globals()[_attr] = _reg.slot(_slot)
+
+del _jp, _reg, _attr, _slot

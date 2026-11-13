@@ -145,6 +145,8 @@ class TestWebQuantJsGuards(unittest.TestCase):
         self.assertNotIn("quant-ols-run", panel)
         self.assertNotIn("quant-ols-pool-run", panel)
         self.assertNotIn("quant-ols-clusters-run", panel)
+        self.assertNotIn('id="quant-ols-clusters"', panel)
+        self.assertNotIn('id="quant-ols-health"', panel)
         self.assertNotIn("quant-cs-ic-run", panel)
         self.assertNotIn("quant-probe-fold", panel)
         self.assertNotIn("quant-probe-picker", panel)
@@ -281,6 +283,8 @@ class TestWebQuantJsGuards(unittest.TestCase):
         self.assertIn("unwrapJobSnap", minute_js)
         self.assertIn("applyJobFailure", minute_js)
         self.assertIn("syncJobSlot", minute_js)
+        self.assertIn("if (inflight) return job;", minute_js)
+        self.assertIn("seedJob", minute_js)
         self.assertIn('mode === "topup" ? 60 : 120', minute_js)
         self.assertIn("minuteWarmup", minute_js)
         self.assertIn("stillRunning", minute_js)
@@ -289,6 +293,8 @@ class TestWebQuantJsGuards(unittest.TestCase):
         bars_js = self._read("web", "static", "js", "quant", "bars_ui.js")
         self.assertIn("unwrapJobSnap", bars_js)
         self.assertIn("syncJobSlot", bars_js)
+        self.assertIn("if (inflight) return job;", bars_js)
+        self.assertIn("seedJob", bars_js)
         self.assertIn("applyJobFailure", bars_js)
         self.assertIn("startTopup", bars_js)
         self.assertIn('mode: modeS', bars_js)
@@ -315,6 +321,18 @@ class TestWebQuantJsGuards(unittest.TestCase):
         self.assertIn("stillRunning", bars_js)
         self.assertIn("网络中断，重试 Job 心跳", bars_js)
         self.assertIn("网络中断，重试 Job 心跳", minute_js)
+        # 日线/分钟槽重启清 idle：共享 JOB_RESTART_INTERRUPT_ERR；须认 jobId
+        job_ui = self._read("web", "static", "js", "quant", "cluster_job_ui.js")
+        self.assertIn('JOB_RESTART_INTERRUPT_ERR = "任务因服务重启中断，请重试"', job_ui)
+        self.assertIn("JOB_RESTART_INTERRUPT_ERR", bars_js)
+        self.assertIn("JOB_RESTART_INTERRUPT_ERR", minute_js)
+        self.assertIn("sawOwnJob || jobId", bars_js)
+        self.assertIn("sawOwnJob || jobId", minute_js)
+        topup_js0 = self._read("web", "static", "js", "data_warehouse_topup.js")
+        self.assertIn("jobRestartInterruptMessage", topup_js0)
+        self.assertNotIn("已结束但未返回结果", topup_js0)
+        self.assertNotIn("日 K 任务已结束但未返回结果", bars_js)
+        self.assertNotIn("5m 任务已结束但未返回结果", minute_js)
         self.assertNotIn("Force sync", bars_js)
         self.assertNotIn("jobTimings(job, started)", bars_js)
         self.assertNotIn("jobTimings(job, started)", minute_js)
@@ -449,6 +467,34 @@ class TestWebQuantJsGuards(unittest.TestCase):
             "oos = flattenRankOos(",
             quant_js.replace("\r\n", "\n"),
         )
+        # 刚拟合才写入研究包扁平 OOS；hydrate 勿用 holdout=0 last 盖研究套
+        paint_rank = quant_js.split("async function paintOoRankDesk")[1].split(
+            "async function renderRankCoefTable"
+        )[0]
+        self.assertIn("extra.justFitted", paint_rank)
+        self.assertIn("oos: oosFlat", paint_rank)
+        self.assertIn("showOos: true", paint_rank)
+        self.assertIn('suiteView === "research"', paint_rank)
+        # 拟合中 hydrate 不得冲卡头/套包
+        self.assertIn("anyRankFitBusy()", paint_rank)
+        # Holdout=0 顶层不得灌进研究包
+        cache_pack = quant_js.split("function cacheHeadSuitePacks")[1].split(
+            "function syncBacktestRoleFromSuite"
+        )[0]
+        self.assertIn("holdTop > 0", cache_pack)
+        # rank 忙锁：按头隔离 + 共享禁用；切套勿盲开；τc 错误文案走 formatApiDetail
+        self.assertIn("_rankFitBusyByHead", quant_js)
+        self.assertIn("anyRankFitBusy()", quant_js)
+        self.assertIn("markRankFitInflight", quant_js)
+        self.assertIn("syncRankFitChromeShells", quant_js)
+        self.assertIn('oos.n_train == null && oos.n_train_days != null', quant_js)
+        self.assertIn('ŷ_τc_rank 失败', quant_js)
+        self.assertIn(
+            "正在拟合，请等待当前任务结束",
+            quant_js,
+        )
+        self.assertIn("Holdout OOS 见研究套", quant_js)
+        self.assertNotIn("因子表仍为研究套 Holdout OOS", quant_js)
         self.assertNotIn("renderOoRankOosCompare", quant_js)
         # τ30…90 仍保留双 backend 对照板；排序头 OOS 只挂因子表
         self.assertIn("quant-oos-board", quant_js)
@@ -489,6 +535,14 @@ class TestWebQuantJsGuards(unittest.TestCase):
         self.assertIn("rankMetrics", factor_ic)
         self.assertIn("Gate lift", factor_ic)
         self.assertIn("gate_lift", factor_ic)
+        # rank 入模/特征/省略属模型结构，研究|执行都显示
+        rank_metrics = factor_ic.split("const rankMetrics = isOoRank")[1].split(
+            "// ŷ_τ*：基率"
+        )[0]
+        self.assertIn('kpi(\n          "入模"', rank_metrics)
+        self.assertIn('kpi("特征"', rank_metrics)
+        self.assertIn('kpi("省略"', rank_metrics)
+        self.assertIn("不跟 Holdout OOS", rank_metrics)
         self.assertIn("isHorizon", factor_ic)
         # rank 与 ŷ_oo / ŷ_τc 同壳挂 y 定义公式
         self.assertNotIn("const specY = isOoRank", factor_ic)
@@ -507,6 +561,8 @@ class TestWebQuantJsGuards(unittest.TestCase):
         self.assertIn("watching_day", factor_ic)
         self.assertIn("ooRankFeatureImportance", quant_js)
         self.assertIn("ooRankCoefModel", quant_js)
+        # 执行套系数表勿用 backends 里旧 research booster 盖住新 fitted_at
+        self.assertIn("backends 仅当 fitted_at 对齐才用", quant_js)
         self.assertIn("_ooRankLooksRidge", quant_js)
         self.assertIn("feature_importance", quant_js)
         # τ30…90 仍用双头对照板；rank 卡已清空 result
@@ -950,8 +1006,25 @@ class TestWebQuantJsGuards(unittest.TestCase):
         self.assertNotIn('jobName: "tc-ridge"', quant_js)
         self.assertNotIn('jobName: "tc-lgb"', quant_js)
         self.assertIn('jobName: "tau-lgb"', quant_js)
+        self.assertIn('jobName: "oo-rank"', quant_js)
+        self.assertIn('jobName: "tc-rank"', quant_js)
         self.assertIn("/api/jobs/${jobName}", quant_js)
         self.assertIn("pollRidgeJobUntilDone", quant_js)
+        self.assertIn("resumeRankFitJobIfRunning", quant_js)
+        self.assertIn("resumeOoLgbJobIfRunning", quant_js)
+        self.assertNotIn("rankFitBusyHint", quant_js)
+        self.assertNotIn("startRankFitBusy", quant_js)
+        # resume 轮询失败须刷卡头，勿 catch 吞掉「服务重启中断」
+        resume_rank = quant_js.split(
+            "async function resumeRankFitJobIfRunning", 1
+        )[1].split("async function resumeTauLgbJobIfRunning", 1)[0]
+        self.assertIn("describeNetworkFetchError(err)", resume_rank)
+        self.assertIn('chip: "失败"', resume_rank)
+        # 刷新后 queued 也要接回，勿只认 running
+        self.assertIn('job.status !== "queued"', resume_rank)
+        suggest_js = self._read("web", "static", "js", "quant", "domain_suggest.js")
+        self.assertIn('jobName: "oo-lgb"', suggest_js)
+        self.assertIn("q.awaitRidgeFitIfBackground", suggest_js)
         # ŷ_τc 拟合走后台 job，禁止 sync:!persist 把按钮钉死且无进度
         tau_run = quant_js.split("async function runTauLgb", 1)[1].split(
             "async function resumeTauLgbJobIfRunning", 1
@@ -1167,7 +1240,7 @@ class TestWebQuantJsGuards(unittest.TestCase):
         self.assertIn("BARS_DAILY_LOOKBACK", topup_js)
         self.assertIn("clampBarsWatchingLimit", topup_js)
         params_js = self._read("web", "static", "js", "quant", "params.js")
-        self.assertIn("export const BARS_DAILY_LOOKBACK = 1000", params_js)
+        self.assertIn("export const BARS_DAILY_LOOKBACK = 1060", params_js)
         self.assertIn("export const MODEL_FIT_LIMIT = 1600", params_js)
         self.assertIn("export const BARS_WATCHING_LIMIT = 1600", params_js)
         bars_ui_js = self._read("web", "static", "js", "quant", "bars_ui.js")
@@ -1727,12 +1800,29 @@ class TestWebQuantJsGuards(unittest.TestCase):
         self.assertIn("quant-suite-toggle", panel)
         self.assertIn("data-suite-action", panel)
         self.assertIn("syncSuiteChrome", quant_js)
+        # 概览四头选卡（对齐模型中心）；研究|执行双 panel 保留
+        self.assertIn("quant-desk-head-grid", panel)
+        self.assertIn('data-head-select="oo"', panel)
+        self.assertIn('data-head-select="tau"', panel)
+        self.assertIn('data-head-section="oo"', panel)
+        self.assertNotIn('id="quant-desk-toggle-view"', panel)
+        self.assertNotIn("quant-desk-view-bar", panel)
+        self.assertIn("syncDeskHeadMatrix", quant_js)
+        self.assertIn("bindDeskHeadMatrix", quant_js)
+        ov = panel[
+            panel.find('id="quant-section-overview"') : panel.find(
+                'id="quant-section-research-universe"'
+            )
+        ]
+        self.assertNotIn('aria-label="研究主路径"', ov)
+        self.assertNotIn("quant-path-rail", ov)
         # 四头面板底色随 研究|执行：浅蓝 / 浅黄
         self.assertIn('panel.classList.toggle("is-suite-live"', quant_js)
         self.assertIn('panel.classList.toggle("is-suite-research"', quant_js)
         self.assertIn('panel.setAttribute("data-suite-view"', quant_js)
         self.assertIn("is-suite-research", panel)
         css = self._read("web", "static", "css", "quant.css")
+        self.assertIn(".quant-page .quant-desk-head-grid", css)
         self.assertIn("--suite-panel-tint: #fafcff", css)
         self.assertIn("--suite-panel-tint: #fffcf7", css)
         self.assertIn(
@@ -1768,6 +1858,13 @@ class TestWebQuantJsGuards(unittest.TestCase):
         self.assertIn(">版本</span>", panel)
         self.assertIn("quant-suite-fit-enable", panel)
         self.assertIn(">启用</button>", panel)
+        # 「启用」默认 primary；切执行套由 JS 换成 warn（对齐各套拟合钮）
+        self.assertIn(
+            'class="dialog-btn primary quant-suite-fit-enable"',
+            panel,
+        )
+        self.assertIn('btn.classList.toggle("primary", !liveOn)', quant_js)
+        self.assertIn('btn.classList.toggle("warn", liveOn)', quant_js)
         self.assertNotIn('<time class="quant-suite-fit-id"', panel)
         self.assertIn("fmtVerLab", quant_js)
         self.assertIn("ensureSuiteFitDropdown", quant_js)
@@ -1777,6 +1874,13 @@ class TestWebQuantJsGuards(unittest.TestCase):
         self.assertIn("is-enabled-ver", quant_js)
         css_fit = self._read("web", "static", "css", "quant.css")
         self.assertIn("is-enabled-ver", css_fit)
+        # 版本框 / 列表统一白底；已启用用 ● 不用 ×
+        self.assertIn("background-color: #fff;", css_fit)
+        self.assertNotIn("background-color: #f1f5f9;", css_fit)
+        self.assertNotIn("background: #e2e8f0;", css_fit)
+        self.assertIn("quant-suite-fit-dd-on", css_fit)
+        self.assertIn("quant-suite-fit-dd-on", quant_js)
+        self.assertIn("当前槽已启用", quant_js)
         self.assertIn("quant-suite-fit-dd-menu", css_fit)
         self.assertIn("quant-suite-fit-dd-del", css_fit)
         self.assertIn("syncBacktestRoleFromSuite", quant_js)
@@ -1789,9 +1893,59 @@ class TestWebQuantJsGuards(unittest.TestCase):
         self.assertNotIn("当前 · ", quant_js)
         self.assertIn("paintHeadSuiteCoef", quant_js)
         self.assertIn("paintSuiteHeadStatus", quant_js)
+        # 状态刷卡头只 syncSuiteChromeShell，勿全量 refresh 版本下拉
+        paint_status = quant_js.split("function paintSuiteHeadStatus")[1].split(
+            "function paintSuiteResearchBusy"
+        )[0]
+        self.assertIn("syncSuiteChromeShell(head)", paint_status)
+        self.assertNotIn("syncSuiteChrome(head)", paint_status)
+        # 叠钮切套：隐藏侧 disabled + tabIndex=-1；rank 忙锁时亦禁，避免切套误开/叠跑
+        self.assertIn("fitBtn.tabIndex = showFit && !rankBusy ? 0 : -1", quant_js)
+        self.assertIn("promoBtn.tabIndex = liveOn && !rankBusy ? 0 : -1", quant_js)
+        self.assertIn("fitBtn.disabled = !showFit || rankBusy", quant_js)
         self.assertIn("paintSuiteResearchBusy", quant_js)
         self.assertIn("_suiteStatusByHead", quant_js)
         self.assertIn("restoreSuiteStatus", quant_js)
+        # 执行全样本重训须钉 live，不得因 justFitted 串到研究
+        self.assertIn('suiteView: "live"', quant_js)
+        self.assertIn("paintSuiteFitSelectPack", quant_js)
+        self.assertIn("_suiteFitSelectSeqByHead", quant_js)
+        self.assertIn("roleChanged", quant_js)
+        # 拟合后版本下拉须钉 current_id，勿被同套 keepPrev 留在旧时间
+        self.assertIn(
+            "keepPrev=false（刚拟合/落盘）：钉 current_id",
+            quant_js,
+        )
+        self.assertIn("keepPrev: false", quant_js)
+        self.assertIn("仅最新请求写缓存", quant_js)
+        self.assertIn("q.refreshSuiteFitSelect = refreshSuiteFitSelect", quant_js)
+        self.assertIn("keepPrev: false", quant_js.split("async function onTauPersistClick")[1].split('on("quant-oo-rank-run"')[0])
+        tau_persist = quant_js.split("async function onTauPersistClick")[1].split('on("quant-oo-rank-run"')[0]
+        self.assertIn("const fitOk = await runTauLgb", tau_persist)
+        self.assertIn("if (!fitOk) return", tau_persist)
+        self.assertIn("if (!persistOk) return", tau_persist)
+        self.assertIn(
+            "syncSuiteChromeShell(head)",
+            quant_js.split("function cacheHeadSuitePacks")[1].split(
+                "function syncBacktestRoleFromSuite"
+            )[0],
+        )
+        tau_persist = quant_js.split("async function onTauPersistClick")[1].split(
+            "on(\"quant-oo-rank-run\""
+        )[0]
+        self.assertIn('suiteView: "live"', tau_persist)
+        self.assertIn("holdoutOverride: 0", tau_persist)
+        oo_rank_persist = quant_js.split("async function onOoRankPersistClick")[
+            1
+        ].split('on("quant-tc-rank-run"')[0]
+        self.assertIn('suiteView: "live"', oo_rank_persist)
+        # justFitted 不得无条件钉死 research（执行全样本会带 suiteView）
+        self.assertNotIn(
+            'setHeadSuiteView(suiteHead, "research", { paint: true })',
+            quant_js.split("async function paintOoRankDesk")[1].split(
+                "async function renderRankCoefTable"
+            )[0],
+        )
         self.assertIn("showOos", quant_js)
         self.assertIn("omitRoleMetas", quant_js)
         self.assertIn("omitFitMeta", quant_js)
@@ -3853,6 +4007,24 @@ class TestWebQuantJsGuards(unittest.TestCase):
         self.assertIn("quant-card-head--fit", panel)
         self.assertIn("quant-fit-params", panel)
         self.assertIn("quant-fit-actions", panel)
+        # ŷ_τ*：拟合/启用研究/启用执行 横排单行；suite 叠层 grid 仅限 .quant-fit-tools
+        self.assertIn(
+            ".quant-card-head--fit .quant-fit-tools .quant-fit-actions {",
+            css,
+        )
+        self.assertIn(
+            ".quant-card-head--fit > .quant-fit-actions {",
+            css,
+        )
+        fit_actions_direct = css[
+            css.find(".quant-card-head--fit > .quant-fit-actions {") :
+            css.find(".quant-card-head--fit > .quant-fit-actions {") + 280
+        ]
+        self.assertIn("flex-wrap: nowrap", fit_actions_direct)
+        self.assertNotIn(
+            ".quant-card-head--fit .quant-fit-actions {\n  display: inline-grid;",
+            css,
+        )
         self.assertLess(panel.index('id="quant-holdout-days"'), panel.index('id="quant-section-tau"'))
         self.assertGreater(panel.index('id="quant-holdout-days"'), panel.index('id="quant-section-factors"'))
         self.assertGreater(panel.index('id="quant-holdout-days-tc"'), panel.index('id="quant-section-tau"'))
@@ -3942,16 +4114,16 @@ class TestWebQuantJsGuards(unittest.TestCase):
         self.assertNotIn('"研究套已落盘 · 执行未写"', js)
         self.assertIn("FIT_PARAM_HEADS", params_js)
         self.assertIn("FIT_LOOKBACK_MIN = 100", params_js)
-        self.assertIn("FIT_LOOKBACK_MAX = 1000", params_js)
+        self.assertIn("FIT_LOOKBACK_MAX = BARS_DAILY_LOOKBACK", params_js)
         self.assertIn(
             'head === "oo_rank" || head === "tc_rank") return 700', params_js
         )
-        self.assertIn('min="100" max="1000"', panel)
+        self.assertIn('min="100" max="1060"', panel)
         self.assertNotIn('min="40" max="700"', panel)
-        self.assertIn("100～1000", panel)
+        self.assertIn("100～1060", panel)
         self.assertNotIn("40～700", panel)
         self.assertIn(
-            'id="quant-fit-lookback-oo_rank" type="number" min="100" max="1000" step="10" value="700"',
+            'id="quant-fit-lookback-oo_rank" type="number" min="100" max="1060" step="10" value="700"',
             panel,
         )
         self.assertNotIn("readLabelDemean", params_js)
@@ -4016,10 +4188,9 @@ class TestWebQuantJsGuards(unittest.TestCase):
         self.assertNotIn("function ooFitBusyHint", suggest)
         self.assertNotIn("function fmtOoFitSec", suggest)
         self.assertNotIn("function ooFitErrorMessage", suggest)
-        self.assertIn(
-          "ŷ_oo 拟合… ${q.fmtRidgeFitSec(s)} · ${q.ridgeFitBusyHint(s)}",
-          suggest,
-        )
+        # 进度文案在 awaitRidgeFitIfBackground / quant.js，不在 suggest 内联拼秒
+        self.assertIn("awaitRidgeFitIfBackground", suggest)
+        self.assertIn("ŷ_oo 拟合 + Holdout OOS…", suggest)
         self.assertIn("function ridgeFitBusyHint", js)
         self.assertIn("q.ridgeFitBusyHint = ridgeFitBusyHint", js)
         self.assertIn("q.fmtRidgeFitSec = fmtRidgeFitSec", js)
@@ -4036,7 +4207,6 @@ class TestWebQuantJsGuards(unittest.TestCase):
         self.assertNotIn("观察池堆叠 Ridge / OLS", suggest)
         self.assertIn('idleMessage: "研究 Holdout OOS"', suggest)
         self.assertNotIn("执行全样本", suggest)
-        self.assertIn("ŷ_oo 拟合…", suggest)
         self.assertNotIn("ŷ_oo 拟合研究…", suggest)
         self.assertIn('setQuantMeta("全局 ŷ_oo")', js)
         self.assertNotIn(
@@ -4140,7 +4310,7 @@ class TestWebQuantJsGuards(unittest.TestCase):
             )
             self.assertRegex(
                 panel,
-                rf'id="{sid}"[^>]*>\s*<details class="quant-primary-fold" open>',
+                rf'id="{sid}"[^>]*>\s*<details class="quant-primary-fold" open(?:\s|>)',
             )
             self.assertNotRegex(
                 panel,
@@ -5933,7 +6103,9 @@ class TestWebQuantJsGuards(unittest.TestCase):
         css = self._read("web", "static", "css", "watching.css")
         self.assertIn(".watching-fit-tier-badge.is-A", css)
         quant_js = self._read("web", "static", "js", "quant.js")
-        self.assertIn("ensureFitTierMap", quant_js)
+        self.assertNotIn("ensureFitTierMap", quant_js)
+        watching_domain = self._read("web", "static", "js", "quant", "domain_watching.js")
+        self.assertIn("ensureFitTierMap", watching_domain)
         paper_js = self._read("web", "static", "js", "paper.js")
         self.assertIn("ensureFitTierMap", paper_js)
 

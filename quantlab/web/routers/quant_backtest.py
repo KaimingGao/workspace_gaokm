@@ -222,18 +222,22 @@ def quant_ab_compare(body: AbCompareRequest) -> Dict[str, Any]:
 @router.post("/api/quant/return-model/fit")
 
 def quant_return_model_fit(body: ReturnModelFitRequest) -> Dict[str, Any]:
+    """ŷ_oo LightGBM。``sync=true`` 同步；默认入队 ``GET /api/jobs/oo-lgb``。"""
+    kwargs = dict(
+        codes=body.codes,
+        lookback=body.lookback,
+        horizon_days=body.horizon_days,
+        watching_limit=body.watching_limit,
+        ridge_lambda=body.ridge_lambda,
+        min_samples=body.min_samples,
+        save_draft=body.save_draft,
+        holdout_trading_days=body.holdout_trading_days,
+        cross_section_zscore=bool(body.cross_section_zscore),
+    )
     try:
-        return deps.quant.fit_return_score_model(
-            codes=body.codes,
-            lookback=body.lookback,
-            horizon_days=body.horizon_days,
-            watching_limit=body.watching_limit,
-            ridge_lambda=body.ridge_lambda,
-            min_samples=body.min_samples,
-            save_draft=body.save_draft,
-            holdout_trading_days=body.holdout_trading_days,
-            cross_section_zscore=bool(body.cross_section_zscore),
-        )
+        if body.sync:
+            return deps.quant.fit_return_score_model(**kwargs)
+        return deps.quant.start_oo_lgb_job(**kwargs)
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e)) from e
 

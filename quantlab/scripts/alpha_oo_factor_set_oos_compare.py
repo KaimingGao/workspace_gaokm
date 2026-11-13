@@ -35,8 +35,8 @@ from core.research_universe import resolve_research_codes
 from core.signal.factors.alpha_oo import (
     ALPHA_OO_MIN_BARS,
     ALPHA_OO_RAW_PREFIX,
-    alpha_oo_ridge_raw_names,
-    apply_aoo_core_ridge_policy,
+    alpha_oo_core_raw_names,
+    apply_aoo_core_policy,
     is_alpha_oo_raw_key,
 )
 from core.signal.factors.z_oo import is_z_oo_key
@@ -135,7 +135,7 @@ def _select_feature_names(
     z = [n for n in all_names if is_z_oo_key(str(n))]
     aoo = [n for n in all_names if is_alpha_oo_raw_key(str(n))]
     have = set(all_names)
-    core = [n for n in alpha_oo_ridge_raw_names() if n in have]
+    core = [n for n in alpha_oo_core_raw_names() if n in have]
     if mode == "z_oo":
         return list(z)
     if mode == "raw_aoo":
@@ -151,7 +151,7 @@ def _select_feature_names(
         return list(z) + [n for n in aoo if n not in set(z)]
     if mode == "aoo_core_prod":
         # 消融：去重叠 z_oo ∪ aoo_core
-        return apply_aoo_core_ridge_policy(list(z) + list(core))
+        return apply_aoo_core_policy(list(z) + list(core))
     raise ValueError(f"unknown mode: {mode}")
 
 
@@ -362,7 +362,7 @@ def main() -> int:
     X, y, names, dates = assemble_oo_panels(
         items,
         horizon_days=int(args.horizon_days),
-        ridge_core_only=False,
+        aoo_core_only=False,
     )
     n_z = sum(1 for n in names if is_z_oo_key(str(n)))
     n_aoo = sum(1 for n in names if is_alpha_oo_raw_key(str(n)))

@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import unittest
+
+from tests.job_slot_isolation import isolated_live_slot
 from datetime import date, timedelta
 
 
@@ -646,31 +648,32 @@ class T30GateTests(unittest.TestCase):
             return {"success": True, "return_model": {"intercept": 0.0}}
 
         svc.run_t30_ridge_experiment = _fake
-        t0 = time.time()
-        out = svc.start_t30_ridge_job(
-            watching_limit=2,
-            tau_end_hm="10:00",
-            cross_section_zscore=True,
-        )
-        self.assertLess(time.time() - t0, 0.2)
-        self.assertTrue(out.get("background"))
-        self.assertTrue(out.get("success"))
-        job_id = (out.get("job") or {}).get("id")
-        self.assertTrue(job_id)
-        deadline = time.time() + 4
-        while time.time() < deadline and t30_ridge_job.is_running():
-            time.sleep(0.05)
-        snap = t30_ridge_job.get()
-        self.assertEqual(snap.get("status"), "done")
-        self.assertEqual(started["n"], 1)
-        self.assertEqual(snap.get("id"), job_id)
-        self.assertTrue((snap.get("result") or {}).get("success"))
-        kw = started["kwargs"] or {}
-        self.assertEqual(kw.get("tau_end_hm"), "10:00")
-        self.assertIs(kw.get("cross_section_zscore"), True)
-        self.assertIs(kw.get("persist"), False)
-        self.assertTrue(callable(kw.get("progress_cb")))
-        self.assertTrue(callable(kw.get("job_alive_cb")))
+        with isolated_live_slot(t30_ridge_job):
+            t0 = time.time()
+            out = svc.start_t30_ridge_job(
+                watching_limit=2,
+                tau_end_hm="10:00",
+                cross_section_zscore=True,
+            )
+            self.assertLess(time.time() - t0, 0.2)
+            self.assertTrue(out.get("background"))
+            self.assertTrue(out.get("success"))
+            job_id = (out.get("job") or {}).get("id")
+            self.assertTrue(job_id)
+            deadline = time.time() + 4
+            while time.time() < deadline and t30_ridge_job.is_running():
+                time.sleep(0.05)
+            snap = t30_ridge_job.get()
+            self.assertEqual(snap.get("status"), "done")
+            self.assertEqual(started["n"], 1)
+            self.assertEqual(snap.get("id"), job_id)
+            self.assertTrue((snap.get("result") or {}).get("success"))
+            kw = started["kwargs"] or {}
+            self.assertEqual(kw.get("tau_end_hm"), "10:00")
+            self.assertIs(kw.get("cross_section_zscore"), True)
+            self.assertIs(kw.get("persist"), False)
+            self.assertTrue(callable(kw.get("progress_cb")))
+            self.assertTrue(callable(kw.get("job_alive_cb")))
 
     def test_horizon_orphan_skips_last_report(self):
         """槽已被接替时不写 last_report。"""

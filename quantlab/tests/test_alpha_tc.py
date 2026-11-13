@@ -70,6 +70,30 @@ def test_alpha_tc_field_count():
     assert "PVSUMN5" in ALPHA_TC_FIELD_NAMES
     assert "PVSUMD5" in ALPHA_TC_FIELD_NAMES
 
+def test_atc_core_keeps_gap_yk_lag():
+    from core.signal.factors.alpha_tc import (
+        ALPHA_TC_CORE_FIELD_NAMES,
+        ALPHA_TC_RAW_PREFIX,
+        select_atc_core_names,
+    )
+
+    names = ["gap_pct", "open_gap", "gap_atr", "yclose_loc", "tau_lag1", "tau_ma5"]
+    names += [f"{ALPHA_TC_RAW_PREFIX}{k}" for k in ALPHA_TC_FIELD_NAMES]
+    kept = select_atc_core_names(names)
+    assert len(ALPHA_TC_CORE_FIELD_NAMES) == 53
+    assert len(kept) == 55
+    assert f"{ALPHA_TC_RAW_PREFIX}GAP" in kept
+    assert f"{ALPHA_TC_RAW_PREFIX}TC_LAG1" in kept
+    assert "tau_lag1" in kept
+    assert "tau_ma5" in kept
+    assert f"{ALPHA_TC_RAW_PREFIX}OC_LAG1" not in kept
+    assert f"{ALPHA_TC_RAW_PREFIX}REV1_TC" not in kept
+    assert f"{ALPHA_TC_RAW_PREFIX}PROC5" not in kept
+    assert f"{ALPHA_TC_RAW_PREFIX}RANGE_PCT" not in kept
+    assert "gap_pct" not in kept
+    assert "open_gap" not in kept
+
+
 def test_alpha_tc_key_fields_listed():
     assert "GAP" in ALPHA_TC_FIELD_NAMES
     assert "CLOSE0" in ALPHA_TC_FIELD_NAMES

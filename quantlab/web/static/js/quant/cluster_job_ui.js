@@ -1,5 +1,14 @@
 /** 日线 / 分钟线更新 Job 进度与状态条（共享文案） */
 
+/** 与后端 ``_RESTART_INTERRUPT_ERR`` 对齐（bars/minute 槽重启清 idle）。 */
+export const JOB_RESTART_INTERRUPT_ERR = "任务因服务重启中断，请重试";
+
+export function jobRestartInterruptMessage(label) {
+  const tag = String(label || "").trim();
+  if (!tag) return JOB_RESTART_INTERRUPT_ERR;
+  return `${tag}因服务重启中断，请重试`;
+}
+
 export function unwrapJobSnap(data) {
   if (!data || typeof data !== "object") return null;
   if (data.job && typeof data.job === "object") return data.job;
@@ -138,7 +147,14 @@ function buildClusterJobFacts(job, { pollStartedAt } = {}) {
     );
   }
   const id = job?.id ? String(job.id).slice(0, 8) : "";
-  if (id) facts.push(`Job <strong>${id}</strong>`);
+  if (id) {
+    const safeId = id
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;");
+    facts.push(`Job <strong>${safeId}</strong>`);
+  }
   return facts;
 }
 
@@ -529,7 +545,7 @@ export function paintClusterJobPanel(progressEl, opts) {
     </div>
   ${facts.length ? `<div class="quant-bars-progress-facts">${facts.map((f) => `<span>${f}</span>`).join("")}</div>` : ""}
     <p class="quant-bars-progress-msg${mode === "fail" ? " quant-bars-progress-msg--err" : ""}">${esc(msg)}</p>
-    ${hint ? `<p class="quant-bars-progress-hint">${hint}</p>` : ""}`;
+    ${hint ? `<p class="quant-bars-progress-hint">${esc(hint)}</p>` : ""}`;
 }
 
 /** 日线/分钟线状态条色调：primary=蓝（增量/强更），warn=黄（物化）。 */

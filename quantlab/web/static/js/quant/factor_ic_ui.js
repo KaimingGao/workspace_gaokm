@@ -888,7 +888,7 @@ export function createFactorIcUi(deps) {
       (Array.isArray(rm.feature_importance) && rm.feature_importance) ||
       null;
     const isDual = isOoDual || (isHorizon && !!fiIn && Object.keys(coefs).length > 0);
-    if ((isDual || isOoLgb) && fiIn) {
+    if ((isDual || isOoLgb || (isOoRank && !isOoRankRidge)) && fiIn) {
       for (const g of fiIn) {
         if (!g || typeof g !== "object") continue;
         const k = canonLagFeatName(String(g.key || g.name || "").trim());
@@ -906,7 +906,8 @@ export function createFactorIcUi(deps) {
     let rows = canonActive
       .map((name) => {
         // ŷ_oo / ŷ_τc LightGBM：无 β，用 gain% 作主列；无 gain 仍留行（空单元格）
-        if (isOoLgb) {
+        // LambdaRank：无 β 时同样走 gain%（勿因空 coefficients 整表空白）
+        if (isOoLgb || (isOoRank && !isOoRankRidge && !Object.keys(coefs).length)) {
           const gShare = gainByKey[name];
           const hasGain = gShare > 0;
           const share01 = hasGain ? gShare / 100 : 0;
@@ -1202,11 +1203,21 @@ export function createFactorIcUi(deps) {
               raw: oos.cs_ic,
             })
           : "") +
+        // 入模/特征/省略属模型结构，研究|执行都显示（不跟 Holdout OOS）
+        kpi(
+          "入模",
+          `${rows.length}`,
+          `开盘 ${openN} · 分钟 ${minuteN} · 历史 ${histN}`
+        ) +
+        (Array.isArray(rm.feature_names) && rm.feature_names.length
+          ? kpi("特征", String(rm.feature_names.length), "入模列数")
+          : "") +
+        (exclN > 0 ? kpi("省略", exclN, omitTip) : "") +
         `</div>`
       : "";
 
     // ŷ_τ*：基率·λ·AUC·入模等 KPI 下掉（对照在上方 OOS 板）
-    // rank：单头 Gate KPI；ŷ_oo / ŷ_τc LightGBM：Holdout OOS（无截距/R²/λ/β±）
+    // rank：单头 Gate KPI + 入模结构；ŷ_oo / ŷ_τc LightGBM：Holdout OOS（无截距/R²/λ/β±）
     const ooOosKpis =
       (oos.cs_ic != null && Number.isFinite(Number(oos.cs_ic))
         ? kpi("IC", Number(oos.cs_ic).toFixed(3), csIcTip, {

@@ -145,6 +145,38 @@ def records_experiment(model_type: str) -> Callable:
     return deco
 
 
+_RESEARCH_TASK_BLOCKED = frozenset({"force_promote", "deploy_full_sample"})
+
+
+def _filter_research_task_params(fn: Callable, params: Dict[str, Any]) -> Dict[str, Any]:
+    """统一入口只收该头签名里的字段。强制晋级和全样本部署走各头自己的 POST。"""
+    blocked = sorted(set(params) & _RESEARCH_TASK_BLOCKED)
+    if blocked:
+        raise TypeError(
+            "research-task 不接受 " + ", ".join(blocked) + "；请走该头的启用接口"
+        )
+    sig = inspect.signature(fn)
+    allowed = set()
+    has_var = False
+    for name, param in sig.parameters.items():
+        if name == "self":
+            continue
+        if param.kind == inspect.Parameter.VAR_KEYWORD:
+            has_var = True
+            continue
+        if param.kind in (
+            inspect.Parameter.POSITIONAL_OR_KEYWORD,
+            inspect.Parameter.KEYWORD_ONLY,
+        ):
+            allowed.add(name)
+    if not has_var:
+        unknown = sorted(set(params) - allowed - _RESEARCH_TASK_BLOCKED)
+        if unknown:
+            raise TypeError("unknown research-task params: " + ", ".join(unknown))
+        return {key: params[key] for key in params if key in allowed}
+    return {key: value for key, value in params.items() if key not in _RESEARCH_TASK_BLOCKED}
+
+
 def dispatch_research_task(service: Any, head: str, **params: Any) -> Dict[str, Any]:
     """只调用已登记的研究头。参数不匹配时返回错误，不抛到路由外。"""
     raw = str(head or "").strip()
@@ -157,6 +189,10 @@ def dispatch_research_task(service: Any, head: str, **params: Any) -> Dict[str, 
             "heads": list_research_heads(),
         }
     fn = getattr(service, name)
+    try:
+        params = _filter_research_task_params(fn, params)
+    except TypeError as exc:
+        return {"success": False, "error": str(exc), "head": key}
     try:
         out = fn(**params)
     except TypeError as exc:

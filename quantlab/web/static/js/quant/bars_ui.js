@@ -11,6 +11,7 @@ import {
   l0DoneHead,
   l0CoverageFacts,
   isJobHeartbeatStale,
+  JOB_RESTART_INTERRUPT_ERR,
 } from "./cluster_job_ui.js";
 import {
   BARS_DAILY_LOOKBACK,
@@ -695,24 +696,25 @@ export function installBarsUi(q) {
     lastStatusJob = job.status && job.status !== "idle" ? job : lastStatusJob;
     const st = job.status;
     if (st === "running") {
-      clearJobPanels();
-      if (!inflight) {
-        setBarsButtonsDisabled(true);
-        inflight = (async () => {
-          try {
-            const result = await waitBarsJob(job.id);
-            clearJobPanels();
-            applyJobSuccess({ ...job, result_summary: result?.bars_refresh, result });
-            setBarsBusy(false);
-            await refreshStatus();
-          } catch (err) {
-            applyJobFailure(err, lastPolledJob);
-          } finally {
-            setBarsButtonsDisabled(false);
-            inflight = null;
-          }
-        })();
-      }
+      // 已在轮询时勿 clear：refreshStatus 回放会把进度蓝条打没
+      if (inflight) return job;
+      setBarsButtonsDisabled(true);
+      setBarsBusy(true);
+      paintProgressPanel(job, { pollStartedAt: Date.now() });
+      inflight = (async () => {
+        try {
+          const result = await waitBarsJob(job.id, activeMode, job);
+          clearJobPanels();
+          applyJobSuccess({ ...job, result_summary: result?.bars_refresh, result });
+          setBarsBusy(false);
+          await refreshStatus();
+        } catch (err) {
+          applyJobFailure(err, lastPolledJob);
+        } finally {
+          setBarsButtonsDisabled(false);
+          inflight = null;
+        }
+      })();
       return job;
     }
     if (st === "failed") {
@@ -726,7 +728,7 @@ export function installBarsUi(q) {
     return job;
   }
 
-  async function waitBarsJob(jobId, mode = activeMode) {
+  async function waitBarsJob(jobId, mode = activeMode, seedJob = null) {
     const started = Date.now();
     // 软上限：心跳仍新鲜则继续；心跳停了才退出。硬上限 45min。
     // 前端等满时勿直接 FAIL——后台可能还在跑，提示刷新接管。
@@ -735,10 +737,16 @@ export function installBarsUi(q) {
     const heartbeatFreshSec = 90;
     let sawOwnJob = false;
     const waitLabel = modeLabel(mode);
-    paintProgressPanel(
-      { message: `提交${waitLabel}…（排队后台 Job）`, pct: 0 },
-      { pollStartedAt: started, mode }
-    );
+    // 刷新接管：用当前 Job 种子，避免先闪「提交… 0%」盖掉真实进度
+    if (seedJob && seedJob.status === "running") {
+      paintProgressPanel(seedJob, { pollStartedAt: started, mode });
+      if (jobId && seedJob.id === jobId) sawOwnJob = true;
+    } else {
+      paintProgressPanel(
+        { message: `提交${waitLabel}…（排队后台 Job）`, pct: 0 },
+        { pollStartedAt: started, mode }
+      );
+    }
     while (Date.now() - started < absoluteCapMs) {
       let ok = false;
       let data = null;
@@ -780,8 +788,11 @@ export function installBarsUi(q) {
       if (st === "failed") {
         throw new Error(job.error || job.message || `${waitLabel}失败`);
       }
-      if (st === "idle" && sawOwnJob) {
-        throw new Error("日 K 任务已结束但未返回结果");
+      if (st === "idle" && (sawOwnJob || jobId)) {
+        // 日线槽重启/死属主会清成 idle（非 failed）。
+        // 须认 jobId：POST 后首轮 poll 前就被清掉时 sawOwnJob 仍为 false，
+        // 否则会空转到「超时」而非「请重试」。
+        throw new Error(JOB_RESTART_INTERRUPT_ERR);
       }
       const view = l0RunningHead(job, { pollStartedAt: started });
       setProStatusChip(chip, "busy", view.chip);

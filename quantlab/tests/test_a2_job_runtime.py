@@ -23,6 +23,53 @@ class TestA2JobRuntime(unittest.TestCase):
         self.assertIn("stale_policy", snap)
         self.assertEqual(snap["id"], jid)
 
+    def test_bars_refresh_dead_owner_reloads_to_idle(self):
+        """日线状态条会回放 failed；重启中断应直接 idle，勿永久挂「请重试」。"""
+        with tempfile.TemporaryDirectory() as td:
+            path = os.path.join(td, "bars_refresh.json")
+            first = JobProgress(name="bars-refresh", persist_path=path)
+            jid, _ = first.try_start(kind="bars_refresh", total=10, message="拉日线 1/10")
+            self.assertTrue(jid)
+            with open(path, encoding="utf-8") as f:
+                raw = json.load(f)
+            raw["owner_pid"] = 2**31 - 1
+            raw["status"] = "running"
+            with open(path, "w", encoding="utf-8") as f:
+                json.dump(raw, f)
+            reloaded = JobProgress(name="bars-refresh", persist_path=path)
+            self.assertEqual(reloaded.get()["status"], "idle")
+            with open(path, encoding="utf-8") as f:
+                saved = json.load(f)
+            self.assertEqual(saved["status"], "idle")
+
+            # 已落盘的「服务重启中断」failed 也清掉
+            with open(path, "w", encoding="utf-8") as f:
+                json.dump(
+                    {
+                        **raw,
+                        "status": "failed",
+                        "error": "任务因服务重启中断，请重试",
+                        "message": "已中断",
+                    },
+                    f,
+                )
+            cleared = JobProgress(name="bars-refresh", persist_path=path)
+            self.assertEqual(cleared.get()["status"], "idle")
+
+    def test_shim_exports_oo_and_roll_gate_slots(self):
+        from core import job_progress as shim
+
+        for name in (
+            "oo_lgb_job",
+            "oo_rank_job",
+            "tc_rank_job",
+            "roll_gate_job",
+            "bars_refresh_job",
+        ):
+            self.assertTrue(hasattr(shim, name), name)
+            slot = getattr(shim, name)
+            self.assertIsInstance(slot, JobProgress)
+
     def test_reload_persists_interrupt_and_dead_owner_reclaims(self):
         with tempfile.TemporaryDirectory() as td:
             path = os.path.join(td, "job.json")
@@ -122,7 +169,7 @@ class TestA2JobRuntime(unittest.TestCase):
         policies = reg.list_policies()
         names = {p["slot"] for p in policies}
         self.assertIn("paper", names)
-        self.assertIn("quant-ols-clusters", names)
+        self.assertNotIn("quant-ols-clusters", names)
         self.assertIn("t30-ridge", names)
         self.assertIn("t60-ridge", names)
         self.assertIn("t90-ridge", names)
@@ -173,6 +220,37 @@ class TestA2JobRuntime(unittest.TestCase):
         self.assertEqual(res.get("schema"), "t30_ridge_v4")
         self.assertNotIn("rebalance_report", res)
         self.assertEqual((res.get("oos") or {}).get("auc"), 0.55)
+
+    def test_oo_rank_large_result_persists_yhat_stub(self):
+        """oo-rank / oo-lgb / tc-rank 大报告落盘摘要须走 ŷ_* stub，勿掉进 else。"""
+        path = os.path.join(tempfile.mkdtemp(), "oo_rank.json")
+        slot = JobProgress(name="oo-rank", persist_path=path)
+        jid = slot.start(kind="oo_rank", total=10, message="拟合")
+        fat = {
+            "success": True,
+            "task": "oo_rank",
+            "schema": "oo_rank_v1",
+            "recommended_backend": "lambdarank",
+            "fitted_at": "2026-11-12T12:00:00",
+            "oos": {
+                "gate_lift": 1.2,
+                "ndcg": 0.4,
+                "n_test_days": 20,
+                "holdout_trading_days": 20,
+            },
+            "return_model": {"booster_b64": "x" * 90_000},
+        }
+        self.assertTrue(slot.finish(result=fat, job_id=jid))
+        with open(path, encoding="utf-8") as f:
+            on_disk = __import__("json").load(f)
+        res = on_disk.get("result") or {}
+        self.assertTrue(res.get("persisted_truncated"))
+        self.assertTrue(res.get("success"))
+        self.assertEqual(res.get("task"), "oo_rank")
+        self.assertEqual(res.get("fitted_at"), "2026-11-12T12:00:00")
+        self.assertEqual((res.get("oos") or {}).get("gate_lift"), 1.2)
+        self.assertNotIn("booster_b64", res)
+        self.assertNotIn("return_model", res)
 
     def test_minute_refresh_large_result_keeps_warmup_not_rebalance(self):
         path = os.path.join(tempfile.mkdtemp(), "minute_refresh.json")

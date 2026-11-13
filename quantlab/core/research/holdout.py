@@ -28,10 +28,63 @@ _SCORING_MODEL_ROLE: ContextVar[str] = ContextVar(
 
 
 def normalize_model_role(role: Optional[str]) -> str:
+    """打分上下文用：认不出的字符串仍落到执行槽。
+
+    落盘请用 ``parse_persist_role``。这里不拒绝，避免没传角色的打分路径读不到模型。
+    """
     raw = str(role or "").strip().lower()
     if raw in {"research", "holdout", "oos", "backtest"}:
         return MODEL_ROLE_RESEARCH
     return MODEL_ROLE_LIVE
+
+
+def parse_persist_role(role: Optional[str]) -> Tuple[Optional[str], Optional[str]]:
+    """落盘角色。只接受 live / research 两类写法；空串和拼写错误不写文件。"""
+    raw = str(role if role is not None else "").strip().lower()
+    if raw in {"live", "execution", "exec", "执行"}:
+        return MODEL_ROLE_LIVE, None
+    if raw in {"research", "holdout", "oos", "backtest"}:
+        return MODEL_ROLE_RESEARCH, None
+    shown = raw if raw else "空"
+    return None, f"persist_role 无法识别（{shown}）；只接受 live 或 research"
+
+
+def stamp_persist_outcome(report: Dict[str, Any], saved: Any) -> None:
+    """请求落盘时，顶层 success 只表示文件写完。"""
+    pack = dict(saved) if isinstance(saved, Mapping) else {"success": False, "error": "persist 无结果"}
+    report["persisted"] = pack
+    if pack.get("promoted_at"):
+        report["promoted_at"] = pack["promoted_at"]
+    if pack.get("promote_gate"):
+        report["promote_gate"] = pack["promote_gate"]
+    if pack.get("success"):
+        return
+    report["success"] = False
+    report["error"] = pack.get("error") or "启用失败"
+
+
+def refuse_insufficient_holdout(split_meta: Optional[Mapping[str, Any]]) -> Optional[Dict[str, Any]]:
+    """Holdout>0 且留不出评测窗时，拟合应直接失败。"""
+    if not isinstance(split_meta, Mapping):
+        return None
+    if str(split_meta.get("split_mode") or "") != "insufficient":
+        return None
+    return {
+        "success": False,
+        "error": "样本不足，无法留出 Holdout",
+        "split_mode": "insufficient",
+        "split": dict(split_meta),
+    }
+
+
+def refuse_ungated_full_sample(has_research: bool) -> Optional[Dict[str, Any]]:
+    """全样本写入执行槽必须已有研究套，用来拷贝样本外门禁。"""
+    if has_research:
+        return None
+    return {
+        "success": False,
+        "error": "全样本部署需要已有研究套；未写入执行槽",
+    }
 
 
 def normalize_backtest_model_role(role: Optional[str] = None) -> str:
@@ -210,8 +263,16 @@ def split_by_holdout_days(
         "requested_holdout_trading_days": requested,
     }
     if n < 4 or len(uniq) < 4:
+        if hold_n > 0:
+            logger.warning(
+                "split_by_holdout_days: 样本过少（n=%d, uniq=%d），Holdout=%d 无法留出，拒绝训练",
+                n, len(uniq), hold_n,
+            )
+            blocked = dict(empty_meta)
+            blocked["split_mode"] = "insufficient"
+            return [], [], blocked
         logger.warning(
-            "split_by_holdout_days: 样本过少（n=%d, uniq=%d），退回全量训练、无 OOS 评估",
+            "split_by_holdout_days: 样本过少（n=%d, uniq=%d），Holdout=0 退回全量训练",
             n, len(uniq),
         )
         all_idx = list(range(n))
@@ -286,6 +347,15 @@ def split_by_holdout_days(
         "requested_holdout_trading_days": requested,
     }
     if len(train_idx) < 4:
+        if hold_n > 0:
+            logger.warning(
+                "split_by_holdout_days: 训练行不足（%d），Holdout=%d 无法留出，拒绝训练",
+                len(train_idx), hold_n,
+            )
+            blocked = dict(empty_meta)
+            blocked["split_mode"] = "insufficient"
+            blocked["holdout_trading_days"] = hold_n
+            return [], [], blocked
         return list(range(n)), [], dict(empty_meta)
     return train_idx, test_idx, meta
 
@@ -297,7 +367,12 @@ def resolve_ridge_split(
     label_horizon_days: int = 0,
     calendar_dates: Optional[Sequence[str]] = None,
 ) -> Tuple[List[int], List[int], Dict[str, Any]]:
-    """近 N 交易日 Holdout。切不出评估窗则全训、不测，不回退时间比例。"""
+    """近 N 交易日 Holdout。不回退时间比例。
+
+    Holdout>0 且留不出至少 4 行训练时拒绝（``split_mode=insufficient``）。
+    请求天数大于可留窗口时，缩短到「唯一日期 − 3」，并保留
+    ``requested_holdout_trading_days``。Holdout=0 仍全样本训练。
+    """
     train_idx, test_idx, split_meta = split_by_holdout_days(
         dates,
         holdout_trading_days=holdout_trading_days,
@@ -395,30 +470,74 @@ def stamp_full_sample_live_fitted_at(
     *,
     source: Optional[Mapping[str, Any]] = None,
 ) -> Dict[str, Any]:
-    """全样本写入执行槽：用新拟合时间覆盖从研究套拷贝来的 ``fitted_at``。
+    """全样本写入执行槽：现铸 ``fitted_at``，覆盖研究套拷贝与草稿时间。
 
-    研究→执行晋级可同 β 同 fitted_at；Holdout=0 重训是新模型，卡头/版本不得与研究套撞时间。
+    研究→执行晋级可同 β 同 fitted_at；Holdout=0 重训是新模型，版本 id 必须新开一行。
+    勿复用 source / 研究套时间：否则 archive 同 id 覆盖，卡头看不到新时间标识。
+    ``source`` 仅保留调用兼容，不参与取时。
     """
     if not isinstance(live_doc, dict):
         return live_doc
-    fit_id = model_fit_id(source) if isinstance(source, Mapping) else None
-    if not fit_id:
-        for key in ("return_model", "model"):
-            blob = live_doc.get(key)
-            if isinstance(blob, Mapping):
-                fit_id = model_fit_id(blob)
-                if fit_id:
-                    break
-    if not fit_id:
-        from core.numbers import now_iso_utc
+    from core.numbers import now_iso_utc
 
-        fit_id = now_iso_utc()
+    _ = source  # 兼容旧调用；全样本必须现铸，不取 source 时间
+    fit_id = now_iso_utc()
     live_doc["fitted_at"] = fit_id
-    for key in ("return_model", "model"):
+    for key in ("return_model", "model", "return_model_research"):
         blob = live_doc.get(key)
         if isinstance(blob, dict):
             blob["fitted_at"] = fit_id
+    backends = live_doc.get("backends")
+    if isinstance(backends, dict):
+        for pack in backends.values():
+            if not isinstance(pack, dict):
+                continue
+            pack["fitted_at"] = fit_id
+            for nested_key in ("return_model", "model", "return_model_research"):
+                nested = pack.get(nested_key)
+                if isinstance(nested, dict):
+                    nested["fitted_at"] = fit_id
     return live_doc
+
+
+def _report_holdout_trading_days(report: Optional[Mapping[str, Any]]) -> Optional[int]:
+    """读拟合报告 Holdout 日数（顶层或 oos）。"""
+    if not isinstance(report, Mapping):
+        return None
+    raw = report.get("holdout_trading_days")
+    if raw is None and isinstance(report.get("oos"), Mapping):
+        raw = report["oos"].get("holdout_trading_days")
+    try:
+        if raw is None:
+            return None
+        return int(raw)
+    except (TypeError, ValueError):
+        return None
+
+
+def require_full_sample_report(report: Optional[Mapping[str, Any]]) -> Optional[Dict[str, Any]]:
+    """全样本晋级：须 Holdout=0 成功报告/草稿；否则返回 error dict。
+
+    拟合报告带 ``success``；ŷ_oo 草稿常无顶层 ``success``，只看 Holdout 日数。
+    """
+    if not isinstance(report, dict):
+        return {
+            "success": False,
+            "error": "全样本晋级须先 Holdout=0 拟合出成功报告",
+        }
+    # 显式失败才拒；草稿 payload 往往省略 success
+    if report.get("success") is False:
+        return {
+            "success": False,
+            "error": "全样本晋级须先 Holdout=0 拟合出成功报告",
+        }
+    hold = _report_holdout_trading_days(report)
+    if hold is None or int(hold) != 0:
+        return {
+            "success": False,
+            "error": f"全样本晋级须 Holdout=0 报告（当前 holdout={hold}）",
+        }
+    return None
 
 
 def stamp_live_suite_doc(

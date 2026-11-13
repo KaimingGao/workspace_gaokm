@@ -12,12 +12,8 @@ export function installClusterProbe(q) {
   } = q;
   const oosGateTips = createScoreTooltipController();
 
-  function paintClusterHealth(html) {
-    const host = els.quantOlsHealth;
-    if (!host) return;
-    const body = String(html || "").trim();
-    host.innerHTML = body;
-    host.hidden = !body;
+  function paintClusterHealth(_html) {
+    /* 分组健康条宿主已退役 */
   }
 
   function buildClusterHealthHtml() {
@@ -25,12 +21,7 @@ export function installClusterProbe(q) {
   }
 
   function clearRetiredHosts() {
-    // 勿覆盖 #quant-ols-summary（ŷ_oo 状态条）；遗留宿主保持空且隐藏。
-    if (els.quantOlsClusters) {
-      els.quantOlsClusters.innerHTML = "";
-      els.quantOlsClusters.hidden = true;
-    }
-    paintClusterHealth("");
+    /* 分组 hub / health 宿主已从面板移除 */
   }
 
   async function hydrateWatchingNamesFromApi() {

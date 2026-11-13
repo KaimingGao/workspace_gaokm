@@ -572,13 +572,13 @@ def fit_factor_ols_from_panel(
     lam = clamp_ridge_lambda(ridge_lambda, 0.0)
     from core.signal.factors.alpha_oo import (
         ALPHA_OO_FACTOR_KEY,
-        expand_ridge_feature_names,
+        expand_oo_feature_names,
         is_alpha_oo_raw_key,
     )
 
     if feature_names is None:
         # 默认：注册日线 z_oo_* + 面板 raw_aoo_*（去掉常数 alpha_oo 分）
-        factor_names = expand_ridge_feature_names(xs)
+        factor_names = expand_oo_feature_names(xs)
     else:
         factor_names = list(feature_names)
         # 已有 raw_aoo_* 时丢掉常数 sub_score 列，避免假中性 50 进模

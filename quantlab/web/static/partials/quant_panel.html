@@ -42,7 +42,7 @@
 
 <div class="quant-body quant-page">
 
-  <!-- 概览（对齐交易执行：KPI + 路径 rail） -->
+  <!-- 概览（KPI + 四头选卡；路径 rail 已由选卡替代） -->
   <section class="dashboard-section quant-section quant-overview-section" id="quant-section-overview" aria-labelledby="quant-section-overview-title">
     <header class="dashboard-section-head quant-section-head">
       <h3 id="quant-section-overview-title" class="dashboard-section-title">概览</h3>
@@ -117,19 +117,33 @@
         </div>
       </div>
       <div id="quant-macro-context-strip" class="quant-macro-context-strip" aria-live="polite"></div>
-      <nav class="quant-path-rail quant-pro-path-rail" aria-label="研究主路径">
-        <a class="quant-path-step quant-pro-path-step is-active" href="#quant-section-factors" data-step="cluster" data-state="active" aria-current="step">
-          <span class="quant-pro-path-num">1</span> ŷ_oo
-        </a>
-        <span class="quant-path-sep quant-pro-path-sep" aria-hidden="true">/</span>
-        <a class="quant-path-step quant-pro-path-step" href="#quant-section-tau" data-step="tau" data-state="idle">
-          <span class="quant-pro-path-num">2</span> ŷ_τc
-        </a>
-        <span class="quant-path-sep quant-pro-path-sep" aria-hidden="true">/</span>
-        <a class="quant-path-step quant-pro-path-step" href="/follow" data-step="follow" data-state="idle">
-          <span class="quant-pro-path-num">3</span> 交易执行
-        </a>
-      </nav>
+
+      <div class="quant-desk-head-grid" aria-label="选择 ŷ 头详情">
+        <button type="button" class="quant-desk-head-card is-active" data-head-select="oo" aria-pressed="true" aria-controls="quant-section-factors">
+          <span class="quant-desk-head-card-top"><strong>ŷ_oo</strong><span class="quant-pro-status-chip" data-head-summary-status="oo" data-state="idle">待命</span></span>
+          <span class="quant-desk-head-card-target">open[T] → open[T+1]</span>
+          <span class="quant-desk-head-card-slots" data-head-summary-slots="oo">研究 — · 执行 —</span>
+          <span class="quant-desk-head-card-gate" data-head-summary-gate="oo">研究|执行 · Holdout IC</span>
+        </button>
+        <button type="button" class="quant-desk-head-card" data-head-select="tau" aria-pressed="false" aria-controls="quant-section-tau">
+          <span class="quant-desk-head-card-top"><strong>ŷ_τc</strong><span class="quant-pro-status-chip" data-head-summary-status="tau" data-state="idle">待命</span></span>
+          <span class="quant-desk-head-card-target">price[τ] → close[T]</span>
+          <span class="quant-desk-head-card-slots" data-head-summary-slots="tau">研究 — · 执行 —</span>
+          <span class="quant-desk-head-card-gate" data-head-summary-gate="tau">研究|执行 · Holdout IC</span>
+        </button>
+        <button type="button" class="quant-desk-head-card" data-head-select="oo_rank" aria-pressed="false" aria-controls="quant-section-oo-rank">
+          <span class="quant-desk-head-card-top"><strong>ŷ_oo_rank</strong><span class="quant-pro-status-chip" data-head-summary-status="oo_rank" data-state="idle">待命</span></span>
+          <span class="quant-desk-head-card-target">open→open · CS rank</span>
+          <span class="quant-desk-head-card-slots" data-head-summary-slots="oo_rank">研究 — · 执行 —</span>
+          <span class="quant-desk-head-card-gate" data-head-summary-gate="oo_rank">研究|执行 · Gate lift</span>
+        </button>
+        <button type="button" class="quant-desk-head-card" data-head-select="tc_rank" aria-pressed="false" aria-controls="quant-section-tc-rank">
+          <span class="quant-desk-head-card-top"><strong>ŷ_τc_rank</strong><span class="quant-pro-status-chip" data-head-summary-status="tc_rank" data-state="idle">待命</span></span>
+          <span class="quant-desk-head-card-target">price[τ]→close · CS rank</span>
+          <span class="quant-desk-head-card-slots" data-head-summary-slots="tc_rank">研究 — · 执行 —</span>
+          <span class="quant-desk-head-card-gate" data-head-summary-gate="tc_rank">研究|执行 · Gate lift</span>
+        </button>
+      </div>
     </div>
   </section>
 
@@ -222,7 +236,7 @@
           </span>
           <span class="quant-ru-ran-row">
             <span id="quant-ru-ran" class="quant-ru-ran" title="尚无更新记录">上次 —</span>
-            <button type="button" id="quant-ru-tiers" class="dialog-btn primary" title="定档窗固定 Holdout 前 60 日猜涨 lift；评测用本卡 Holdout（默认 60，与 ŷ_oo 拟合无关）。定档模型不覆盖研究套。">观察池分档</button>
+            <button type="button" id="quant-ru-tiers" class="dialog-btn primary" title="定档窗为 Holdout 前的交易日猜涨 lift；评测窗用本卡 Holdout 输入（默认 60，与 ŷ_oo 拟合无关）。定档模型不覆盖研究套。">观察池分档</button>
           </span>
         </div>
       </div>
@@ -252,16 +266,16 @@
             <summary class="quant-pro-help-summary"><span class="quant-pro-help-icon" aria-hidden="true">?</span> 说明</summary>
             <div class="quant-help-body quant-pro-help-body">
               <p>
-                写日 K：日常<strong>增量补齐（L0）</strong>（窗 1000 个交易日：末 bar 未齐只补新日期，已有日不动；本地太短或前复权重锚则整窗）·
+                写日 K：日常<strong>增量补齐（L0）</strong>（窗 1060 个交易日：末 bar 未齐只补新日期，已有日不动；本地太短或前复权重锚则整窗）·
                 全窗<strong>强更日 K（L0）</strong>（进程池整窗替换；仓损坏 / 复权混用时用）· 调度 <code>bars_warmup</code>。
                 写入后本区对比上一份仓的收盘和成交量。物化见下方板块。不是数据中心「刷新 watching」。不写 5m、不算 ŷ。
               </p>
             </div>
           </details>
-          <button type="button" id="quant-bars-topup" class="dialog-btn primary" title="写入日 K 仓（增量 · 窗 1000 个交易日）：只补本地没有的日期，已有日不动；本地太短或前复权重锚则整窗。日常 / ŷ_oo 先点这个。不改名单、不写 5m、不算 ŷ。">
+          <button type="button" id="quant-bars-topup" class="dialog-btn primary" title="写入日 K 仓（增量 · 窗 1060 个交易日）：只补本地没有的日期，已有日不动；本地太短或前复权重锚则整窗。日常 / ŷ_oo 先点这个。不改名单、不写 5m、不算 ŷ。">
             增量补齐（L0）
           </button>
-          <button type="button" id="quant-bars-refresh" class="dialog-btn primary" title="写入日 K 仓（整窗替换 · 窗 1000 个交易日 · 进程池）。仓损坏、复权混用或要覆盖近窗时用。不改名单、不写 5m、不算 ŷ。">
+          <button type="button" id="quant-bars-refresh" class="dialog-btn primary" title="写入日 K 仓（整窗替换 · 窗 1060 个交易日 · 进程池）。仓损坏、复权混用或要覆盖近窗时用。不改名单、不写 5m、不算 ŷ。">
             强更日 K（L0）
           </button>
         </div>
@@ -499,8 +513,8 @@
   </section>
 
   <!-- ŷ_oo：全局 return_model（open→open）主轴 · 布局对齐 ŷ_τc -->
-  <section class="dashboard-section quant-section" id="quant-section-factors" aria-labelledby="quant-section-factors-title">
-    <details class="quant-primary-fold" open>
+  <section class="dashboard-section quant-section" id="quant-section-factors" data-head-section="oo" aria-labelledby="quant-section-factors-title">
+    <details class="quant-primary-fold" open data-head-panel="oo">
       <summary class="quant-primary-fold-sum dashboard-section-head quant-section-head">
         <h3 id="quant-section-factors-title" class="dashboard-section-title">ŷ_oo</h3>
         <p class="dashboard-section-desc quant-section-desc">open[T]→open[T+1]</p>
@@ -530,7 +544,7 @@
           <select class="quant-suite-fit-id" data-suite-fit-head="oo" aria-label="模型版本（拟合时间）" title="选择历史拟合版本，再点启用写回当前套">
             <option value="">—</option>
           </select>
-          <button type="button" class="dialog-btn quant-suite-fit-enable" data-suite-fit-enable="oo" title="把所选版本写回当前套" disabled>启用</button>
+          <button type="button" class="dialog-btn primary quant-suite-fit-enable" data-suite-fit-enable="oo" title="把所选版本写回当前套" disabled>启用</button>
         </div>
         <div class="quant-fit-params" role="group" aria-label="ŷ_oo 拟合参数">
           <label
@@ -543,10 +557,10 @@
           </label>
           <label
             class="quant-inline-num"
-            title="ŷ_oo 拟合日线训练窗（交易日）。与回测「窗口」独立。默认 600（100～1000）。"
+            title="ŷ_oo 拟合日线训练窗（交易日）。与回测「窗口」独立。默认 600（100～1060）。"
           >
             <span>训练窗</span>
-            <input id="quant-fit-lookback-oo" type="number" min="100" max="1000" step="10" value="600" inputmode="numeric" aria-label="ŷ_oo 训练样本天数" />
+            <input id="quant-fit-lookback-oo" type="number" min="100" max="1060" step="10" value="600" inputmode="numeric" aria-label="ŷ_oo 训练样本天数" />
             <span aria-hidden="true">日</span>
           </label>
         </div>
@@ -568,8 +582,6 @@
           <button type="button" id="quant-horizon-save-default" tabindex="-1">存为默认</button>
           <div id="quant-factor-list" class="quant-weight-table-wrap"></div>
           <div id="quant-weight-suggest" class="quant-sub"></div>
-          <div id="quant-ols-clusters" class="quant-cluster-hub"></div>
-          <div id="quant-ols-health" class="quant-ols-health"></div>
           <div id="quant-pro-factor-summaries" class="quant-pro-factor-summaries"></div>
           <input type="hidden" id="quant-cluster-k" value="" />
         </div>
@@ -579,8 +591,8 @@
   </section>
 
   <!-- ŷ_τc：副轴独立 -->
-  <section class="dashboard-section quant-section" id="quant-section-tau" aria-labelledby="quant-section-tau-title">
-    <details class="quant-primary-fold" open>
+  <section class="dashboard-section quant-section" id="quant-section-tau" data-head-section="tau" aria-labelledby="quant-section-tau-title">
+    <details class="quant-primary-fold" open data-head-panel="tau">
       <summary class="quant-primary-fold-sum dashboard-section-head quant-section-head">
         <h3 id="quant-section-tau-title" class="dashboard-section-title">ŷ_τc</h3>
         <p class="dashboard-section-desc quant-section-desc">price[τ]→close[T]</p>
@@ -610,7 +622,7 @@
           <select class="quant-suite-fit-id" data-suite-fit-head="tau" aria-label="模型版本（拟合时间）" title="选择历史拟合版本，再点启用写回当前套">
             <option value="">—</option>
           </select>
-          <button type="button" class="dialog-btn quant-suite-fit-enable" data-suite-fit-enable="tau" title="把所选版本写回当前套" disabled>启用</button>
+          <button type="button" class="dialog-btn primary quant-suite-fit-enable" data-suite-fit-enable="tau" title="把所选版本写回当前套" disabled>启用</button>
         </div>
         <div class="quant-fit-params" role="group" aria-label="ŷ_τc 拟合参数">
           <label
@@ -664,10 +676,10 @@
           </label>
           <label
             class="quant-inline-num"
-            title="ŷ_τc 拟合日线训练窗（交易日）。分钟网格仍叠在日线之上。默认 120（100～1000）。"
+            title="ŷ_τc 拟合日线训练窗（交易日）。分钟网格仍叠在日线之上。默认 120（100～1060）。"
           >
             <span>训练窗</span>
-            <input id="quant-fit-lookback-tc" type="number" min="100" max="1000" step="10" value="120" inputmode="numeric" aria-label="ŷ_τc 训练样本天数" />
+            <input id="quant-fit-lookback-tc" type="number" min="100" max="1060" step="10" value="120" inputmode="numeric" aria-label="ŷ_τc 训练样本天数" />
             <span aria-hidden="true">日</span>
           </label>
         </div>
@@ -686,8 +698,8 @@
   </section>
 
   <!-- ŷ_oo_rank：布局对齐 ŷ_oo · 单头 LambdaRank · Holdout Gate lift；rank 阈值在回测 -->
-  <section class="dashboard-section quant-section" id="quant-section-oo-rank" aria-labelledby="quant-section-oo-rank-title">
-    <details class="quant-primary-fold" open>
+  <section class="dashboard-section quant-section" id="quant-section-oo-rank" data-head-section="oo_rank" aria-labelledby="quant-section-oo-rank-title">
+    <details class="quant-primary-fold" open data-head-panel="oo_rank">
       <summary class="quant-primary-fold-sum dashboard-section-head quant-section-head">
         <h3 id="quant-section-oo-rank-title" class="dashboard-section-title">ŷ_oo_rank</h3>
         <p class="dashboard-section-desc quant-section-desc">rank(open[T]->open[T+1])</p>
@@ -717,7 +729,7 @@
           <select class="quant-suite-fit-id" data-suite-fit-head="oo_rank" aria-label="模型版本（拟合时间）" title="选择历史拟合版本，再点启用写回当前套">
             <option value="">—</option>
           </select>
-          <button type="button" class="dialog-btn quant-suite-fit-enable" data-suite-fit-enable="oo_rank" title="把所选版本写回当前套" disabled>启用</button>
+          <button type="button" class="dialog-btn primary quant-suite-fit-enable" data-suite-fit-enable="oo_rank" title="把所选版本写回当前套" disabled>启用</button>
         </div>
         <div class="quant-fit-params" role="group" aria-label="ŷ_oo_rank 拟合参数">
           <label
@@ -730,10 +742,10 @@
           </label>
           <label
             class="quant-inline-num"
-            title="ŷ_oo_rank 拟合日线训练窗（交易日）。默认 700（100～1000）。"
+            title="ŷ_oo_rank 拟合日线训练窗（交易日）。默认 700（100～1060）。"
           >
             <span>训练窗</span>
-            <input id="quant-fit-lookback-oo_rank" type="number" min="100" max="1000" step="10" value="700" inputmode="numeric" aria-label="ŷ_oo_rank 训练样本天数" />
+            <input id="quant-fit-lookback-oo_rank" type="number" min="100" max="1060" step="10" value="700" inputmode="numeric" aria-label="ŷ_oo_rank 训练样本天数" />
             <span aria-hidden="true">日</span>
           </label>
         </div>
@@ -754,8 +766,8 @@
   </section>
 
   <!-- ŷ_τc_rank：对齐 ŷ_oo_rank / ŷ_τc · 单头 LambdaRank；进合成 rank_score（买序/阈值） -->
-  <section class="dashboard-section quant-section" id="quant-section-tc-rank" aria-labelledby="quant-section-tc-rank-title">
-    <details class="quant-primary-fold" open>
+  <section class="dashboard-section quant-section" id="quant-section-tc-rank" data-head-section="tc_rank" aria-labelledby="quant-section-tc-rank-title">
+    <details class="quant-primary-fold" open data-head-panel="tc_rank">
       <summary class="quant-primary-fold-sum dashboard-section-head quant-section-head">
         <h3 id="quant-section-tc-rank-title" class="dashboard-section-title">ŷ_τc_rank</h3>
         <p class="dashboard-section-desc quant-section-desc">rank(price[τ]->close[T])</p>
@@ -785,7 +797,7 @@
           <select class="quant-suite-fit-id" data-suite-fit-head="tc_rank" aria-label="模型版本（拟合时间）" title="选择历史拟合版本，再点启用写回当前套">
             <option value="">—</option>
           </select>
-          <button type="button" class="dialog-btn quant-suite-fit-enable" data-suite-fit-enable="tc_rank" title="把所选版本写回当前套" disabled>启用</button>
+          <button type="button" class="dialog-btn primary quant-suite-fit-enable" data-suite-fit-enable="tc_rank" title="把所选版本写回当前套" disabled>启用</button>
         </div>
         <div class="quant-fit-params" role="group" aria-label="ŷ_τc_rank 拟合参数">
           <label
@@ -826,10 +838,10 @@
           </label>
           <label
             class="quant-inline-num"
-            title="ŷ_τc_rank 拟合日线训练窗（交易日）。默认 700（100～1000）。"
+            title="ŷ_τc_rank 拟合日线训练窗（交易日）。默认 700（100～1060）。"
           >
             <span>训练窗</span>
-            <input id="quant-fit-lookback-tc_rank" type="number" min="100" max="1000" step="10" value="700" inputmode="numeric" aria-label="ŷ_τc_rank 训练样本天数" />
+            <input id="quant-fit-lookback-tc_rank" type="number" min="100" max="1060" step="10" value="700" inputmode="numeric" aria-label="ŷ_τc_rank 训练样本天数" />
             <span aria-hidden="true">日</span>
           </label>
         </div>
@@ -901,10 +913,10 @@
           </label>
           <label
             class="quant-inline-num"
-            title="ŷ_τ30 拟合日线训练窗（交易日）。默认 120（100～1000）。"
+            title="ŷ_τ30 拟合日线训练窗（交易日）。默认 120（100～1060）。"
           >
             <span>训练窗</span>
-            <input id="quant-fit-lookback-t30" type="number" min="100" max="1000" step="10" value="120" inputmode="numeric" aria-label="ŷ_τ30 训练样本天数" />
+            <input id="quant-fit-lookback-t30" type="number" min="100" max="1060" step="10" value="120" inputmode="numeric" aria-label="ŷ_τ30 训练样本天数" />
             <span aria-hidden="true">日</span>
           </label>
         </div>
@@ -975,10 +987,10 @@
           </label>
           <label
             class="quant-inline-num"
-            title="ŷ_τ45 拟合日线训练窗（交易日）。默认 120（100～1000）。"
+            title="ŷ_τ45 拟合日线训练窗（交易日）。默认 120（100～1060）。"
           >
             <span>训练窗</span>
-            <input id="quant-fit-lookback-t45" type="number" min="100" max="1000" step="10" value="120" inputmode="numeric" aria-label="ŷ_τ45 训练样本天数" />
+            <input id="quant-fit-lookback-t45" type="number" min="100" max="1060" step="10" value="120" inputmode="numeric" aria-label="ŷ_τ45 训练样本天数" />
             <span aria-hidden="true">日</span>
           </label>
         </div>
@@ -1049,10 +1061,10 @@
           </label>
           <label
             class="quant-inline-num"
-            title="ŷ_τ60 拟合日线训练窗（交易日）。默认 120（100～1000）。"
+            title="ŷ_τ60 拟合日线训练窗（交易日）。默认 120（100～1060）。"
           >
             <span>训练窗</span>
-            <input id="quant-fit-lookback-t60" type="number" min="100" max="1000" step="10" value="120" inputmode="numeric" aria-label="ŷ_τ60 训练样本天数" />
+            <input id="quant-fit-lookback-t60" type="number" min="100" max="1060" step="10" value="120" inputmode="numeric" aria-label="ŷ_τ60 训练样本天数" />
             <span aria-hidden="true">日</span>
           </label>
         </div>
@@ -1123,10 +1135,10 @@
           </label>
           <label
             class="quant-inline-num"
-            title="ŷ_τ75 拟合日线训练窗（交易日）。默认 120（100～1000）。"
+            title="ŷ_τ75 拟合日线训练窗（交易日）。默认 120（100～1060）。"
           >
             <span>训练窗</span>
-            <input id="quant-fit-lookback-t75" type="number" min="100" max="1000" step="10" value="120" inputmode="numeric" aria-label="ŷ_τ75 训练样本天数" />
+            <input id="quant-fit-lookback-t75" type="number" min="100" max="1060" step="10" value="120" inputmode="numeric" aria-label="ŷ_τ75 训练样本天数" />
             <span aria-hidden="true">日</span>
           </label>
         </div>
@@ -1197,10 +1209,10 @@
           </label>
           <label
             class="quant-inline-num"
-            title="ŷ_τ90 拟合日线训练窗（交易日）。默认 120（100～1000）。"
+            title="ŷ_τ90 拟合日线训练窗（交易日）。默认 120（100～1060）。"
           >
             <span>训练窗</span>
-            <input id="quant-fit-lookback-t90" type="number" min="100" max="1000" step="10" value="120" inputmode="numeric" aria-label="ŷ_τ90 训练样本天数" />
+            <input id="quant-fit-lookback-t90" type="number" min="100" max="1060" step="10" value="120" inputmode="numeric" aria-label="ŷ_τ90 训练样本天数" />
             <span aria-hidden="true">日</span>
           </label>
         </div>

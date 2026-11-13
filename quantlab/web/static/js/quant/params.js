@@ -33,7 +33,10 @@ const HOLDOUT_DAYS_STORAGE_KEYS = Object.fromEntries(
   FIT_PARAM_HEADS.map((h) => [h, `quant_holdout_trading_days_${h}`])
 );
 const FIT_LOOKBACK_MIN = 100;
-const FIT_LOOKBACK_MAX = 1000;
+/** 观察池日 K 写入窗（交易日）；与 core.data.policy.BARS_DAILY_LOOKBACK 对齐。 */
+export const BARS_DAILY_LOOKBACK = 1060;
+/** 拟合 / API lookback 上限；跟日 K 窗同一常量。 */
+const FIT_LOOKBACK_MAX = BARS_DAILY_LOOKBACK;
 
 /** ŷ_τc：09:30…11:00（含 0 前缀）；ŷ_τ*：09:35…11:00（方案 B，仅分钟）。 */
 const TAU_END_TC_HEADS = ["tc", "tc_rank"];
@@ -156,8 +159,6 @@ function clampRidgeLambda(v, fallback = 0) {
 }
 
 export const BARS_WATCHING_LIMIT = 1600;
-/** 观察池日 K 写入窗（交易日）；与 core.data.policy.BARS_DAILY_LOOKBACK 对齐。 */
-export const BARS_DAILY_LOOKBACK = 1000;
 /** ŷ_* 模型拟合截断硬顶（与 WATCHING_MAX_SIZE 对齐）。 */
 export const MODEL_FIT_LIMIT = 1600;
 export const WATCHING_POOL_DEFAULT = 300;

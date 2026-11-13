@@ -50,7 +50,7 @@ class MetaCoverTests(unittest.TestCase):
         fp = make_fingerprint(
             bars_fp=bars_fingerprint(bars),
             horizon=1,
-            ridge_core_only=0,
+            aoo_core_only=0,
         )
         names = ["a", "b", "c", "d"]
         X = np.ones((4, 4), dtype=np.float64)
@@ -147,7 +147,7 @@ class ReleaseRowsTests(unittest.TestCase):
         fp = make_fingerprint(
             bars_fp=bars_fingerprint(bars),
             horizon=1,
-            ridge_core_only=0,
+            aoo_core_only=0,
         )
         dates = [b["date"] for b in bars[:4]]
         write_stock_panel(

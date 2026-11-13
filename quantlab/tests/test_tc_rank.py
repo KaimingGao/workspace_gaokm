@@ -4,7 +4,21 @@ import unittest
 
 
 class TestTcRank(unittest.TestCase):
+    def test_holdout_zero_allows_empty_test_split_guard(self):
+        """执行全样本 Holdout=0：test=0 不得再报 split_insufficient（对齐 oo_rank）。"""
+        from pathlib import Path
+
+        text = Path("core/research/tc_rank.py").read_text(encoding="utf-8")
+        self.assertIn("train_days_insufficient", text)
+        self.assertIn("hold_n > 0 and len(days_te) < 1", text)
+        # 旧逻辑：len(days_tr) < 5 or len(days_te) < 1
+        self.assertNotIn(
+            "if len(days_tr) < 5 or len(days_te) < 1:",
+            text,
+        )
+
     def test_empty_bars_rejected(self):
+
         from core.research.tc_rank import fit_tc_rank_report
 
         out = fit_tc_rank_report([])

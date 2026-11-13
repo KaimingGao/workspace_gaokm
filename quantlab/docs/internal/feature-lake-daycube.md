@@ -224,7 +224,7 @@ L1 存的是特征行和拟合标签 y，不存可成交价格。消费方仍读
 
 | 入口 | 说明 |
 |------|------|
-| `POST /api/quant/materialize` | 后台 Job；`do_l1_tau_grid` 写 τ 网格 L1；`do_session_open_l2`（可选 `cycle_day`）经 `ensure_session_open_l2` 补齐会话日 open L2（日线齐→lake 终态，否则行情临时立方；配 `do_l1=false` / `do_l2=true` / `clocks=["open"]`）。轮询 `GET /api/jobs/materialize-l1l2`。**`lookback`**（默认 1000）：日线 L1 与 open L2 共用；**分钟 τ L1 与分钟 L2 同钳**到内部近端短窗（`L2_MINUTE_LOOKBACK=60`） |
+| `POST /api/quant/materialize` | 后台 Job；`do_l1_tau_grid` 写 τ 网格 L1；`do_session_open_l2`（可选 `cycle_day`）经 `ensure_session_open_l2` 补齐会话日 open L2（日线齐→lake 终态，否则行情临时立方；配 `do_l1=false` / `do_l2=true` / `clocks=["open"]`）。轮询 `GET /api/jobs/materialize-l1l2`。**`lookback`**（默认 1060，`BARS_DAILY_LOOKBACK`）：日线 L1 与 open L2 共用；**分钟 τ L1 与分钟 L2 同钳**到内部近端短窗（`L2_MINUTE_LOOKBACK=60`） |
 | `GET /api/quant/materialize/catalog` | family / clock / `suggested_tau_clocks` / `tau_grid` |
 | `core/research/materialize/run_materialize` | 同步编排（L1 → τ 网格 L1 → L2） |
 

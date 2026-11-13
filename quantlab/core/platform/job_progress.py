@@ -49,11 +49,6 @@ _SLOT_STALE_POLICY: Dict[str, Dict[str, Any]] = {
         "stuck_start_sec": 600.0,
         "label": "分钟线预热",
     },
-    "quant-ols-clusters": {
-        "stale_sec": 600.0,
-        "stuck_start_sec": 360.0,
-        "label": "分组任务",
-    },
     # 满池 800 只建面板 + 双训常 >15min；stuck_start 过短会误杀。
     # stale_sec：心跳停了才按 updated_at 回收；须 ≥ stuck_start。
     "t30-ridge": {
@@ -87,6 +82,24 @@ _SLOT_STALE_POLICY: Dict[str, Dict[str, Any]] = {
         # 拉日线阶段 current 常为 0；进度靠 message/心跳，勿按零进展误杀
         "allow_zero_progress": True,
         "label": "ŷ_τc 拟合",
+    },
+    "oo-lgb": {
+        "stale_sec": 5400.0,
+        "stuck_start_sec": 5400.0,
+        "allow_zero_progress": True,
+        "label": "ŷ_oo 拟合",
+    },
+    "oo-rank": {
+        "stale_sec": 5400.0,
+        "stuck_start_sec": 5400.0,
+        "allow_zero_progress": True,
+        "label": "ŷ_oo_rank 拟合",
+    },
+    "tc-rank": {
+        "stale_sec": 5400.0,
+        "stuck_start_sec": 5400.0,
+        "allow_zero_progress": True,
+        "label": "ŷ_τc_rank 拟合",
     },
     "t0-backtest": {
         "stale_sec": 5400.0,
@@ -131,6 +144,9 @@ _TERMINAL_JOB_STATUS = frozenset(
 _MATERIALIZE_KINDS = frozenset(
     {"materialize_open", "materialize_tau", "materialize_l1l2"}
 )
+# 日线/分钟状态条会回放非 idle Job；重启中断勿长期挂 FAIL，直接回 idle 让用户重点更新。
+_REFRESH_SLOTS_CLEAR_ON_RESTART = frozenset({"bars-refresh", "minute-refresh"})
+_RESTART_INTERRUPT_ERR = "任务因服务重启中断，请重试"
 
 
 def slim_materialize_result(result: Dict[str, Any]) -> Dict[str, Any]:
@@ -362,6 +378,11 @@ class JobProgress:
             owner = job.get("owner_pid")
             owner_alive = owner not in (None, "", 0) and _pid_alive(owner)
             interrupted = job.get("status") == "running" and not owner_alive
+            stale_restart_fail = (
+                self.name in _REFRESH_SLOTS_CLEAR_ON_RESTART
+                and str(job.get("status") or "") == "failed"
+                and _RESTART_INTERRUPT_ERR in str(job.get("error") or "")
+            )
             self._job = job
             last = data.get("last_terminal")
             if isinstance(last, dict):
@@ -370,8 +391,13 @@ class JobProgress:
                     if isinstance(snap, dict) and snap.get("kind"):
                         restored[str(key)] = snap
                 self._last_terminal = restored
-            if interrupted:
-                self._mark_interrupted_unlocked("任务因服务重启中断，请重试")
+            if interrupted and self.name in _REFRESH_SLOTS_CLEAR_ON_RESTART:
+                # 日线/分钟：回 idle，避免状态条永久「更新失败 · 请重试」
+                self._clear_to_idle_unlocked()
+            elif interrupted:
+                self._mark_interrupted_unlocked(_RESTART_INTERRUPT_ERR)
+            elif stale_restart_fail:
+                self._clear_to_idle_unlocked()
         except (OSError, json.JSONDecodeError, TypeError, ValueError):
             pass
 
@@ -417,8 +443,13 @@ class JobProgress:
                             "error_code": result.get("error_code"),
                             "hint": result.get("hint"),
                         }
-                    elif slot_name.endswith("-ridge") or slot_name == "tau-lgb":
-                        # ŷ_* 大报告：勿裁成调仓 stub
+                    elif slot_name.endswith("-ridge") or slot_name in (
+                        "tau-lgb",
+                        "oo-lgb",
+                        "oo-rank",
+                        "tc-rank",
+                    ):
+                        # ŷ_* 大报告：勿裁成调仓 stub；oo/rank 同族落盘摘要
                         oos = (
                             result.get("oos")
                             if isinstance(result.get("oos"), dict)
@@ -434,7 +465,13 @@ class JobProgress:
                                 "precision_at_50",
                                 "recall_at_50",
                                 "pred_up_rate",
+                                "gate_lift",
+                                "gate_mean_y",
+                                "ndcg",
+                                "spearman",
                                 "n_test",
+                                "n_test_days",
+                                "n_train_days",
                                 "holdout_trading_days",
                             )
                             if k in oos
@@ -451,6 +488,7 @@ class JobProgress:
                             "error": result.get("error"),
                             "watching_limit": result.get("watching_limit"),
                             "minute_codes_hit": result.get("minute_codes_hit"),
+                            "fitted_at": result.get("fitted_at"),
                         }
                     elif slot_name == "minute-refresh":
                         # 丢弃庞大 status；保留 minute_warmup 摘要供 UI 完成态
@@ -478,20 +516,6 @@ class JobProgress:
                             "artifacts_count": len(arts)
                             if isinstance(arts, list)
                             else 0,
-                        }
-                    elif slot_name == "quant-ols-clusters":
-                        payload["result"] = {
-                            "success": result.get("success"),
-                            "ok": result.get("ok", result.get("success")),
-                            "persisted_truncated": True,
-                            "task": result.get("task") or "quant_ols_clusters",
-                            "n_clusters": result.get("n_clusters"),
-                            "fitted_count": result.get("fitted_count"),
-                            "stock_count": result.get("stock_count"),
-                            "universe_count": result.get("universe_count"),
-                            "cache_hit": result.get("cache_hit"),
-                            "oos_summary": result.get("oos_summary"),
-                            "error": result.get("error"),
                         }
                     elif slot_name == "paper":
                         payload["result"] = {
@@ -761,7 +785,10 @@ class JobProgress:
                 return False
             owner = self._job.get("owner_pid")
             if owner not in (None, "", 0) and not _pid_alive(owner):
-                self._mark_interrupted_unlocked("任务因服务重启中断，请重试")
+                if self.name in _REFRESH_SLOTS_CLEAR_ON_RESTART:
+                    self._clear_to_idle_unlocked()
+                else:
+                    self._mark_interrupted_unlocked(_RESTART_INTERRUPT_ERR)
                 return True
             ts = self._job.get("updated_at")
             try:
@@ -811,10 +838,21 @@ class JobProgress:
     def _mark_interrupted_unlocked(self, error: str) -> None:
         self._job["cancel_requested"] = True
         self._job["status"] = "failed"
-        self._job["error"] = error or "任务因服务重启中断，请重试"
+        self._job["error"] = error or _RESTART_INTERRUPT_ERR
         self._job["message"] = "已中断"
         self._job["updated_at"] = time.time()
         self._save_unlocked()
+
+    def _clear_to_idle_unlocked(self) -> None:
+        """日线/分钟重启中断：回 idle（须已持锁）。"""
+        self._job = self._idle()
+        self._save_unlocked()
+
+    def reset_idle(self) -> Dict[str, Any]:
+        """清空槽位为 idle（清掉粘滞的 failed/done，供日线/分钟状态条恢复）。"""
+        with self._lock:
+            self._clear_to_idle_unlocked()
+            return dict(self._job)
 
     def is_cancel_requested(self) -> bool:
         with self._lock:
@@ -869,13 +907,15 @@ class JobRegistry:
         for name in (
             "paper",
             "chat",
-            "quant-ols-clusters",
             "t30-ridge",
             "t45-ridge",
             "t60-ridge",
             "t75-ridge",
             "t90-ridge",
             "tau-lgb",
+            "oo-lgb",
+            "oo-rank",
+            "tc-rank",
             "t0-backtest",
             "portfolio-backtest",
             "materialize-l1l2",
@@ -895,22 +935,21 @@ try:
         MATERIALIZE_JOB_PATH,
         MINUTE_REFRESH_JOB_PATH,
         PAPER_JOB_PATH,
-        QUANT_OLS_CLUSTERS_JOB_PATH,
         T30_RIDGE_JOB_PATH,
         T45_RIDGE_JOB_PATH,
         T60_RIDGE_JOB_PATH,
         T75_RIDGE_JOB_PATH,
         T90_RIDGE_JOB_PATH,
         TAU_LGB_JOB_PATH,
+        OO_LGB_JOB_PATH,
+        OO_RANK_JOB_PATH,
+        TC_RANK_JOB_PATH,
         T0_BACKTEST_JOB_PATH,
         PORTFOLIO_BACKTEST_JOB_PATH,
         ROLL_GATE_JOB_PATH,
     )
 
     paper_job = job_registry.slot("paper", persist_path=PAPER_JOB_PATH)
-    quant_ols_clusters_job = job_registry.slot(
-        "quant-ols-clusters", persist_path=QUANT_OLS_CLUSTERS_JOB_PATH
-    )
     bars_refresh_job = job_registry.slot(
         "bars-refresh", persist_path=BARS_REFRESH_JOB_PATH
     )
@@ -927,6 +966,9 @@ try:
     t75_ridge_job = job_registry.slot("t75-ridge", persist_path=T75_RIDGE_JOB_PATH)
     t90_ridge_job = job_registry.slot("t90-ridge", persist_path=T90_RIDGE_JOB_PATH)
     tau_lgb_job = job_registry.slot("tau-lgb", persist_path=TAU_LGB_JOB_PATH)
+    oo_lgb_job = job_registry.slot("oo-lgb", persist_path=OO_LGB_JOB_PATH)
+    oo_rank_job = job_registry.slot("oo-rank", persist_path=OO_RANK_JOB_PATH)
+    tc_rank_job = job_registry.slot("tc-rank", persist_path=TC_RANK_JOB_PATH)
     t0_backtest_job = job_registry.slot("t0-backtest", persist_path=T0_BACKTEST_JOB_PATH)
     portfolio_backtest_job = job_registry.slot(
         "portfolio-backtest", persist_path=PORTFOLIO_BACKTEST_JOB_PATH
@@ -934,7 +976,6 @@ try:
     roll_gate_job = job_registry.slot("roll-gate", persist_path=ROLL_GATE_JOB_PATH)
 except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
     paper_job = job_registry.slot("paper")
-    quant_ols_clusters_job = job_registry.slot("quant-ols-clusters")
     bars_refresh_job = job_registry.slot("bars-refresh")
     materialize_job = job_registry.slot("materialize-l1l2")
     minute_refresh_job = job_registry.slot("minute-refresh")
@@ -945,6 +986,9 @@ except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流
     t75_ridge_job = job_registry.slot("t75-ridge")
     t90_ridge_job = job_registry.slot("t90-ridge")
     tau_lgb_job = job_registry.slot("tau-lgb")
+    oo_lgb_job = job_registry.slot("oo-lgb")
+    oo_rank_job = job_registry.slot("oo-rank")
+    tc_rank_job = job_registry.slot("tc-rank")
     t0_backtest_job = job_registry.slot("t0-backtest")
     portfolio_backtest_job = job_registry.slot("portfolio-backtest")
     roll_gate_job = job_registry.slot("roll-gate")

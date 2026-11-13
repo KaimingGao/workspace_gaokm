@@ -456,6 +456,7 @@ def _fit_lightgbm(
     lambda_l2: Optional[float] = None,
     min_data_in_leaf: Optional[int] = None,
     num_threads: Optional[int] = None,
+    callbacks: Optional[Sequence[Any]] = None,
 ) -> Tuple[Any, np.ndarray]:
     import lightgbm as lgb
 
@@ -504,10 +505,14 @@ def _fit_lightgbm(
         "seed": 42,
         "num_threads": threads,
     }
+    train_kw: Dict[str, Any] = {}
+    if callbacks:
+        train_kw["callbacks"] = list(callbacks)
     booster = lgb.train(
         params=params,
         train_set=dtrain,
         num_boost_round=max(1, int(n_estimators)),
+        **train_kw,
     )
     return booster, _gain_from_booster(booster, int(x.shape[1]))
 
@@ -589,15 +594,7 @@ def _fit_ridge_oos(
             row_dates=dates_tr,
         )
         if not fit.get("success"):
-            fit = {
-                "success": True,
-                "intercept": 0.0,
-                "coefficients": {},
-                "active_features": [],
-                "zscore_means": {},
-                "zscore_stds": {},
-                "head_kind": "prob",
-            }
+            return fit, []
         preds = (
             predict_p_up_rows(fit, xs_te, row_dates=dates_te) if xs_te else []
         )
@@ -615,14 +612,7 @@ def _fit_ridge_oos(
         row_dates=dates_tr,
     )
     if not fit.get("success"):
-        fit = {
-            "success": True,
-            "intercept": 0.0,
-            "coefficients": {},
-            "active_features": [],
-            "zscore_means": {},
-            "zscore_stds": {},
-        }
+        return fit, []
     rows_te = xs_te
     if xs_te and dates_te is not None and len(dates_te) == len(xs_te):
         from core.research.feature_standardize import (

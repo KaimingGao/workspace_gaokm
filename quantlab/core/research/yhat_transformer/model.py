@@ -2,14 +2,17 @@
 
 from __future__ import annotations
 
-from typing import Any, Optional
+from typing import Optional
 
 import torch
 import torch.nn as nn
 
 
 class SeqTransformer(nn.Module):
-    """Encoder：投影 → TransformerEncoder → 末步 + gap → 线性头。"""
+    """Encoder：投影 → TransformerEncoder → 末步 + gap →（可选）线性头。
+
+    ``with_head=False`` 时只作表征塔（Arm·T ``encode``）；不建死参数 ``head``。
+    """
 
     def __init__(
         self,
@@ -21,15 +24,22 @@ class SeqTransformer(nn.Module):
         dim_feedforward: int = 64,
         dropout: float = 0.1,
         use_gap: bool = True,
+        with_head: bool = True,
     ) -> None:
         super().__init__()
         self.d_in = int(d_in)
         self.d_model = int(d_model)
         self.use_gap = bool(use_gap)
+        self.with_head = bool(with_head)
+        nh = max(1, int(nhead))
+        if self.d_model % nh != 0:
+            raise ValueError(
+                f"d_model={self.d_model} 须能被 nhead={nh} 整除"
+            )
         self.proj = nn.Linear(self.d_in, self.d_model)
         enc_layer = nn.TransformerEncoderLayer(
             d_model=self.d_model,
-            nhead=max(1, int(nhead)),
+            nhead=nh,
             dim_feedforward=max(self.d_model, int(dim_feedforward)),
             dropout=float(dropout),
             batch_first=True,
@@ -44,17 +54,22 @@ class SeqTransformer(nn.Module):
             self.encoder = nn.TransformerEncoder(
                 enc_layer, num_layers=max(1, int(nlayers))
             )
-        head_in = self.d_model + (1 if self.use_gap else 0)
-        self.head = nn.Sequential(
-            nn.LayerNorm(head_in),
-            nn.Linear(head_in, 1),
-        )
+        if self.with_head:
+            head_in = self.d_model + (1 if self.use_gap else 0)
+            self.head = nn.Sequential(
+                nn.LayerNorm(head_in),
+                nn.Linear(head_in, 1),
+            )
 
     def forward(
         self,
         x: torch.Tensor,
         gap: Optional[torch.Tensor] = None,
     ) -> torch.Tensor:
+        if not self.with_head:
+            raise RuntimeError(
+                "SeqTransformer(with_head=False) 仅 encode；请用 encode() 或 SeqFactorTransformer"
+            )
         h = self.proj(x)
         h = self.encoder(h)
         pooled = h[:, -1, :]
@@ -71,7 +86,7 @@ class SeqTransformer(nn.Module):
         x: torch.Tensor,
         gap: Optional[torch.Tensor] = None,
     ) -> torch.Tensor:
-        """返回拼接 gap 后的向量（供 Arm C 融合）。"""
+        """返回拼接 gap 后的向量（供 Arm·T 融合）。"""
         h = self.proj(x)
         h = self.encoder(h)
         pooled = h[:, -1, :]
@@ -86,40 +101,13 @@ class SeqTransformer(nn.Module):
         return pooled
 
 
-class FactorMLP(nn.Module):
-    """Arm A：决策日因子向量 → 小 MLP → 标量。"""
+class SeqFactorTransformer(nn.Module):
+    """Arm·T（双支路晚融合）：序列 Encoder 表征 ∥ 因子 MLP 隐层 → 标量。"""
 
     def __init__(
         self,
         *,
-        d_in: int,
-        hidden: int = 64,
-        dropout: float = 0.1,
-    ) -> None:
-        super().__init__()
-        h = max(16, int(hidden))
-        self.net = nn.Sequential(
-            nn.LayerNorm(int(d_in)),
-            nn.Linear(int(d_in), h),
-            nn.GELU(),
-            nn.Dropout(float(dropout)),
-            nn.Linear(h, h // 2),
-            nn.GELU(),
-            nn.Dropout(float(dropout)),
-            nn.Linear(h // 2, 1),
-        )
-
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
-        return self.net(x).squeeze(-1)
-
-
-class SeqFactorFusion(nn.Module):
-    """Arm C：序列 Encoder 表征 ∥ 因子 MLP 隐层 → 标量。"""
-
-    def __init__(
-        self,
-        *,
-        d_seq_in: int = 8,
+        d_seq_in: int = 16,
         d_factor: int,
         d_model: int = 32,
         nhead: int = 4,
@@ -136,6 +124,7 @@ class SeqFactorFusion(nn.Module):
             dim_feedforward=max(64, int(d_model) * 2),
             dropout=dropout,
             use_gap=True,
+            with_head=False,  # 晚融合只用 encode；避免未训死头占参/占梯度
         )
         fh = max(16, int(factor_hidden))
         self.factor_trunk = nn.Sequential(
@@ -176,21 +165,9 @@ def pick_device(prefer: Optional[str] = None) -> torch.device:
     return torch.device("cpu")
 
 
-def model_config_dict(model: SeqTransformer) -> dict[str, Any]:
-    return {
-        "d_in": model.d_in,
-        "d_model": model.d_model,
-        "use_gap": model.use_gap,
-        "n_params": count_parameters(model),
-        "arch": "SeqTransformer",
-    }
-
-
 __all__ = [
     "SeqTransformer",
-    "FactorMLP",
-    "SeqFactorFusion",
+    "SeqFactorTransformer",
     "count_parameters",
     "pick_device",
-    "model_config_dict",
 ]

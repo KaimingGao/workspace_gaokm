@@ -10,7 +10,8 @@ from core.data.policy import BARS_DAILY_LOOKBACK
 from core.watching.store import MODEL_FIT_MAX_SIZE
 
 FIT_LOOKBACK_MIN = 100
-FIT_LOOKBACK_MAX = 1000
+# 与日 K / 日线物化窗对齐（core.data.policy.BARS_DAILY_LOOKBACK）
+FIT_LOOKBACK_MAX = BARS_DAILY_LOOKBACK
 
 
 class _CrossSectionZscore(BaseModel):
@@ -187,6 +188,10 @@ class OoRankRequest(_CrossSectionZscore):
         ),
     )
     note: str = Field(default="", max_length=200)
+    sync: bool = Field(
+        default=False,
+        description="true=同步跑（单测）；默认 persist=false 时入队 Job，轮询 GET /api/jobs/oo-rank",
+    )
 
     @field_validator("backend")
     @classmethod
@@ -200,6 +205,10 @@ class OoRankRequest(_CrossSectionZscore):
 class TcRankRequest(OoRankRequest):
     """ŷ_τc_rank：单头 LambdaRank；标签 price[τ]→close[T]。启用只落盘；不进 fuse；进合成 rank_score（买序/阈值）。"""
 
+    sync: bool = Field(
+        default=False,
+        description="true=同步跑（单测）；默认 persist=false 时入队 Job，轮询 GET /api/jobs/tc-rank",
+    )
     tau_end_hm: Optional[str] = Field(
         default=None,
         description=(
@@ -603,6 +612,10 @@ class ReturnModelFitRequest(_CrossSectionZscore):
             "近 N 个交易日 Holdout，只测不训（与 ŷ_oo 卡片 Holdout 共用）；"
             "允许 0～60；0=全样本训练（晋级执行重训）"
         ),
+    )
+    sync: bool = Field(
+        default=False,
+        description="true=同步跑（单测）；默认入队 Job，轮询 GET /api/jobs/oo-lgb",
     )
 
 

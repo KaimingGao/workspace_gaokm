@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import unittest
+
+from tests.job_slot_isolation import isolated_live_slot
 from datetime import date, timedelta
 
 
@@ -606,21 +608,23 @@ class T60GateTests(unittest.TestCase):
             return {"success": True, "return_model": {"intercept": 0.0}}
 
         svc.run_t60_ridge_experiment = _fake
-        t0 = time.time()
-        out = svc.start_t60_ridge_job(watching_limit=2)
-        self.assertLess(time.time() - t0, 0.2)
-        self.assertTrue(out.get("background"))
-        self.assertTrue(out.get("success"))
-        job_id = (out.get("job") or {}).get("id")
-        self.assertTrue(job_id)
-        deadline = time.time() + 4
-        while time.time() < deadline and t60_ridge_job.is_running():
-            time.sleep(0.05)
-        snap = t60_ridge_job.get()
-        self.assertEqual(snap.get("status"), "done")
-        self.assertEqual(started["n"], 1)
-        self.assertEqual(snap.get("id"), job_id)
-        self.assertTrue((snap.get("result") or {}).get("success"))
+        with isolated_live_slot(t60_ridge_job):
+            t0 = time.time()
+            out = svc.start_t60_ridge_job(watching_limit=2)
+            self.assertLess(time.time() - t0, 0.2)
+            self.assertTrue(out.get("background"))
+            self.assertTrue(out.get("success"))
+            job_id = (out.get("job") or {}).get("id")
+            self.assertTrue(job_id)
+            deadline = time.time() + 4
+            while time.time() < deadline and t60_ridge_job.is_running():
+                time.sleep(0.05)
+            snap = t60_ridge_job.get()
+            self.assertEqual(snap.get("status"), "done")
+            self.assertEqual(started["n"], 1)
+            self.assertEqual(snap.get("id"), job_id)
+            self.assertTrue((snap.get("result") or {}).get("success"))
+
 
 if __name__ == "__main__":
     unittest.main()

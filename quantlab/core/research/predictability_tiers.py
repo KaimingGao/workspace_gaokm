@@ -18,7 +18,7 @@
 - ``predictability_tiers_last.json``：影子报告（研究枢纽）
 - ``predictability_tiers_active.json``：live 调仓闸；档位跟随历史回测「分档」勾选
   （有勾选且有 last → 截面 z 用整池，ŷ/名次与开仓只写允许档；不勾 → 不过滤）。
-  持仓始终保留；掉出允许档则清仓。
+  调仓按允许档过滤新开；持仓掉出允许档则清仓。
 """
 
 from __future__ import annotations
@@ -33,6 +33,7 @@ from typing import Any, Dict, List, Mapping, Optional, Sequence, Tuple
 logger = logging.getLogger(__name__)
 
 _TIER_PROGRESS_LOCK = threading.Lock()
+_TIER_BUILD_LOCK = threading.Lock()
 _TIER_PROGRESS: Dict[str, Any] = {"running": False, "phase": "", "detail": ""}
 
 
@@ -416,28 +417,55 @@ def attach_saved_at(doc: Dict[str, Any], path: str) -> Dict[str, Any]:
     return out
 
 
-def save_predictability_tiers_last(report: Dict[str, Any]) -> None:
+def _stamp_live_refresh_error(report: Dict[str, Any], path: str, err: str) -> None:
+    """执行闸没刷新时，把原因写回 last。报告本身仍可展示。"""
+    report["live_refresh_error"] = err
+    try:
+        atomic_write_json(path, report)
+    except Exception:  # noqa: BLE001
+        logger.exception("rewrite predictability tiers last with refresh error failed")
+
+
+def save_predictability_tiers_last(report: Dict[str, Any]) -> Dict[str, Any]:
     if not isinstance(report, dict) or not report.get("success"):
-        return
+        return {"ok": False, "error": "分档报告不可用", "saved_last": False}
     report["updated_at"] = datetime.now(timezone.utc).isoformat()
     path = predictability_tiers_last_path()
     os.makedirs(os.path.dirname(path), exist_ok=True)
     atomic_write_json(path, report)
+    if report.get("degraded"):
+        return {
+            "ok": True,
+            "saved_last": True,
+            "promoted": False,
+            "degraded": True,
+        }
     # live 已开时刷新报告内容，保留回测勾选的 allowed_tiers（先硬校验再晋级）
     try:
         active = load_predictability_tiers_active()
-        if active:
-            refreshed = promote_predictability_tiers_to_live(
-                report,
-                allowed_tiers=active.get("allowed_tiers") or DEFAULT_LIVE_ALLOWED,
-            )
-            if not refreshed.get("ok"):
-                logger.warning(
-                    "skip refresh predictability_tiers active: %s",
-                    refreshed.get("error") or "validate failed",
-                )
-    except Exception:  # noqa: BLE001
-        logger.debug("refresh predictability_tiers active after last failed", exc_info=True)
+        if not active:
+            return {"ok": True, "saved_last": True, "promoted": False}
+        refreshed = promote_predictability_tiers_to_live(
+            report,
+            allowed_tiers=active.get("allowed_tiers") or DEFAULT_LIVE_ALLOWED,
+        )
+        if not refreshed.get("ok"):
+            err = str(refreshed.get("error") or "validate failed")
+            logger.warning("skip refresh predictability_tiers active: %s", err)
+            _stamp_live_refresh_error(report, path, err)
+            return {"ok": False, "saved_last": True, "promoted": False, "error": err}
+        report.pop("live_refresh_error", None)
+        return {"ok": True, "saved_last": True, "promoted": True}
+    except Exception as exc:  # noqa: BLE001
+        logger.exception("refresh predictability_tiers active after last failed")
+        err = str(exc) or "分档执行闸刷新失败"
+        _stamp_live_refresh_error(report, path, err)
+        return {
+            "ok": False,
+            "saved_last": True,
+            "promoted": False,
+            "error": err,
+        }
 
 
 _SLIM_ROW_KEYS = (
@@ -555,6 +583,12 @@ def promote_predictability_tiers_to_live(
     from core.numbers import now_iso_utc
 
     src = report if isinstance(report, dict) else load_predictability_tiers_last()
+    if isinstance(src, dict) and src.get("degraded"):
+        return {
+            "ok": False,
+            "error": "分档缺头，不刷新执行闸",
+            "path": predictability_tiers_active_path(),
+        }
     if not isinstance(src, dict) or not src.get("success"):
         return {
             "ok": False,
@@ -1297,7 +1331,7 @@ def _build_oo_return_day_panels(
         codes_parts.append([code] * n_rows if n_rows > 0 else [])
     if not parts:
         return []
-    x_mat, y_mat, names, dates = _stack_blocks(parts, ridge_core_only=False)
+    x_mat, y_mat, names, dates = _stack_blocks(parts, aoo_core_only=False)
     codes_all: List[str] = []
     for chunk in codes_parts:
         codes_all.extend(chunk)
@@ -2541,7 +2575,11 @@ def accumulate_holdout_oos_by_code(
 
     h_req = max(2, min(int(holdout_n or DEFAULT_HOLDOUT_N), 90))
     hz = max(1, min(int(horizon_days or DEFAULT_HORIZON_DAYS), 10))
-    lookback_req = max(100, min(1000, int(lookback or DEFAULT_PANEL_LOOKBACK)))
+    from core.data.policy import BARS_DAILY_LOOKBACK
+
+    lookback_req = max(
+        100, min(int(BARS_DAILY_LOOKBACK), int(lookback or DEFAULT_PANEL_LOOKBACK))
+    )
     panel_lb = lookback_req
 
     model_meta: Dict[str, Any] = {}
@@ -3256,6 +3294,48 @@ def build_predictability_tiers(
     ridge_lambda: float = DEFAULT_RIDGE_LAMBDA,
     use_research_model: bool = True,
 ) -> Dict[str, Any]:
+    """单飞包装。第二次调用在上一次结束前返回「分档进行中」。"""
+    if not _TIER_BUILD_LOCK.acquire(blocking=False):
+        return {
+            "success": False,
+            "ok": False,
+            "error": "分档进行中",
+            "running": True,
+        }
+    try:
+        return _build_predictability_tiers_body(
+            holdout_n,
+            pool=pool,
+            a_count=a_count,
+            b_count=b_count,
+            head=head,
+            watching_codes=watching_codes,
+            codes=codes,
+            persist=persist,
+            lookback=lookback,
+            horizon_days=horizon_days,
+            ridge_lambda=ridge_lambda,
+            use_research_model=use_research_model,
+        )
+    finally:
+        _TIER_BUILD_LOCK.release()
+
+
+def _build_predictability_tiers_body(
+    holdout_n: int = DEFAULT_HOLDOUT_N,
+    *,
+    pool: str = DEFAULT_POOL,
+    a_count: int = DEFAULT_A_COUNT,
+    b_count: int = DEFAULT_B_COUNT,
+    head: str = HEAD_OO,
+    watching_codes: Optional[Sequence[str]] = None,
+    codes: Optional[Sequence[str]] = None,
+    persist: bool = True,
+    lookback: int = DEFAULT_PANEL_LOOKBACK,
+    horizon_days: int = DEFAULT_HORIZON_DAYS,
+    ridge_lambda: float = DEFAULT_RIDGE_LAMBDA,
+    use_research_model: bool = True,
+) -> Dict[str, Any]:
     """研究枢纽协议：Holdout 前 60 日猜涨 lift 分档。
 
     lift = 说涨精度 − 该票上涨日比例（收益头 abs / 排序头截面中位）。
@@ -3479,8 +3559,14 @@ def _emit_predictability_tiers(
     ]
     if soft_notes:
         score_note = f"{score_note}（{'；'.join(soft_notes)}）"
+    degraded = not (
+        bool(lift_meta.get("used_oo"))
+        and bool(lift_meta.get("used_tc_rank"))
+        and bool(lift_meta.get("used_tc"))
+    )
     rep: Dict[str, Any] = {
         "success": True,
+        "degraded": degraded,
         "schema": SCHEMA,
         "task": "predictability_tiers",
         "protocol": PROTOCOL_HOLDOUT_OOS,
@@ -3584,7 +3670,15 @@ def _emit_predictability_tiers(
     }
     if persist:
         try:
-            save_predictability_tiers_last(rep)
-        except Exception:  # noqa: BLE001
-            logger.debug("persist tier60_quad_uplift_holdout_eval tiers failed", exc_info=True)
+            saved_disk = save_predictability_tiers_last(rep)
+        except Exception as exc:  # noqa: BLE001
+            logger.exception("persist tier60_quad_uplift_holdout_eval tiers failed")
+            saved_disk = {"ok": False, "error": str(exc) or "分档落盘失败", "saved_last": False}
+        rep["persist_result"] = saved_disk
+        if not saved_disk.get("ok"):
+            if saved_disk.get("saved_last"):
+                rep["live_refresh_error"] = saved_disk.get("error") or "分档执行闸刷新失败"
+            else:
+                rep["success"] = False
+                rep["error"] = saved_disk.get("error") or "分档落盘失败"
     return rep

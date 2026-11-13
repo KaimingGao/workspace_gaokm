@@ -88,6 +88,7 @@ def fit_tc_lgb_matrix(
     sample_weights: Optional[Sequence[float]] = None,
     cross_section_zscore: bool = True,
     clock: str = "open",
+    callbacks: Optional[Sequence[Any]] = None,
 ) -> Tuple[Optional[Dict[str, Any]], Dict[str, Any]]:
     """在 τc 面板完整行上拟合回归 LightGBM。返回 ``(model_blob|None, report)``。"""
     from core.research.feature_standardize import (
@@ -195,6 +196,7 @@ def fit_tc_lgb_matrix(
         lambda_l1=float(hyper["lambda_l1"]),
         lambda_l2=float(hyper["lambda_l2"]),
         min_data_in_leaf=int(hyper["min_data_in_leaf"]),
+        callbacks=callbacks,
     )
     x_raw = np.asarray(x_c, dtype=np.float64)
     impute = np.nanmean(x_raw, axis=0)

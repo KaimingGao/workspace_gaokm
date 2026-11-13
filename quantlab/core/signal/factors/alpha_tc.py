@@ -184,9 +184,55 @@ ALPHA_TC_FIELD_NAMES: Tuple[str, ...] = (
     *_PREFIX_KEYS,
 )
 
+# 入模精简集：去掉多窗滚动 / 量能 / 前缀。OC_LAG1≡YKMID，REV1_TC≡−TC_LAG1。
+_ATC_CORE_LAG_DROP: frozenset = frozenset({"OC_LAG1", "REV1_TC"})
+ALPHA_TC_CORE_FIELD_NAMES: Tuple[str, ...] = (
+    *_GAP_KEYS,
+    *_YK_KEYS,
+    *(k for k in _LAG_KEYS if k not in _ATC_CORE_LAG_DROP),
+)
+# 开盘锚里与 core raw 双计的列（gap_pct≡GAP，open_gap 同 gap_pct）
+ATC_CORE_DROP_OPEN: frozenset = frozenset(
+    {"gap_pct", "open_gap", "gap_atr", "yclose_loc"}
+)
+
 
 def is_alpha_tc_raw_key(name: str) -> bool:
     return str(name or "").startswith(ALPHA_TC_RAW_PREFIX)
+
+
+def alpha_tc_core_raw_names() -> Tuple[str, ...]:
+    """ŷ_τc atc_core 用的 ``raw_atc_*``（GAP+YK+LAG）。"""
+    return tuple(f"{ALPHA_TC_RAW_PREFIX}{k}" for k in ALPHA_TC_CORE_FIELD_NAMES)
+
+
+_ALPHA_TC_CORE_RAW_SET = frozenset(alpha_tc_core_raw_names())
+
+
+def is_alpha_tc_core_raw_key(name: str) -> bool:
+    """是否为 atc_core 允许的 ``raw_atc_*`` 核心列。"""
+    return str(name or "") in _ALPHA_TC_CORE_RAW_SET
+
+
+def select_atc_core_names(names: Sequence[str]) -> List[str]:
+    """只留 atc_core：GAP+YK+LAG，丢掉滚动/前缀，以及与 core 双计的开盘锚。
+
+    非 raw 且不在双计名单里的列保留（开盘面板上是 ``tau_lag1`` / ``tau_ma5``）。
+    """
+    out: List[str] = []
+    seen = set()
+    for n in names or []:
+        k = str(n or "").strip()
+        if not k or k in seen:
+            continue
+        if is_alpha_tc_raw_key(k):
+            if not is_alpha_tc_core_raw_key(k):
+                continue
+        elif k in ATC_CORE_DROP_OPEN:
+            continue
+        seen.add(k)
+        out.append(k)
+    return out
 
 
 def bump_window_for_alpha_tc(

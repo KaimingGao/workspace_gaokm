@@ -6,6 +6,7 @@
 import { createScoreTooltipController } from "../score_tooltip.js";
 import { syncOverviewUniverse } from "./factor_corr_ui.js";
 import {
+  BARS_DAILY_LOOKBACK,
   MODEL_FIT_LIMIT,
   markWatchingPoolLimitReady,
   notifyWatchingPoolLimitChanged,
@@ -170,7 +171,7 @@ export function installResearchUniverseUi(q) {
 
   function ooLookbackN() {
     if (typeof readFitLookbackDays === "function") {
-      return Math.max(100, Math.min(1000, Number(readFitLookbackDays("oo")) || 120));
+      return Math.max(100, Math.min(BARS_DAILY_LOOKBACK, Number(readFitLookbackDays("oo")) || 120));
     }
     return 120;
   }
@@ -677,7 +678,7 @@ export function installResearchUniverseUi(q) {
                 <th class="quant-ru-col-stock">标的</th>
                 <th class="num" title="定档窗 oo：落盘 ŷ_oo；说涨 = 预估 > 0.05pp；lift = 说涨精度 − 上涨日比例；进 Lift_Score 等权">oo</th>
                 <th class="num" title="定档窗 oo_rank：内存 LambdaRank；说涨 = 预估高于当日截面中位数；lift = 说涨精度 − 上涨日比例；进 Lift_Score 等权">oo_rank</th>
-                <th class="num" title="定档窗 τc：内存 Ridge（与 τc_rank 各自拟合）；说涨 = 预估 > 0.05pp；进 Lift_Score 等权">τc</th>
+                <th class="num" title="定档窗 τc：落盘 LightGBM ŷ_τc；说涨 = 预估 > 0.05pp；进 Lift_Score 等权">τc</th>
                 <th class="num" title="定档窗 τc_rank：内存 LambdaRank；说涨 = 预估高于当日截面中位数；进 Lift_Score 等权">τc_rank</th>
                 <th class="num" title="Lift_Score = 有样本头 lift 等权。收益大小不进分数；按此分降序取 A / B">Lift_Score</th>
               </tr></thead>
@@ -767,7 +768,7 @@ export function installResearchUniverseUi(q) {
         const bits = [];
         if (stale) {
           bits.push(
-            "这份报告不是四头猜涨 lift 定档。请再点「观察池分档」：oo 用落盘 ŷ_oo、排序头 LambdaRank、τc 内存 Ridge（不改研究套），有样本头等权，用说涨精度减去上涨日比例重写 A/B/C"
+            "这份报告不是四头猜涨 lift 定档。请再点「观察池分档」：oo 与 τc 用落盘 LightGBM，排序头用内存 LambdaRank（不改研究套），有样本头等权，用说涨精度减去上涨日比例重写 A/B/C"
           );
         }
         if (missingHold) {
@@ -787,6 +788,15 @@ export function installResearchUniverseUi(q) {
         );
         return;
       }
+      if (lastTiers.live_refresh_error) {
+        setStatus(
+          "error",
+          "闸未刷新",
+          String(lastTiers.live_refresh_error),
+          tierStatusLine(lastTiers)
+        );
+        return;
+      }
       setStatus(
         "ok",
         liveStatus && liveStatus.enabled ? "live" : "已分档",
@@ -800,6 +810,8 @@ export function installResearchUniverseUi(q) {
 
   let tierProgressTimer = null;
   let tierProgressGen = 0;
+  let tierLoadGen = 0;
+  let tierRunGen = 0;
 
   function stopTierProgress() {
     tierProgressGen += 1;
@@ -832,6 +844,12 @@ export function installResearchUniverseUi(q) {
 
   async function loadTiers({ useLast = false, quiet = false } = {}) {
     if (!document.getElementById("quant-section-research-universe")) return null;
+    if (!useLast && tierRunGen > 0) {
+      setStatus("busy", "分档中", "分档进行中");
+      return null;
+    }
+    const gen = ++tierLoadGen;
+    if (!useLast) tierRunGen = gen;
     const h = holdoutN();
     const lb = ooLookbackN();
     const { aCount, bCount } = readTierCounts();
@@ -846,7 +864,7 @@ export function installResearchUniverseUi(q) {
     }
     const url = useLast
       ? "/api/quant/research-universe/predictability-tiers/last"
-      : `/api/quant/research-universe/predictability-tiers?holdout=${encodeURIComponent(
+      : `/api/quant/research-universe/predictability-tiers/run?holdout=${encodeURIComponent(
           h
         )}&lookback=${encodeURIComponent(lb)}&a_count=${encodeURIComponent(
           aCount
@@ -854,7 +872,15 @@ export function installResearchUniverseUi(q) {
           bCount
         )}&head=oo&pool=watching`;
     try {
-      const { ok, data, error } = await apiFetch(url);
+      const { ok, status, data, error } = await apiFetch(
+        url,
+        useLast ? undefined : { method: "POST" }
+      );
+      if (gen !== tierLoadGen) return null;
+      if (status === 409) {
+        setStatus("busy", "分档中", "分档进行中");
+        return null;
+      }
       if (!ok || !data || data.success === false) {
         if (data && data.live) applyLive(data.live);
         setStatus(
@@ -872,6 +898,7 @@ export function installResearchUniverseUi(q) {
       applyTiers(data);
       return data;
     } catch (err) {
+      if (gen !== tierLoadGen) return null;
       setStatus(
         "error",
         "失败",
@@ -879,7 +906,10 @@ export function installResearchUniverseUi(q) {
       );
       return null;
     } finally {
-      stopTierProgress();
+      if (!useLast && tierRunGen === gen) {
+        tierRunGen = 0;
+        stopTierProgress();
+      }
     }
   }
 

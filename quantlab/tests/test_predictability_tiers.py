@@ -195,10 +195,8 @@ class TestPredictabilityTiers(unittest.TestCase):
             [{"gap_pct": 2.0}, {"gap_pct": 0.0}, {"gap_pct": 9.0}],
             ["2026-08-13", "2026-08-13", "2026-08-14"],
         )
-        self.assertAlmostEqual(preds[0], 1.0)
-        self.assertAlmostEqual(preds[1], -1.0)
-        # 当天只有一只票，截面标准差不足，落在均值上
-        self.assertAlmostEqual(preds[2], 0.0)
+        # 旧 Ridge β 点积已下线；非 LightGBM 包不再产出截面分。
+        self.assertEqual(preds, [None, None, None])
 
     def test_keep_dates_skips_other_days(self):
         from datetime import date, timedelta

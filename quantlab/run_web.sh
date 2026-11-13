@@ -159,11 +159,78 @@ start() {
   echo "log: $LOG_FILE"
 }
 
+# 仍在跑的 Holdout 及其进程池。web stop/restart 不杀它们，新进程按 job pid 接上。
+_holdout_spare_pids() {
+  local py roots root kids
+  py="python3"
+  if [[ -x "$ROOT/.venv/bin/python3" ]]; then
+    py="$ROOT/.venv/bin/python3"
+  fi
+  roots="$("$py" - "$ROOT" <<'PY' 2>/dev/null || true
+import json
+import subprocess
+import sys
+from pathlib import Path
+
+root = Path(sys.argv[1])
+mark = "run_yhat_transformer_holdout.py"
+folder = root / "data" / "live" / "yhat_tf"
+if not folder.is_dir():
+    raise SystemExit(0)
+for jf in folder.glob("*_job.json"):
+    try:
+        job = json.loads(jf.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        continue
+    if not (job.get("status") == "running" and job.get("running")):
+        continue
+    try:
+        pid = int(job.get("pid") or 0)
+    except (TypeError, ValueError):
+        continue
+    if pid <= 0:
+        continue
+    try:
+        cmd = subprocess.check_output(
+            ["ps", "-o", "command=", "-p", str(pid)],
+            text=True,
+            stderr=subprocess.DEVNULL,
+        )
+    except (OSError, subprocess.CalledProcessError):
+        continue
+    if mark not in cmd:
+        continue
+    print(pid)
+PY
+)"
+  for root in $roots; do
+    echo "$root"
+    kids="$(_descendants "$root")"
+    if [[ -n "${kids:-}" ]]; then
+      # shellcheck disable=SC2086
+      printf '%s\n' $kids
+    fi
+  done
+}
+
+_drop_spare() {
+  local pid spare=" $* "
+  while IFS= read -r pid; do
+    [[ -n "${pid:-}" ]] || continue
+    if [[ "$spare" != *" $pid "* ]]; then
+      echo "$pid"
+    fi
+  done
+}
+
 stop() {
-  local pid listener
+  local pid listener spare kids
+  spare="$(_holdout_spare_pids | awk 'NF && !seen[$0]++')"
+  if [[ -n "${spare:-}" ]]; then
+    echo "holdout 继续跑，本次 stop/restart 不结束这些进程：$(echo "$spare" | tr '\n' ' ')" >&2
+  fi
   if pid="$(_managed_pid)"; then
-    local kids
-    kids="$(_descendants "$pid")"
+    kids="$(_descendants "$pid" | _drop_spare $spare)"
     kill "$pid" 2>/dev/null || true
     # shellcheck disable=SC2086
     [[ -z "${kids:-}" ]] || _signal_pids TERM $kids
