@@ -180,7 +180,7 @@ def _risk_gate(rb: dict, add) -> None:
         blocks == 0 or labeled >= outcome_need,
         f"labeled={labeled} blocks={blocks}"
         + ("（无拦截可豁免）" if blocks == 0 else f"（需≥{outcome_need}，少样本时要求全部标注）"),
-        action="策略中心「拦截流水」点真拦/误拦",
+        action="POST /api/paper/risk-blocks/annotate 标注 true_positive / false_positive",
     )
 
 
@@ -475,7 +475,7 @@ def _dc_fm_rk_gate(ss: dict, fund: dict, add) -> None:
             unlabeled_n == 0,
             f"风险拦截未标注 outcome={unlabeled_n}",
             severity="soft",
-            action="策略页标注真拦/误拦；见 docs/component/risk.md",
+            action="POST /api/paper/risk-blocks/annotate；见 docs/component/risk.md",
         )
     except Exception as exc:
         logger.exception('unexpected error in evaluate_maturity_gate')

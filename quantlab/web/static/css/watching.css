@@ -379,7 +379,7 @@ body[data-page="watching"] .watching-react-grid-cell.watching-col-score_tau .wat
   color: #b42318;
 }
 
-/* 数据中心拉取状态：与交易执行持仓「加载中…」同款蓝点脉冲 */
+/* 观察台拉取状态：与交易执行持仓「加载中…」同款蓝点脉冲 */
 .watching-page .watching-refresh-status {
   margin: 0;
   flex: 1 1 8rem;
@@ -552,7 +552,7 @@ body[data-page="watching"] .watching-react-grid-cell.watching-col-score_tau .wat
   border-radius: var(--follow-radius);
 }
 
-/* 历史回测表：壳/密度与数据中心 watching-react-grid 同源（见下方 .watching-page/.replay-page 共用块） */
+/* 历史回测表：壳/密度与观察台 watching-react-grid 同源（见下方 .watching-page/.replay-page 共用块） */
 .replay-page .watching-react-grid .bt-trade-ret {
   font-family: var(--font-mono);
   font-size: 0.76rem;
@@ -832,7 +832,7 @@ body[data-page="watching"] .watching-react-grid-cell.watching-col-score_tau .wat
   border-top: 1px solid var(--line);
 }
 
-/* 数据中心主表 + 历史回测表：同壳同密度（scoped，不改交易页网格） */
+/* 观察台主表 + 历史回测表：同壳同密度（scoped，不改交易页网格） */
 .replay-page .watching-react-grid {
   border-radius: var(--watching-radius);
   font-size: 0.78rem;
@@ -2117,7 +2117,7 @@ html[data-density="compact"] .quant-page .quant-research-grid .watching-react-gr
   min-height: 28px;
 }
 
-/* 数据中心 / 交易执行主表：纯 DOM 虚拟滚动（virtual_table.js） */
+/* 观察台 / 交易执行主表：纯 DOM 虚拟滚动（virtual_table.js） */
 .watching-react-grid-host {
   width: 100%;
 }
@@ -2149,7 +2149,7 @@ html[data-density="compact"] .quant-page .quant-research-grid .watching-react-gr
   border-bottom: 1px solid color-mix(in srgb, var(--line) 70%, transparent);
 }
 
-/* 数据中心主表：名称+代码两行，38px 会把代码挤进下一行 */
+/* 观察台主表：名称+代码两行，38px 会把代码挤进下一行 */
 .watching-page .watching-react-grid-row:not(.is-head) {
   min-height: 50px;
 }
@@ -2256,11 +2256,6 @@ html[data-density="compact"] .quant-page .quant-research-grid .watching-react-gr
 .quant-research-grid .watching-react-grid-cell:has(.watching-stock) {
   overflow: visible;
   text-overflow: unset;
-}
-
-/* 策略页敞口超限行 */
-.strategy-page .quant-research-grid .watching-react-grid-row.is-over-limit {
-  background: color-mix(in srgb, var(--danger, #f5222d) 8%, var(--surface));
 }
 
 /* 回测网格最优格 / 警示行 */
@@ -2498,7 +2493,7 @@ html[data-density="compact"] .quant-page .quant-research-grid .watching-react-gr
 }
 
 /* ════════════════════════════════════════════════════════════════════
- *  Data Desk · 对齐交易执行多层框 (follow p872)
+ *  Watch Desk · 对齐交易执行多层框 (follow p872)
  *  L1 区段壳 (elevated) → L2 白卡 → L3 控制带
  * ════════════════════════════════════════════════════════════════════ */
 
@@ -3352,7 +3347,7 @@ html[data-density="compact"] body[data-page="watching"] .watching-page > .dashbo
 }
 
 /* ==========================================================================
- *  数据中心 · Data Desk 专业密度 (对齐 follow p871)
+ *  观察台 · Watch Desk 专业密度 (对齐 follow p871)
  *  字体阶梯 / 色阶 / 紧凑间距 / 2px 圆角 / 静音色
  * ========================================================================== */
 
@@ -3479,7 +3474,7 @@ body[data-page="watching"] .watching-desk-guard {
   letter-spacing: 0.04em;
 }
 
-/* ── 区段：更紧的 Data Desk 节奏 ── */
+/* ── 区段：更紧的 Watch Desk 节奏 ── */
 body[data-page="watching"] .watching-page > .dashboard-section.watching-section {
   margin: 0;
   padding: 8px 10px 10px;

@@ -25,7 +25,7 @@ router = APIRouter(tags=["paper"])
 @router.get("/api/paper")
 
 def paper_status(lite: bool = False) -> Dict[str, Any]:
-    """账户摘要。lite=1 时跳过盯市/打分，供数据中心快速取已持码。"""
+    """账户摘要。lite=1 时跳过盯市/打分，供观察台快速取已持码。"""
     return deps.paper.status(lite=bool(lite))
 
 @router.get("/api/paper/holding-scores")

@@ -18,10 +18,14 @@ SCHEMA_TC_LGB = "tau_lgb_v1"
 
 
 def _raw_moments(x_raw: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
-    """入模 raw 的列 μ/σ（CS-z 前）。勿写入 zscore_*，避免污染截面推理。"""
-    impute = np.nanmean(x_raw, axis=0)
-    impute = np.where(np.isfinite(impute), impute, 0.0)
-    impute_std = np.nanstd(x_raw, axis=0)
+    """入模 raw 的列 μ/σ（CS-z 前）。勿写入 zscore_*，避免污染截面推理。
+
+    累加在 float64。常数列 σ=0；全缺或含 inf 的列 μ=σ=0。
+    """
+    from core.research.horizon_lgb import _column_mean_var_f64
+
+    impute, var, _n = _column_mean_var_f64(x_raw)
+    impute_std = np.sqrt(var)
     impute_std = np.where(np.isfinite(impute_std), impute_std, 0.0)
     return impute, impute_std
 
@@ -130,6 +134,7 @@ def fit_tc_lgb_matrix(
         y,
         feature_names,
         row_pos=row_pos,
+        dtype=np.float32,
     )
     if x_c is None or y_c is None or not active:
         return None, {
@@ -161,7 +166,7 @@ def fit_tc_lgb_matrix(
         )
 
         x_c, y_c, dates_c, keep_mask = align_fit_rows_to_l2(
-            x_c, y_c, dates_c, clock=clk
+            x_c, y_c, dates_c, clock=clk, x_dtype=np.float32
         )
         if (
             row_w is not None
@@ -169,7 +174,7 @@ def fit_tc_lgb_matrix(
             and not bool(np.asarray(keep_mask).all())
         ):
             row_w = np.asarray(row_w, dtype=np.float64)[keep_mask]
-        # μ/σ 取 z 之前的 raw。inplace 把 z 写回同一块，避免再留一份 float64。
+        # μ/σ 取 z 之前的 raw。inplace 把 z 写回同一块，避免再留一份特征矩阵。
         impute, impute_std = _raw_moments(x_c)
         x_z = cs_z_matrix_prefer_cube(
             x_c, active, dates_c, clock=clk, inplace=True
@@ -265,7 +270,7 @@ def predict_tc_lgb_matrix(
 ) -> List[Optional[float]]:
     """对指定行做回归树推理；截面模型按打分行当天 CS-z。"""
     from core.research.feature_standardize import is_cross_section_zscore
-    from core.research.horizon_lgb import _predict_lightgbm
+    from core.research.horizon_lgb import _predict_lightgbm, tree_feature_matrix
     from core.research.horizon_tree import load_lightgbm_booster
 
     idx = np.asarray(list(row_idx), dtype=np.int64)
@@ -282,8 +287,13 @@ def predict_tc_lgb_matrix(
         if j is None:
             return [None] * n
         cols.append(j)
-    # 先切行再升 float64。先升全表会在 τc 宽因子上再占一整块。
-    x_sub = np.asarray(x[np.ix_(idx, cols)], dtype=np.float64)
+    # 先切行再收成 float32。先升全表会在 τc 宽因子上再占一整块。
+    # 下标越界或矩阵无法转成数值时整段弃权，不让一次打分把拟合打崩。
+    try:
+        x_sub = tree_feature_matrix(np.asarray(x)[np.ix_(idx, cols)])
+    except (IndexError, ValueError, TypeError):
+        logger.debug("tc lgb feature slice failed", exc_info=True)
+        return [None] * n
     clk = str(clock or "open").strip() or "open"
     if is_cross_section_zscore(model_blob):
         if row_dates is None or len(row_dates) != int(np.asarray(x).shape[0]):
@@ -296,7 +306,9 @@ def predict_tc_lgb_matrix(
         from core.research.materialize.cube_z import cs_z_matrix_prefer_cube
 
         try:
-            x_sub = cs_z_matrix_prefer_cube(x_sub, feat_names, dates, clock=clk)
+            x_sub = cs_z_matrix_prefer_cube(
+                x_sub, feat_names, dates, clock=clk, inplace=True
+            )
         except MaterializeRequired:
             # OOS/Holdout 缺单日 Cube：软弃权，勿整次拟合硬失败
             logger.debug(
@@ -318,7 +330,7 @@ def predict_tc_lgb_matrix(
     except Exception:  # noqa: BLE001
         logger.debug("tc lgb load booster failed", exc_info=True)
         return [None] * n
-    raw = _predict_lightgbm(booster, np.asarray(x_sub, dtype=np.float64))
+    raw = _predict_lightgbm(booster, x_sub)
     out: List[Optional[float]] = []
     for v in raw:
         try:
@@ -336,7 +348,7 @@ def predict_tc_lgb_on_cs_z(
     col_names: Sequence[str],
 ) -> Optional[np.ndarray]:
     """对已截面 z 的矩阵做批量推理。"""
-    from core.research.horizon_lgb import _predict_lightgbm
+    from core.research.horizon_lgb import _predict_lightgbm, tree_feature_matrix
     from core.research.horizon_tree import load_lightgbm_booster
 
     blob = (
@@ -360,8 +372,17 @@ def predict_tc_lgb_on_cs_z(
         if j is None:
             return None
         cols.append(int(j))
-    x = np.asarray(Z, dtype=np.float64)[:, cols]
-    x = np.where(np.isfinite(x), x, 0.0)
+    try:
+        base = np.asarray(Z)
+        if base.ndim != 2:
+            return None
+        x = tree_feature_matrix(base[:, cols])
+    except (IndexError, ValueError, TypeError):
+        logger.debug("tc lgb cs-z slice failed", exc_info=True)
+        return None
+    miss = ~np.isfinite(x)
+    if miss.any():
+        x[miss] = np.float32(0)
     try:
         booster = load_lightgbm_booster(blob.get("booster") or {})
     except Exception:  # noqa: BLE001

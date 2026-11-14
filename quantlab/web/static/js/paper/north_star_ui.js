@@ -1,4 +1,4 @@
-/** 模拟页北极星条（A4：从 paper.js 下沉）。 */
+/** 交易执行北极星条（A4：从 paper.js 下沉）。 */
 
 /**
  * @param {HTMLElement|null} host

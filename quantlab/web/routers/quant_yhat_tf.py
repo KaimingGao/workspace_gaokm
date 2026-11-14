@@ -1,62 +1,35 @@
-"""模型中心 API（/yhat-tf）。四头 Holdout 研究轨；不写生产 score。"""
+"""模型工厂 API：/yhat-l（Arm·L）与 /yhat-t（Arm·T）；旧 /yhat-tf 别名落 T。"""
 
 from __future__ import annotations
 
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Literal, Optional
 
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
-from core.research.yhat_tf_desk import (
-    clear_slot,
-    desk_status,
-    promote_draft_to_research,
-    save_fit_draft,
-    start_holdout_fit,
-)
+from core.research.yhat_tf_desk import desk_status, start_holdout_fit
 
-router = APIRouter(tags=["quant-yhat-tf"])
+router = APIRouter(tags=["quant-yhat-factory"])
+
+Factory = Literal["L", "T"]
 
 
-class YhatTfFitBody(BaseModel):
+class YhatFactoryFitBody(BaseModel):
     head: str = Field(..., description="oo | tc | oo_rank | tc_rank")
     params: Dict[str, Any] = Field(default_factory=dict)
     note: str = ""
 
 
-class YhatTfHeadBody(BaseModel):
-    head: str
-    params: Optional[Dict[str, Any]] = None
-
-
-class YhatTfClearBody(BaseModel):
-    head: str
-    slot: str = Field(..., description="draft | research | last")
-
-
-@router.get("/api/quant/yhat-tf/status")
-def yhat_tf_status() -> Dict[str, Any]:
+def _status(factory: Factory) -> Dict[str, Any]:
     try:
-        return desk_status()
+        return desk_status(factory=factory)
     except Exception as e:  # noqa: BLE001
         raise HTTPException(status_code=500, detail=str(e)) from e
 
 
-@router.post("/api/quant/yhat-tf/draft")
-def yhat_tf_save_draft(body: YhatTfFitBody) -> Dict[str, Any]:
+def _fit(factory: Factory, body: YhatFactoryFitBody) -> Dict[str, Any]:
     try:
-        return save_fit_draft(body.head, body.params or {}, note=body.note or "")
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e)) from e
-    except Exception as e:  # noqa: BLE001
-        raise HTTPException(status_code=500, detail=str(e)) from e
-
-
-@router.post("/api/quant/yhat-tf/fit")
-def yhat_tf_fit(body: YhatTfFitBody) -> Dict[str, Any]:
-    """按 Holdout 参数后台启动拟合（研究轨；不写 live）。"""
-    try:
-        out = start_holdout_fit(body.head, body.params or {})
+        out = start_holdout_fit(body.head, body.params or {}, factory=factory)
         if not out.get("success"):
             raise HTTPException(status_code=400, detail=out.get("error") or "拟合启动失败")
         return out
@@ -68,26 +41,32 @@ def yhat_tf_fit(body: YhatTfFitBody) -> Dict[str, Any]:
         raise HTTPException(status_code=500, detail=str(e)) from e
 
 
-@router.post("/api/quant/yhat-tf/promote-research")
-def yhat_tf_promote_research(body: YhatTfHeadBody) -> Dict[str, Any]:
-    try:
-        out = promote_draft_to_research(body.head)
-        if not out.get("success"):
-            raise HTTPException(status_code=400, detail=out.get("error") or "晋级失败")
-        return out
-    except HTTPException:
-        raise
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e)) from e
-    except Exception as e:  # noqa: BLE001
-        raise HTTPException(status_code=500, detail=str(e)) from e
+@router.get("/api/quant/yhat-l/status")
+def yhat_l_status() -> Dict[str, Any]:
+    return _status("L")
 
 
-@router.post("/api/quant/yhat-tf/clear")
-def yhat_tf_clear(body: YhatTfClearBody) -> Dict[str, Any]:
-    try:
-        return clear_slot(body.head, body.slot)
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e)) from e
-    except Exception as e:  # noqa: BLE001
-        raise HTTPException(status_code=500, detail=str(e)) from e
+@router.post("/api/quant/yhat-l/fit")
+def yhat_l_fit(body: YhatFactoryFitBody) -> Dict[str, Any]:
+    return _fit("L", body)
+
+
+@router.get("/api/quant/yhat-t/status")
+def yhat_t_status() -> Dict[str, Any]:
+    return _status("T")
+
+
+@router.post("/api/quant/yhat-t/fit")
+def yhat_t_fit(body: YhatFactoryFitBody) -> Dict[str, Any]:
+    return _fit("T", body)
+
+
+# 旧路径兼容 → Arm·T
+@router.get("/api/quant/yhat-tf/status")
+def yhat_tf_status() -> Dict[str, Any]:
+    return _status("T")
+
+
+@router.post("/api/quant/yhat-tf/fit")
+def yhat_tf_fit(body: YhatFactoryFitBody) -> Dict[str, Any]:
+    return _fit("T", body)

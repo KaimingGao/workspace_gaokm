@@ -124,7 +124,7 @@ def _assemble_oo_with_codes(
             [],
             [],
         )
-    x, y, names, dates = _stack_blocks(parts, aoo_core_only=False)
+    x, y, names, dates, _codes = _stack_blocks(parts, aoo_core_only=False)
     if len(codes_flat) != len(dates):
         raise RuntimeError(
             f"oo code/date mismatch {len(codes_flat)} vs {len(dates)}"

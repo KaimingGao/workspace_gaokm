@@ -1,7 +1,8 @@
-"""观察池 oo 矩阵工具（float64 堆叠；供 ŷ_oo LightGBM / 分档打分面板 / 消融）。
+"""观察池 oo 矩阵工具（分块按 float64 叠，立方写完后整表收成 float32）。
 
 生产 ŷ_oo 拟合走 ``oo_lgb.fit_oo_lgb_matrix``；本模块提供面板装配与旧
 ``fit_oo_ridge_matrix``（离线消融 / τc·排序对照复用；分档 oo 已改读落盘 LightGBM）。
+Ridge / QR 在求解时再把训练片升回 float64，不把整表留在 float64。
 特征 z 由 ``cross_section_zscore`` 选日截面或训练窗全局 μ/σ。标签仍是百分点。
 """
 
@@ -430,10 +431,17 @@ def _stack_blocks(
     parts: Sequence[Tuple[np.ndarray, np.ndarray, List[str], List[str]]],
     *,
     aoo_core_only: bool = False,
-) -> Tuple[np.ndarray, np.ndarray, List[str], List[str]]:
+    item_codes: Optional[Sequence[str]] = None,
+) -> Tuple[np.ndarray, np.ndarray, List[str], List[str], List[str]]:
     names = OoPanelMatrix(aoo_core_only=aoo_core_only).names
     seen = set(names)
-    for _x, _y, names_i, _d in parts:
+    for i, part in enumerate(parts):
+        if part is None:
+            hint = ""
+            if item_codes is not None and i < len(item_codes):
+                hint = f" code={item_codes[i]}"
+            raise RuntimeError(f"ŷ_oo 分块缺失 i={i}{hint}")
+        _x, _y, names_i, _d = part
         for name in names_i:
             if name not in seen:
                 seen.add(name)
@@ -442,7 +450,9 @@ def _stack_blocks(
     chunks_x: List[np.ndarray] = []
     chunks_y: List[np.ndarray] = []
     dates: List[str] = []
-    for x, y, names_i, d in parts:
+    codes: List[str] = []
+    for i, part in enumerate(parts):
+        x, y, names_i, d = part
         if x.shape[0] == 0:
             continue
         if y.shape[0] != x.shape[0] or len(d) != x.shape[0]:
@@ -461,6 +471,10 @@ def _stack_blocks(
         chunks_x.append(x)
         chunks_y.append(y)
         dates.extend(d)
+        code = ""
+        if item_codes is not None and i < len(item_codes):
+            code = str(item_codes[i] or "").strip()
+        codes.extend([code] * int(x.shape[0]))
     width = len(names)
     if not chunks_x:
         return (
@@ -468,8 +482,45 @@ def _stack_blocks(
             np.zeros((0,), dtype=np.float64),
             names,
             dates,
+            codes,
         )
-    return np.vstack(chunks_x), np.concatenate(chunks_y), names, dates
+    return np.vstack(chunks_x), np.concatenate(chunks_y), names, dates, codes
+
+
+def _release_fit_panel(x: np.ndarray) -> np.ndarray:
+    """立方已用 float64 算完后，拟合面板只留一块可写的连续 float32。
+
+    装不进 float32 的有限值会变成 inf。这里改回 nan，让后续按缺测丢掉，
+    而不是当成极大数进树。原本的 nan 保持缺测。
+    """
+    src = np.asarray(x)
+    if (
+        isinstance(src, np.ndarray)
+        and src.dtype == np.float32
+        and src.ndim == 2
+        and src.flags.c_contiguous
+        and src.flags.writeable
+    ):
+        return src
+    if getattr(src, "ndim", 0) != 2:
+        with np.errstate(over="ignore"):
+            out = np.ascontiguousarray(src, dtype=np.float32)
+        if out.size and np.isinf(out).any():
+            out = np.array(out, dtype=np.float32, copy=True)
+            out[np.isinf(out)] = np.nan
+        return out
+    n, p = int(src.shape[0]), int(src.shape[1])
+    out = np.empty((n, p), dtype=np.float32)
+    chunk = 65536
+    for start in range(0, n, chunk):
+        stop = min(n, start + chunk)
+        with np.errstate(over="ignore"):
+            block = np.array(src[start:stop], dtype=np.float32, copy=True)
+        bad = np.isinf(block)
+        if bad.any():
+            block[bad] = np.nan
+        out[start:stop] = block
+    return out
 
 
 def _maybe_materialize_day_cubes(
@@ -511,7 +562,7 @@ def _assemble_serial(
     *,
     aoo_core_only: bool = False,
     progress_cb: Optional[Any] = None,
-) -> Tuple[np.ndarray, np.ndarray, List[str], List[str]]:
+) -> Tuple[np.ndarray, np.ndarray, List[str], List[str], List[str]]:
     # 与并行路径统一走 ``_oo_stock_job``，以便命中按股磁盘缓存。
     core = bool(aoo_core_only)
     parts = []
@@ -523,7 +574,10 @@ def _assemble_serial(
         )
         if progress_cb:
             progress_cb(i)
-    x, y, names, dates = _stack_blocks(parts, aoo_core_only=core)
+    item_codes = [str(code) for code, _bars in items]
+    x, y, names, dates, codes = _stack_blocks(
+        parts, aoo_core_only=core, item_codes=item_codes
+    )
     logger.info(
         "oo ridge compact panel rows=%s cols=%s stocks=%s workers=1",
         int(y.shape[0]),
@@ -531,7 +585,7 @@ def _assemble_serial(
         len(items),
     )
     _maybe_materialize_day_cubes(parts, items, x, names, dates)
-    return x, y, names, dates
+    return _release_fit_panel(x), y, names, dates, codes
 
 
 def _finish_serial_from(
@@ -613,7 +667,7 @@ def _assemble_parallel(
     *,
     aoo_core_only: bool = False,
     progress_cb: Optional[Any] = None,
-) -> Tuple[np.ndarray, np.ndarray, List[str], List[str]]:
+) -> Tuple[np.ndarray, np.ndarray, List[str], List[str], List[str]]:
     from concurrent.futures import ProcessPoolExecutor
 
     from core.research.materialize.consumer import context_initargs, research_pool_init
@@ -679,7 +733,10 @@ def _assemble_parallel(
             aoo_core_only=core,
             progress_cb=progress_cb,
         )
-    x, y, names, dates = _stack_blocks(results, aoo_core_only=core)
+    item_codes = [str(code) for code, _bars in items]
+    x, y, names, dates, codes = _stack_blocks(
+        results, aoo_core_only=core, item_codes=item_codes
+    )
     logger.info(
         "oo ridge compact panel rows=%s cols=%s stocks=%s workers=%s",
         int(y.shape[0]),
@@ -688,7 +745,8 @@ def _assemble_parallel(
         n_workers,
     )
     _maybe_materialize_day_cubes(results, items, x, names, dates)
-    return x, y, names, dates
+    x = _release_fit_panel(x)
+    return x, y, names, dates, codes
 
 
 def _assemble_oo_released(
@@ -857,13 +915,17 @@ def assemble_oo_panels(
     progress_cb: Optional[Any] = None,
     release_rows: bool = False,
     stats_out: Optional[Dict[str, Any]] = None,
-) -> Tuple[np.ndarray, np.ndarray, List[str], List[str]]:
+    return_codes: bool = False,
+) -> Tuple[np.ndarray, np.ndarray, List[str], List[str]] | Tuple[
+    np.ndarray, np.ndarray, List[str], List[str], List[str]
+]:
     """按股票顺序堆叠。满池默认 4 子进程，在途任务不超过进程数。
 
     ``aoo_core_only=False``（默认）：面板 ``z_oo_* ∪ raw_aoo_*`` 全量；
     ``True`` 时只留 aoo_core + 去重叠 z_oo（消融）。
     ``release_rows=True``：物化路径。不把全池矩阵留在父进程，也不写薄立方。
     计数写入 ``stats_out``。
+    ``return_codes=True``：多返回与行对齐的 ``codes``（Arm·L 因子面板用）。
     """
     seq = list(items)
     from core.research.materialize.coverage import enforce_consumer_coverage
@@ -901,24 +963,31 @@ def assemble_oo_panels(
         if isinstance(stats_out, dict):
             stats_out.clear()
             stats_out.update(summary)
-        return (
+        empty = (
             np.zeros((0, 1), dtype=np.float64),
             np.zeros((0,), dtype=np.float64),
             list(summary.get("names") or []),
             list(summary.get("dates") or []),
         )
+        if return_codes:
+            return (*empty, [])
+        return empty
 
     if n_workers <= 1:
-        return _assemble_serial(
+        x, y, names, dates, codes = _assemble_serial(
             seq, horizon_days, aoo_core_only=core, progress_cb=_tick
         )
-    return _assemble_parallel(
-        seq,
-        horizon_days,
-        n_workers,
-        aoo_core_only=core,
-        progress_cb=_tick,
-    )
+    else:
+        x, y, names, dates, codes = _assemble_parallel(
+            seq,
+            horizon_days,
+            n_workers,
+            aoo_core_only=core,
+            progress_cb=_tick,
+        )
+    if return_codes:
+        return x, y, names, dates, codes
+    return x, y, names, dates
 
 
 def _column_finite_stats(col: np.ndarray) -> Tuple[int, float, float]:
@@ -953,6 +1022,7 @@ def _prepare_matrix(
     row_pos: Optional[np.ndarray] = None,
     eps: float = 1e-6,
     min_samples_over_p: int = 3,
+    dtype: Any = np.float64,
 ) -> Tuple[Optional[np.ndarray], Optional[np.ndarray], List[str], List[str], Dict[str, Any]]:
     """与 ``_prepare_complete_panel`` 同一套剔除，只在 ndarray 上做。
 
@@ -1030,7 +1100,10 @@ def _prepare_matrix(
                 break
             continue
 
-        # 先丢掉覆盖检查用的 float 块，再按列写入唯一的 float64 训练矩阵。
+        # 覆盖检查的 sub 先丢掉，峰值只留原矩阵 + 一块训练矩阵。
+        # 按行分块写入：目的地连续。按列写 x_c[:, j] 是跨步，160 万行 × 百余列
+        # 会把整块内存来回扫很多遍，8GB 机器上会换页到进度一直是 0。
+        # 枢纽拟合传 float32；默认 float64 留给 Ridge / 旧调用。
         src_rows = (
             rows_idx
             if row_pos is None
@@ -1038,9 +1111,14 @@ def _prepare_matrix(
         )
         del sub
         base = np.asarray(x)
-        x_c = np.empty((int(src_rows.shape[0]), len(active)), dtype=np.float64)
-        for local_j, name in enumerate(active):
-            x_c[:, local_j] = base[src_rows, name_j[name]]
+        n_out = int(src_rows.shape[0])
+        col_idx = np.asarray([name_j[name] for name in active], dtype=np.intp)
+        out_dtype = np.dtype(dtype)
+        x_c = np.empty((n_out, int(col_idx.shape[0])), dtype=out_dtype)
+        chunk = 8192
+        for start in range(0, n_out, chunk):
+            stop = min(n_out, start + chunk)
+            x_c[start:stop, :] = base[np.ix_(src_rows[start:stop], col_idx)]
         y_c = np.ascontiguousarray(y[rows_idx], dtype=np.float64)
         excluded = prep_meta_excluded(meta)
         meta["complete_sample_count"] = n
@@ -1065,13 +1143,29 @@ def _zscore_matrix(
     out = np.empty_like(x)
     floor = eps * eps
     for j, name in enumerate(names):
-        col = x[:, j]
-        mean = float(col.sum()) / n
-        var = float(((col - mean) ** 2).sum()) / n
-        std = math.sqrt(var) if var > floor else 1.0
+        # float32 列的平方和会溢出。矩在 float64 里算，z 再写回原精度。
+        col = np.asarray(x[:, j], dtype=np.float64)
+        finite = np.isfinite(col)
+        n_fin = int(finite.sum())
+        if n_fin <= 0:
+            means[str(name)] = 0.0
+            stds[str(name)] = 1.0
+            out[:, j] = 0
+            continue
+        vals = col[finite]
+        mean = float(vals.sum()) / n_fin
+        var = float(((vals - mean) ** 2).sum()) / n_fin
+        if not math.isfinite(mean) or not math.isfinite(var) or var <= floor:
+            std = 1.0
+            if not math.isfinite(mean):
+                mean = 0.0
+        else:
+            std = math.sqrt(var)
+        z = np.zeros(n, dtype=np.float64)
+        z[finite] = (vals - mean) / std
         means[str(name)] = mean
         stds[str(name)] = std
-        out[:, j] = (col - mean) / std
+        out[:, j] = z
     return out, means, stds
 
 

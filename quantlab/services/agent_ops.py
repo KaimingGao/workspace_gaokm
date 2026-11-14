@@ -290,7 +290,7 @@ class AgentOpsService:
 
         envelope = self._to_preview_envelope(path, body)
         envelope["preview_fingerprint"] = _preview_fingerprint(path, envelope)
-        envelope["disclaimer"] = "此为预演，不等于已成交；请到模拟/观察页确认。"
+        envelope["disclaimer"] = "此为预演，不等于已成交；请到交易执行或观察台确认。"
         return envelope
 
     def _preview_holding_cycle(self, params: dict) -> Dict[str, Any]:

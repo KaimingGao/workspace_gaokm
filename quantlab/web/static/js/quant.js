@@ -3833,7 +3833,7 @@ export function initQuant(ctx) {
       if (hasReplay && page !== "replay") {
         background.push(backtest.loadLastBacktestSnapshot().catch(() => {}));
       }
-      // 研究枢纽：拉取全局 ŷ live/草稿状态；日线/分钟条仍由各自 UI 拉
+      // 研究枢纽：拉取全局 ŷ live/草稿状态；日线/分钟条在数据中心由各自 UI 拉
       if (page === "quant" && (els.quantFactorList || els.quantOlsSummary)) {
         background.push(suggest.refreshReturnModelStatus().catch(() => {}));
       }
@@ -4146,7 +4146,7 @@ export function initQuant(ctx) {
     if (btn) btn.disabled = true;
     try {
       const h = await saveHorizonAsDefault();
-      const msg = `已存研究默认 horizon=${h}d（不影响数据中心/交易 live）`;
+      const msg = `已存研究默认 horizon=${h}d（不影响观察台/交易 live）`;
       if (typeof setQuantMeta === "function") setQuantMeta(msg);
       const replayMeta = document.getElementById("replay-meta");
       if (replayMeta) replayMeta.textContent = msg;
@@ -6217,7 +6217,7 @@ export function initQuant(ctx) {
   // 进页面时先把“折叠 summary 结论”拉出来；同时支持 hash 深链强制打开对应折叠
   const page = document.body.dataset.page || "";
   const hash = String(location.hash || "").replace(/^#/, "");
-  // 仅数据中心注册：避免 /follow 上覆盖 paper 的当前持仓 getter
+  // 仅观察台注册：避免 /follow 上覆盖 paper 的当前持仓 getter
   if (page === "watching") {
     window.__quantlabGetCurrentStock = () => {
       if (state.watchingFocusCode) {

@@ -62,7 +62,7 @@ def resolve_symbol(code: str) -> Optional[str]:
 
 
 def search_stocks(query: str, *, limit: int = 8) -> Dict[str, Any]:
-    """股票搜索（观察页 / CLI）。"""
+    """股票搜索（观察台 / CLI）。"""
     return call("search_stocks", str(query or "").strip(), limit=int(limit or 8))
 
 

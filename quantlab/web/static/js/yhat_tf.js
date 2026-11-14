@@ -1,8 +1,13 @@
-/** 模型中心 · /yhat-tf · 四头 Holdout 研究台（⌘⇧K；不写 live） */
+/** 模型工厂 · /yhat-l | /yhat-t · 四头 Holdout 研究台（⌘⇧K；不写 live） */
 
 import { apiFetch } from "./api_client.js";
 
 const HEADS = ["oo", "tc", "oo_rank", "tc_rank"];
+/** @type {"L"|"T"} */
+let pageFactory = "T";
+function apiBase() {
+  return pageFactory === "L" ? "/api/quant/yhat-l" : "/api/quant/yhat-t";
+}
 const LOSS_CANON = {
   listwise: "listwise",
   listnet: "listwise",
@@ -46,11 +51,7 @@ function gateDisplay(st) {
   );
 }
 const ACTION_SUCCESS = {
-  "save-draft": "草稿已保存",
   fit: "已启动后台拟合（Holdout；不写 live）",
-  "promote-research": "已晋级研究槽",
-  "clear-draft": "草稿已清理",
-  "clear-research": "研究槽已清理",
 };
 let fitPollTimer = null;
 
@@ -94,6 +95,8 @@ function stateOf(st) {
   const jobStatus = st?.job?.status;
   if (jobStatus === "error" || st?.last?.action === "holdout_failed") return "error";
   const metrics = currentFitMetrics(st);
+  // 单厂页：有 arm metrics 即视为就绪（不再用相对硬闸）
+  if (st?.last?.action === "holdout_result" && metrics) return "ok";
   if (metrics?.gate_pass === true) return "ok";
   if (st?.last?.action === "holdout_result") return "warn";
   if (jobStatus === "done") return "warn";
@@ -104,7 +107,7 @@ function stateOf(st) {
 
 function stateLabel(state) {
   return {
-    ok: "过闸",
+    ok: "有指标",
     warn: "已拟合",
     busy: "处理中",
     error: "失败",
@@ -115,7 +118,9 @@ function stateLabel(state) {
 function headFitOutcome(st) {
   if (st?.fit_running) return "running";
   if (st?.last?.action === "holdout_failed") return "failed";
-  if (currentFitMetrics(st)?.gate_pass === true) return "gated";
+  const metrics = currentFitMetrics(st);
+  if (st?.last?.action === "holdout_result" && metrics) return "gated";
+  if (metrics?.gate_pass === true) return "gated";
   if (st?.last?.action === "holdout_result") return "fitted";
   return "none";
 }
@@ -190,6 +195,36 @@ function normalizeLoss(raw) {
     .trim()
     .toLowerCase();
   return LOSS_CANON[key] || key || "smooth_l1";
+}
+
+/** Arm·L 不沿用 HeadSpec 的 Transformer 损失名。 */
+function shownLoss(head, raw) {
+  const loss = String(raw || "").trim();
+  if (pageFactory !== "L") return loss;
+  if (head === "oo_rank" || head === "tc_rank") return "lambdarank";
+  if (
+    !loss ||
+    loss === "smooth_l1" ||
+    loss === "huber" ||
+    loss === "regression" ||
+    loss === "mse" ||
+    loss === "l2"
+  ) {
+    return "l2";
+  }
+  return loss;
+}
+
+function scrubArmLLoss(value, head) {
+  if (pageFactory !== "L" || value == null || typeof value !== "object") return value;
+  if (Array.isArray(value)) return value.map((item) => scrubArmLLoss(item, head));
+  const out = {};
+  for (const [key, item] of Object.entries(value)) {
+    if (key === "loss") out[key] = shownLoss(head, item);
+    else if (item && typeof item === "object") out[key] = scrubArmLLoss(item, head);
+    else out[key] = item;
+  }
+  return out;
 }
 
 function normalizeSeqFeatSet(raw) {
@@ -283,24 +318,30 @@ function formatTSamplePct(raw) {
 }
 
 function protocolTagText(panel) {
+  if (pageFactory === "L") {
+    const pool = panel.querySelector('[data-param="pool_n"]')?.value || "—";
+    const lb = panel.querySelector('[data-param="lookback"]')?.value || "—";
+    const ho = panel.querySelector('[data-param="holdout_trading_days"]')?.value || "—";
+    return `L · 池${pool} · 窗${lb} · HO${ho}`;
+  }
   const seqLen = Number(panel.querySelector('[data-param="seq_len"]')?.value) || 20;
   const f = seqFeatDim(readSeqFeatSet(panel));
   const fac = factorLabel(panel);
   const cap = formatTSamplePct(panel.querySelector('[data-param="t_sample_pct"]')?.value);
-  return `LT · L${seqLen}×${f} · T ${fac.tag} · ${cap}`;
+  return `T · L${seqLen}×${f} · ${fac.tag} · ${cap}`;
 }
 
 function ensureProtocolChrome(panel) {
-  const card = panel?.querySelector?.("[data-protocol-card]");
-  if (!card) return null;
+  const slot = panel?.querySelector?.("[data-run-id-slot]");
+  if (!slot) return null;
 
-  const slot = panel.querySelector("[data-run-id-slot]");
-  if (slot && slot.dataset.chromeReady !== "1") {
+  if (slot.dataset.chromeReady !== "1") {
     slot.dataset.chromeReady = "1";
     slot.classList.add("yhat-tf-run-id");
+    const blank = pageFactory === "L" ? "L · —" : "T · —";
     slot.innerHTML =
       '<span class="yhat-tf-k yhat-tf-run-id-k">协议</span>' +
-      '<span class="yhat-tf-protocol-tag" data-protocol-tag title="当前对照协议">LT · —</span>' +
+      `<span class="yhat-tf-protocol-tag" data-protocol-tag title="当前对照协议">${blank}</span>` +
       '<button type="button" class="yhat-tf-protocol-copy" data-copy-protocol title="复制协议标签">复制</button>';
     slot.querySelector("[data-copy-protocol]")?.addEventListener("click", async () => {
       const tag = String(slot.querySelector("[data-protocol-tag]")?.textContent || "").trim();
@@ -313,7 +354,8 @@ function ensureProtocolChrome(panel) {
       }
     });
   }
-  card.dataset.chromeReady = "1";
+  const card = panel.querySelector("[data-protocol-card]");
+  if (card) card.dataset.chromeReady = "1";
   return card;
 }
 
@@ -353,8 +395,7 @@ function readParams(head) {
       out[key] = raw;
     }
   });
-  // Scheme LT：固定双臂
-  out.arms = "L,T";
+  if (pageFactory !== "L") out.arms = "L,T";
   if (
     panel.querySelector('[data-param-radio="seq_feat_set"]') ||
     panel.querySelector('[data-param="seq_feat_set"]')
@@ -404,12 +445,6 @@ function pretty(obj) {
   }
 }
 
-function setMeter(el, pct) {
-  if (!el) return;
-  const p = Math.max(0, Math.min(100, Number(pct) || 0));
-  el.style.setProperty("--p", `${p}%`);
-}
-
 /** 信息窗只用「本次」拟合：进行中不展示旧 OOS；完成态认本 run 的 last.metrics */
 function currentFitMetrics(st) {
   if (st?.fit_running) return null;
@@ -457,13 +492,17 @@ function paramChipPairs(params) {
     ["池子", params.watching_limit ?? params.pool_n],
     ["训练窗", params.lookback],
     ["Holdout", params.holdout_trading_days],
-    ["序列", dim ? `${dim}维` : params.seq_feat_set],
-    ["T因子", fac],
-    ["d_model", params.d_model],
-    ["layers", params.nlayers],
-    ["batch", params.batch_size],
-    ["epochs", params.epochs],
   ];
+  if (pageFactory !== "L") {
+    pairs.push(
+      ["序列", dim ? `${dim}维` : params.seq_feat_set],
+      ["T因子", fac],
+      ["d_model", params.d_model],
+      ["layers", params.nlayers],
+      ["batch", params.batch_size],
+      ["epochs", params.epochs]
+    );
+  }
   return pairs.filter(([, v]) => v != null && v !== "");
 }
 
@@ -617,8 +656,13 @@ function numOrNull(raw) {
   return Number.isFinite(n) ? n : null;
 }
 
+/** 轮次 Holdout 探针，不是该臂结束。结束行是 ArmL / ArmT seed= 或对比表。 */
+function isEpochHoldoutProbe(line) {
+  return /^transformer\s+ep=\d+\/\d+\s+holdout\b/.test(line);
+}
+
 /** 本次日志里该臂走到哪一步。完成行一出现就定状态，不跟另一臂对齐。 */
-function liveArmFromLog(lines) {
+export function liveArmFromLog(lines) {
   let started = false;
   let phase = "idle";
   let pack = null;
@@ -626,6 +670,8 @@ function liveArmFromLog(lines) {
     const s = String(line).trim();
     if (!s) continue;
     started = true;
+    // 每轮探针带 rankIC= / 「失败」，不能当成该臂结束；后面的 step= 仍是训练中
+    if (isEpochHoldoutProbe(s)) continue;
     if (/失败/.test(s)) {
       phase = "fail";
       pack = { success: false };
@@ -682,7 +728,7 @@ function liveArmFromLog(lines) {
   return { phase, pack };
 }
 
-function armStatus(st, tag, pack, live) {
+export function armStatus(st, tag, pack, live) {
   if (st?.fit_running && live) {
     if (live.phase === "fail") return { text: "失败", tone: "fail" };
     if (live.phase === "ok") {
@@ -828,12 +874,13 @@ function renderContrast(root, st, metrics) {
     el.classList.toggle("is-empty", value === "—");
   };
 
-  for (const tag of ["L", "T"]) {
+  const tags = pageFactory === "L" ? ["L"] : ["L", "T"];
+  for (const tag of tags) {
     const pack = tag === "L" ? packL : packT;
     const ic = tag === "L" ? icL : icT;
     const other = tag === "L" ? icT : icL;
     const section = box.querySelector(`[data-arm-console="${tag}"]`);
-    if (section) {
+    if (section && tags.length > 1) {
       section.classList.toggle("is-lead", ic != null && (other == null || ic > other));
     }
     const stateEl = box.querySelector(`[data-arm-state="${tag}"]`);
@@ -857,52 +904,31 @@ function renderContrast(root, st, metrics) {
     setArmLog(box.querySelector(`[data-arm-log="${tag}"]`), show);
   }
 
-  const gate =
-    st?.last?.hard_gate_vs_arm_L && typeof st.last.hard_gate_vs_arm_L === "object"
-      ? st.last.hard_gate_vs_arm_L
-      : null;
-  const liftEl = root.querySelector("[data-contrast-lift]");
-  if (liftEl) {
-    const g = gate?.T || null;
-    const lift = g?.lift ?? metrics?.gate_lift;
-    const pass = g?.pass ?? metrics?.gate_pass;
-    if (lift != null && Number.isFinite(Number(lift))) {
-      const ok = pass === true;
-      const reasons = Array.isArray(g?.reasons) ? g.reasons.filter(Boolean) : [];
-      liftEl.textContent = `Gate Δcs_rank_ic ${Number(lift).toFixed(4)}${
-        pass == null ? "" : ok ? " · pass" : " · fail"
-      }${reasons.length && !ok ? ` · ${reasons[0]}` : ""}`;
-      liftEl.dataset.state = ok ? "ok" : pass === false ? "fail" : "";
-    } else if (pass === false) {
-      const reasons = Array.isArray(g?.reasons) ? g.reasons.filter(Boolean) : [];
-      liftEl.textContent = `Gate fail${reasons.length ? ` · ${reasons[0]}` : ""}`;
-      liftEl.dataset.state = "fail";
-    } else if (icL != null && icT != null) {
-      // 无 hard_gate 时只展示 ΔIC，不上 pass/fail 色
-      const d = icT - icL;
-      liftEl.textContent = `ΔIC ${d.toFixed(4)}（未硬门）`;
-      liftEl.dataset.state = "";
-    } else {
-      liftEl.textContent = "Gate · —";
-      liftEl.dataset.state = "";
-    }
-  }
-
-  const proto = params ? protocolTagFromParams(params) : "";
-  const parity = st?.parity || st?.last?.parity;
-  const parityBit =
-    parity && typeof parity === "object"
-      ? parity.formal
-        ? "正式对照"
-        : "非正式对照"
-      : "";
   const tagEl = root.querySelector("[data-contrast-protocol]");
   if (tagEl) {
-    const bits = [proto, parityBit, "T=序列OHLCV∥因子 · L=仅因子"].filter(Boolean);
-    tagEl.textContent = bits.join(" · ");
-    tagEl.hidden = !bits.length;
+    const body =
+      pageFactory === "L"
+        ? armLProtocolBits(params).join(" · ")
+        : params
+          ? protocolTagFromParams(params)
+          : "";
+    tagEl.textContent = body ? `协议 · ${body}` : "";
+    tagEl.hidden = !body;
   }
   syncArmClock();
+}
+
+/** Arm·L 只吃全量因子，不带序列形状、T 因子宽和 T 采样。 */
+function armLProtocolBits(params) {
+  const bits = [];
+  const pool = params?.watching_limit ?? params?.pool_n;
+  const lb = params?.lookback;
+  const ho = params?.holdout_trading_days;
+  if (pool != null && pool !== "") bits.push(`池${pool}`);
+  if (lb != null && lb !== "") bits.push(`窗${lb}`);
+  if (ho != null && ho !== "") bits.push(`HO${ho}`);
+  bits.push("全量", "L=仅因子");
+  return bits;
 }
 
 function protocolTagFromParams(params) {
@@ -921,7 +947,7 @@ function protocolTagFromParams(params) {
   const cap = formatTSamplePct(
     params.t_sample_pct == null ? 10 : params.t_sample_pct
   );
-  return `LT · L${seqLen}×${f} · T ${fac} · ${cap}`;
+  return `T · L${seqLen}×${f} · ${fac} · ${cap}`;
 }
 
 function fitActionLabel(st) {
@@ -1027,20 +1053,6 @@ function updateActionStates(head) {
       disabled = pendingHeads.has(head) || fitRunning;
       btn.textContent = fitRunning ? "运行中…" : "拟合";
     }
-    if (act === "clear-draft") disabled ||= !st?.has_draft;
-    if (act === "promote-research") {
-      const can = !!st?.promotable;
-      disabled ||= !can;
-      const why = Array.isArray(st?.promote_reasons)
-        ? st.promote_reasons.filter(Boolean).join("；")
-        : "";
-      btn.title = can
-        ? "晋级到研究槽（已过闸且协议一致）"
-        : why
-          ? `不可晋级：${why}`
-          : "不可晋级：须过闸且正式对照（full+100%）";
-    }
-    if (act === "clear-research") disabled ||= !st?.has_research;
     btn.disabled = disabled;
   });
 }
@@ -1115,35 +1127,12 @@ function selectHead(head, { scroll = true } = {}) {
   applyView({ scroll });
 }
 
-function renderOverview(heads) {
-  const nGated = heads.filter((h) => headFitOutcome(h) === "gated").length;
+function overviewCounts(heads) {
+  const nReady = heads.filter((h) => headFitOutcome(h) === "gated").length;
   const nFitted = heads.filter((h) =>
     ["gated", "fitted"].includes(headFitOutcome(h))
   ).length;
-  const nDraft = heads.filter((h) => h.has_draft).length;
-  const nRes = heads.filter((h) => h.has_research).length;
-  const setOv = (key, n, { goodAtFull = false } = {}) => {
-    const card = document.querySelector(`[data-overview="${key}"]`);
-    if (!card) return;
-    const num = card.querySelector("[data-ov-n]");
-    const bar = card.querySelector("[data-ov-bar]");
-    if (num) num.textContent = String(n);
-    setMeter(bar, (n / HEADS.length) * 100);
-    card.classList.toggle("is-empty", n === 0);
-    card.classList.toggle("is-mid", n > 0 && n < HEADS.length);
-    card.classList.toggle("is-good", goodAtFull && n === HEADS.length);
-  };
-  setOv("ready", nGated, { goodAtFull: true });
-  const readyCard = document.querySelector('[data-overview="ready"]');
-  if (readyCard) {
-    const label = readyCard.querySelector(".dashboard-kpi-label, .quant-pro-kpi-label");
-    const sub = readyCard.querySelector(".dashboard-kpi-sub, .quant-pro-kpi-sub");
-    if (label) label.textContent = "硬门过闸";
-    if (sub) sub.textContent = nFitted ? `已拟合 ${nFitted}/4` : "未拟合";
-  }
-  setOv("draft", nDraft);
-  setOv("research", nRes);
-  return { nReady: nGated, nDraft, nRes };
+  return { nReady, nFitted };
 }
 
 function renderHeadSummary(st) {
@@ -1154,83 +1143,23 @@ function renderHeadSummary(st) {
     chip.dataset.state = state;
     chip.textContent = stateLabel(state);
   }
-  const slots = document.querySelector(`[data-head-summary-slots="${head}"]`);
-  if (slots) {
-    slots.textContent = `draft ${st.has_draft ? "有" : "无"} · research ${st.has_research ? "有" : "无"}`;
-  }
   const gate = document.querySelector(`[data-head-summary-gate="${head}"]`);
   if (gate) {
-    const g =
-      st?.last?.hard_gate_vs_arm_L && typeof st.last.hard_gate_vs_arm_L === "object"
-        ? st.last.hard_gate_vs_arm_L.T
-        : null;
-    const pass = g?.pass ?? currentFitMetrics(st)?.gate_pass;
-    gate.textContent =
-      pass === true
-        ? "Gate · pass"
-        : pass === false
-          ? "Gate · fail"
-          : `Gate · ${gateDisplay(st)}`;
-  }
-}
-
-function renderGate(st) {
-  const root = document.querySelector(`[data-gate-for="${st.head}"]`);
-  if (!root) return;
-  const holdout = root.querySelector('[data-gate-item="holdout"]');
-  const draft = root.querySelector('[data-gate-item="draft"]');
-  const oos = root.querySelector('[data-gate-item="oos"]');
-  let hard = root.querySelector('[data-gate-item="hard_gate"]');
-  if (!hard) {
-    hard = document.createElement("span");
-    hard.dataset.gateItem = "hard_gate";
-    root.appendChild(hard);
-  }
-  const outcome = headFitOutcome(st);
-  if (holdout) {
-    const label =
-      outcome === "gated"
-        ? "已过闸"
-        : outcome === "fitted"
-          ? "已拟合"
-          : outcome === "failed"
-            ? "拟合失败"
-            : outcome === "running"
-              ? "拟合中"
-              : "未拟合";
-    holdout.textContent = `Holdout · ${label}`;
-    holdout.classList.toggle("is-on", outcome === "gated" || outcome === "fitted");
-  }
-  if (draft) {
-    draft.textContent = `草稿 · ${st.has_draft ? "已保存" : "待保存"}`;
-    draft.classList.toggle("is-on", !!st.has_draft);
-  }
-  if (oos) {
-    const summary = metricSummary(currentFitMetrics(st));
-    oos.textContent = summary
-      ? `OOS 指标 · ${summary}`
-      : st.fit_running
-        ? "OOS 指标 · 拟合中"
-        : "OOS 指标 · 待回传";
-    oos.classList.toggle("is-on", !!summary);
-  }
-  const g =
-    st?.last?.hard_gate_vs_arm_L && typeof st.last.hard_gate_vs_arm_L === "object"
-      ? st.last.hard_gate_vs_arm_L.T
-      : null;
-  const pass = g?.pass ?? currentFitMetrics(st)?.gate_pass;
-  const parity = st?.parity || st?.last?.parity;
-  if (hard) {
-    if (pass === true) {
-      hard.textContent = `硬门 · pass${parity?.formal === false ? " · 非正式对照不可晋级" : ""}`;
-      hard.classList.toggle("is-on", true);
-    } else if (pass === false) {
-      const reasons = Array.isArray(g?.reasons) ? g.reasons.filter(Boolean) : [];
-      hard.textContent = `硬门 · fail${reasons.length ? ` · ${reasons[0]}` : ""}`;
-      hard.classList.toggle("is-on", false);
+    if (pageFactory === "L") {
+      const ic = Number(currentFitMetrics(st)?.cs_rank_ic);
+      gate.textContent = Number.isFinite(ic) ? `RankIC ${ic.toFixed(4)}` : "绝对指标";
     } else {
-      hard.textContent = "硬门 · 待回传";
-      hard.classList.toggle("is-on", false);
+      const g =
+        st?.last?.hard_gate_vs_arm_L && typeof st.last.hard_gate_vs_arm_L === "object"
+          ? st.last.hard_gate_vs_arm_L.T
+          : null;
+      const pass = g?.pass ?? currentFitMetrics(st)?.gate_pass;
+      gate.textContent =
+        pass === true
+          ? "Gate · pass"
+          : pass === false
+            ? "Gate · fail"
+            : `Gate · ${gateDisplay(st)}`;
     }
   }
 }
@@ -1238,36 +1167,26 @@ function renderGate(st) {
 function renderResult(st) {
   const panel = panelOf(st.head);
   if (!panel) return;
-  const lastLabel = st.fit_running
-    ? "拟合中…"
-    : st.last
-      ? `${formatTime(st.last.updated_at)}${fitActionLabel(st) ? ` · ${fitActionLabel(st)}` : ""}`
-      : "尚无记录";
-  const values = {
-    last: lastLabel,
-    draft: st.draft ? formatTime(st.draft.updated_at) : "未保存",
-    research: st.research ? formatTime(st.research.promoted_at || st.research.updated_at) : "未晋级",
-    gate: metricSummary(currentFitMetrics(st)) || gateDisplay(st),
-  };
-  Object.entries(values).forEach(([key, value]) => {
-    const el = panel.querySelector(`[data-result-field="${key}"]`);
-    if (el) el.textContent = value;
-  });
 
   renderFitInfo(st);
 
   const resultEl = panel.querySelector(`[data-result-for="${st.head}"]`);
   if (resultEl) {
-    const blob = pretty({
-      job: st.job || null,
-      last: st.last || null,
-      draft: st.draft || null,
-      research: st.research || null,
-      metrics: currentFitMetrics(st),
-      fit_running: !!st.fit_running,
-      scheme: st.scheme || null,
-      live_allowed: false,
-    });
+    const blob = pretty(
+      scrubArmLLoss(
+        {
+          job: st.job || null,
+          last: st.last || null,
+          draft: st.draft || null,
+          research: st.research || null,
+          metrics: currentFitMetrics(st),
+          fit_running: !!st.fit_running,
+          scheme: st.scheme || null,
+          live_allowed: false,
+        },
+        st.head
+      )
+    );
     setConsoleHtml(resultEl, blob, highlightJson(blob));
   }
 
@@ -1288,7 +1207,7 @@ function renderHead(st) {
   const outcomeLabel =
     {
       running: "拟合中",
-      gated: "硬门过闸",
+      gated: pageFactory === "L" ? "有指标" : "硬门过闸",
       fitted: "已拟合",
       failed: "拟合失败",
       none: "未拟合",
@@ -1299,46 +1218,14 @@ function renderHead(st) {
     !st.fit_running && outcome !== "none" && outcome !== "running"
       ? outcomeLabel
       : null,
-    scheme.loss || null,
-    st.promotable ? "可晋级" : st.has_draft ? "draft" : null,
-    st.has_research ? "research" : null,
+    pageFactory === "L" ? null : scheme.loss || null,
   ].filter(Boolean);
   setChip(document.querySelector(`[data-status-for="${head}"]`), stateOf(st), msgBits.join(" · ") || "—");
 
-  const slots = document.querySelector(`[data-slots-for="${head}"]`);
-  if (slots) {
-    const draft = slots.querySelector('[data-slot="draft"]');
-    const research = slots.querySelector('[data-slot="research"]');
-    const gate = slots.querySelector('[data-slot="gate"]');
-    if (draft) {
-      draft.textContent = `draft · ${st.has_draft ? "有" : "无"}`;
-      draft.classList.toggle("is-on", !!st.has_draft);
-    }
-    if (research) {
-      research.textContent = `research · ${st.has_research ? "有" : "无"}`;
-      research.classList.toggle("is-on", !!st.has_research);
-    }
-    if (gate) {
-      const g =
-        st?.last?.hard_gate_vs_arm_L && typeof st.last.hard_gate_vs_arm_L === "object"
-          ? st.last.hard_gate_vs_arm_L.T
-          : null;
-      const pass = g?.pass ?? currentFitMetrics(st)?.gate_pass;
-      gate.textContent =
-        pass === true
-          ? "gate · pass"
-          : pass === false
-            ? "gate · fail"
-            : `gate · ${gateDisplay(st)}`;
-      gate.classList.toggle("is-on", pass === true);
-    }
-  }
-
   renderHeadSummary(st);
-  renderGate(st);
   renderResult(st);
   // 表单回填：用户改过则不覆盖。
-  // 未在跑：优先 draft（存草稿/意图已同步的最新配置），切勿让旧 job 盖回。
+  // 未在跑：优先工作配置（拟合意图隐式同步的 draft），切勿让旧 job 盖回。
   // 拟合中：用本次 job/last，与信息窗一致。
   if (!dirtyParams.has(head)) {
     const running = !!st.fit_running || st.job?.status === "running";
@@ -1376,17 +1263,20 @@ function refreshStatus({ quiet = false } = {}) {
     if (!quiet) setRefreshing(true);
     if (!lastGoodData && meta) meta.textContent = "正在读取模型状态…";
     try {
-      const { ok, data, error } = await apiFetch("/api/quant/yhat-tf/status");
+      const { ok, data, error } = await apiFetch(`${apiBase()}/status`);
       if (!ok) throw new Error(error || "status failed");
       lastGoodData = data;
       const heads = Array.isArray(data.heads) ? data.heads : [];
       heads.forEach(renderHead);
-      const { nReady, nDraft, nRes } = renderOverview(heads);
+      const { nReady, nFitted } = overviewCounts(heads);
       const nRun = heads.filter((h) => h.fit_running).length;
       if (meta) {
-        const next = `${data.scheme?.name || "Scheme LT"} · ready ${nReady}/4 · draft ${nDraft}/4 · research ${nRes}/4${
-          nRun ? ` · fitting ${nRun}` : ""
-        }`;
+        const schemeName =
+          data.scheme?.name ||
+          (pageFactory === "L" ? "模型中心 · Arm·L" : "模型中心 · Arm·T");
+        const next = `${schemeName} · 有指标 ${nReady}/4 · 已拟合 ${nFitted}/4${
+          nRun ? ` · 拟合中 ${nRun}` : ""
+        } · 不写 live`;
         if (meta.textContent !== next) meta.textContent = next;
       }
       scheduleFitPoll(heads);
@@ -1412,10 +1302,7 @@ function refreshStatus({ quiet = false } = {}) {
 
 async function onAct(head, act) {
   if (pendingHeads.has(head)) return;
-  if (act === "clear-draft" || act === "clear-research") {
-    const label = act === "clear-draft" ? "草稿" : "研究槽";
-    if (!window.confirm(`确认清理 ${head} 的${label}吗？此操作不可撤销。`)) return;
-  }
+  if (act !== "fit") return;
 
   const statusEl = document.querySelector(`[data-status-for="${head}"]`);
   pendingHeads.add(head);
@@ -1423,33 +1310,19 @@ async function onAct(head, act) {
   showPanelError(head, "");
   setChip(statusEl, "busy", "处理中…");
   try {
-    let res;
-    if (act === "save-draft") {
-      res = await jsonPost("/api/quant/yhat-tf/draft", { head, params: readParams(head) });
-    } else if (act === "fit") {
-      res = await jsonPost("/api/quant/yhat-tf/fit", { head, params: readParams(head) });
-    } else if (act === "promote-research") {
-      res = await jsonPost("/api/quant/yhat-tf/promote-research", { head });
-    } else if (act === "clear-draft") {
-      res = await jsonPost("/api/quant/yhat-tf/clear", { head, slot: "draft" });
-    } else if (act === "clear-research") {
-      res = await jsonPost("/api/quant/yhat-tf/clear", { head, slot: "research" });
-    } else {
-      return;
-    }
+    const res = await jsonPost(`${apiBase()}/fit`, {
+      head,
+      params: readParams(head),
+    });
     if (!res?.ok) throw new Error(res?.error || "请求失败");
-    if (act === "fit") {
-      // 先用本次 job/intent 参数回填，再清 dirty，避免刷新瞬间闪回旧 draft
-      const fitParams =
-        res?.data?.job?.params ||
-        res?.data?.last?.params ||
-        res?.data?.draft_params ||
-        null;
-      if (fitParams) applyParams(head, fitParams);
-      dirtyParams.delete(head);
-    } else if (act === "save-draft" || act === "clear-draft") {
-      dirtyParams.delete(head);
-    }
+    // 先用本次 job/intent 参数回填，再清 dirty，避免刷新瞬间闪回旧 draft
+    const fitParams =
+      res?.data?.job?.params ||
+      res?.data?.last?.params ||
+      res?.data?.draft_params ||
+      null;
+    if (fitParams) applyParams(head, fitParams);
+    dirtyParams.delete(head);
     const refreshed = await refreshStatus();
     if (!refreshed) setChip(statusEl, "warn", "操作已完成 · 状态刷新失败");
     let toastMsg =
@@ -1534,7 +1407,10 @@ function bindToastDismiss() {
   });
 }
 
-export function initYhatTf(_ctx) {
+export function initYhatTf(_ctx, factory = "T") {
+  pageFactory = factory === "L" ? "L" : "T";
+  const pageRoot = $(".yhat-tf-page");
+  if (pageRoot) pageRoot.dataset.factory = pageFactory;
   const hashHead = HEADS.find((head) => location.hash === `#${sectionOf(head)?.id}`);
   if (hashHead) activeHead = hashHead;
   applyView();
@@ -1554,7 +1430,7 @@ export function initYhatTf(_ctx) {
       const t = ev.target;
       if (
         t?.matches?.(
-          '[data-param-radio="seq_feat_set"], [data-param-radio="full_aoo"], [data-param-radio="full_atc"], [data-param="seq_len"], [data-param="t_sample_pct"]'
+          '[data-param-radio="seq_feat_set"], [data-param-radio="full_aoo"], [data-param-radio="full_atc"], [data-param="seq_len"], [data-param="t_sample_pct"], [data-param="pool_n"], [data-param="lookback"], [data-param="holdout_trading_days"]'
         )
       ) {
         updateProtocolPreviews(panel);

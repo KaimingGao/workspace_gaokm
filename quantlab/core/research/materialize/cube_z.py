@@ -268,17 +268,24 @@ def apply_day_cube_mu_sigma_matrix(
     from core.research.day_cube import enabled, load_day_cube
 
     base = np.asarray(x)
-    # inplace：调用方已拥有这块 float64，z 直接写进去，不再并行留一份原矩阵。
+    # inplace：调用方已拥有这块 float32/float64，z 直接写进去，不再并行留一份原矩阵。
     if (
         inplace
         and isinstance(base, np.ndarray)
         and base.ndim == 2
-        and base.dtype == np.float64
+        and base.dtype in (np.float32, np.float64)
         and base.flags.writeable
     ):
         out = base
     else:
-        out = np.array(base, dtype=np.float64, copy=True)
+        # float32 输入保持 float32（树模型切片）。float64 与其它类型仍用 float64，
+        # Ridge / 立方统计不因这里改精度。
+        out_dt = (
+            base.dtype
+            if getattr(base, "dtype", None) in (np.float32, np.float64)
+            else np.float64
+        )
+        out = np.array(base, dtype=out_dt, copy=True)
     name_list = [str(n) for n in names]
     n, p = out.shape if out.ndim == 2 else (0, 0)
     if n == 0 or p == 0 or len(dates) != n or len(name_list) != p:
@@ -554,22 +561,25 @@ def align_fit_rows_to_l2(
     *,
     clock: str = "open",
     fallback_open: Optional[bool] = None,
+    x_dtype: Any = None,
 ) -> Tuple[np.ndarray, np.ndarray, List[str], np.ndarray]:
     """拟合前丢掉无 L2 的行（不进批现算；全日无 Cube 仍 ``MaterializeRequired``）。
 
     Returns:
         ``(x_keep, y_keep, dates_keep, row_mask)``；``row_mask`` 相对输入行。
 
-    先查哪些行有立方，再拷贝。行都在时，float64 输入原样返回，不再布尔索引复制一整块。
+    先查哪些行有立方，再拷贝。行都在时，与 ``x_dtype`` 相同的输入原样返回，
+    不再布尔索引复制一整块。``x_dtype`` 缺省 float64。
     """
     from core.research.materialize.consumer import MaterializeRequired
 
+    x_dt = np.dtype(np.float64 if x_dtype is None else x_dtype)
     x_arr = np.asarray(x)
     y_arr = np.asarray(y)
     n = int(x_arr.shape[0]) if getattr(x_arr, "ndim", 0) == 2 else 0
     y_n = int(y_arr.shape[0]) if getattr(y_arr, "ndim", 0) >= 1 else 0
     if n == 0 or len(dates) != n or y_n != n:
-        arr_x = np.asarray(x_arr, dtype=np.float64)
+        arr_x = np.asarray(x_arr, dtype=x_dt)
         arr_y = np.asarray(y_arr, dtype=np.float64)
         full = np.ones(max(0, n), dtype=bool)
         return arr_x, arr_y, [str(d or "")[:10] for d in (dates or [])], full
@@ -604,11 +614,11 @@ def align_fit_rows_to_l2(
             miss[:5],
         )
         kept = np.flatnonzero(mask)
-        arr_x = np.asarray(x_arr[kept], dtype=np.float64)
+        arr_x = np.asarray(x_arr[kept], dtype=x_dt)
         arr_y = np.asarray(y_arr[kept], dtype=np.float64)
         dates_out = [str(dates[int(i)] or "")[:10] for i in kept.tolist()]
         return arr_x, arr_y, dates_out, mask
-    arr_x = np.asarray(x_arr, dtype=np.float64)
+    arr_x = np.asarray(x_arr, dtype=x_dt)
     arr_y = np.asarray(y_arr, dtype=np.float64)
     dates_out = [str(d or "")[:10] for d in dates]
     return arr_x, arr_y, dates_out, mask

@@ -37,7 +37,7 @@ def _run_stock_jobs(
     n_workers: int,
     progress_every: int,
     label: str,
-) -> List[Any]:
+) -> Tuple[List[Any], List[str]]:
     chunks: List[Any] = []
     failed: List[str] = []
     done = 0
@@ -76,7 +76,7 @@ def _run_stock_jobs(
                 )
                 raise
     _note_stock_failures(label, failed, total)
-    return chunks
+    return chunks, failed
 
 
 @dataclass
@@ -102,31 +102,32 @@ class FactorPanel:
         )
 
 
-def _factor_stock_job(
-    job: Tuple[str, List[dict], int],
-) -> Tuple[str, np.ndarray, np.ndarray, List[str], List[str]]:
-    """子进程：单票全量矩阵（优先 L1 湖，否则 collect）。"""
-    code, bars, horizon = job
-    from core.research.oo_model_compact import _oo_stock_job
-
-    x, y, names, dates = _oo_stock_job(
-        (str(code), list(bars or []), int(horizon), False)
-    )
-    return str(code), x, y, list(names), [str(d)[:10] for d in dates]
+# 价量指纹进键。facv1 只含代码和最长根数，固定 lookback 会一直命中旧面板。
+# facv3：oo 走枢纽 assemble_oo_panels（含 coverage），作废完成序/旧组面板缓存。
+_FACTOR_CACHE_SCHEMA = "facv3"
 
 
 def _cache_key(
-    codes: Sequence[str],
+    items: Sequence[Tuple[str, Sequence[dict]]],
     *,
     horizon_days: int,
-    aoo_core_only: bool,
-    lookback_hint: int,
+    kind: str,
 ) -> str:
+    """配方版本 + 每只股票的价量指纹。长度不变但价格修订时必须 miss。"""
+    from core.research.panel_fingerprint import bars_fingerprint
+
     h = hashlib.sha1()
-    h.update(f"h{horizon_days}|core{int(aoo_core_only)}|lb{lookback_hint}|".encode())
-    for c in sorted(str(x) for x in codes):
-        h.update(c.encode())
-        h.update(b",")
+    h.update(f"{_FACTOR_CACHE_SCHEMA}|{kind}|h{int(horizon_days)}|".encode())
+    rows = [
+        (str(code).strip(), bars_fingerprint(list(bars or [])))
+        for code, bars in items
+        if str(code).strip()
+    ]
+    for code, fp in sorted(rows):
+        h.update(code.encode())
+        h.update(b"|")
+        h.update(fp.encode())
+        h.update(b"\n")
     return h.hexdigest()[:20]
 
 
@@ -152,6 +153,53 @@ def _try_load_cache(path: str) -> Optional["FactorPanel"]:
     except Exception:  # noqa: BLE001
         logger.debug("factor panel cache load failed %s", path, exc_info=True)
         return None
+
+
+def reorder_panel_by_codes(
+    panel: "FactorPanel",
+    codes: Sequence[str],
+) -> "FactorPanel":
+    """按入池代码顺序重排行，票内按日期。对齐枢纽 ``assemble_oo_panels``。
+
+    只保留 ``codes`` 里的票；入池外残留票丢掉（勿静默拼回）。
+    """
+    want = [str(c).strip() for c in codes if str(c).strip()]
+    if panel is None or panel.n <= 0 or not want:
+        return panel
+    by: Dict[str, List[int]] = {}
+    for i, c in enumerate(panel.codes):
+        by.setdefault(str(c), []).append(int(i))
+    idx: List[int] = []
+    for c in want:
+        rows = by.pop(c, None)
+        if not rows:
+            continue
+        rows.sort(key=lambda i: str(panel.dates[i])[:10])
+        idx.extend(rows)
+    if not idx:
+        return panel
+    if len(idx) == panel.n and idx == list(range(panel.n)):
+        return panel
+    ii = np.asarray(idx, dtype=np.int64)
+    return FactorPanel(
+        X=np.ascontiguousarray(panel.X[ii], dtype=np.float32),
+        y=np.asarray(panel.y, dtype=np.float32)[ii],
+        dates=[str(panel.dates[int(i)])[:10] for i in ii.tolist()],
+        codes=[str(panel.codes[int(i)]) for i in ii.tolist()],
+        feature_names=list(panel.feature_names),
+    )
+
+
+def _cache_panel_matches_pool(
+    panel: "FactorPanel",
+    item_codes: Sequence[str],
+) -> bool:
+    """缓存可用：无入池外残留票。缺票（短历史 0 行）允许，与当场 assemble 一致。"""
+    want = {str(c).strip() for c in item_codes if str(c).strip()}
+    have = {str(c).strip() for c in (panel.codes or []) if str(c).strip()}
+    if not have:
+        return False
+    return not bool(have - want)
 
 
 def _save_cache(path: str, panel: "FactorPanel") -> None:
@@ -292,11 +340,17 @@ def build_oo_factor_panel(
     use_cache: bool = True,
     cache_dir: Optional[str] = None,
 ) -> FactorPanel:
-    """并行堆叠全量因子面板，拉数指纹对齐生产 L1。
+    """全量因子面板：走枢纽 ``assemble_oo_panels``（代码序 + coverage）。
 
     Arm·T 的 core 不在这里裁，等 Arm·L 结束再切。
     """
-    items = [(str(c).strip(), list(bars or [])) for c, bars in stock_bars.items() if str(c).strip() and bars]
+    from core.research.oo_model_compact import assemble_oo_panels
+
+    items = [
+        (str(c).strip(), list(bars or []))
+        for c, bars in stock_bars.items()
+        if str(c).strip() and bars
+    ]
     if not items:
         return FactorPanel(
             X=np.zeros((0, 1), dtype=np.float32),
@@ -306,117 +360,86 @@ def build_oo_factor_panel(
             feature_names=[],
         )
 
-    lookback_hint = max((len(b) for _, b in items), default=0)
-    codes = [c for c, _ in items]
+    item_codes = [str(c) for c, _ in items]
     cdir = cache_dir or _default_cache_dir()
     cache_path = ""
-    # 缓存键固定全量（core0），与已有全量缓存兼容
     if use_cache:
-        key = _cache_key(
-            codes,
-            horizon_days=horizon_days,
-            aoo_core_only=False,
-            lookback_hint=lookback_hint,
-        )
+        key = _cache_key(items, horizon_days=horizon_days, kind="oo")
         cache_path = os.path.join(cdir, f"fac_{key}.npz")
         hit = _try_load_cache(cache_path)
         if hit is not None and hit.n > 0:
-            print(f"  因子面板缓存命中 N={hit.n} F={hit.X.shape[1]} ← {cache_path}", flush=True)
-            return hit
+            if not _cache_panel_matches_pool(hit, item_codes):
+                print(
+                    f"  因子面板缓存作废（票池不一致）N={hit.n} ← {cache_path}",
+                    flush=True,
+                )
+            else:
+                hit = reorder_panel_by_codes(hit, item_codes)
+                print(
+                    f"  因子面板缓存命中 N={hit.n} F={hit.X.shape[1]} "
+                    f"assemble←hub 代码序 ← {cache_path}",
+                    flush=True,
+                )
+                return hit
 
-    n_cpu = os.cpu_count() or 2
-    if workers is None:
-        # 8G 机器：默认 2；可用 OO_FAC_WORKERS 覆盖
-        try:
-            workers = int(os.environ.get("OO_FAC_WORKERS") or 2)
-        except ValueError:
-            workers = 2
-    n_workers = max(1, min(int(workers), 4, len(items), n_cpu))
+    # 与枢纽 fit_watching_return_model 同口：默认 OO_RIDGE_WORKERS；OO_FAC_WORKERS 可覆盖。
+    n_workers = workers
+    if n_workers is None:
+        raw = (os.environ.get("OO_FAC_WORKERS") or "").strip()
+        if raw:
+            try:
+                n_workers = int(raw)
+            except ValueError:
+                n_workers = None
 
-    # 与生产 L1 指纹一致：aoo_core_only=False（线字段仍为 ridge_core_only=0）
-    jobs = [(code, bars, int(horizon_days)) for code, bars in items]
+    every = max(0, int(progress_every or 0))
+    done_box = {"n": 0}
+
+    def _prog(done: int, total: int, msg: str) -> None:
+        if every <= 0:
+            return
+        if done != total and done % every != 0:
+            return
+        print(f"  因子面板 {done}/{total} {msg}", flush=True)
+
     print(
-        f"  因子面板并行 workers={n_workers} stocks={len(jobs)} lake_fp=full_aoo",
+        f"  因子面板 assemble_oo_panels stocks={len(items)} lake_fp=full_aoo",
         flush=True,
     )
     t0 = time.time()
-    chunks = _run_stock_jobs(
-        jobs,
-        _factor_stock_job,
-        n_workers=n_workers,
-        progress_every=int(progress_every or 0),
-        label="因子面板",
+    x_mat, y_mat, names, dates, codes = assemble_oo_panels(
+        items,
+        horizon_days=int(horizon_days),
+        workers=n_workers,
+        aoo_core_only=False,
+        progress_cb=_prog,
+        return_codes=True,
     )
-
-    # 统一列名：取最宽的 names
-    names: List[str] = []
-    for _c, x, _y, nm, _d in chunks:
-        if x is None or getattr(x, "size", 0) == 0:
-            continue
-        if len(nm) > len(names):
-            names = list(nm)
-    if not names:
-        # fallback skeleton
-        from core.research.oo_model_compact import OoPanelMatrix
-
-        names = list(OoPanelMatrix(aoo_core_only=False).names)
-
-    name_j = {n: i for i, n in enumerate(names)}
-    xs: List[np.ndarray] = []
-    ys: List[np.ndarray] = []
-    dates: List[str] = []
-    codes_all: List[str] = []
-    for code, x, y, nm, ds in chunks:
-        if x is None or int(getattr(x, "shape", [0])[0]) <= 0:
-            continue
-        x = np.asarray(x, dtype=np.float64)
-        y = np.asarray(y, dtype=np.float64)
-        if list(nm) == names:
-            block = x
-        else:
-            block = np.full((x.shape[0], len(names)), np.nan, dtype=np.float64)
-            for j_src, n in enumerate(nm):
-                j = name_j.get(n)
-                if j is not None and j_src < x.shape[1]:
-                    block[:, j] = x[:, j_src]
-        xs.append(block)
-        ys.append(y)
-        dates.extend(ds[: int(x.shape[0])])
-        codes_all.extend([code] * int(x.shape[0]))
-
-    if not xs:
+    del done_box
+    names = [str(n) for n in names]
+    if x_mat is None or int(getattr(x_mat, "shape", [0])[0] or 0) <= 0:
         return FactorPanel(
-            X=np.zeros((0, len(names)), dtype=np.float32),
+            X=np.zeros((0, max(1, len(names))), dtype=np.float32),
             y=np.zeros((0,), dtype=np.float32),
             dates=[],
             codes=[],
             feature_names=names,
         )
 
-    X = np.concatenate(xs, axis=0).astype(np.float32)
-    y = np.concatenate(ys, axis=0).astype(np.float32)
-    X = np.where(np.isfinite(X), X, 0.0)
-    keep = np.isfinite(y)
-    if not bool(np.all(keep)):
-        idx = np.where(keep)[0]
-        X = X[idx]
-        y = y[idx]
-        dates = [dates[int(i)] for i in idx.tolist()]
-        codes_all = [codes_all[int(i)] for i in idx.tolist()]
-
+    # 枢纽 assemble 已把 float32 溢出收回 NaN。缺测留到 CS-z 之后再写成 0。
     panel = FactorPanel(
-        X=X,
-        y=y,
+        X=np.ascontiguousarray(x_mat, dtype=np.float32),
+        y=np.asarray(y_mat, dtype=np.float32),
         dates=[str(d)[:10] for d in dates],
-        codes=codes_all,
-        feature_names=[str(n) for n in names],
+        codes=[str(c) for c in codes],
+        feature_names=names,
     )
     print(
         f"  因子面板完成 N={panel.n} F={panel.X.shape[1]} "
-        f"{time.time()-t0:.1f}s workers={n_workers}",
+        f"{time.time()-t0:.1f}s assemble_oo 代码序",
         flush=True,
     )
-    if use_cache and cache_path:
+    if use_cache and cache_path and panel.n > 0:
         _save_cache(cache_path, panel)
     return panel
 
@@ -441,14 +464,15 @@ def _tc_stock_job(
     keys: List[str] = sorted({str(k) for row in xs for k in (row or {}).keys() if k})
     if not keys:
         return str(code), np.zeros((0, 1), dtype=np.float32), np.zeros((0,), dtype=np.float32), [], []
-    mat = np.zeros((len(xs), len(keys)), dtype=np.float32)
+    mat = np.full((len(xs), len(keys)), np.nan, dtype=np.float32)
     for i, row in enumerate(xs):
         for j, k in enumerate(keys):
             try:
                 v = float((row or {}).get(k))
             except (TypeError, ValueError):
                 v = float("nan")
-            mat[i, j] = v if v == v else 0.0
+            if v == v:
+                mat[i, j] = v
     # y_r_pct 已是百分点，与序列 tc_open 标签同单位
     y = np.asarray([float(v) for v in ys], dtype=np.float32)
     ds = [str(d)[:10] for d in dates]
@@ -481,22 +505,27 @@ def build_tc_factor_panel(
             feature_names=[],
         )
 
-    lookback_hint = max((len(b) for _, b in items), default=0)
-    codes = [c for c, _ in items]
+    item_codes = [str(c) for c, _ in items]
     cdir = cache_dir or _default_cache_dir()
     cache_path = ""
     if use_cache:
-        key = _cache_key(
-            codes,
-            horizon_days=0,
-            aoo_core_only=False,
-            lookback_hint=lookback_hint,
-        )
+        key = _cache_key(items, horizon_days=0, kind="tc")
         cache_path = os.path.join(cdir, f"fac_tc_{key}.npz")
         hit = _try_load_cache(cache_path)
         if hit is not None and hit.n > 0:
-            print(f"  τc 因子缓存命中 N={hit.n} F={hit.X.shape[1]} ← {cache_path}", flush=True)
-            return hit
+            if not _cache_panel_matches_pool(hit, item_codes):
+                print(
+                    f"  τc 因子缓存作废（票池不一致）N={hit.n} ← {cache_path}",
+                    flush=True,
+                )
+            else:
+                hit = reorder_panel_by_codes(hit, item_codes)
+                print(
+                    f"  τc 因子缓存命中 N={hit.n} F={hit.X.shape[1]} "
+                    f"代码序 ← {cache_path}",
+                    flush=True,
+                )
+                return hit
 
     n_cpu = os.cpu_count() or 2
     if workers is None:
@@ -511,7 +540,7 @@ def build_tc_factor_panel(
     )
     t0 = time.time()
     jobs = [(c, b) for c, b in items]
-    chunks = _run_stock_jobs(
+    chunks, failed = _run_stock_jobs(
         jobs,
         _tc_stock_job,
         n_workers=n_workers,
@@ -519,9 +548,17 @@ def build_tc_factor_panel(
         label="τc 因子",
     )
 
+    by_code: Dict[str, Tuple[np.ndarray, np.ndarray, List[str], List[str]]] = {}
+    for code, x, y, nm, ds in chunks:
+        by_code[str(code)] = (x, y, list(nm), list(ds))
+
     names: List[str] = []
-    for _c, x, _y, nm, _d in chunks:
-        if x is None or getattr(x, "size", 0) == 0:
+    for code, _bars in items:
+        part = by_code.get(str(code))
+        if part is None:
+            continue
+        _x, _y, nm, _d = part
+        if _x is None or getattr(_x, "size", 0) == 0:
             continue
         if len(nm) > len(names):
             names = list(nm)
@@ -539,10 +576,14 @@ def build_tc_factor_panel(
     dates_out: List[str] = []
     codes_out: List[str] = []
     name_idx = {n: i for i, n in enumerate(names)}
-    for code, x, y, nm, ds in chunks:
-        if x is None or x.size == 0 or not ds:
+    for code, _bars in items:
+        part = by_code.get(str(code))
+        if part is None:
             continue
-        aligned = np.zeros((x.shape[0], len(names)), dtype=np.float32)
+        x, y, nm, ds = part
+        if x is None or getattr(x, "size", 0) == 0 or not ds:
+            continue
+        aligned = np.full((x.shape[0], len(names)), np.nan, dtype=np.float32)
         for j, n in enumerate(nm):
             dest = name_idx.get(n)
             if dest is None:
@@ -551,7 +592,7 @@ def build_tc_factor_panel(
         xs_out.append(aligned)
         ys_out.append(np.asarray(y, dtype=np.float32))
         dates_out.extend(ds)
-        codes_out.extend([code] * len(ds))
+        codes_out.extend([str(code)] * len(ds))
     if not xs_out:
         return FactorPanel(
             X=np.zeros((0, len(names)), dtype=np.float32),
@@ -568,10 +609,11 @@ def build_tc_factor_panel(
         feature_names=names,
     )
     print(
-        f"  τc 因子完成 N={panel.n} F={panel.X.shape[1]} {time.time()-t0:.1f}s",
+        f"  τc 因子完成 N={panel.n} F={panel.X.shape[1]} "
+        f"{time.time()-t0:.1f}s 代码序",
         flush=True,
     )
-    if use_cache and cache_path:
+    if use_cache and cache_path and not failed and panel.n > 0:
         _save_cache(cache_path, panel)
     return panel
 

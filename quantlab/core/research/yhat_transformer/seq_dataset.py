@@ -622,6 +622,37 @@ def _forward_label_pct(
     return forward_oo_pct(bars, i, max(1, int(horizon_days or 1)))
 
 
+def _sort_bars_chrono(bars: Sequence[dict]) -> List[dict]:
+    """按日期稳定排序。窗口下标假定时间向前，乱序会把更晚的 K 线切进特征。"""
+    indexed: List[Tuple[str, int, dict]] = []
+    for i, bar in enumerate(bars or []):
+        if not isinstance(bar, dict):
+            continue
+        day = str(bar.get("date") or bar.get("trade_date") or "")[:10]
+        indexed.append((day, i, bar))
+    indexed.sort(key=lambda item: (item[0], item[1]))
+    return [bar for _, _, bar in indexed]
+
+
+def _window_dates_before_decision(
+    bars: Sequence[dict],
+    start: int,
+    end: int,
+    decision: str,
+) -> bool:
+    """窗口内日期严格递增，且每一根都早于决策日。"""
+    prev = ""
+    if not decision or len(decision) < 10:
+        return False
+    for k in range(start, end):
+        bar = bars[k] if k < len(bars) else None
+        day = str((bar or {}).get("date") or (bar or {}).get("trade_date") or "")[:10]
+        if len(day) < 10 or day >= decision or (prev and day <= prev):
+            return False
+        prev = day
+    return bool(prev)
+
+
 def samples_from_bars(
     code: str,
     bars: Sequence[dict],
@@ -636,7 +667,9 @@ def samples_from_bars(
 
     ``label``：``oo``（open→open）或 ``tc_open``（close/open，τ=开盘）。
     ``feat_set``：``seq8`` / ``seq16`` / ``seq32`` / ``seq64``（默认 ``seq16``）。
+    入参按日期排序；窗口内日期必须严格递增且都早于决策日。
     """
+    bars = _sort_bars_chrono(bars)
     L = max(5, int(seq_len or 20))
     names = seq_feature_names(feat_set)
     F = len(names)
@@ -691,10 +724,9 @@ def samples_from_bars(
             continue
         if i - L < 0 or not valid[i - L : i].all():
             continue
-        # PIT：窗口末日必须是 T-1；今收不进序列（仅可进 y）
-        last_date = str((bars[i - 1] or {}).get("date") or "")[:10]
-        decision = str((bars[i] or {}).get("date") or "")[:10]
-        if not decision or not last_date or last_date >= decision:
+        # PIT：窗口 [T-L, T) 严格早于决策日；今收不进序列（仅可进 y）
+        decision = str((bars[i] or {}).get("date") or (bars[i] or {}).get("trade_date") or "")[:10]
+        if not _window_dates_before_decision(bars, i - L, i, decision):
             continue
 
         keep.append(i)
@@ -736,16 +768,23 @@ def _default_seq_cache_dir() -> str:
 
 
 def _bars_token(bars: Sequence[dict]) -> str:
-    """长度、首末日，以及开高低收量的累加。任一字段改动后缓存失效。"""
+    """长度、日历首末日，以及开高低收量的累加。任一字段改动后缓存失效。
+
+    首末日取日期最小/最大，不看数组两端。乱序与正序命中同一缓存。
+    """
     n = len(bars or [])
     if n <= 0:
         return "0"
-    b0 = bars[0] if isinstance(bars[0], dict) else {}
-    b1 = bars[-1] if isinstance(bars[-1], dict) else {}
-    d0 = str((b0 or {}).get("date") or "")[:10]
-    d1 = str((b1 or {}).get("date") or "")[:10]
+    d0 = ""
+    d1 = ""
     acc_o = acc_h = acc_l = acc_c = acc_v = 0.0
     for b in bars:
+        if isinstance(b, dict):
+            day = str(b.get("date") or b.get("trade_date") or "")[:10]
+            if len(day) >= 10 and (not d0 or day < d0):
+                d0 = day
+            if len(day) >= 10 and day > d1:
+                d1 = day
         got = _bar_ohlcv(b if isinstance(b, dict) else None)
         if got is None:
             continue

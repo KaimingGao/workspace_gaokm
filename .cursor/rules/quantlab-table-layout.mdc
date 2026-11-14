@@ -1,12 +1,12 @@
 ---
-description: 观察/模拟/策略/回溯四页主表宽度与排版规范（隶属 Web UI 标准）
+description: 观察台 / 交易执行 / 市场先验 / 历史回测四页主表宽度与排版规范（隶属 Web UI 标准）
 globs: quantlab/web/static/css/**/*.css,quantlab/web/static/js/{quant,paper}.js,quantlab/web/static/partials/{watching,follow,strategy,replay}_panel.html,quantlab/docs/quant-ui.md
 alwaysApply: false
 ---
 
 # 四页主表布局规范
 
-适用页面：`/watching` · `/follow` · `/strategy` · `/replay`。  
+适用页面：`/watching` · `/follow` · `/market-prior` · `/replay`。  
 整站 UI 契约见 [docs/quant-ui.md](quantlab/docs/quant-ui.md) 与 `quantlab-web-ui.mdc`。
 
 ## 必须遵守

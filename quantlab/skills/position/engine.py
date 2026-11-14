@@ -209,7 +209,7 @@ class PositionEngine:
         source = portfolio.get("source") or "paper"
         if not holdings:
             empty_hint = {
-                "paper": "模拟持仓为空，可先在观察页建仓，或在参数中传入 holdings",
+                "paper": "模拟持仓为空，可先在观察台建仓，或在参数中传入 holdings",
                 "inline": "传入的 holdings 为空",
             }.get(source, "持仓为空")
             return {

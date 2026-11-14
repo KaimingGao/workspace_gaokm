@@ -5,14 +5,14 @@ import { apiFetch } from "./api_client.js";
 const SESSION_KEY = "quantlab_session_id";
 
 const TAB_HREF = {
-  watching: { href: "/watching", label: "去数据中心" },
+  watching: { href: "/watching", label: "去观察台" },
   follow: { href: "/follow", label: "去交易执行" },
   paper: { href: "/follow", label: "去交易执行" },
-  strategy: { href: "/strategy", label: "去策略中心" },
+  strategy: { href: "/market-prior", label: "去市场先验" },
   replay: { href: "/replay", label: "去历史回测" },
   quant: { href: "/quant", label: "去研究枢纽" },
   platform: { href: "/platform", label: "去平台" },
-  reply: { href: "/watching", label: "去数据中心" },
+  reply: { href: "/watching", label: "去观察台" },
 };
 
 function nameFromStockRow(row) {
@@ -586,7 +586,7 @@ export function initAiDrawer() {
           appendMsg(
             messages,
             "assistant",
-            "请先在数据中心点选一只股票，或在交易执行选中持仓，再点「行情」。",
+            "请先在观察台点选一只股票，或在交易执行选中持仓，再点「行情」。",
             false
           );
         }

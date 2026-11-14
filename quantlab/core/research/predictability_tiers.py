@@ -94,7 +94,6 @@ DEFAULT_LIVE_ALLOWED = ("A",)
 DEFAULT_HOLDOUT_N = 60
 DEFAULT_PANEL_LOOKBACK = 120
 DEFAULT_HORIZON_DAYS = 1
-DEFAULT_RIDGE_LAMBDA = 1.0
 _YHAT_EPS = 0.05
 # 票内 IC 最少成对点数
 HEAD_OO = "oo"
@@ -1315,7 +1314,7 @@ def _build_oo_return_day_panels(
     )
     jobs: List[Tuple[str, Sequence[dict]]] = []
     parts: List[Any] = []
-    codes_parts: List[List[str]] = []
+    item_codes: List[str] = []
     horizon_i = max(1, int(horizon_days or 1))
     for item in items or []:
         if not isinstance(item, dict):
@@ -1327,17 +1326,17 @@ def _build_oo_return_day_panels(
         jobs.append((code, bars))
         x, y, names_i, dates = _oo_stock_job((code, bars, horizon_i, False))
         parts.append((x, y, names_i, dates))
-        n_rows = int(getattr(x, "shape", (0,))[0] or 0)
-        codes_parts.append([code] * n_rows if n_rows > 0 else [])
+        item_codes.append(code)
     if not parts:
         return []
-    x_mat, y_mat, names, dates = _stack_blocks(parts, aoo_core_only=False)
-    codes_all: List[str] = []
-    for chunk in codes_parts:
-        codes_all.extend(chunk)
+    x_mat, y_mat, names, dates, codes_all = _stack_blocks(
+        parts, aoo_core_only=False, item_codes=item_codes
+    )
     if int(x_mat.shape[0]) != len(codes_all):
-        # 对齐失败时退回空名，group 仍可按日切
-        codes_all = [""] * int(x_mat.shape[0])
+        raise RuntimeError(
+            f"ŷ_oo 堆叠 code/date 不一致: rows={int(x_mat.shape[0])} "
+            f"codes={len(codes_all)}"
+        )
     if int(x_mat.shape[0]) == 0:
         return []
     return group_day_matrices(
@@ -2544,7 +2543,6 @@ def accumulate_holdout_oos_by_code(
     holdout_n: int = DEFAULT_HOLDOUT_N,
     lookback: int = DEFAULT_PANEL_LOOKBACK,
     horizon_days: int = DEFAULT_HORIZON_DAYS,
-    ridge_lambda: float = DEFAULT_RIDGE_LAMBDA,
     yhat_eps: float = _YHAT_EPS,
     use_research_model: bool = True,
     tier_window_days: int = DEFAULT_TIER_WINDOW_DAYS,
@@ -2927,7 +2925,6 @@ def accumulate_holdout_oos_by_code(
         "lookback": panel_lb,
         "lookback_requested": lookback_req,
         "panel_mode": panel_mode,
-        # ŷ_oo 已是落盘 LightGBM；ridge_lambda 形参仅兼容旧调用，不再写入结果
         "source": model_source,
         "model_meta": model_meta,
         "tau_meta": tau_meta,
@@ -3291,7 +3288,6 @@ def build_predictability_tiers(
     persist: bool = True,
     lookback: int = DEFAULT_PANEL_LOOKBACK,
     horizon_days: int = DEFAULT_HORIZON_DAYS,
-    ridge_lambda: float = DEFAULT_RIDGE_LAMBDA,
     use_research_model: bool = True,
 ) -> Dict[str, Any]:
     """单飞包装。第二次调用在上一次结束前返回「分档进行中」。"""
@@ -3314,7 +3310,6 @@ def build_predictability_tiers(
             persist=persist,
             lookback=lookback,
             horizon_days=horizon_days,
-            ridge_lambda=ridge_lambda,
             use_research_model=use_research_model,
         )
     finally:
@@ -3333,7 +3328,6 @@ def _build_predictability_tiers_body(
     persist: bool = True,
     lookback: int = DEFAULT_PANEL_LOOKBACK,
     horizon_days: int = DEFAULT_HORIZON_DAYS,
-    ridge_lambda: float = DEFAULT_RIDGE_LAMBDA,
     use_research_model: bool = True,
 ) -> Dict[str, Any]:
     """研究枢纽协议：Holdout 前 60 日猜涨 lift 分档。
@@ -3380,7 +3374,6 @@ def _build_predictability_tiers_body(
             holdout_n=holdout_n,
             lookback=lookback,
             horizon_days=horizon_days,
-            ridge_lambda=ridge_lambda,
             use_research_model=use_research_model,
             n_a=n_a,
             n_b=n_b,
@@ -3401,7 +3394,6 @@ def _emit_predictability_tiers(
     holdout_n,
     lookback,
     horizon_days,
-    ridge_lambda,
     use_research_model,
     n_a,
     n_b,
@@ -3412,7 +3404,6 @@ def _emit_predictability_tiers(
         holdout_n=holdout_n,
         lookback=lookback,
         horizon_days=horizon_days,
-        ridge_lambda=ridge_lambda,
         use_research_model=use_research_model,
     )
     if not packed.get("ok"):

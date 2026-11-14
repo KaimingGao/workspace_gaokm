@@ -173,6 +173,14 @@ class TestYhatTfHardenParams(unittest.TestCase):
         oo, warns = harden_fit_params("oo", {"loss": "mse", "lr": 5e-4})
         self.assertEqual(oo["loss"], "smooth_l1")
         self.assertTrue(any("loss:" in w and "mse→smooth_l1" in w for w in warns))
+        from core.research.yhat_tf_desk import factory_scope
+
+        with factory_scope("L"):
+            arm_l, l_warns = harden_fit_params("oo", {"loss": "smooth_l1"})
+            arm_l_rank, _ = harden_fit_params("oo_rank", {"loss": "listwise"})
+        self.assertEqual(arm_l["loss"], "l2")
+        self.assertTrue(any("smooth_l1→l2" in w for w in l_warns))
+        self.assertEqual(arm_l_rank["loss"], "lambdarank")
         cli = build_holdout_cli("oo", oo)
         self.assertIn("--lr 0.0005", cli)
 
@@ -225,6 +233,50 @@ class TestYhatTfHardenParams(unittest.TestCase):
         self.assertEqual(via_frac["t_sample_pct"], 100.0)
         self.assertNotIn("t_sample_frac", via_frac)
         self.assertIn("--t-sample-frac 1", build_holdout_cli("oo", via_frac))
+
+    def test_arm_l_defaults_match_hub_windows(self):
+        from core.research.yhat_tf_desk import (
+            build_holdout_argv,
+            default_fit_params,
+            factory_scope,
+        )
+
+        self.assertEqual(default_fit_params("oo")["lookback"], 900)
+        self.assertEqual(default_fit_params("oo")["holdout_trading_days"], 60)
+        self.assertEqual(default_fit_params("tc_rank")["lookback"], 900)
+        with factory_scope("L"):
+            oo_l = default_fit_params("oo")
+            self.assertEqual(oo_l["lookback"], 600)
+            self.assertEqual(oo_l["holdout_trading_days"], 20)
+            self.assertEqual(oo_l["arms"], "L")
+            self.assertTrue(oo_l["full_aoo"])
+            self.assertEqual(oo_l["factor_pack"], "aoo_full")
+            self.assertEqual(default_fit_params("tc")["lookback"], 120)
+            self.assertEqual(default_fit_params("oo_rank")["lookback"], 700)
+            self.assertEqual(default_fit_params("tc_rank")["lookback"], 700)
+            self.assertEqual(default_fit_params("tc_rank")["holdout_trading_days"], 20)
+        argv = build_holdout_argv("tc", factory="L")
+        self.assertEqual(argv[argv.index("--lookback") + 1], "120")
+        self.assertEqual(argv[argv.index("--holdout-trading-days") + 1], "20")
+        argv_t = build_holdout_argv("oo", factory="T")
+        self.assertEqual(argv_t[argv_t.index("--lookback") + 1], "900")
+        self.assertEqual(argv_t[argv_t.index("--holdout-trading-days") + 1], "60")
+
+    def test_nested_lock_keeps_ambient_factory_L(self):
+        """外层 factory_scope(L) 时，无 factory= 的嵌套调用不得盖成 T。"""
+        from core.research.yhat_tf_desk import (
+            _factory_from_call,
+            default_fit_params,
+            factory_scope,
+            harden_fit_params,
+        )
+
+        with factory_scope("L"):
+            self.assertEqual(_factory_from_call(), "L")
+            p, _ = harden_fit_params("oo", default_fit_params("oo"))
+            self.assertEqual(p["arms"], "L")
+            self.assertTrue(p["full_aoo"])
+            self.assertEqual(p["factor_pack"], "aoo_full")
 
     def test_bool_strings_share_one_table(self):
         from core.research.yhat_tf_desk import _protocol_matches, compute_parity
@@ -387,6 +439,23 @@ class TestYhatTfFitExitError(unittest.TestCase):
                 msg = _fit_exit_error_from_log("oo")
                 self.assertIn("Arm·L", msg)
                 self.assertNotIn("τc", msg)
+
+    def test_live_fit_start_alone_gives_arml_oom_hint(self):
+        with tempfile.TemporaryDirectory() as td:
+            with mock.patch("core.research.yhat_tf_desk.YHAT_TF_DIR", td):
+                from core.research.yhat_tf_desk import _fit_exit_error_from_log
+
+                log_path = os.path.join(td, "oo_fit.log")
+                with open(log_path, "w", encoding="utf-8") as f:
+                    f.write(
+                        "ArmL 切分 train=1 test=1\n"
+                        "  ArmL live-fit start head=oo n_train=1601922 "
+                        "n_test=47869 F=225 rounds=300 rss=1637.0\n"
+                        "fit drop 3205/1601753 rows without L2\n"
+                    )
+                msg = _fit_exit_error_from_log("oo")
+                self.assertIn("Arm·L", msg)
+                self.assertIn("LightGBM", msg)
 
     def test_interrupt_hint_from_mid_train_log(self):
         with tempfile.TemporaryDirectory() as td:
@@ -624,9 +693,57 @@ class TestYhatTfPidAlive(unittest.TestCase):
                         },
                         f,
                     )
-                job = None
-                for _ in range(3):
-                    job = refresh_fit_job("oo")
+                # 日志已过期 + 进程不在：一次 refresh 即钉死（不必连刷 miss）
+                job = refresh_fit_job("oo")
+                self.assertEqual(job.get("status"), "error")
+                self.assertFalse(job.get("running"))
+
+    def test_reap_orphaned_fit_jobs_settles_dead_running(self):
+        """启动收尸：无人轮询时也能把死 pid 的 running job 结算掉。"""
+        with tempfile.TemporaryDirectory() as td:
+            last = os.path.join(td, "last_status.json")
+            with mock.patch("core.research.yhat_tf_desk.YHAT_TF_DIR", td), mock.patch(
+                "core.research.yhat_tf_desk.YHAT_TF_LAST_PATH", last
+            ), mock.patch(
+                "core.research.yhat_tf_desk._pid_alive", return_value=False
+            ), mock.patch(
+                "core.research.yhat_tf_desk._reap_pid", return_value=None
+            ), mock.patch(
+                "core.research.yhat_tf_desk.time.sleep"
+            ):
+                from core.research.yhat_tf_desk import reap_orphaned_fit_jobs
+
+                log_path = os.path.join(td, "oo_fit.log")
+                with open(log_path, "w", encoding="utf-8") as f:
+                    f.write(
+                        "ArmL begin F=225\n"
+                        "  ArmL live-fit start head=oo n_train=1\n"
+                    )
+                old = time.time() - 600
+                os.utime(log_path, (old, old))
+                with open(os.path.join(td, "oo_job.json"), "w", encoding="utf-8") as f:
+                    json.dump(
+                        {
+                            "status": "running",
+                            "running": True,
+                            "pid": 31917,
+                            "started_at": "2000-01-01T00:00:00",
+                        },
+                        f,
+                    )
+                with open(os.path.join(td, "oo_last.json"), "w", encoding="utf-8") as f:
+                    json.dump(
+                        {"action": "holdout_intent", "updated_at": "2000-01-01T00:00:00"},
+                        f,
+                    )
+                out = reap_orphaned_fit_jobs(factories=["T"])
+                self.assertTrue(out.get("success"))
+                reaped = out.get("reaped") or []
+                self.assertTrue(
+                    any(r.get("head") == "oo" and r.get("status") == "error" for r in reaped)
+                )
+                with open(os.path.join(td, "oo_job.json"), encoding="utf-8") as f:
+                    job = json.load(f)
                 self.assertEqual(job.get("status"), "error")
                 self.assertFalse(job.get("running"))
 
@@ -871,10 +988,12 @@ class TestYhatTfDesk(unittest.TestCase):
 
                 st0 = desk_status()
                 self.assertTrue(st0["success"])
-                self.assertEqual(st0["package"], "yhat_transformer")
+                self.assertEqual(st0["package"], "yhat_t")
+                self.assertEqual(st0["factory"], "T")
                 self.assertFalse(st0["live_allowed"])
                 self.assertEqual(len(st0["heads"]), 4)
                 self.assertIn("run_yhat_transformer_holdout", st0["scheme"]["per_head"]["oo"]["script"])
+                self.assertIn("--factory T", st0["scheme"]["per_head"]["oo"]["script"])
                 self.assertEqual(st0["scheme"]["per_head"]["tc"]["status"], "holdout_ready")
                 self.assertIn("--head tc", st0["scheme"]["per_head"]["tc"]["script"] or "")
                 self.assertEqual(
@@ -884,6 +1003,18 @@ class TestYhatTfDesk(unittest.TestCase):
                     "--head oo_rank",
                     st0["scheme"]["per_head"]["oo_rank"]["script"] or "",
                 )
+                st_l = desk_status(factory="L")
+                self.assertEqual(st_l["package"], "yhat_l")
+                self.assertEqual(st_l["scheme"]["per_head"]["oo"]["loss"], "l2")
+                self.assertEqual(st_l["scheme"]["per_head"]["tc"]["loss"], "l2")
+                self.assertEqual(st_l["scheme"]["per_head"]["oo_rank"]["loss"], "lambdarank")
+                self.assertEqual(st_l["scheme"]["per_head"]["tc_rank"]["loss"], "lambdarank")
+                self.assertNotIn("smooth_l1", json.dumps(st_l["scheme"]))
+                self.assertIn("--factory L", st_l["scheme"]["per_head"]["oo"]["script"])
+                self.assertNotIn("--d-model", st_l["scheme"]["per_head"]["oo"]["script"])
+                self.assertNotIn("--t-sample-frac", st_l["scheme"]["per_head"]["oo"]["script"])
+                self.assertNotIn("--seq-feat-set", st_l["scheme"]["per_head"]["oo"]["script"])
+                self.assertNotIn("--full-aoo", st_l["scheme"]["per_head"]["oo"]["script"])
 
                 save_fit_draft(
                     "oo",
@@ -914,11 +1045,12 @@ class TestYhatTfDesk(unittest.TestCase):
                 self.assertIn("--head oo_rank", out_r.get("cli") or "")
                 self.assertIn("--watching-limit 100", out_r.get("cli") or "")
                 self.assertEqual(
-                    st0["scheme"]["per_head"]["oo"]["gate_label"], "Arm·L"
+                    st0["scheme"]["per_head"]["oo"]["gate_label"], "绝对指标 · Arm·T"
                 )
                 self.assertEqual(
-                    st0["scheme"]["per_head"]["oo_rank"]["gate_label"], "Gate lift"
+                    st0["scheme"]["per_head"]["oo_rank"]["gate_label"], "绝对指标 · Arm·T"
                 )
+                self.assertIsNone(st0["scheme"]["per_head"]["oo"]["gate"])
 
                 # 无过闸结果时不可晋级
                 promo_block = promote_draft_to_research("oo")
@@ -1391,14 +1523,23 @@ class TestYhatTfPageWiring(unittest.TestCase):
         pal = os.path.join(root, "web/static/js/command_palette.js")
         with open(pal, encoding="utf-8") as f:
             pal_js = f.read()
-        self.assertIn('id: "nav-yhat-tf"', pal_js)
-        self.assertIn("/yhat-tf", pal_js)
-        self.assertIn("前往 · 模型中心", pal_js)
+        self.assertIn('id: "nav-yhat-t"', pal_js)
+        self.assertIn('id: "nav-yhat-l"', pal_js)
+        self.assertIn("/yhat-t", pal_js)
+        self.assertIn("/yhat-l", pal_js)
+        self.assertIn("模型中心 Arm·T", pal_js)
+        self.assertIn("模型中心 Arm·L", pal_js)
 
         clear_html_cache()
-        html = render_tool_html("yhat_tf")
-        self.assertIn("模型中心", html)
-        self.assertIn("<title>QuantLab · 模型中心</title>", html)
+        html_t = render_tool_html("yhat_t")
+        html_l = render_tool_html("yhat_l")
+        html = html_t  # 契约主检 Arm·T 页
+        self.assertIn("模型中心 · Arm·T", html_t)
+        self.assertIn("模型中心 · Arm·L", html_l)
+        self.assertIn("<title>QuantLab · 模型中心 · Arm·T</title>", html_t)
+        self.assertIn("<title>QuantLab · 模型中心 · Arm·L</title>", html_l)
+        self.assertIn('data-factory="T"', html_t)
+        self.assertIn('data-factory="L"', html_l)
         self.assertIn('data-head-panel="oo_rank"', html)
         self.assertIn('data-head-select="oo_rank"', html)
         self.assertIn('data-head-section="tc_rank"', html)
@@ -1420,13 +1561,52 @@ class TestYhatTfPageWiring(unittest.TestCase):
         self.assertIn("yhat-tf-param-group", html)
         self.assertNotIn("yhat-tf-arm-picks", html)
         self.assertIn("yhat-tf-arms-title", html)
-        self.assertIn("实验臂与 Gate", html)
+        self.assertIn("本厂模型臂", html_t)
+        self.assertIn("本厂模型臂", html_l)
+        self.assertIn("open[T]→open[T+1] · LightGBM", html_l)
+        self.assertIn("CS rank · LambdaRank", html_l)
+        self.assertIn('data-arm-console="L"', html_l)
+        self.assertIn("data-contrast-protocol", html_l)
+        self.assertIn('data-param="pool_n"', html_l)
+        self.assertIn('data-param="tau_end"', html_l)
+        for gone in (
+            'data-param-radio="seq_feat_set"',
+            'data-param="t_sample_pct"',
+            'data-param="d_model"',
+            'data-param="batch_size"',
+            'data-param="loss"',
+            'data-arm-console="T"',
+            "data-contrast-lift",
+            "yhat-only:T",
+            "ListNet",
+            "T采样%",
+            "SmoothL1",
+            "双支路晚融合",
+            "Scheme LT",
+        ):
+            self.assertNotIn(gone, html_l, msg=gone)
+        self.assertIn(
+            'data-param="lookback" type="number" min="100" max="1200" step="10" value="600"',
+            html_l,
+        )
+        self.assertIn(
+            'data-param="lookback" type="number" min="100" max="1200" step="10" value="120"',
+            html_l,
+        )
+        self.assertIn(
+            'data-param="holdout_trading_days" type="number" min="5" max="90" step="1" value="20"',
+            html_l,
+        )
+        self.assertNotIn('value="900"', html_l)
+        self.assertNotIn('value="60"', html_l)
+        self.assertIn('value="900"', html_t)
+        self.assertIn('value="60"', html_t)
         self.assertNotIn("实验臂与 Gate 说明", html)
         self.assertNotIn("yhat-tf-arms-fold", html)
         self.assertIn('data-arm-console="L"', html)
         self.assertIn('data-arm-console="T"', html)
-        self.assertIn("双支路晚融合", html)
-        self.assertEqual(html.count("双支路晚融合"), 7)
+        self.assertNotIn("data-contrast-lift", html)
+        self.assertIn("双支路晚融合", html_t)
         self.assertNotIn('data-arm="0"', html)
         self.assertNotIn('data-arm="A"', html)
         self.assertIn('data-param="loss"', html)
@@ -1442,8 +1622,20 @@ class TestYhatTfPageWiring(unittest.TestCase):
         self.assertNotIn('data-arm="', html)  # 臂勾选已下线
         for hidden in ("nhead", "mlp_hidden", "dropout", "lr", "patience"):
             self.assertNotIn(f'data-param="{hidden}"', html)
-        self.assertIn('data-gate-item="hard_gate"', html)
-        self.assertIn("硬门过闸", html)
+        self.assertNotIn('data-gate-item="hard_gate"', html)
+        self.assertNotIn("data-slots-for=", html)
+        self.assertNotIn("data-gate-for=", html)
+        self.assertNotIn("data-result-summary-for=", html)
+        self.assertNotIn('data-act="save-draft"', html)
+        self.assertNotIn('data-act="promote-research"', html)
+        self.assertNotIn("yhat-tf-more", html)
+        self.assertNotIn("data-overview=", html)
+        self.assertNotIn("data-head-summary-slots=", html)
+        self.assertNotIn("草稿槽", html)
+        self.assertNotIn("Holdout 有结果", html)
+        self.assertNotIn("禁 live", html)
+        self.assertNotIn("不写 active / score", html)
+        self.assertIn("研究轨 · 不写 live", html)
 
         # 旧 CLI / 列标准化路径已下线
         script = os.path.join(root, "scripts", "run_yhat_transformer_holdout.py")
@@ -1481,12 +1673,13 @@ class TestYhatTfPageWiring(unittest.TestCase):
                 self.assertIn('data-param="tau_end"', panel, msg=f"{head}.tau_end")
             else:
                 self.assertNotIn('data-param="tau_end"', panel, msg=f"{head}.no_tau")
-        self.assertIn("yhat-tf-result-grid", html)
+        self.assertNotIn("yhat-tf-result-grid", html)
         self.assertIn("yhat-tf-tech", html)
-        self.assertIn("OOS 指标 · 待回传", html)
+        self.assertNotIn("OOS 指标 · 待回传", html)
         self.assertIn("生产禁用", html)
         self.assertEqual(html.count('data-act="fit"'), 4)
         self.assertIn(">拟合</button>", html)
+        self.assertEqual(html.count("yhat-tf-output-sec--console"), 4)
         self.assertNotIn("生成拟合命令", html)
         self.assertIn('data-fit-info-for="oo"', html)
         self.assertIn('data-fit-info-for="tc_rank"', html)
@@ -1501,8 +1694,15 @@ class TestYhatTfPageWiring(unittest.TestCase):
         self.assertIn("function currentFitMetrics", yhat_js)
         self.assertIn("function setFitInfoNote", yhat_js)
         self.assertIn("勿回退 research/draft", yhat_js)
-        # 未在跑时优先 draft，避免旧 job 盖回「刚存的草稿」
+        # 未在跑时优先工作配置（隐式 draft），避免旧 job 盖回表单
         self.assertIn("st.draft?.params || lastParams || st.job?.params", yhat_js)
+        self.assertNotIn("nDraft", yhat_js)
+        self.assertNotIn("/api/quant/yhat-tf/draft", yhat_js)
+        self.assertNotIn("/api/quant/yhat-tf/promote-research", yhat_js)
+        self.assertIn("/api/quant/yhat-l", yhat_js)
+        self.assertIn("/api/quant/yhat-t", yhat_js)
+        self.assertIn("initYhatTf", yhat_js)
+        self.assertIn("pageFactory", yhat_js)
         self.assertNotIn(
             "st.job?.params ||\n      (st.last?.params",
             yhat_js,

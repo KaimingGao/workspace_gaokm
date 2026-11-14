@@ -1,5 +1,6 @@
-"""模型中心 desk：四头槽位 IO + Holdout 任务（不写生产 score）。
+"""模型工厂 desk：四头槽位 IO + Holdout 任务（不写生产 score）。
 
+``factory=L`` → /yhat-l · Arm·L；``factory=T`` → /yhat-t · Arm·T。
 HeadSpec 真源在 ``yhat_transformer.heads``；CLI 真源 ``build_holdout_cli``。
 """
 
@@ -13,26 +14,86 @@ import subprocess
 import sys
 import threading
 import time
-from typing import Any, Dict, List, Optional
+from contextlib import contextmanager
+from typing import Any, Dict, Iterator, List, Optional
 
-from core.paths import ROOT_DIR, YHAT_TF_DIR, YHAT_TF_LAST_PATH
+from core.paths import ROOT_DIR
+from core.paths import YHAT_L_DIR as _DEFAULT_YHAT_L_DIR
+from core.paths import YHAT_L_LAST_PATH as _DEFAULT_YHAT_L_LAST
+from core.paths import YHAT_T_DIR as _DEFAULT_YHAT_T_DIR
+from core.paths import YHAT_T_LAST_PATH as _DEFAULT_YHAT_T_LAST
 from core.research.yhat_transformer.heads import get_head, head_ids, iter_heads
 
+# 可被单测 patch；T 侧保留 YHAT_TF_* 别名
+YHAT_L_DIR = _DEFAULT_YHAT_L_DIR
+YHAT_L_LAST_PATH = _DEFAULT_YHAT_L_LAST
+YHAT_T_DIR = _DEFAULT_YHAT_T_DIR
+YHAT_T_LAST_PATH = _DEFAULT_YHAT_T_LAST
+YHAT_TF_DIR = YHAT_T_DIR
+YHAT_TF_LAST_PATH = YHAT_T_LAST_PATH
 
-def _ensure_dir() -> None:
-    os.makedirs(YHAT_TF_DIR, exist_ok=True)
-
-
-def _path(head: str, slot: str) -> str:
-    return os.path.join(YHAT_TF_DIR, f"{head}_{slot}.json")
-
-
-def _job_path(head: str) -> str:
-    return os.path.join(YHAT_TF_DIR, f"{head}_job.json")
+_FACTORY_CTX = threading.local()
 
 
-def _log_path(head: str) -> str:
-    return os.path.join(YHAT_TF_DIR, f"{head}_fit.log")
+def loss_for_factory(spec: Any, factory: Optional[str] = None) -> str:
+    """Arm·T 用 HeadSpec。Arm·L 用 LightGBM 目标，不沿用 smooth_l1 / listwise。"""
+    if normalize_factory(factory) != "L":
+        return str(spec.loss)
+    if str(getattr(spec, "task_type", "") or "") == "rank":
+        return "lambdarank"
+    return "l2"
+
+
+def normalize_factory(factory: Optional[str] = None) -> str:
+    raw = factory if factory is not None else getattr(_FACTORY_CTX, "factory", None)
+    s = str(raw or "T").strip().upper()
+    if s in ("L", "ARM-L", "ARM_L", "ARM·L", "LGB", "LIGHTGBM"):
+        return "L"
+    if s in ("T", "ARM-T", "ARM_T", "ARM·T", "TF", "TRANSFORMER"):
+        return "T"
+    if s in ("LT", "L+T", "BOTH"):
+        return "LT"
+    return "T"
+
+
+def _store_dir(factory: Optional[str] = None) -> str:
+    """L → YHAT_L_DIR；T/默认 → YHAT_TF_DIR（可被 patch）。"""
+    if normalize_factory(factory) == "L":
+        return YHAT_L_DIR
+    return YHAT_TF_DIR
+
+
+def _last_global_path(factory: Optional[str] = None) -> str:
+    if normalize_factory(factory) == "L":
+        return YHAT_L_LAST_PATH
+    return YHAT_TF_LAST_PATH
+
+
+@contextmanager
+def factory_scope(factory: str) -> Iterator[str]:
+    prev = getattr(_FACTORY_CTX, "factory", None)
+    cur = normalize_factory(factory)
+    _FACTORY_CTX.factory = cur
+    try:
+        yield cur
+    finally:
+        _FACTORY_CTX.factory = prev
+
+
+def _ensure_dir(factory: Optional[str] = None) -> None:
+    os.makedirs(_store_dir(factory), exist_ok=True)
+
+
+def _path(head: str, slot: str, factory: Optional[str] = None) -> str:
+    return os.path.join(_store_dir(factory), f"{head}_{slot}.json")
+
+
+def _job_path(head: str, factory: Optional[str] = None) -> str:
+    return os.path.join(_store_dir(factory), f"{head}_job.json")
+
+
+def _log_path(head: str, factory: Optional[str] = None) -> str:
+    return os.path.join(_store_dir(factory), f"{head}_fit.log")
 
 
 def _log_tail(head: str, *, n_lines: int = 80) -> str:
@@ -256,13 +317,25 @@ _HEAD_LOCKS: Dict[str, _HeadLock] = {}
 _HEAD_LOCKS_GUARD = threading.Lock()
 
 
-def _lock_for(head: str) -> _HeadLock:
+def _lock_for(key: str) -> _HeadLock:
     with _HEAD_LOCKS_GUARD:
-        lk = _HEAD_LOCKS.get(head)
+        lk = _HEAD_LOCKS.get(key)
         if lk is None:
             lk = _HeadLock()
-            _HEAD_LOCKS[head] = lk
+            _HEAD_LOCKS[key] = lk
         return lk
+
+
+def _factory_from_call(*args: Any, **kwargs: Any) -> str:
+    """显式 ``factory=`` 优先；否则沿用外层 ``factory_scope``，避免嵌套默认盖成 T。"""
+    fac = kwargs.get("factory")
+    if fac is None and args and isinstance(args[0], dict):
+        fac = args[0].get("factory")
+    if fac is None:
+        ambient = getattr(_FACTORY_CTX, "factory", None)
+        if ambient is not None:
+            return normalize_factory(ambient)
+    return normalize_factory(fac)
 
 
 def _with_head_lock(fn):
@@ -271,42 +344,71 @@ def _with_head_lock(fn):
     @functools.wraps(fn)
     def wrapper(head: str, *args: Any, **kwargs: Any):
         h = _validate_head(head)
-        lk = _lock_for(h)
-        lk.acquire(YHAT_TF_DIR, h)
-        try:
-            return fn(h, *args, **kwargs)
-        finally:
-            lk.release()
+        fac = _factory_from_call(*args, **kwargs)
+        with factory_scope(fac):
+            lk = _lock_for(f"{fac}:{h}")
+            lk.acquire(_store_dir(fac), h)
+            try:
+                return fn(h, *args, **kwargs)
+            finally:
+                lk.release()
 
     return wrapper
 
 
-def _scheme_blob() -> Dict[str, Any]:
+def _scheme_blob(factory: Optional[str] = None) -> Dict[str, Any]:
+    fac = normalize_factory(factory)
     per_head: Dict[str, Any] = {}
     for spec in iter_heads():
-        gate_label = (
-            "Gate lift"
-            if spec.gate == "gate_lift"
-            else "Arm·L"
-            if spec.gate == "cs_rank_ic"
-            else spec.gate
-        )
+        if fac == "L":
+            gate_label = "绝对指标 · Arm·L"
+        elif fac == "T":
+            gate_label = "绝对指标 · Arm·T"
+        else:
+            gate_label = (
+                "Gate lift"
+                if spec.gate == "gate_lift"
+                else "Arm·L"
+                if spec.gate == "cs_rank_ic"
+                else spec.gate
+            )
         per_head[spec.id] = {
             "status": spec.status,
-            "loss": spec.loss,
-            "script": build_holdout_cli(spec.id),
+            "loss": loss_for_factory(spec, fac),
+            "script": build_holdout_cli(spec.id, factory=fac),
             "task_type": spec.task_type,
-            "gate": spec.gate,
+            "gate": None if fac in ("L", "T") else spec.gate,
             "gate_label": gate_label,
             "factor_pack": spec.factor_pack,
             "target": spec.target_desc,
             "note": spec.role,
         }
-    return {
-        "name": "Scheme LT · LightGBM vs Transformer",
-        "layer": "L4 research-only",
-        "package": "yhat_transformer",
-        "arms": [
+    if fac == "L":
+        name = "模型中心 · Arm·L（LightGBM）"
+        package = "yhat_l"
+    elif fac == "T":
+        name = "模型中心 · Arm·T（Transformer）"
+        package = "yhat_t"
+    else:
+        name = "Scheme LT · LightGBM vs Transformer"
+        package = "yhat_transformer"
+    if fac == "L":
+        arms = [
+            {"id": "L", "title": "Arm·L", "desc": "LightGBM / LambdaRank · 全量因子"},
+        ]
+        gate = "单臂绝对指标；跨厂对照留给研究枢纽；不直连生产 score"
+    elif fac == "T":
+        arms = [
+            {
+                "id": "T",
+                "title": "Arm·T",
+                "alias": "双支路晚融合",
+                "desc": "SeqFactorTransformer（序列塔 ∥ 因子支）",
+            },
+        ]
+        gate = "单臂绝对指标；跨厂对照留给研究枢纽；不直连生产 score"
+    else:
+        arms = [
             {"id": "L", "title": "Arm·L", "desc": "现网 LightGBM · 全量（硬闸对照）"},
             {
                 "id": "T",
@@ -314,11 +416,18 @@ def _scheme_blob() -> Dict[str, Any]:
                 "alias": "双支路晚融合",
                 "desc": "双支路晚融合（序列塔 ∥ 因子支；须过 Holdout 硬闸）",
             },
-        ],
-        "gate": "Holdout CS rank IC / ICIR vs Arm·L；不直连生产 score",
+        ]
+        gate = "Holdout CS rank IC / ICIR vs Arm·L；不直连生产 score"
+    return {
+        "name": name,
+        "factory": fac,
+        "layer": "L4 research-only",
+        "package": package,
+        "arms": arms,
+        "gate": gate,
         "promote": (
-            "draft → research 仅研究槽；须 gate_pass + 正式对照协议"
-            "（T full 因子 + T采样 100% + 共享评测）；禁止 live / active"
+            "页面已下线草稿/晋级；正式对照与版本绑定见枢纽；"
+            "禁止 live / active（枢纽注册见 model-factory-hub）"
         ),
         "per_head": per_head,
     }
@@ -552,7 +661,7 @@ def default_fit_params(head: str) -> Dict[str, Any]:
         "arms": "L,T",
         "device": "cpu",
         "factor_pack": spec.factor_pack,
-        "loss": spec.loss,
+        "loss": loss_for_factory(spec),
         "seq_feat_set": "seq16",
         "seq_len": 20,
         "full_aoo": False,
@@ -564,6 +673,21 @@ def default_fit_params(head: str) -> Dict[str, Any]:
     if spec.id == "oo_rank":
         # 排序头略缩 lookback 省内存；Holdout 天数与其它头统一 60
         base["lookback"] = 700
+    # Arm·L 窗长跟研究枢纽：拟合 Holdout 20；oo 600 / τc 120 / 排序 700。
+    # Arm·T 仍用上面的 900/60（观察池分档的 60 日不拿来当拟合默认）。
+    if normalize_factory() == "L":
+        base["arms"] = "L"
+        base["holdout_trading_days"] = 20
+        # Arm·L 始终全量 aoo；full_aoo 单选只服务 Arm·T 裁列。
+        if spec.id in ("oo", "oo_rank"):
+            base["full_aoo"] = True
+            base["factor_pack"] = "aoo_full"
+        if spec.id == "oo":
+            base["lookback"] = 600
+        elif spec.id == "tc":
+            base["lookback"] = 120
+        elif spec.id == "tc_rank":
+            base["lookback"] = 700
     return base
 
 
@@ -758,8 +882,14 @@ def harden_fit_params(head: str, params: Dict[str, Any]) -> tuple[Dict[str, Any]
 
     out.pop("protocol_preset", None)
 
-    # Scheme LT：固定双臂；历史 seeds 字段丢弃（seed 固定 42）
-    out["arms"] = "L,T"
+    # 厂 L：单臂；厂 T / LT：双臂。历史 seeds 字段丢弃（seed 固定 42）。
+    if normalize_factory() == "L":
+        out["arms"] = "L"
+        if spec.id in ("oo", "oo_rank"):
+            # Arm·L 训练始终全量；草稿勿再写 aoo_core / full_aoo=false 误导。
+            out["full_aoo"] = True
+    else:
+        out["arms"] = "L,T"
     out.pop("seeds", None)
     device = str(out.get("device") or "cpu").strip().lower() or "cpu"
     if device not in ("cpu", "mps", "cuda"):
@@ -767,10 +897,11 @@ def harden_fit_params(head: str, params: Dict[str, Any]) -> tuple[Dict[str, Any]
         device = "cpu"
     out["device"] = device
     out["head"] = spec.id
+    target_loss = loss_for_factory(spec)
     want_loss = str(out.get("loss") or "").strip()
-    if want_loss and want_loss != spec.loss:
-        warns.append(f"loss: {want_loss}→{spec.loss}（本头固定）")
-    out["loss"] = spec.loss
+    if want_loss and want_loss != target_loss:
+        warns.append(f"loss: {want_loss}→{target_loss}（本头固定）")
+    out["loss"] = target_loss
     # 与 Arm·T 实际列宽一致（L 仍始终全量）；勿写死 HeadSpec 的 *_full
     if spec.id in ("tc", "tc_rank"):
         out["factor_pack"] = "atc_full" if bool(out.get("full_atc", True)) else "atc_core"
@@ -782,7 +913,7 @@ def harden_fit_params(head: str, params: Dict[str, Any]) -> tuple[Dict[str, Any]
 
 
 def _normalize_fit_params(head: str, params: Optional[Dict[str, Any]]) -> Dict[str, Any]:
-    """合并默认值；``pool_n`` 同步为 ``watching_limit``；loss 锁定 HeadSpec。
+    """合并默认值；``pool_n`` 同步为 ``watching_limit``；loss 按厂锁定。
 
     只吸收 desk 表单键，忽略脚本 ``args`` 里的 out / update_desk 等杂质。
     脚本 ``args`` 常只有 ``watching_limit`` 无 ``pool_n``：先映射再 harden，
@@ -822,72 +953,98 @@ def _normalize_fit_params(head: str, params: Optional[Dict[str, Any]]) -> Dict[s
         elif incoming.get("pool_n") is not None:
             merged["watching_limit"] = incoming.get("pool_n")
     merged["head"] = spec.id
-    merged["loss"] = spec.loss
+    merged["loss"] = loss_for_factory(spec)
     hardened, _warns = harden_fit_params(spec.id, merged)
     return hardened
 
 
 def build_holdout_argv(
-    head: str, params: Optional[Dict[str, Any]] = None
+    head: str,
+    params: Optional[Dict[str, Any]] = None,
+    *,
+    factory: Optional[str] = None,
 ) -> List[str]:
     """Holdout 脚本 argv（相对 ``ROOT_DIR`` 的脚本路径段除外，含绝对脚本路径）。"""
     spec = get_head(head)
-    p = _normalize_fit_params(spec.id, params)
+    fac = normalize_factory(factory)
+    with factory_scope(fac):
+        p = _normalize_fit_params(spec.id, params)
     script = os.path.join(ROOT_DIR, "scripts", "run_yhat_transformer_holdout.py")
     argv = [
         script,
         "--head",
         spec.id,
+        "--factory",
+        fac,
         "--watching-limit",
         str(int(p["watching_limit"])),
         "--lookback",
         str(int(p["lookback"])),
         "--holdout-trading-days",
         str(int(p["holdout_trading_days"])),
-        "--d-model",
-        str(int(p["d_model"])),
-        "--nhead",
-        str(int(p["nhead"])),
-        "--nlayers",
-        str(int(p["nlayers"])),
-        "--mlp-hidden",
-        str(int(p.get("mlp_hidden") if p.get("mlp_hidden") is not None else p["d_model"])),
-        "--dropout",
-        f"{float(p.get('dropout') if p.get('dropout') is not None else 0.1):.6g}",
-        "--patience",
-        str(int(p.get("patience") or 6)),
-        "--batch-size",
-        str(int(p["batch_size"])),
-        "--epochs",
-        str(int(p["epochs"])),
-        "--device",
-        str(p.get("device") or "cpu").strip(),
-        "--seq-feat-set",
-        str(p.get("seq_feat_set") or "seq16").strip() or "seq16",
-        "--seq-len",
-        str(int(p.get("seq_len") or 20)),
         "--update-desk",
     ]
-    lr = float(p.get("lr") or 1e-3)
-    argv.extend(["--lr", f"{lr:.6g}"])
-    try:
-        pct = float(p.get("t_sample_pct") if p.get("t_sample_pct") is not None else 10.0)
-    except (TypeError, ValueError):
-        pct = 10.0
-    pct = max(0.1, min(100.0, pct))
-    argv.extend(["--t-sample-frac", f"{(pct / 100.0):.6g}"])
-    if bool(p.get("full_aoo")) and spec.id in ("oo", "oo_rank"):
-        argv.append("--full-aoo")
-    if spec.id in ("tc", "tc_rank") and not bool(p.get("full_atc", True)):
-        argv.append("--atc-core")
+    # Arm·T / LT 才拼 Transformer 超参；L 仅因子臂
+    if fac in ("T", "LT"):
+        argv.extend(
+            [
+                "--d-model",
+                str(int(p["d_model"])),
+                "--nhead",
+                str(int(p["nhead"])),
+                "--nlayers",
+                str(int(p["nlayers"])),
+                "--mlp-hidden",
+                str(
+                    int(
+                        p.get("mlp_hidden")
+                        if p.get("mlp_hidden") is not None
+                        else p["d_model"]
+                    )
+                ),
+                "--dropout",
+                f"{float(p.get('dropout') if p.get('dropout') is not None else 0.1):.6g}",
+                "--patience",
+                str(int(p.get("patience") or 6)),
+                "--batch-size",
+                str(int(p["batch_size"])),
+                "--epochs",
+                str(int(p["epochs"])),
+                "--device",
+                str(p.get("device") or "cpu").strip(),
+                "--seq-feat-set",
+                str(p.get("seq_feat_set") or "seq16").strip() or "seq16",
+                "--seq-len",
+                str(int(p.get("seq_len") or 20)),
+            ]
+        )
+        lr = float(p.get("lr") or 1e-3)
+        argv.extend(["--lr", f"{lr:.6g}"])
+        try:
+            pct = float(
+                p.get("t_sample_pct") if p.get("t_sample_pct") is not None else 10.0
+            )
+        except (TypeError, ValueError):
+            pct = 10.0
+        pct = max(0.1, min(100.0, pct))
+        argv.extend(["--t-sample-frac", f"{(pct / 100.0):.6g}"])
+        if bool(p.get("full_aoo")) and spec.id in ("oo", "oo_rank"):
+            argv.append("--full-aoo")
+        if spec.id in ("tc", "tc_rank") and not bool(p.get("full_atc", True)):
+            argv.append("--atc-core")
     if spec.id in ("tc", "tc_rank"):
         argv.extend(["--tau-end", str(p.get("tau_end") or "09:30").strip()])
     return argv
 
 
-def build_holdout_cli(head: str, params: Optional[Dict[str, Any]] = None) -> str:
+def build_holdout_cli(
+    head: str,
+    params: Optional[Dict[str, Any]] = None,
+    *,
+    factory: Optional[str] = None,
+) -> str:
     """按 desk 参数拼可复制 CLI（显式传参，覆盖脚本默认）。"""
-    argv = build_holdout_argv(head, params)
+    argv = build_holdout_argv(head, params, factory=factory)
     # 展示用相对路径
     rel = os.path.relpath(argv[0], ROOT_DIR).replace(os.sep, "/")
     shown = [rel, *argv[1:]]
@@ -947,7 +1104,8 @@ def _fit_exit_error_from_log(head: str) -> str:
             f"请降低 lookback / d_model / 池大小后重试（{hint_8g}）"
         )
     arm_l_split = "arml 切分" in low
-    arm_l_begin = "arml begin" in low
+    # live-fit start 也算已进入 LGB（勿只认 "ArmL begin" 字样）
+    arm_l_begin = ("arml begin" in low) or ("live-fit start" in low)
     arm_l_done = ("arml rankic" in low) or ("arml 失败" in low)
     if arm_l_split and not arm_l_begin and not arm_l_done:
         return (
@@ -981,8 +1139,11 @@ def _fit_exit_error_from_log(head: str) -> str:
 
 
 @_with_head_lock
-def refresh_fit_job(head: str) -> Optional[Dict[str, Any]]:
+def refresh_fit_job(
+    head: str, *, factory: Optional[str] = None
+) -> Optional[Dict[str, Any]]:
     """读/刷新本头拟合任务；进程退出则标 done/error。"""
+    _ = factory  # 锁装饰器已 factory_scope
     h = _validate_head(head)
     job = _read_json(_job_path(h))
     if not isinstance(job, dict):
@@ -1095,19 +1256,22 @@ def refresh_fit_job(head: str) -> Optional[Dict[str, Any]]:
         except OSError:
             log_age = 1e9
         started_age = _job_started_age_sec(job)
-        # 进程已死时：日志 180 秒没更新，或启动已超过 45 秒，就不再靠日志原文续命
+        # 进程已死时：日志尚在更新 / 刚启动 → 宽限防抖动；否则一次钉死
+        # （_pid_alive_confirmed 已多探；无需再等 UI 连刷 miss）
         soft_grace = (
             log_age < _FIT_LOG_STALE_SEC
             or started_age < _FIT_START_GRACE_SEC
         )
         if not alive:
-            miss = int(job.get("alive_miss") or 0) + 1
-            job["alive_miss"] = miss
-            if soft_grace or miss < _FIT_ALIVE_MISS_MAX:
-                job["running"] = True
-                job["status"] = "running"
-                _write_json(_job_path(h), job)
-                return job
+            if soft_grace:
+                miss = int(job.get("alive_miss") or 0) + 1
+                job["alive_miss"] = miss
+                if miss < _FIT_ALIVE_MISS_MAX:
+                    job["running"] = True
+                    job["status"] = "running"
+                    _write_json(_job_path(h), job)
+                    return job
+            # 日志已过期且进程不在：立即标失败（含 UI 未开、无人轮询的孤儿 job）
         job["status"] = "error"
         job["running"] = False
         finished = time.strftime("%Y-%m-%dT%H:%M:%S")
@@ -1193,11 +1357,61 @@ def refresh_fit_job(head: str) -> Optional[Dict[str, Any]]:
     return job
 
 
+def reap_orphaned_fit_jobs(
+    *, factories: Optional[List[str]] = None
+) -> Dict[str, Any]:
+    """启动/运维时扫 L/T 各头：死进程 + 过期 running job 立刻结算。
+
+    不依赖页面轮询；与 ``adapters.market.ak_worker.reap_orphaned_pool_workers`` 同级。
+    """
+    facs = factories or ["L", "T"]
+    touched: List[Dict[str, Any]] = []
+    for fac in facs:
+        fac_n = normalize_factory(fac)
+        if fac_n not in ("L", "T"):
+            continue
+        with factory_scope(fac_n):
+            for hid in head_ids():
+                try:
+                    before = _read_json(_job_path(hid)) or {}
+                    job = refresh_fit_job(hid, factory=fac_n)
+                except Exception as exc:  # noqa: BLE001
+                    touched.append(
+                        {
+                            "factory": fac_n,
+                            "head": hid,
+                            "error": f"{type(exc).__name__}: {exc}",
+                        }
+                    )
+                    continue
+                if not isinstance(job, dict):
+                    continue
+                was_running = bool(before.get("running")) and str(
+                    before.get("status") or ""
+                ) in ("running", "starting")
+                now_terminal = str(job.get("status") or "") in ("error", "done")
+                if was_running and now_terminal:
+                    touched.append(
+                        {
+                            "factory": fac_n,
+                            "head": hid,
+                            "status": job.get("status"),
+                            "exit_hint": job.get("exit_hint"),
+                            "error": job.get("error"),
+                        }
+                    )
+    return {"ok": True, "success": True, "reaped": touched}
+
+
 @_with_head_lock
 def start_holdout_fit(
-    head: str, params: Optional[Dict[str, Any]] = None
+    head: str,
+    params: Optional[Dict[str, Any]] = None,
+    *,
+    factory: Optional[str] = None,
 ) -> Dict[str, Any]:
-    """存草稿并后台启动 Holdout 拟合（不写生产 score）。"""
+    """后台启动 Holdout 拟合（不写生产 score；工作配置随意图隐式同步）。"""
+    _ = factory  # 锁装饰器已 factory_scope
     spec = get_head(head)
     prev = refresh_fit_job(spec.id)
     prev_status = str((prev or {}).get("status") or "") if isinstance(prev, dict) else ""
@@ -1374,7 +1588,7 @@ def start_holdout_fit(
     }
     _write_json(_job_path(spec.id), job)
     _write_json(
-        YHAT_TF_LAST_PATH,
+        _last_global_path(),
         {
             "action": "fit_start",
             "head": spec.id,
@@ -1398,8 +1612,11 @@ def start_holdout_fit(
 
 
 @_with_head_lock
-def mark_fit_failed(head: str, error: str) -> Dict[str, Any]:
+def mark_fit_failed(
+    head: str, error: str, *, factory: Optional[str] = None
+) -> Dict[str, Any]:
     """子进程异常退出时回写 job/last，避免 UI 只见「未回写 metrics」。"""
+    _ = factory
     h = _validate_head(head)
     now = time.strftime("%Y-%m-%dT%H:%M:%S")
     err = str(error or "拟合失败").strip() or "拟合失败"
@@ -1636,48 +1853,51 @@ def head_status(head: str) -> Dict[str, Any]:
     }
 
 
-def desk_status() -> Dict[str, Any]:
-    _ensure_dir()
-    scheme = _scheme_blob()
-    heads: List[Dict[str, Any]] = []
-    for hid in head_ids():
-        try:
-            heads.append(head_status(hid))
-        except Exception as exc:  # noqa: BLE001
-            # 单头损坏不拖垮整页
-            heads.append(
-                {
-                    "head": hid,
-                    "label": hid,
-                    "scheme": (scheme.get("per_head") or {}).get(hid) or {},
-                    "draft": None,
-                    "research": None,
-                    "last": None,
-                    "job": None,
-                    "fit_running": False,
-                    "log_tail": "",
-                    "has_draft": False,
-                    "has_research": False,
-                    "promotable": False,
-                    "promote_reasons": [f"{type(exc).__name__}: {exc}"],
-                    "parity": None,
-                    "live_allowed": False,
-                    "error": f"{type(exc).__name__}: {exc}",
-                }
-            )
-    last_global = _read_json(YHAT_TF_LAST_PATH)
-    return {
-        "ok": True,
-        "success": True,
-        "layer": scheme["layer"],
-        "package": "yhat_transformer",
-        "scheme": scheme,
-        "heads_meta": heads_meta(),
-        "heads": heads,
-        "last_global": last_global,
-        "live_allowed": False,
-        "store_dir": YHAT_TF_DIR,
-    }
+def desk_status(*, factory: Optional[str] = None) -> Dict[str, Any]:
+    fac = normalize_factory(factory)
+    with factory_scope(fac):
+        _ensure_dir()
+        scheme = _scheme_blob(fac)
+        heads: List[Dict[str, Any]] = []
+        for hid in head_ids():
+            try:
+                heads.append(head_status(hid))
+            except Exception as exc:  # noqa: BLE001
+                # 单头损坏不拖垮整页
+                heads.append(
+                    {
+                        "head": hid,
+                        "label": hid,
+                        "scheme": (scheme.get("per_head") or {}).get(hid) or {},
+                        "draft": None,
+                        "research": None,
+                        "last": None,
+                        "job": None,
+                        "fit_running": False,
+                        "log_tail": "",
+                        "has_draft": False,
+                        "has_research": False,
+                        "promotable": False,
+                        "promote_reasons": [f"{type(exc).__name__}: {exc}"],
+                        "parity": None,
+                        "live_allowed": False,
+                        "error": f"{type(exc).__name__}: {exc}",
+                    }
+                )
+        last_global = _read_json(_last_global_path())
+        return {
+            "ok": True,
+            "success": True,
+            "factory": fac,
+            "layer": scheme["layer"],
+            "package": scheme.get("package") or "yhat_transformer",
+            "scheme": scheme,
+            "heads_meta": heads_meta(),
+            "heads": heads,
+            "last_global": last_global,
+            "live_allowed": False,
+            "store_dir": _store_dir(),
+        }
 
 
 @_with_head_lock
@@ -1694,7 +1914,7 @@ def save_fit_draft(head: str, params: Dict[str, Any], *, note: str = "") -> Dict
     }
     _write_json(_path(h, "draft"), payload)
     _write_json(
-        YHAT_TF_LAST_PATH,
+        _last_global_path(),
         {"action": "save_draft", "head": h, "updated_at": payload["updated_at"]},
     )
     return {"ok": True, "success": True, "draft": payload}
@@ -1765,7 +1985,7 @@ def record_holdout_intent(head: str, params: Optional[Dict[str, Any]] = None) ->
     }
     _write_json(_path(spec.id, "last"), last)
     _write_json(
-        YHAT_TF_LAST_PATH,
+        _last_global_path(),
         {
             "action": "holdout_intent",
             "head": spec.id,
@@ -1824,7 +2044,7 @@ def promote_draft_to_research(head: str) -> Dict[str, Any]:
     }
     _write_json(_path(h, "research"), payload)
     _write_json(
-        YHAT_TF_LAST_PATH,
+        _last_global_path(),
         {
             "action": "promote_research",
             "head": h,
@@ -1944,8 +2164,10 @@ def ingest_holdout_summary(
     summary: Dict[str, Any],
     *,
     out_path: str = "",
+    factory: Optional[str] = None,
 ) -> Dict[str, Any]:
     """Holdout 跑完回写 ``{head}_last.json`` metrics（不写 live score）。"""
+    _ = factory  # 锁装饰器从 kwargs / summary.factory 取并 factory_scope
     h = _validate_head(head)
     if not isinstance(summary, dict):
         return {"ok": False, "success": False, "error": "summary must be dict"}
@@ -2063,7 +2285,7 @@ def ingest_holdout_summary(
         }
         _write_json(_path(h, "draft"), draft)
     _write_json(
-        YHAT_TF_LAST_PATH,
+        _last_global_path(),
         {
             "action": last["action"],
             "head": h,

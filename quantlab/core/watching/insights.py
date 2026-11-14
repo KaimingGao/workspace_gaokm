@@ -27,7 +27,7 @@ from core.watching.store import WATCHING_MAX_SIZE
 _INSIGHT_DEFAULT_LIMIT = WATCHING_MAX_SIZE
 _INSIGHT_HARD_CAP = WATCHING_MAX_SIZE + 20
 
-# 进程内 ŷ 摘要：同一会话窗口 + live 映射未变时，避免数据中心每次整池重算
+# 进程内 ŷ 摘要：同一会话窗口 + live 映射未变时，避免观察台每次整池重算
 _INSIGHT_MEMO_LOCK = threading.Lock()
 _INSIGHT_MEMO: Dict[str, Tuple[float, str, Dict[str, Any]]] = {}
 _INSIGHT_MEMO_TTL = 900.0

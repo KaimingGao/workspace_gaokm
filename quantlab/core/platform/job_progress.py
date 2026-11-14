@@ -999,7 +999,7 @@ def public_refresh_job_snapshot(
     *,
     result_summary_key: Optional[str] = None,
 ) -> Optional[Dict[str, Any]]:
-    """研究枢纽日线/分钟强更 Job 的公开快照（status API + Web 恢复进度）。
+    """数据中心日线/分钟强更 Job 的公开快照（status API + Web 恢复进度）。
 
     返回非 idle 任务的轻量快照；done 时可带 ``result_summary``。
     """

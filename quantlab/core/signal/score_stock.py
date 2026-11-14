@@ -59,7 +59,7 @@ def _fetch_bars_isolated(
 ):
     """评分日线：主进程只读缓存；不足时经 DataService 进程池补远端。
 
-    ``offline_only=True``：仅本地缓存（研究枢纽强更写入），不打远端——预演调仓用。
+    ``offline_only=True``：仅本地缓存（数据中心强更写入），不打远端——预演调仓用。
     不在主进程直调 AkShare（避免超时后仍占 ak_lock）。
     """
     raw = str(stock_code or "").strip()
@@ -240,7 +240,7 @@ def score_stock(
     ``fetch_sector_breadth=True``：主题缺口时再拉同伴行情算广度（默认关；
     有预计算值时不再拉；刷簿并行下勿开，否则 N×批量行情卡死）。
     ``quote_timeout``：单票行情秒数（分池刷簿宜 ≤6，避免对照长时间挂起）。
-    ``offline_only=True``：日线只用本地缓存（研究枢纽强更），不补远端；
+    ``offline_only=True``：日线只用本地缓存（数据中心强更），不补远端；
     无传入行情时用末根日线合成 quote，不打实时行情。
     ``use_minute_tau``：None=跟随 ``enable_minute_tau``（调仓因果末根 ≤10:00）；
     False=开盘 Z（回测 09:30、live 启动时间 ≤09:30），不读分钟仓、不拉 5m；
@@ -306,7 +306,7 @@ def score_stock(
             return {
                 "success": False,
                 "stock_code": raw,
-                "error": "无日线缓存（请到研究枢纽强更日 K（L0））",
+                "error": "无日线缓存（请到数据中心强更日 K（L0））",
             }
         else:
             try:
@@ -515,7 +515,7 @@ def score_stock(
         index_meta = {"ok": False, "reason": f"index_setup_failed:{e}"}
         fund_depth = {"fundamentals_depth": "unknown", "note": str(e)}
 
-    # 拉观察页舆情（缓存）；默认不进 score/ŷ；先验旁路见 sentiment_prior
+    # 拉观察台舆情（缓存）；默认不进 score/ŷ；先验旁路见 sentiment_prior
     sentiment_ui = None
     formula_warnings: list = []
     risk_hints: list = []

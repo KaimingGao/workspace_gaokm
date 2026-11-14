@@ -5,8 +5,8 @@
  *   名单 · 日 K 仓 · 5m 仓 · 分数(ŷ)
  * 「刷新」必须写清产物；现价/浮盈另属行情层，不受页头仓写开关约束。
  *
- * 写仓收敛：研究枢纽「增量补齐（L0）」日常 /「强更日 K（L0）」「强更 5m（L0）」兜底；
- * 数据中心/交易执行「可拉远端」= 触发同源增量补齐，ŷ 仍只读本地。
+ * 写仓收敛：数据中心「增量补齐（L0）」日常 /「强更日 K（L0）」「强更 5m（L0）」兜底；
+ * 观察台/交易执行「可拉远端」= 触发同源增量补齐，ŷ 仍只读本地。
  */
 
 /** @typedef {{ id: string, name: string, write: string, read: string }} DataArtifact */
@@ -16,26 +16,26 @@ export const DATA_ARTIFACTS = [
   {
     id: "watchlist",
     name: "观察名单",
-    write: "数据中心 · 搜票加入 / 同步名单（不写 K 线）",
+    write: "观察台 · 搜票加入 / 同步名单（不写 K 线）",
     read: "观察表 · 调仓宇宙 · 研究枢纽覆盖统计",
   },
   {
     id: "day_bars",
     name: "日 K 仓",
-    write: "研究枢纽「增量补齐（L0）」/「强更日 K（L0）」；页头「可拉远端」同源增量补齐",
+    write: "数据中心「增量补齐（L0）」/「强更日 K（L0）」；页头「可拉远端」同源增量补齐",
     read: "ŷ_oo · IC/OOS · 仅本地仓时的现价回退",
   },
   {
     id: "minute_bars",
     name: "5m 仓",
-    write: "研究枢纽「增量补齐（L0）」/「强更 5m（L0）」；页头「可拉远端」同源增量补齐",
+    write: "数据中心「增量补齐（L0）」/「强更 5m（L0）」；页头「可拉远端」同源增量补齐",
     read: "ŷ_τc 因果前缀≤10:00 分钟小包 · 做T回测/预演路径 · 涨跌 tip",
   },
   {
     id: "scores",
     name: "分数 ŷ",
-    write: "研究枢纽「物化特征（L1/L2）」；缺覆盖时提示先物化",
-    read: "数据中心 insights · 持仓分 · 预演调仓 · 做T选向（会话快照）",
+    write: "数据中心「物化特征（L1/L2）」；缺覆盖时提示先物化",
+    read: "观察台 insights · 持仓分 · 预演调仓 · 做T选向（会话快照）",
   },
   {
     id: "quotes",
@@ -67,7 +67,7 @@ export function rebalanceDataFoot(offlineOnly = true) {
     ? "ŷ 读已物化特征（页头「仅本地仓」）"
     : "ŷ 先增量补齐（L0）观察池，再读物化特征（页头「可拉远端」）";
   return (
-    `${score} · 缺特征去研究枢纽物化 · 缺仓/仓坏用「强更日 K（L0）」/「强更 5m（L0）」` +
+    `${score} · 缺特征去数据中心物化 · 缺仓/仓坏用「强更日 K（L0）」/「强更 5m（L0）」` +
     ` · 落账成交价走行情 · ≠ 做T 选向`
   );
 }
@@ -76,24 +76,24 @@ export function rebalanceDataFoot(offlineOnly = true) {
 export function t0DataFoot() {
   return (
     "选向ŷ：回测/预演用各日会话快照（≠持仓实时分）" +
-    " · 路径5m：研究枢纽仓 / 页头可拉远端增量补齐（L0）" +
+    " · 路径5m：数据中心仓 / 页头可拉远端增量补齐（L0）" +
     " · Worker/落账可拉最新5m · 现价盯盘走行情"
   );
 }
 
-/** 研究枢纽分钟区补充 */
+/** 数据中心分钟区补充 */
 export function minuteHubFoot() {
   return "下游：ŷ_τc 因果前缀≤10:00 · 预演调仓 · 做T回测 · 涨跌 tip；Ready≠消费端 as-of 齐";
 }
 
-/** 研究枢纽日线区补充 */
+/** 数据中心日线区补充 */
 export function dayBarsHubFoot() {
-  return "下游：ŷ_oo / 分组 OLS · ≠ 5m；日常增量补齐（L0） · 仓坏用强更日 K（L0）；「刷新 watching」只改名单";
+  return "下游：ŷ_oo / 分组 OLS · ≠ 5m；日常增量补齐（L0） · 仓坏用强更日 K（L0）；观察台只改名单";
 }
 
-/** 数据中心页头路径说明 */
+/** 观察台页头路径说明 */
 export function watchingPathHint() {
   return (
-    "名单在本页维护 · 日K/5m：研究枢纽或页头「可拉远端」增量补齐（L0） · ŷ 读物化特征 · 行情列独立"
+    "名单在本页维护 · 日K/5m：数据中心或页头「可拉远端」增量补齐（L0） · ŷ 读物化特征 · 行情列独立"
   );
 }

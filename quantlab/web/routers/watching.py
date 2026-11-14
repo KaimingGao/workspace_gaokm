@@ -291,7 +291,7 @@ def watching_max_size(body: WatchingMaxSize) -> Dict[str, Any]:
 
 @router.get("/api/watching/daily-chart")
 def watching_daily_chart(code: str, lookback: int = 60) -> Dict[str, Any]:
-    """通用日线数据，供观察页展示日线图。"""
+    """通用日线数据，供观察台展示日线图。"""
     from core.data.facade import get_bars, get_quote
 
     c = str(code or "").strip()
@@ -364,7 +364,7 @@ def watching_minute_tail(
 
 @router.get("/api/news-archive/status")
 def news_archive_status(date: str = "", code: str = "") -> Dict[str, Any]:
-    """数据中心新闻库面板。只读本地库，不打网。date / code 只筛标题示例。"""
+    """观察台新闻库面板。只读本地库，不打网。date / code 只筛标题示例。"""
     from core.news_archive import archive_status
 
     try:

@@ -145,42 +145,109 @@ def resolve_tree_backend(preferred: Optional[str] = None) -> str:
     raise ValueError(f"unsupported tree backend={raw!r}；仅支持 lightgbm")
 
 
+def _column_mean_var_f64(
+    x: np.ndarray,
+) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """列均值、总体方差、有效个数。累加用 float64，避免 float32 平方和溢出。
+
+    nan 不进统计。列里出现 inf 时该列 μ=0、方差=0：与 ``nanmean`` 碰到 inf
+    变成非有限、再被调用方清成 0 的口径一致。
+    """
+    src = np.asarray(x)
+    p = int(src.shape[1]) if getattr(src, "ndim", 0) == 2 else 0
+    means = np.zeros(p, dtype=np.float64)
+    var = np.zeros(p, dtype=np.float64)
+    counts = np.zeros(p, dtype=np.float64)
+    for j in range(p):
+        col = np.asarray(src[:, j], dtype=np.float64)
+        if np.isinf(col).any():
+            counts[j] = float(np.isfinite(col).sum())
+            continue
+        finite = np.isfinite(col)
+        n = int(finite.sum())
+        counts[j] = n
+        if n <= 0:
+            continue
+        vals = col[finite]
+        mu = float(vals.mean())
+        if not math.isfinite(mu):
+            continue
+        v = float(((vals - mu) ** 2).sum()) / n
+        if not math.isfinite(v) or v < 0.0:
+            v = 0.0
+        means[j] = mu
+        var[j] = v
+    return means, var, counts
+
+
 def _population_z_stats(x: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
     """列均值与总体标准差。缺测不进统计；无波动或全缺时 σ=1。
 
     与 ``factor_ols_fit._zscore_complete_panel`` 同一口径：var = Σ(x−μ)² / n。
     """
-    n = np.sum(np.isfinite(x), axis=0).astype(np.float64)
-    with np.errstate(invalid="ignore", divide="ignore"):
-        means = np.nanmean(x, axis=0)
-        centered = x - means
-        var = np.nanmean(centered * centered, axis=0)
-    means = np.where(np.isfinite(means), means, 0.0)
-    var = np.where(np.isfinite(var), var, 0.0)
+    means, var, n = _column_mean_var_f64(x)
     stds = np.sqrt(var)
     stds = np.where((n > 0) & (var > 1e-12), stds, 1.0)
-    return means.astype(np.float64), stds.astype(np.float64)
+    return means, stds
+
+
+def tree_feature_matrix(x: Any) -> np.ndarray:
+    """LightGBM 特征块用 float32。已是可写的连续 float32 则不再复制。
+
+    从更宽的类型拷下来时，装成 inf 的值改回缺测，避免树把溢出当成极大数。
+    """
+    arr = np.asarray(x)
+    if (
+        isinstance(arr, np.ndarray)
+        and arr.dtype == np.float32
+        and arr.flags.c_contiguous
+        and arr.flags.writeable
+    ):
+        return arr
+    with np.errstate(over="ignore"):
+        out = np.array(arr, dtype=np.float32, copy=True)
+    if out.size and np.isinf(out).any():
+        out[np.isinf(out)] = np.nan
+    return out
 
 
 def _apply_feature_z(
     x: np.ndarray, means: np.ndarray, stds: np.ndarray
 ) -> np.ndarray:
-    sd = np.where(np.abs(stds) < 1e-12, 1.0, stds)
-    return (x - means) / sd
+    """按列在 float64 里做 z，再写回输入精度。非有限 z 记 0。"""
+    src = np.asarray(x)
+    dt = src.dtype if getattr(src, "dtype", None) in (np.float32, np.float64) else np.float32
+    if src.ndim != 2:
+        return np.array(src, dtype=dt, copy=True)
+    n, p = int(src.shape[0]), int(src.shape[1])
+    mu = np.asarray(means, dtype=np.float64).reshape(-1)
+    sd = np.asarray(stds, dtype=np.float64).reshape(-1)
+    if mu.shape[0] != p:
+        mu = np.zeros(p, dtype=np.float64)
+    if sd.shape[0] != p:
+        sd = np.ones(p, dtype=np.float64)
+    sd = np.where(np.abs(sd) < 1e-12, 1.0, sd)
+    out = np.empty((n, p), dtype=dt)
+    for j in range(p):
+        col = np.asarray(src[:, j], dtype=np.float64)
+        z = (col - float(mu[j])) / float(sd[j])
+        bad = ~np.isfinite(z)
+        if bad.any():
+            z = np.where(bad, 0.0, z)
+        out[:, j] = z
+    return out
 
 
 def _column_means(x: np.ndarray) -> np.ndarray:
     """与 ``_design_matrix`` 的列均值相同：无观测则为 0。"""
-    n_valid = np.sum(np.isfinite(x), axis=0)
-    with np.errstate(invalid="ignore"):
-        col_sum = np.nansum(x, axis=0)
-    col_means = np.divide(col_sum, np.maximum(n_valid, 1.0))
-    col_means = np.where(n_valid > 0, col_means, np.nan)
-    return np.where(np.isfinite(col_means), col_means, 0.0).astype(np.float64)
+    means, _var, _n = _column_mean_var_f64(x)
+    return means
 
 
 def _impute_matrix(x: np.ndarray, means: np.ndarray) -> np.ndarray:
-    out = np.array(x, dtype=np.float64, copy=True)
+    src = np.asarray(x)
+    dt = src.dtype if src.dtype in (np.float32, np.float64) else np.float32
+    out = np.array(src, dtype=dt, copy=True)
     if out.ndim != 2:
         return out
     p = int(out.shape[1])
@@ -203,7 +270,7 @@ def _design_matrix(
 ) -> Tuple[np.ndarray, np.ndarray]:
     n = len(xs)
     p = len(names)
-    x = np.full((n, p), np.nan, dtype=np.float64)
+    x = np.full((n, p), np.nan, dtype=np.float32)
     for i, row in enumerate(xs):
         src = row if isinstance(row, dict) else {}
         for j, name in enumerate(names):
@@ -259,9 +326,13 @@ def _finalize_lgb_xy(
         from core.research.feature_standardize import stamp_cross_section_zscore
         from core.research.materialize.cube_z import cs_z_matrix_prefer_cube
 
-        x_tr = cs_z_matrix_prefer_cube(x_raw_tr, names, train_dates)
+        x_tr = cs_z_matrix_prefer_cube(
+            x_raw_tr, names, train_dates, inplace=True
+        )
         if test_dates is not None and len(test_dates) == int(x_raw_te.shape[0]):
-            x_te = cs_z_matrix_prefer_cube(x_raw_te, names, test_dates)
+            x_te = cs_z_matrix_prefer_cube(
+                x_raw_te, names, test_dates, inplace=True
+            )
         else:
             # 测试集缺日期无法做 CS-z：用训练集的总体 μ/σ 做 population z 兜底，保证训推口径一致
             z_means, z_stds = _population_z_stats(x_raw_tr)
@@ -321,19 +392,23 @@ def prepare_lgb_features_matrix(
     train_dates: Optional[Sequence[str]] = None,
     test_dates: Optional[Sequence[str]] = None,
 ) -> Tuple[np.ndarray, np.ndarray, np.ndarray, Dict[str, Any]]:
-    """从紧凑 ``X`` 按列切片训/测，避免先物化 dict 行。"""
-    arr = np.asarray(X, dtype=np.float64)
+    """从紧凑 ``X`` 按列切片训/测，避免先物化 dict 行。
+
+    只把训/测切片收成 float32，不把整表再升成 float64。
+    """
+    arr = np.asarray(X)
     name_index = {str(n): i for i, n in enumerate(col_names)}
     cols = [name_index[str(n)] for n in feat_names if str(n) in name_index]
     if not cols:
         p = len(feat_names)
-        empty_tr = np.zeros((len(train_idx), p), dtype=np.float64)
-        empty_te = np.zeros((len(test_idx), p), dtype=np.float64)
+        empty_tr = np.zeros((len(train_idx), p), dtype=np.float32)
+        empty_te = np.zeros((len(test_idx), p), dtype=np.float32)
         return empty_tr, empty_te, np.zeros(p, dtype=np.float64), {}
     tr = np.asarray(list(train_idx), dtype=np.intp)
     te = np.asarray(list(test_idx), dtype=np.intp)
-    x_raw_tr = np.ascontiguousarray(arr[tr][:, cols])
-    x_raw_te = np.ascontiguousarray(arr[te][:, cols])
+    col_ix = np.asarray(cols, dtype=np.intp)
+    x_raw_tr = np.ascontiguousarray(arr[np.ix_(tr, col_ix)], dtype=np.float32)
+    x_raw_te = np.ascontiguousarray(arr[np.ix_(te, col_ix)], dtype=np.float32)
     used = [str(n) for n in feat_names if str(n) in name_index]
     return _finalize_lgb_xy(
         x_raw_tr,

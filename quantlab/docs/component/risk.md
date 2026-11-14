@@ -83,7 +83,7 @@
 | 组合目标权重 | `optimize_weights` → `last_optimize` / ops_report | **分数风险预算**（默认）+ 可选贪心填仓；**高波缩放**有效单票/行业上限 |
 | 波动缩放 | `core/risk/budget.market_vol_scale` | 指数近20日波动/基线 ≥1.5 → 上限×0.8；取数失败不挡调仓 |
 | 拦截有效率 | `north_star.summarize_risk_blocks` | 按码/日/周；`meta.outcome` 标注后算有效率/误拦率 |
-| 策略限额 | StrategySpec.risk / `paper.rules` | 调仓前门禁；UI 不在策略中心挂只读审计 |
+| 策略限额 | StrategySpec.risk / `paper.rules` | 调仓前门禁；UI 不在市场先验挂只读审计 |
 | ML 风控拟合 | 无 | 远期 |
 
 配置摘要见 `data/signal_config.json`（`invalidation` / `regime`）与 `data/paper.example.json`（`rules`）。
@@ -103,7 +103,7 @@
    目标权重按 score 比例分配；可选 `risk_parity_lite` / `qp_lite`（cvxpy，未装则 unavailable 回退）
         ↓
 ③ 暴露可见 + 拦截可审计（R3/V3 已落地）
-   持仓行业/风格矩阵 · 原因码 · 有效率（策略页标注 outcome，≥20 条才展示趋势）
+   持仓行业/风格矩阵 · 原因码 · 有效率（`POST /api/paper/risk-blocks/annotate` 标注 outcome，≥20 条才展示趋势）
    完整风格/Beta VaR / 拥挤度 → 仍远期；**QP 非闸门阻塞**
 ```
 
@@ -113,7 +113,7 @@
 |----|------|
 | 调仓前硬拦 | `check_account_risk`；`risk_block` 带结构化原因码 |
 | 暴露巡检 | 日更/调仓附暴露矩阵；超限与预算同源 |
-| outcome 纪律 | 策略页标注真拦/误拦；`labeled_count≥20` 后才解读有效率 |
+| outcome 纪律 | `POST /api/paper/risk-blocks/annotate` 标注真拦/误拦；`labeled_count≥20` 后才解读有效率 |
 | 权重模式对照 | `score_budget` vs `risk_parity_lite`（及可选 `qp_lite`）可切换验证 |
 | 不做 | 真强平、实时 VaR 引擎、独立 Bloomberg 风控台 |
 
@@ -208,7 +208,7 @@ LLM 可**解读**标题；**不得**写入 `sub_scores` / ŷ。`sentiment.includ
 
 `apply_prior_to_buy` / `apply_prior_to_hold` 是 **M 层** `policy.py` 共用 helper（及合成 pack）；徽章 `build_sentiment_prior` 不产出 block/scale actions。
 
-**Web**：策略中心不再编辑徽章侧 prior；`POST /api/signal/config/sentiment-prior` 仅规范化为 `mode=off` 并剥掉旧硬闸键。调仓规则栏已下掉舆情软先验勾选。
+**Web**：徽章侧 prior 不在市场先验编辑。`POST /api/signal/config/sentiment-prior` 仅规范化为 `mode=off` 并剥掉旧硬闸键。调仓规则栏没有舆情软先验勾选。
 
 徽章配置见 `signal_config.sentiment` · `core/sentiment_prior.py`；标签读取见 `core/news_archive.py`。
 

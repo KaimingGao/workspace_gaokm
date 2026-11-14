@@ -109,7 +109,7 @@ class SignalService:
     ) -> Dict[str, Any]:
         """仅双层 ŷ 透传字段（不整包翻写 signal_item，避免污染观察/持仓摘要）。
 
-        ``paper`` / ``rank_cfg``：数据中心与持仓共用 rank_lots 权（fusion_w_oo/oc）。
+        ``paper`` / ``rank_cfg``：观察台与持仓共用 rank_lots 权（fusion_w_oo/oc）。
         """
         if not isinstance(item, dict) or not item:
             return {}

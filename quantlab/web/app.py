@@ -70,6 +70,15 @@ async def _app_lifespan(app: FastAPI):
     except Exception:  # noqa: BLE001
         logger.debug("orphan pool reap skipped", exc_info=True)
     try:
+        from core.research.yhat_tf_desk import reap_orphaned_fit_jobs
+
+        out = reap_orphaned_fit_jobs()
+        reaped = out.get("reaped") or []
+        if reaped:
+            logger.info("yhat orphan fit jobs reaped: %s", reaped)
+    except Exception:  # noqa: BLE001
+        logger.debug("yhat orphan fit reap skipped", exc_info=True)
+    try:
         from core.paths import PAPER_PATH
         from core.paper.rebalance.auto_worker import (
             load_enabled_flag as _load_rebalance_enabled,
@@ -156,6 +165,15 @@ def platform_page() -> HTMLResponse:
     )
 
 
+@app.get("/data")
+def data_page() -> HTMLResponse:
+    """数据中心：写当前观察池的日 K / 5m，并物化特征。"""
+    return HTMLResponse(
+        render_tool_html("data"),
+        headers={"Cache-Control": "no-store"},
+    )
+
+
 @app.get("/quant")
 def quant_page() -> HTMLResponse:
     return HTMLResponse(
@@ -181,12 +199,19 @@ def dashboard_page() -> HTMLResponse:
     )
 
 
-@app.get("/strategy")
-def strategy_page() -> HTMLResponse:
+@app.get("/market-prior")
+def market_prior_page() -> HTMLResponse:
+    """市场先验：M prior 人审写盘 · Regime 只读 · 因子字典。"""
     return HTMLResponse(
         render_tool_html("strategy"),
         headers={"Cache-Control": "no-store"},
     )
+
+
+@app.get("/strategy")
+def strategy_page() -> RedirectResponse:
+    """旧「策略中心」地址；页面已改为市场先验。策略晋级 API 仍是 /api/strategy。"""
+    return RedirectResponse(url="/market-prior", status_code=302)
 
 
 @app.get("/replay")
@@ -207,17 +232,32 @@ def follow_page() -> HTMLResponse:
 
 @app.get("/paper")
 def paper_page() -> RedirectResponse:
-    """旧「纸面」入口并入模拟页；API 仍为 /api/paper（内部 canonical）。"""
+    """旧「纸面」入口并入交易执行；API 仍为 /api/paper（内部 canonical）。"""
     return RedirectResponse(url="/follow", status_code=302)
 
 
-@app.get("/yhat-tf")
-def yhat_tf_page() -> HTMLResponse:
-    """模型中心：四头 ŷ Transformer Holdout；仅 ⌘⇧K 入口；不写生产 score。"""
+@app.get("/yhat-l")
+def yhat_l_page() -> HTMLResponse:
+    """模型中心 · Arm·L：四头 LightGBM Holdout；仅 ⌘⇧K 入口；不写生产 score。"""
     return HTMLResponse(
-        render_tool_html("yhat_tf"),
+        render_tool_html("yhat_l"),
         headers={"Cache-Control": "no-store"},
     )
+
+
+@app.get("/yhat-t")
+def yhat_t_page() -> HTMLResponse:
+    """模型中心 · Arm·T：四头 Transformer Holdout；仅 ⌘⇧K 入口；不写生产 score。"""
+    return HTMLResponse(
+        render_tool_html("yhat_t"),
+        headers={"Cache-Control": "no-store"},
+    )
+
+
+@app.get("/yhat-tf")
+def yhat_tf_page() -> RedirectResponse:
+    """旧模型中心入口 → Arm·T 工厂。"""
+    return RedirectResponse(url="/yhat-t", status_code=302)
 
 
 @app.get("/favicon.ico")

@@ -667,7 +667,7 @@ def build_oo_rank_day_panels(
         names: List[str] = []
         dates: List[str] = []
     else:
-        X, y, names, dates = _stack_blocks(parts)
+        X, y, names, dates, _codes = _stack_blocks(parts)
 
     logger.info(
         "compact panel head=y_oo_rank rows=%s cols=%s stocks=%s workers=%s",

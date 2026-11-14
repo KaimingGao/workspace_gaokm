@@ -1,5 +1,5 @@
 /**
- * 交易执行 · 持仓主表（共享 virtual_table 内核，与数据中心同方案）。
+ * 交易执行 · 持仓主表（共享 virtual_table 内核，与观察台同方案）。
  */
 
 const _WR_V = (typeof window !== "undefined" && window.__ASSET_V__) || "dev";
@@ -207,7 +207,7 @@ export function holdingToRow(
   };
 }
 
-/** 供外部把接口 sentiment 转成徽章 HTML（与数据中心同源）。 */
+/** 供外部把接口 sentiment 转成徽章 HTML（与观察台同源）。 */
 export function holdingSentimentHtml(sent, code) {
   return sentimentBadgeHtml(sent || {}, code);
 }
@@ -218,7 +218,7 @@ const ORIGIN_HINT = {
   mixed: "手动建仓后被策略加过仓",
 };
 
-/** 持仓主表列轨：对齐数据中心固定 px + Y 组间距。 */
+/** 持仓主表列轨：对齐观察台固定 px + Y 组间距。 */
 const COLS = [
   {
     id: "name",

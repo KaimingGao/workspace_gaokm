@@ -1,18 +1,27 @@
 /** Command Palette · W3.1 · ⌘⇧K / Ctrl+Shift+K */
 
 const COMMANDS = [
-  { id: "nav-watching", label: "前往 · 数据中心", hint: "/watching", href: "/watching", keywords: "home 观察 名单 建仓 首页" },
-  { id: "nav-strategy", label: "前往 · 策略中心", hint: "/strategy", href: "/strategy", keywords: "策略 M prior 市场先验 人审" },
+  { id: "nav-dashboard", label: "前往 · 仪表盘", hint: "/dashboard", href: "/dashboard", keywords: "home 首页 概览 kpi 净值" },
+  { id: "nav-watching", label: "前往 · 观察台", hint: "/watching", href: "/watching", keywords: "观察 名单 建仓" },
+  { id: "nav-strategy", label: "前往 · 市场先验", hint: "/market-prior", href: "/market-prior", keywords: "M prior 市场先验 人审 Regime strategy" },
   { id: "nav-follow", label: "前往 · 交易执行", hint: "/follow", href: "/follow", keywords: "模拟 持仓 调仓 做T" },
   { id: "nav-replay", label: "前往 · 历史回测", hint: "/replay", href: "/replay", keywords: "回测 回溯 绩效 grid 做T" },
+  { id: "nav-data", label: "前往 · 数据中心", hint: "/data", href: "/data", keywords: "数据 日K 日线 5m 分钟 物化 补齐 强更" },
   { id: "nav-quant", label: "前往 · 研究枢纽", hint: "/quant", href: "/quant", keywords: "研究 因子 ic ols 运维 日报 hub" },
   { id: "nav-platform", label: "前往 · 平台", hint: "/platform", href: "/platform", keywords: "调度 日更 平台 系统设置" },
   {
-    id: "nav-yhat-tf",
-    label: "前往 · 模型中心",
-    hint: "/yhat-tf",
-    href: "/yhat-tf",
-    keywords: "模型中心 隐藏 yhat transformer oo τc tau rank arm-l arm-t 双支路晚融合 lightgbm scheme lt l4 拟合 看板 管理",
+    id: "nav-yhat-t",
+    label: "前往 · 模型中心 Arm·T",
+    hint: "/yhat-t",
+    href: "/yhat-t",
+    keywords: "模型中心 arm-t transformer yhat-t yhat-tf oo τc tau rank 双支路晚融合 seq l4 拟合 隐藏",
+  },
+  {
+    id: "nav-yhat-l",
+    label: "前往 · 模型中心 Arm·L",
+    hint: "/yhat-l",
+    href: "/yhat-l",
+    keywords: "模型中心 arm-l lightgbm lambdarank yhat-l oo τc tau rank lgb l4 拟合 隐藏",
   },
   {
     id: "ai-open",

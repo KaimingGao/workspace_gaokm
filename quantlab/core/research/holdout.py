@@ -63,6 +63,24 @@ def stamp_persist_outcome(report: Dict[str, Any], saved: Any) -> None:
     report["error"] = pack.get("error") or "启用失败"
 
 
+def empty_holdout_preds(
+    preds: Optional[Sequence[Any]],
+    *,
+    holdout_trading_days: int,
+) -> bool:
+    """Holdout>0 且评测行都没有预测。缺 L2 时推理整段返回 None，不能当成成功拟合。"""
+    try:
+        hold_n = int(holdout_trading_days or 0)
+    except (TypeError, ValueError):
+        hold_n = 0
+    if hold_n <= 0:
+        return False
+    rows = list(preds or [])
+    if not rows:
+        return False
+    return all(p is None for p in rows)
+
+
 def refuse_insufficient_holdout(split_meta: Optional[Mapping[str, Any]]) -> Optional[Dict[str, Any]]:
     """Holdout>0 且留不出评测窗时，拟合应直接失败。"""
     if not isinstance(split_meta, Mapping):

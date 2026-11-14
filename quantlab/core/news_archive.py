@@ -1508,7 +1508,7 @@ def serve_watch_headlines(
     now: Optional[datetime] = None,
     lexicon: Optional[Mapping[str, Any]] = None,
 ) -> Dict[str, Any]:
-    """数据中心表格：先读本地。没有或超过 TTL 再向东财要，并写回本地。
+    """观察台表格：先读本地。没有或超过 TTL 再向东财要，并写回本地。
 
     单批最多 20 只。与整池轮询共用频控；连续封禁信号后，其余代码不请求、不记失败。
     默认条数与观察池点开明细同口径（``WATCHING_SENTIMENT_LIMIT``）。
@@ -1997,7 +1997,7 @@ def archive_status(
     sample_date: str = "",
     sample_code: str = "",
 ) -> Dict[str, Any]:
-    """数据中心面板：最近一档、下一档、今日闸覆盖、库存统计画像。不打网。"""
+    """观察台面板：最近一档、下一档、今日闸覆盖、库存统计画像。不打网。"""
     from core.market.calendar import resolve_session_date
 
     dt = now or datetime.now()

@@ -1151,12 +1151,12 @@ export function installWatching(q) {
   async function loadFollowCard() {
     const el = document.getElementById("quant-follow-summary");
     if (!el) return null;
-    el.textContent = "纸面：加载中…";
+    el.textContent = "模拟账户：加载中…";
     try {
       const res = await fetch("/api/paper");
       const data = await res.json();
       if (!data.initialized) {
-        el.textContent = "纸面：未初始化 · 打开纸面 Tab 创建";
+        el.textContent = "模拟账户未初始化 · 到交易执行创建";
         return data;
       }
       const wl = (data.watchlist || []).length;

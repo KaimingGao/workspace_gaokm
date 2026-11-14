@@ -1,5 +1,5 @@
 /**
- * 观察页建仓流水（按日分组）。
+ * 观察台建仓流水（按日分组）。
  */
 import { escapeHtml } from "../shared.js";
 

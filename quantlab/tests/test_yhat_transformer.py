@@ -247,6 +247,66 @@ class TestYhatSeqPanel(unittest.TestCase):
         self.assertNotEqual(vol_and_high, base)
         bars[3]["open"] = float(bars[3]["open"]) + 0.05
         self.assertNotEqual(_bars_token(bars), vol_and_high)
+        ordered = _synth_bars(8, seed=2)
+        self.assertEqual(_bars_token(list(reversed(ordered))), _bars_token(ordered))
+
+    def test_reorder_panel_by_codes_matches_item_order(self):
+        from core.research.yhat_transformer.factor_panel import (
+            FactorPanel,
+            _cache_panel_matches_pool,
+            reorder_panel_by_codes,
+        )
+
+        # 完成序：B 在前；入池序 A→B 时应重排。
+        panel = FactorPanel(
+            X=np.asarray([[1.0], [2.0], [3.0], [4.0]], dtype=np.float32),
+            y=np.asarray([10.0, 20.0, 30.0, 40.0], dtype=np.float32),
+            dates=["2024-01-02", "2024-01-01", "2024-01-02", "2024-01-01"],
+            codes=["B", "B", "A", "A"],
+            feature_names=["f0"],
+        )
+        out = reorder_panel_by_codes(panel, ["A", "B"])
+        self.assertEqual(out.codes, ["A", "A", "B", "B"])
+        self.assertEqual(out.dates, ["2024-01-01", "2024-01-02", "2024-01-01", "2024-01-02"])
+        np.testing.assert_allclose(out.y, [40.0, 30.0, 20.0, 10.0])
+        np.testing.assert_allclose(out.X[:, 0], [4.0, 3.0, 2.0, 1.0])
+        # 入池外残留票：校验失败；重排后丢掉。
+        orphan = FactorPanel(
+            X=np.asarray([[1.0], [2.0], [3.0]], dtype=np.float32),
+            y=np.asarray([1.0, 2.0, 3.0], dtype=np.float32),
+            dates=["2024-01-01", "2024-01-01", "2024-01-01"],
+            codes=["A", "B", "Z"],
+            feature_names=["f0"],
+        )
+        self.assertFalse(_cache_panel_matches_pool(orphan, ["A", "B"]))
+        trimmed = reorder_panel_by_codes(orphan, ["A", "B"])
+        self.assertEqual(trimmed.codes, ["A", "B"])
+        self.assertTrue(_cache_panel_matches_pool(trimmed, ["A", "B"]))
+
+    def test_build_oo_factor_panel_uses_hub_assemble(self):
+        from unittest import mock
+
+        from core.research.yhat_transformer.factor_panel import build_oo_factor_panel
+
+        x = np.asarray([[1.0, 2.0], [3.0, 4.0]], dtype=np.float64)
+        y = np.asarray([0.1, 0.2], dtype=np.float64)
+        with mock.patch(
+            "core.research.oo_model_compact.assemble_oo_panels",
+            return_value=(x, y, ["a", "b"], ["2024-01-02", "2024-01-03"], ["000001", "000002"]),
+        ) as assem:
+            panel = build_oo_factor_panel(
+                {"000002": [{"date": "2024-01-01"}], "000001": [{"date": "2024-01-01"}]},
+                horizon_days=1,
+                use_cache=False,
+            )
+        assem.assert_called_once()
+        kwargs = assem.call_args.kwargs
+        self.assertTrue(kwargs.get("return_codes"))
+        self.assertFalse(kwargs.get("aoo_core_only"))
+        self.assertEqual(panel.n, 2)
+        self.assertEqual(panel.codes, ["000001", "000002"])
+        self.assertEqual(panel.feature_names, ["a", "b"])
+        self.assertEqual(panel.X.dtype, np.float32)
 
     def test_factor_jobs_keep_going_after_one_failure(self):
         from core.research.yhat_transformer.factor_panel import _run_stock_jobs
@@ -256,7 +316,7 @@ class TestYhatSeqPanel(unittest.TestCase):
                 raise RuntimeError("bad")
             return job[0]
 
-        chunks = _run_stock_jobs(
+        chunks, failed = _run_stock_jobs(
             [(str(i),) for i in range(5)],
             _work,
             n_workers=1,
@@ -264,6 +324,7 @@ class TestYhatSeqPanel(unittest.TestCase):
             label="因子面板",
         )
         self.assertEqual(sorted(chunks), ["1", "2", "3", "4"])
+        self.assertEqual(failed, ["0"])
 
     def test_factor_jobs_abort_when_most_fail(self):
         from core.research.yhat_transformer.factor_panel import _run_stock_jobs
@@ -304,6 +365,50 @@ class TestYhatSeqPanel(unittest.TestCase):
         )
         self.assertGreater(panel.n, 10)
         self.assertEqual(panel.X.shape[-1], 16)
+
+    def test_reversed_bars_match_chrono(self):
+        from core.research.yhat_transformer.seq_dataset import samples_from_bars
+
+        bars = _synth_bars(40, seed=4)
+        X, _, _, dates = samples_from_bars("000001", bars, seq_len=8, horizon_days=1)
+        Xr, _, _, dates_r = samples_from_bars(
+            "000001", list(reversed(bars)), seq_len=8, horizon_days=1
+        )
+        self.assertEqual(dates, dates_r)
+        np.testing.assert_allclose(X, Xr)
+        self.assertEqual(dates, sorted(set(dates)))
+
+    def test_factor_cache_key_tracks_prices(self):
+        from core.research.yhat_transformer.factor_panel import _cache_key
+
+        bars = _synth_bars(6, seed=2)
+        base = _cache_key([("000001", bars)], horizon_days=1, kind="oo")
+        revised = [dict(b) for b in bars]
+        revised[2] = dict(revised[2])
+        revised[2]["close"] = float(revised[2]["close"]) + 1.0
+        self.assertNotEqual(
+            _cache_key([("000001", revised)], horizon_days=1, kind="oo"),
+            base,
+        )
+        self.assertNotEqual(
+            _cache_key([("000001", bars)], horizon_days=1, kind="tc"),
+            base,
+        )
+
+    def test_tc_factor_job_keeps_missing_as_nan(self):
+        from unittest import mock
+
+        from core.research.yhat_transformer.factor_panel import _tc_stock_job
+
+        rows = [{"a": 1.0, "b": None}, {"a": float("nan"), "b": 2.0}]
+        with mock.patch(
+            "core.research.tau_panel.collect_tau_open_panel",
+            return_value=(rows, [1.0, 2.0], ["2024-01-02", "2024-01-03"], []),
+        ):
+            _code, mat, _y, keys, _ds = _tc_stock_job(("000001", []))
+        self.assertTrue(np.isnan(mat[0, keys.index("b")]))
+        self.assertTrue(np.isnan(mat[1, keys.index("a")]))
+        self.assertEqual(float(mat[0, keys.index("a")]), 1.0)
 
     def test_seq8_vs_seq16(self):
         from core.research.yhat_transformer.seq_dataset import (
@@ -449,6 +554,27 @@ class TestListwiseGroups(unittest.TestCase):
         self.assertIn("2024-01-12", va_counts)
         # val 不被 cap//4 抽样：完整验证日组保留
         self.assertGreater(sum(va_counts.values()), 250 // 4)
+
+    def test_subsample_stops_instead_of_taking_thinner_days(self):
+        from unittest import mock
+
+        from core.research.yhat_transformer.train import _subsample_whole_groups
+
+        dates = ["2024-01-01"] * 40 + ["2024-01-02"] * 40 + ["2024-01-03"] * 10
+        idx = list(range(len(dates)))
+
+        class _Rng:
+            def shuffle(self, order):
+                order[:] = [0, 1, 2]
+
+        with mock.patch(
+            "core.research.yhat_transformer.train.np.random.RandomState",
+            return_value=_Rng(),
+        ):
+            kept = _subsample_whole_groups(dates, idx, max_rows=50, seed=0)
+        days = {dates[i] for i in kept}
+        self.assertEqual(days, {"2024-01-01"})
+        self.assertEqual(len(kept), 40)
 
 
 def _has_torch() -> bool:
@@ -663,6 +789,123 @@ class TestArmLLiveAligned(unittest.TestCase):
         cbs = kw.get("callbacks") or []
         self.assertEqual(len(cbs), 1)
         self.assertTrue(callable(cbs[0]))
+        self.assertIsNone(out.get("theme_boost"))
+
+    def test_tc_uses_theme_weights_and_hub_columns(self):
+        from types import SimpleNamespace
+        from unittest import mock
+
+        from core.signal.factors.z_tc import Z_TC_MINUTE_KEYS
+        from scripts.run_yhat_transformer_holdout import _run_arm_l
+
+        minute = Z_TC_MINUTE_KEYS[0]
+        n = 12
+        names = ["gap_pct", minute, "raw_atc_x", "open_gap"]
+        x = np.ones((n, len(names)), dtype=np.float64)
+        x[:, 0] = 0.1
+        x[:6, 0] = 3.0
+        x[:, 2] = np.nan
+        x[:6, 2] = 0.2
+        dates = ["2024-01-02"] * 6 + ["2024-01-03"] * 6
+        fac = SimpleNamespace(
+            X=x,
+            y=np.linspace(-0.02, 0.02, n),
+            dates=dates,
+            codes=[f"{i % 6:06d}" for i in range(n)],
+            feature_names=names,
+            n=n,
+        )
+        seen = {}
+
+        def _fit(x_fit, y, feat, **kw):
+            seen["feat"] = list(feat)
+            seen["w"] = list(kw.get("sample_weights") or [])
+            return (
+                {"feature_names": list(feat), "sample_count": 8},
+                {"sample_count": 8, "success": True},
+            )
+
+        with mock.patch(
+            "core.research.tc_lgb.fit_tc_lgb_matrix", side_effect=_fit
+        ), mock.patch(
+            "core.research.tc_lgb.predict_tc_lgb_matrix",
+            return_value=[0.01, -0.02, 0.0, 0.03, 0.01, -0.01],
+        ):
+            out = _run_arm_l(
+                fac, list(range(6)), list(range(6, 12)), head_id="tc", rank=False
+            )
+        self.assertTrue(out.get("success"))
+        self.assertEqual(out.get("theme_boost"), 1.5)
+        for key in (
+            "z_τc_gap_pct",
+            "z_τc_theme_day",
+            "z_τc_sector_gap_breadth",
+            "z_τc_gap_vs_sector",
+            "raw_atc_x",
+        ):
+            self.assertIn(key, seen["feat"])
+        self.assertNotIn(minute, seen["feat"])
+        self.assertNotIn("open_gap", seen["feat"])
+        self.assertEqual(seen["w"][0], 1.5)
+        self.assertEqual(seen["w"][6], 1.0)
+
+    def test_stamp_tc_pool_breadth_writes_hub_columns(self):
+        from scripts.run_yhat_transformer_holdout import _stamp_tc_pool_breadth
+
+        x = np.array(
+            [[3.0, 0.1], [3.0, 0.2], [0.2, 0.1], [0.2, 0.2]],
+            dtype=np.float64,
+        )
+        out_x, out_names = _stamp_tc_pool_breadth(
+            x,
+            ["gap_pct", "gap_atr"],
+            ["2024-01-02", "2024-01-02", "2024-01-03", "2024-01-03"],
+            ["000001", "000002", "000001", "000002"],
+        )
+        j = out_names.index("z_τc_theme_day")
+        self.assertEqual(float(out_x[0, j]), 1.0)
+        self.assertEqual(float(out_x[2, j]), 0.0)
+        self.assertIn("z_τc_sector_gap_breadth", out_names)
+        self.assertIn("z_τc_gap_vs_sector", out_names)
+
+    def test_rank_calls_fit_lambdarank(self):
+        from types import SimpleNamespace
+        from unittest import mock
+
+        from scripts.run_yhat_transformer_holdout import _run_arm_l
+
+        n = 16
+        dates = ["2024-01-02"] * 8 + ["2024-01-03"] * 8
+        fac = SimpleNamespace(
+            X=np.random.RandomState(0).randn(n, 3),
+            y=np.linspace(-1, 1, n),
+            dates=dates,
+            codes=[f"{i:06d}" for i in range(n)],
+            feature_names=["a", "b", "c"],
+            n=n,
+        )
+        with mock.patch(
+            "core.research.oo_rank_lambdarank.fit_lambdarank",
+            return_value={"success": True, "n_groups": 1, "sample_count": 8},
+        ) as fit_m, mock.patch(
+            "core.research.oo_rank_lambdarank._predict_oo_rank_matrix",
+            return_value=[0.1] * 8,
+        ):
+            out = _run_arm_l(
+                fac,
+                list(range(8)),
+                list(range(8, 16)),
+                head_id="oo_rank",
+                rank=True,
+            )
+        self.assertTrue(out.get("success"))
+        self.assertIn("fit_lambdarank", str(out.get("note") or ""))
+        self.assertEqual(out.get("n_groups"), 1)
+        fit_m.assert_called_once()
+        days = fit_m.call_args.args[0]
+        self.assertEqual(len(days), 1)
+        self.assertEqual(days[0].get("clock"), "open")
+        self.assertEqual(fit_m.call_args.kwargs.get("feature_names"), ["a", "b", "c"])
 
     def test_arml_step_callback_prints(self):
         import io
@@ -696,6 +939,61 @@ class TestArmLLiveAligned(unittest.TestCase):
             self.assertEqual(_arm_l_max_train_rows(), 0)
         with mock.patch.dict(os.environ, {"YHAT_ARM_L_MAX_TRAIN": "8000"}):
             self.assertEqual(_arm_l_max_train_rows(), 8000)
+
+    def test_drop_aligned_rows_without_cube_keeps_later_days(self):
+        from unittest import mock
+
+        from core.research.yhat_transformer.factor_panel import FactorPanel
+        from core.research.yhat_transformer.seq_dataset import SeqPanel
+        from scripts.run_yhat_transformer_holdout import (
+            _drop_aligned_rows_without_cube,
+        )
+
+        dates = ["2022-06-22", "2022-07-01", "2022-06-22", "2022-07-04"]
+        codes = ["000001", "000001", "000002", "000002"]
+        seq = SeqPanel(
+            X=np.arange(4 * 2 * 2, dtype=np.float32).reshape(4, 2, 2),
+            gap=np.arange(4, dtype=np.float32),
+            y=np.arange(4, dtype=np.float32),
+            dates=dates,
+            codes=codes,
+            seq_len=2,
+        )
+        fac = FactorPanel(
+            X=np.arange(8, dtype=np.float32).reshape(4, 2),
+            y=np.arange(4, dtype=np.float32),
+            dates=list(dates),
+            codes=list(codes),
+            feature_names=["a", "b"],
+        )
+        # 唯一日期排序后：06-22 无立方，07-01 / 07-04 有。只切起点之前。
+        with mock.patch(
+            "core.research.materialize.cube_z.groups_with_day_cube",
+            return_value=(np.asarray([False, True, True]), ["2022-06-22|open"]),
+        ):
+            seq2, fac2 = _drop_aligned_rows_without_cube(seq, fac)
+        self.assertEqual(seq2.dates, ["2022-07-01", "2022-07-04"])
+        self.assertEqual(fac2.codes, ["000001", "000002"])
+        self.assertEqual(int(seq2.n), 2)
+        self.assertEqual(int(fac2.n), 2)
+        np.testing.assert_array_equal(fac2.X[:, 0], np.asarray([2, 6], dtype=np.float32))
+
+        with mock.patch(
+            "core.research.materialize.cube_z.groups_with_day_cube",
+            return_value=(np.ones(3, dtype=bool), []),
+        ):
+            seq3, fac3 = _drop_aligned_rows_without_cube(seq, fac)
+        self.assertIs(seq3, seq)
+        self.assertIs(fac3, fac)
+
+        with mock.patch(
+            "core.research.materialize.cube_z.groups_with_day_cube",
+            return_value=(np.zeros(3, dtype=bool), ["2022-06-22|open"]),
+        ):
+            seq4, fac4 = _drop_aligned_rows_without_cube(seq, fac)
+        self.assertIs(seq4, seq)
+        self.assertEqual(seq4.dates, dates)
+        self.assertIs(fac4, fac)
 
     def test_arm_t_uses_l2_cube_cs_z(self):
         """因子支路与 L 对齐：全面板走 cs_z_matrix_prefer_cube，不再列标准化。"""
@@ -846,6 +1144,92 @@ class TestArmLLiveAligned(unittest.TestCase):
         self.assertFalse(out.get("success"))
         self.assertIn("MaterializeRequired", str(out.get("error") or ""))
         train_m.assert_not_called()
+
+
+class TestRelativeHardGates(unittest.TestCase):
+    def test_single_arm_factory_returns_none(self):
+        from scripts.run_yhat_transformer_holdout import _relative_hard_gates
+
+        summary = {"arm_L": {"success": True, "cs_rank_ic": 0.04}}
+        called = {"n": 0}
+
+        def _gate(_base, _pack):
+            called["n"] += 1
+            return {"pass": True}
+
+        self.assertIsNone(_relative_hard_gates(summary, _gate, factory="L"))
+        self.assertIsNone(_relative_hard_gates(summary, _gate, factory="T"))
+        self.assertEqual(called["n"], 0)
+
+    def test_lt_missing_baseline_is_fail_not_crash(self):
+        from scripts.run_yhat_transformer_holdout import _relative_hard_gates
+
+        summary = {
+            "arm_L": {"success": False, "error": "boom"},
+            "arm_T": {"success": True, "cs_rank_ic": 0.02},
+        }
+        gates = _relative_hard_gates(summary, lambda _a, _b: {"pass": True}, factory="LT")
+        self.assertIsInstance(gates, dict)
+        self.assertFalse(gates["T"]["pass"])
+        self.assertIn("baseline missing", gates["T"]["reasons"][0])
+
+
+class TestHoldoutSystemExitDesk(unittest.TestCase):
+    def test_sigterm_systemexit_marks_desk_failed(self):
+        """SIGTERM → SystemExit(143) 时回写 desk，避免 job 假 running。"""
+        from unittest import mock
+
+        import scripts.run_yhat_transformer_holdout as holdout
+
+        marked = {}
+
+        def _fake_parse():
+            ns = mock.Mock()
+            ns.head = "oo"
+            ns.factory = "L"
+            ns.update_desk = True
+            return ns
+
+        with mock.patch.object(
+            holdout.argparse.ArgumentParser, "parse_args", return_value=_fake_parse()
+        ), mock.patch.object(
+            holdout, "_run_holdout", side_effect=SystemExit(143)
+        ), mock.patch.object(
+            holdout,
+            "_desk_mark_failed",
+            side_effect=lambda *a, **k: marked.update({"args": a, **k}),
+        ):
+            with self.assertRaises(SystemExit) as cm:
+                holdout.main()
+            self.assertEqual(cm.exception.code, 143)
+        self.assertEqual(marked["args"][0], "oo")
+        self.assertIn("SIGTERM", marked["args"][1])
+        self.assertEqual(marked.get("factory"), "L")
+
+    def test_zero_systemexit_does_not_mark_failed(self):
+        from unittest import mock
+
+        import scripts.run_yhat_transformer_holdout as holdout
+
+        calls = []
+
+        def _fake_parse():
+            ns = mock.Mock()
+            ns.head = "oo"
+            ns.factory = "T"
+            ns.update_desk = True
+            return ns
+
+        with mock.patch.object(
+            holdout.argparse.ArgumentParser, "parse_args", return_value=_fake_parse()
+        ), mock.patch.object(
+            holdout, "_run_holdout", side_effect=SystemExit(0)
+        ), mock.patch.object(
+            holdout, "_desk_mark_failed", side_effect=lambda *a, **k: calls.append((a, k))
+        ):
+            with self.assertRaises(SystemExit):
+                holdout.main()
+        self.assertEqual(calls, [])
 
 
 if __name__ == "__main__":

@@ -1,7 +1,7 @@
 """产品动作映射（与 Web 量化研究台对齐）。
 
 主线：基于信号开发决策策略，用历史/前瞻验证有效性；对比（按需）看两条验证是否一致。
-UI：量化 Tab = 验证台（策略摘要 + 双栏验证 + 按需对比）；执行在纸面 Tab。
+UI：侧栏为仪表盘 · 观察台 · 市场先验 · 交易执行 · 历史回测 · 数据中心 · 研究枢纽 · 平台；执行在交易执行。
 API URL 不变（P94）；本模块只提供归属说明与机器可读映射。
 共享打分：`core/signal/scorer.score_bars` + `compute_buy_stance`（模拟与回溯共用）。
 """
@@ -15,7 +15,7 @@ ACTIONS: List[Dict[str, Any]] = [
         "order": 1,
         "label": "策略",
         "summary": "信号→决策规则（被验证的对象）",
-        "ui": "量化面板 · 策略指纹",
+        "ui": "市场先验",
         "apis": [
             "/api/signal/config/file",
             "/api/signal/config/diff-preview",
@@ -31,7 +31,7 @@ ACTIONS: List[Dict[str, Any]] = [
         "order": 2,
         "label": "回溯",
         "summary": "研究池 + Top-K 历史回测 + 横截面（历史卷）",
-        "ui": "量化面板 · 历史验证卡",
+        "ui": "历史回测",
         "apis": [
             "/api/watching/*",
             "/api/quant/portfolio-backtest",
@@ -55,7 +55,7 @@ ACTIONS: List[Dict[str, Any]] = [
         "order": 3,
         "label": "模拟",
         "summary": "纸面假钱持续记账（前瞻验证）",
-        "ui": "模拟 Tab（执行）· 量化前瞻验证卡（桥接）",
+        "ui": "交易执行",
         "apis": [
             "/api/paper/*",
             "/api/paper/rebalance",
@@ -75,7 +75,7 @@ ACTIONS: List[Dict[str, Any]] = [
         "order": 4,
         "label": "联动",
         "summary": "模拟持仓与观察池/量化状态只读摘要",
-        "ui": "模拟 · 持仓与观察重叠（可选）",
+        "ui": "交易执行 · 持仓与观察池重叠（可选）",
         "apis": [
             "/api/portfolio/quant-bridge",
         ],
@@ -100,15 +100,18 @@ def action_map() -> Dict[str, Any]:
         "flow": ["观察/纸面", "策略", "回溯|模拟"],
         "ui_layout": {
             "pages": {
-                "watching": "观察：长期名单",
-                "paper": "纸面：只配假账户",
-                "strategy": "策略：只看规则/diff",
-                "replay": "回溯：只做历史实验",
-                "follow": "模拟：假钱买卖",
-                "quant": "枢纽：导览+进阶调参+运维",
+                "dashboard": "仪表盘：开盘总览",
+                "watching": "观察台：长期名单 + 建仓",
+                "strategy": "市场先验：M prior",
+                "follow": "交易执行：已有仓位",
+                "replay": "历史回测：调仓 / 做 T",
+                "data": "数据中心：日K · 5m · 物化",
+                "quant": "研究枢纽：拟合与分档",
+                "platform": "平台：调度 · 日更",
+                "paper": "纸面：初始化假账（打开后进交易执行）",
             },
-            "chat_tabs": "观察|模拟|回溯|回复",
-            "topbar": "对话|观察|模拟|回溯",
+            "sidebar": "仪表盘|观察台|市场先验|交易执行|历史回测|数据中心|研究枢纽|平台",
+            "ai": "顶栏抽屉 ⌘K",
         },
         "validation": {
             "replay": "Watching（考试范围）+ Top-K 回测引擎（历史卷）",

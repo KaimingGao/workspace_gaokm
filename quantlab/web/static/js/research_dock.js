@@ -1,4 +1,4 @@
-/** W4 · 观察页研究 Dock：表 | 图 可拖拽分栏，布局存 localStorage。 */
+/** W4 · 观察台研究 Dock：表 | 图 可拖拽分栏，布局存 localStorage。 */
 
 const STORAGE_KEY = "quantlab_research_dock";
 

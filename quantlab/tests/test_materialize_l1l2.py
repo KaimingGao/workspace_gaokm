@@ -794,6 +794,56 @@ class CubeZPerClockTests(unittest.TestCase):
         self.assertEqual(d2, dates)
         self.assertEqual(mask.tolist(), [True, True, True])
 
+    def test_align_keeps_float32_object_when_requested(self):
+        import numpy as np
+
+        from core.research.materialize.cube_z import align_fit_rows_to_l2
+
+        x = np.arange(6, dtype=np.float32).reshape(3, 2)
+        y = np.arange(3, dtype=np.float64)
+        dates = ["2024-01-02", "2024-01-03", "2024-01-04"]
+        with mock.patch(
+            "core.research.materialize.cube_z.groups_with_day_cube",
+            return_value=(np.ones(3, dtype=bool), []),
+        ):
+            x2, y2, _d2, _mask = align_fit_rows_to_l2(
+                x, y, dates, clock="open", x_dtype=np.float32
+            )
+        self.assertIs(x2, x)
+        self.assertIs(y2, y)
+        self.assertEqual(x2.dtype, np.float32)
+
+    def test_inplace_cs_z_reuses_float32_buffer(self):
+        import numpy as np
+
+        from core.research.materialize.cube_z import cs_z_matrix_prefer_cube
+
+        class _Cube:
+            names = ["f1"]
+            z_mean = np.array([1.0])
+            z_std = np.array([2.0])
+
+        x = np.array([[3.0], [5.0], [np.nan]], dtype=np.float32)
+        with mock.patch(
+            "core.research.day_cube.enabled", return_value=True
+        ), mock.patch(
+            "core.research.day_cube.load_day_cube", return_value=_Cube()
+        ), mock.patch(
+            "core.research.materialize.cube_z.universe_codes",
+            return_value=["000001", "000002"],
+        ):
+            z = cs_z_matrix_prefer_cube(
+                x,
+                ["f1"],
+                ["2026-01-02", "2026-01-02", "2026-01-02"],
+                inplace=True,
+            )
+        self.assertIs(z, x)
+        self.assertEqual(z.dtype, np.float32)
+        self.assertAlmostEqual(float(z[0, 0]), 1.0, places=5)
+        self.assertAlmostEqual(float(z[1, 0]), 2.0, places=5)
+        self.assertEqual(float(z[2, 0]), 0.0)
+
     def test_clock_miss_falls_back_to_open(self):
         import numpy as np
 

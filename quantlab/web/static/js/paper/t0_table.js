@@ -232,7 +232,7 @@ const T0_TRADE_COL_W = {
   act: "52px",
 };
 
-/** 与数据中心主表一致：名称最多 6 字 + … */
+/** 与观察台主表一致：名称最多 6 字 + … */
 function truncateName(name, max = 6) {
   const full = String(name || "").trim();
   const chars = Array.from(full);
@@ -263,7 +263,7 @@ function fmtTradeDateCell(d, fallback) {
   return day;
 }
 
-/** 股票名 + 代码（对齐数据中心 watching-stock：名上行、码下行） */
+/** 股票名 + 代码（对齐观察台 watching-stock：名上行、码下行） */
 export function stockCellHtml(row, fallback = {}) {
   const code = String((row && row.stock_code) || fallback.stock_code || "").trim();
   const name = String((row && row.stock_name) || fallback.stock_name || "").trim();

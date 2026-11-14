@@ -655,7 +655,7 @@ export function installStrategy(q) {
         regulatory_mode: regMode,
         ipo_drain_mode: ipoMode,
         merge_mode: mergeMode,
-        note: "策略中心人审·市场 prior",
+        note: "市场先验人审·市场 prior",
       };
       if (mode === "gate") {
         body.tech_drag_trigger_pct = techTrig;
@@ -735,7 +735,7 @@ export function installStrategy(q) {
 
   function renderStrategyList(data) {
     if (!data || !data.success || !data.strategies) return;
-    // 观察页直方图只读滞回门槛（本页不再提供编辑）
+    // 观察台直方图只读滞回门槛（本页不再提供编辑）
     const floors = data.scoring_floors || {};
     if (floors.min_predicted_score != null || floors.min_hold_predicted_score != null) {
       state.quantScoringFloors = mergeScoringFloors(state.quantScoringFloors, floors);

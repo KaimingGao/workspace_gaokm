@@ -45,7 +45,7 @@ CLUSTER_LAST_REPORT_PATH = os.path.join(LIVE_DIR, "cluster_last_report.json")
 BARS_FORCED_SESSION_PATH = os.path.join(
     LIVE_DIR, "bars_forced_session.json"
 )
-# 最近一次日线写入相对上一份仓的差异（研究枢纽日线区）
+# 最近一次日线写入相对上一份仓的差异（数据中心日线区）
 BARS_REFRESH_DIFF_PATH = os.path.join(LIVE_DIR, "bars_refresh_diff.json")
 # H3：promote / 改 mode 后的 live 配置指纹；读写须按当时的 LIVE_DIR 拼接
 LIVE_CONFIG_MANIFEST_PATH = os.path.join(LIVE_DIR, "live_config_manifest.json")
@@ -109,7 +109,12 @@ OO_LGB_JOB_PATH = os.path.join(JOBS_DIR, "oo_lgb.json")
 OO_RANK_JOB_PATH = os.path.join(JOBS_DIR, "oo_rank.json")
 TC_RANK_JOB_PATH = os.path.join(JOBS_DIR, "tc_rank.json")
 ROLL_GATE_JOB_PATH = os.path.join(JOBS_DIR, "roll_gate.json")
-# 模型中心 /yhat-tf（⌘⇧K）：draft / research / last；不写 live score
-YHAT_TF_DIR = os.path.join(LIVE_DIR, "yhat_tf")
-YHAT_TF_LAST_PATH = os.path.join(YHAT_TF_DIR, "last_status.json")
+# 模型工厂（⌘⇧K）：按臂分目录；不写 live score
+# L = LightGBM 工厂 /yhat-l；T = Transformer 工厂 /yhat-t（旧 yhat_tf 别名落 T）
+YHAT_L_DIR = os.path.join(LIVE_DIR, "yhat_l")
+YHAT_T_DIR = os.path.join(LIVE_DIR, "yhat_t")
+YHAT_TF_DIR = YHAT_T_DIR  # 兼容旧导入名 → Arm·T
+YHAT_L_LAST_PATH = os.path.join(YHAT_L_DIR, "last_status.json")
+YHAT_T_LAST_PATH = os.path.join(YHAT_T_DIR, "last_status.json")
+YHAT_TF_LAST_PATH = YHAT_T_LAST_PATH
 

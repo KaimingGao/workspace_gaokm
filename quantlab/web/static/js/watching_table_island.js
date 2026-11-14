@@ -1,5 +1,5 @@
 /**
- * 数据中心主表 · 纯 DOM 虚拟滚动（共享 virtual_table 内核）。
+ * 观察台主表 · 纯 DOM 虚拟滚动（共享 virtual_table 内核）。
  */
 const _WR_V = (typeof window !== "undefined" && window.__ASSET_V__) || "dev";
 const { Y_OC_REBALANCE_TITLE, FUSE_REBALANCE_TITLE } = await import(
@@ -46,7 +46,7 @@ function compare(id, a, b) {
   return String(a[id] ?? "").localeCompare(String(b[id] ?? ""), "zh-CN", { numeric: true });
 }
 
-/** 数据中心主表列轨：除「股票」外固定 px，避免 fr 权重把间距拉散。 */
+/** 观察台主表列轨：除「股票」外固定 px，避免 fr 权重把间距拉散。 */
 const COLS = [
   {
     id: "picked",
@@ -248,7 +248,7 @@ export async function mountWatchingTableIsland(host, options = {}) {
         return d.onPaper
           ? `<button type="button" class="watching-held-btn" data-code="${escapeHtml(
               d.code || ""
-            )}" title="已在模拟持仓，点击到模拟页管理">${escapeHtml(d.paper || "已持")}</button>`
+            )}" title="已在模拟持仓，点击到交易执行管理">${escapeHtml(d.paper || "已持")}</button>`
           : `<button type="button" class="watching-build-btn" data-code="${escapeHtml(
               d.code || ""
             )}" title="按金额确认后，现价假买进模拟账户">建仓</button>`;

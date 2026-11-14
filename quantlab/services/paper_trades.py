@@ -1311,7 +1311,7 @@ class PaperTradesMixin:
         open_replay: bool = False,
     ) -> Dict[str, Any]:
         if not os.path.isfile(self.path):
-            raise FileNotFoundError("请先初始化纸面账户")
+            raise FileNotFoundError("请先初始化模拟账户")
 
         _ = strategy
         # 09:30 开盘复现只出对照，任何情况下都不写账、不受 10:00 窗口限制。
@@ -1542,7 +1542,7 @@ class PaperTradesMixin:
 
     def buy(self, *, stock_code: str, amount: Optional[float] = None, shares: Optional[float] = None) -> Dict[str, Any]:
         if not os.path.isfile(self.path):
-            raise FileNotFoundError("请先初始化纸面账户")
+            raise FileNotFoundError("请先初始化模拟账户")
         from core.paper import manual_buy
 
         with paper_write_lock(self.path):
@@ -1589,7 +1589,7 @@ class PaperTradesMixin:
         shares: Optional[float] = None,
     ) -> Dict[str, Any]:
         if not os.path.isfile(self.path):
-            raise FileNotFoundError("请先初始化纸面账户")
+            raise FileNotFoundError("请先初始化模拟账户")
         from core.paper import manual_sell
         from core.paper.exec import manual_sell_intents
         from core.paper.open_fill import (
@@ -1683,7 +1683,7 @@ class PaperTradesMixin:
     def holding_chart(self, stock_code: str, *, lookback: int = 60) -> Dict[str, Any]:
         """单只持仓：近 lookback 日收盘价 + 相对成本浮盈%（非整账净值）。"""
         if not os.path.isfile(self.path):
-            raise FileNotFoundError("请先初始化纸面账户")
+            raise FileNotFoundError("请先初始化模拟账户")
         code = str(stock_code or "").strip()
         if not code:
             raise ValueError("请指定股票代码")
@@ -1751,7 +1751,7 @@ class PaperTradesMixin:
         仅 5m 第一触达；缺分钟线的票跳过（已删除日线模拟）。
         """
         if not os.path.isfile(self.path):
-            raise FileNotFoundError("请先初始化纸面账户")
+            raise FileNotFoundError("请先初始化模拟账户")
         if dry_run:
             return self._simulate_t0_impl(
                 rules=rules,
@@ -2145,7 +2145,7 @@ class PaperTradesMixin:
 
     def t0_auto_status(self) -> Dict[str, Any]:
         if not os.path.isfile(self.path):
-            raise FileNotFoundError("请先初始化纸面账户")
+            raise FileNotFoundError("请先初始化模拟账户")
         paper = load_paper(self.path)
         cfg = _t0_auto_from_paper(paper)
         lr = cfg.get("last_run") if isinstance(cfg.get("last_run"), dict) else None
@@ -2177,7 +2177,7 @@ class PaperTradesMixin:
     ) -> Dict[str, Any]:
         """删除落账明细；默认冲正对应 t0_* 成交腿（现金/批次）并清盘中状态。"""
         if not os.path.isfile(self.path):
-            raise FileNotFoundError("请先初始化纸面账户")
+            raise FileNotFoundError("请先初始化模拟账户")
         codes = [
             str(c or "").strip()
             for c in (stock_codes or [])
@@ -2364,7 +2364,7 @@ class PaperTradesMixin:
 
     def save_t0_auto(self, patch: Optional[dict] = None) -> Dict[str, Any]:
         if not os.path.isfile(self.path):
-            raise FileNotFoundError("请先初始化纸面账户")
+            raise FileNotFoundError("请先初始化模拟账户")
         patch = patch or {}
         with paper_write_lock(self.path):
             paper = load_paper(self.path)
@@ -2391,7 +2391,7 @@ class PaperTradesMixin:
     ) -> Dict[str, Any]:
         """例行/立即自动做 T。force=True 时忽略 enabled 开关（仍受 open_fill 等门禁）。"""
         if not os.path.isfile(self.path):
-            raise FileNotFoundError("请先初始化纸面账户")
+            raise FileNotFoundError("请先初始化模拟账户")
         paper = load_paper(self.path)
         cfg = _t0_auto_from_paper(paper)
         if not cfg.get("enabled") and not force and not dry_run:
@@ -2422,7 +2422,7 @@ class PaperTradesMixin:
     ) -> Dict[str, Any]:
         """5m 盯盘增量落账：用截至当前的分钟线回放，新触达腿即时写账。"""
         if not os.path.isfile(self.path):
-            raise FileNotFoundError("请先初始化纸面账户")
+            raise FileNotFoundError("请先初始化模拟账户")
         from core.data.facade import bars_and_source
         from core.execution import execution_public_view, resolve_effective_execution, strip_execution_meta
         from core.paper.tplus1 import sellable_shares as t1_sellable

@@ -1476,7 +1476,7 @@ def _stamp_fusion_on_items(
 ) -> None:
     """用策略 rank_lots 的 w_oo / w_τc 写 y_oo_fuse。
 
-    缺 paper 时才落到默认 0.6/0.4。数据中心 fuse tip 读这些键，必须和调仓回测同一套权。
+    缺 paper 时才落到默认 0.6/0.4。观察台 fuse tip 读这些键，必须和调仓回测同一套权。
     """
     from core.paper.rebalance.path_matrix import get_path_matrix_cfg
     from core.signal.yhat_windows import stamp_window_scores
@@ -2559,7 +2559,7 @@ def simulate_watching_matrix_preview(
         if score_codes is not None:
             pool_meta["n_tradable"] = len(score_codes)
 
-    # 与持仓表 / 数据中心同源：signal_config.scoring.horizon_days
+    # 与持仓表 / 观察台同源：signal_config.scoring.horizon_days
     try:
         from core.signal.config import get_scoring_horizon_days
 

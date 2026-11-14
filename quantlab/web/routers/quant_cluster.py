@@ -17,7 +17,7 @@ router = APIRouter(tags=["quant"])
 @router.get("/api/quant/bars/status")
 
 def quant_bars_status(watching_limit: int = WATCHING_MAX_SIZE) -> Dict[str, Any]:
-    """观察池日线末 bar 覆盖（研究枢纽状态条）。"""
+    """观察池日线末 bar 覆盖（数据中心 / 研究枢纽概览）。"""
     try:
         return deps.quant.bars_status(watching_limit=watching_limit)
     except Exception as e:
@@ -116,7 +116,7 @@ def quant_minute_status(
     min_span_days: int = 40,
     include_label_portrait: bool = False,
 ) -> Dict[str, Any]:
-    """观察池 5m 分钟缓存覆盖（研究枢纽 UI）。
+    """观察池 5m 分钟缓存覆盖（数据中心 / 研究枢纽概览）。
 
     默认不含标签画像；传 ``include_label_portrait=true`` 再算 τ(OC) 画像。
     """

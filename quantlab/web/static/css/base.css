@@ -1436,7 +1436,7 @@ a.dialog-btn[aria-disabled="true"] {
   width: 100%;
   max-width: 100%;
   min-width: 0;
-  /* 与数据中心名单表体同高：框固定，纵向在框内滑；禁止横向滚动 */
+  /* 与观察台名单表体同高：框固定，纵向在框内滑；禁止横向滚动 */
   height: min(68vh, 860px);
   overflow-x: hidden;
   overflow-y: auto;
@@ -3233,7 +3233,7 @@ a.hub-card:hover {
   }
 }
 
-/* —— P96 tool pages (/follow /watching /strategy …) ——
+/* —— P96 tool pages (/follow /watching /market-prior …) ——
    壳层锁死视口高度，只让 .page-main 滚动，避免滚到底后连锁滚 body 划出空白区 */
 body[data-page] {
   overflow: hidden;

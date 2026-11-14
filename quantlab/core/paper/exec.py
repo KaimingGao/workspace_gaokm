@@ -273,7 +273,7 @@ def _close_before_session(code: str, session: str) -> Optional[float]:
 
 
 def _cached_bar_mark(code: str) -> Dict[str, Any]:
-    """研究枢纽日线缓存末根：close / open / 涨跌幅（不打网）。"""
+    """本地日线缓存末根：close / open / 涨跌幅（不打网）。"""
     out: Dict[str, Any] = {}
     raw = str(code or "").strip()
     if not raw:

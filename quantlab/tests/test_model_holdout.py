@@ -14,6 +14,7 @@ from core.research.holdout import (
     normalize_backtest_model_role,
     normalize_model_role,
     parse_persist_role,
+    empty_holdout_preds,
     refuse_insufficient_holdout,
     refuse_ungated_full_sample,
     research_model_path,
@@ -28,6 +29,17 @@ from core.research.holdout import (
 
 
 class TestHoldoutSplit(unittest.TestCase):
+    def test_empty_holdout_preds_only_when_every_row_missing(self):
+        self.assertTrue(
+            empty_holdout_preds([None, None], holdout_trading_days=20)
+        )
+        self.assertFalse(
+            empty_holdout_preds([None, 0.1], holdout_trading_days=20)
+        )
+        self.assertFalse(
+            empty_holdout_preds([None, None], holdout_trading_days=0)
+        )
+        self.assertFalse(empty_holdout_preds([], holdout_trading_days=20))
     def test_split_by_holdout_days_keeps_train_before_eval(self):
         dates = [f"2026-01-{d:02d}" for d in range(1, 21)]
         train_idx, test_idx, meta = split_by_holdout_days(

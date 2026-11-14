@@ -387,13 +387,13 @@ Skill / Service / 研究 CLI
 
 **P94 演进（非重写）**：`QuantService` 拆为 config/factors/portfolio/ops Mixin，门面类名与方法不变；Web 路由按域拆到 `web/routers/*`，URL 不变。
 
-产品流程（观察 · 模拟 · 回溯；观察≠模拟）：见 [quant-ui.md](quant-ui.md)。路由：`/watching` `/follow` `/replay`（`/paper` `/strategy` `/quant` 等仍可用）。见 `action_map.py`、`GET /api/quant/actions` 与 [quant.md · 入门概念](quant.md#量化入门概念)。
+产品流程（观察 ≠ 模拟）：观察台维护名单并建仓，交易执行管已有仓位，历史回测验规则。见 [quant-ui.md](quant-ui.md)。路由：`/watching` `/follow` `/replay` `/market-prior`（`/paper` 重定向到 `/follow`；`/strategy` 重定向到 `/market-prior`；`/quant` 等仍可用）。见 `action_map.py`、`GET /api/quant/actions` 与 [quant.md · 入门概念](quant.md#量化入门概念)。
 
-**观察池**（Watching）：用户维护的**候选股票宇宙**（静态名单和/或 `screen` 筛选），落盘 `data/watching.json`，页 `/watching`。划定打分、行情预热、截面 μ/σ、调仓开加、回测宇宙的范围（上限默认 300、硬顶 `WATCHING_MAX_SIZE`=1600，研究枢纽可改）；**不是**持仓、**不是**全市场。持仓在模拟账本 `paper.json`。生产调仓主路径：观察池 → 会话日官方开盘 L2 出分（缺则物化补齐）→ **y_oo_fuse 入场 + y_oo_rank 买序（rank_lots）**；建仓只从观察页进（见下「入口边界」）。做 T 不从池新开，只 overlay 已持底仓；分钟截面常为观察池 ∪ 持仓。细则见 [rebalance-logic.md](rebalance-logic.md) · [quant.md · ŷ](quant.md#predictedscoreŷ全链路)。
+**观察池**（Watching）：用户维护的**候选股票宇宙**（静态名单和/或 `screen` 筛选），落盘 `data/watching.json`，页 `/watching`。划定打分、行情预热、截面 μ/σ、调仓开加、回测宇宙的范围（上限默认 300、硬顶 `WATCHING_MAX_SIZE`=1600，研究枢纽可改）；**不是**持仓、**不是**全市场。持仓在模拟账本 `paper.json`。生产调仓主路径：观察池 → 会话日官方开盘 L2 出分（缺则物化补齐）→ **y_oo_fuse 入场 + y_oo_rank 买序（rank_lots）**；建仓只从观察台进（见下「入口边界」）。做 T 不从池新开，只 overlay 已持底仓；分钟截面常为观察池 ∪ 持仓。细则见 [rebalance-logic.md](rebalance-logic.md) · [quant.md · ŷ](quant.md#predictedscoreŷ全链路)。
 
 **研究宇宙 / 可交易严筛**：`data/research_universe.json` 为日线研究与观察池扩容的**门票池**，经 `core/universe/tradable_screen.py` 按 `data/tradable_universe_policy.json` 严筛（剔 ST、流通市值/成交额/价格带等）后写入。主入口 `POST /api/quant/research-universe/rebuild-and-reconcile`；运维可分步 `rebuild-tradable` / `reconcile-watching`。默认 **`watching ⊆ research_universe`**（`QUANTLAB_WATCHING_SUBSET_OF_RESEARCH=1`）；扩容只从研究池补，手工加票须已在研究池。回测剔 ST 时同步套用 policy 绝对成交额门槛。
 
-**入口边界**：观察页是唯一开仓入口（建仓前必过 `sync-paper/preview` 预演），模拟页只管已有仓位。凡「买什么、买多少」由规则决定的动作（按策略调仓）收进进阶区，并在持仓 `origin` 上标 `strategy` 与手动区分。做 T 为 **overlay**，不改变「持有什么」的主线；见 [quant.md · 策略调仓 vs 底仓做 T](quant.md#策略调仓-vs-底仓做-t)。
+**入口边界**：观察台是唯一开仓入口（建仓前必过 `sync-paper/preview` 预演），交易执行只管已有仓位。凡「买什么、买多少」由规则决定的动作（按策略调仓）收进进阶区，并在持仓 `origin` 上标 `strategy` 与手动区分。做 T 为 **overlay**，不改变「持有什么」的主线；见 [quant.md · 策略调仓 vs 底仓做 T](quant.md#策略调仓-vs-底仓做-t)。
 
 **命名约定**：产品对外统一称「模拟」/URL `/follow`；内部 canonical 仍为 `paper`（`paper.json`、`/api/paper`）。旧页 `/paper` 302 到 `/follow`。
 
@@ -988,7 +988,7 @@ SKILL_SPECS = (
 | `chat` | `web/routers/chat.py` | `/api/chat` 会话 |
 | `paper` | `web/routers/paper.py` | `/api/paper` 模拟账本 |
 | `watching` | `web/routers/watching.py` | `/api/watching` 观察池（候选宇宙 CRUD / 建仓入口） |
-| `strategy` | `web/routers/strategy.py` | 策略配置 |
+| `strategy` | `web/routers/strategy.py` | 策略规格 / 晋级 `/api/strategy`（不是市场先验页） |
 | `daily` | `web/routers/daily.py` | `/api/daily` 日报编排 |
 | `quant` | `web/routers/quant.py` | `/api/quant` 研究台主路由 |
 | `quant_config` | `web/routers/quant_config.py` | 信号/策略配置 |
@@ -1004,7 +1004,7 @@ SKILL_SPECS = (
 
 | 文件 | 职责 |
 |------|------|
-| `paper.js` | 模拟页总编排（子模块在 `paper/`） |
+| `paper.js` | 交易执行总编排（子模块在 `paper/`） |
 | `quant.js` | 研究台总编排（子模块在 `quant/`） |
 | `dashboard.js` + `dashboard_api.js` | 首页仪表盘 |
 | `ai_drawer.js` | ⌘K 对话抽屉 |
@@ -1470,7 +1470,7 @@ flowchart LR
 
 ## 子目录 README 索引
 
-各代码目录的 `README.md` 说明职责与入口。Web 量化面板 **运维状态 → 浏览子目录 README** 可在线阅读；API：`GET /api/readme?dir=<路径>`。
+各代码目录的 `README.md` 说明职责与入口。在线阅读走 `GET /api/readme?dir=<路径>`。
 
 | 目录 | README |
 |------|--------|

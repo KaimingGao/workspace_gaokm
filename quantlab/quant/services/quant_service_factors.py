@@ -3002,7 +3002,7 @@ class QuantFactorMixin:
         return report
 
     def bars_status(self, *, watching_limit: int = WATCHING_MAX_SIZE) -> Dict[str, Any]:
-        """观察池日线末 bar 覆盖（研究枢纽 UI）。"""
+        """观察池日线末 bar 覆盖（数据中心 / 研究枢纽概览）。"""
         from quant.research.bars_status import build_bars_status
 
         return build_bars_status(watching_limit=watching_limit)
@@ -3382,7 +3382,7 @@ class QuantFactorMixin:
         min_span_days: int = 40,
         include_label_portrait: bool = False,
     ) -> Dict[str, Any]:
-        """观察池 5m 分钟缓存覆盖（研究枢纽 UI）。"""
+        """观察池 5m 分钟缓存覆盖（数据中心 / 研究枢纽概览）。"""
         from quant.research.minute_status import build_minute_status
 
         return build_minute_status(

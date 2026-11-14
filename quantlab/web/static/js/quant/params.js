@@ -173,6 +173,7 @@ function clampWatchingPoolLimit(v, fallback = WATCHING_POOL_DEFAULT) {
 
 let _poolLimitReadyResolve = null;
 let _poolLimitReadySettled = false;
+let _hydratedPoolLimit = null;
 /** 首次从 watching.json hydrate 滑块后再 resolve；日线/5m 首刷须 await。 */
 export const watchingPoolLimitReady = new Promise((resolve) => {
   _poolLimitReadyResolve = resolve;
@@ -180,9 +181,10 @@ export const watchingPoolLimitReady = new Promise((resolve) => {
 
 /** 标记观察池只数已就绪（幂等）；供日线/5m 首刷等待。 */
 export function markWatchingPoolLimitReady(limit) {
+  const n = clampWatchingPoolLimit(limit, WATCHING_POOL_DEFAULT);
   if (_poolLimitReadySettled) return;
   _poolLimitReadySettled = true;
-  const n = clampWatchingPoolLimit(limit, WATCHING_POOL_DEFAULT);
+  _hydratedPoolLimit = n;
   const resolve = _poolLimitReadyResolve;
   _poolLimitReadyResolve = null;
   if (typeof resolve === "function") resolve(n);
@@ -242,7 +244,7 @@ export function clampBarsWatchingLimit(v, fallback = BARS_WATCHING_LIMIT) {
   return clampWatchingPoolLimit(v, fallback);
 }
 
-/** 观察池只数：研究枢纽配置，拟合 / 日K / 5m / 分档共用。 */
+/** 观察池只数：研究枢纽滑条配置；数据中心无滑条时用已 hydrate 的上限。 */
 export function readWatchingPoolLimit() {
   const el =
     (typeof document !== "undefined" &&
@@ -250,6 +252,7 @@ export function readWatchingPoolLimit() {
         document.getElementById("quant-watching-limit"))) ||
     null;
   if (el && el.value !== "") return clampWatchingPoolLimit(el.value);
+  if (_hydratedPoolLimit != null) return _hydratedPoolLimit;
   return WATCHING_POOL_DEFAULT;
 }
 

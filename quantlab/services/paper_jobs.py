@@ -33,7 +33,7 @@ class PaperJobsMixin:
         import copy
 
         if not os.path.isfile(self.path):
-            raise FileNotFoundError("请先初始化纸面账户")
+            raise FileNotFoundError("请先初始化模拟账户")
         with paper_write_lock(self.path):
             paper = load_paper(self.path)
             original = copy.deepcopy(paper)
@@ -153,7 +153,7 @@ class PaperJobsMixin:
     ) -> Dict[str, Any]:
         """后台跑观察池，前端轮询 /api/jobs/paper（兼容 /api/paper/job）。"""
         if not os.path.isfile(self.path):
-            raise FileNotFoundError("请先初始化纸面账户")
+            raise FileNotFoundError("请先初始化模拟账户")
         if paper_job.is_running():
             return {"ok": False, "error": "已有纸面任务在运行", "job": paper_job.get()}
 

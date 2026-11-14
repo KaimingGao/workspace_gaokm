@@ -427,6 +427,22 @@ def fit_tau_model_report(
     metas_te = packed["metas_te"]
     preds_te = packed["preds_te"]
     hold_n = packed["hold_n"]
+    from core.research.holdout import empty_holdout_preds
+
+    if empty_holdout_preds(preds_te, holdout_trading_days=int(hold_n or 0)):
+        return {
+            "success": False,
+            "error": "Holdout 评测缺 L2 立方，预测为空",
+            "task": "tc_lgb",
+            "tau": tau_key,
+            "stock_count": n_stocks,
+            "oos": {
+                "n_train": len(ys_tr),
+                "n_test": len(ys_te),
+                "n_valid": 0,
+                "holdout_trading_days": hold_n,
+            },
+        }
     fill_keys = packed["fill_keys"]
     feature_fill = packed["feature_fill"]
     use_cs = packed["use_cs"]

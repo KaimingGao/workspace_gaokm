@@ -1,5 +1,5 @@
 /**
- * 数据中心 · 数据质量折叠 HTML。
+ * 观察台 · 数据质量折叠 HTML。
  */
 import { escapeHtml } from "../shared.js";
 

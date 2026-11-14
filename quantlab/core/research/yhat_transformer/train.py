@@ -301,7 +301,7 @@ def _subsample_whole_groups(
     latest: bool = False,
     min_group: int = 2,
 ) -> List[int]:
-    """按决策日整组抽样。listwise 不能把同一天的截面拆成随机子集。"""
+    """按决策日整组抽样。一组放不进剩余名额就停，不再改收更小的日期。"""
     groups = _group_row_lists(dates, indices, min_group=min_group)
     if not groups:
         return []
@@ -322,7 +322,8 @@ def _subsample_whole_groups(
         if n + len(g) > cap:
             if n == 0:
                 return list(g)
-            continue
+            # 放不进就停。再往后挑更小的日期会偏向股票少的截面。
+            break
         kept.extend(g)
         n += len(g)
     return kept

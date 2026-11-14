@@ -153,7 +153,7 @@ def _score_tooltip_meta(
     return_models_by_code: Optional[Dict[str, Any]] = None,
     global_weights: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
-    """与数据中心 / 交易执行同源的悬浮注释字段（ŷ · β · 分项表）。"""
+    """与观察台 / 交易执行同源的悬浮注释字段（ŷ · β · 分项表）。"""
     fw = _score_factor_weight_meta(
         code,
         global_weights=global_weights,

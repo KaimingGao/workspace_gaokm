@@ -43,7 +43,7 @@ function scoreRoleCaption(data) {
   if (role === "live") {
     return `<span title="执行槽（由研究槽晋级的 Holdout 前训模型）。与手动预演 / 自动做 T 同一套。括号里是真实标签，不是另一套模型的 ŷ。">执行套ŷ</span>`;
   }
-  return `<span title="y_* 为该行「日」列会话快照（做T决策时冻结）；5m 路径仓在研究枢纽写入；≠持仓实时分 / ≠调仓ŷ开关">会话快照ŷ</span>`;
+  return `<span title="y_* 为该行「日」列会话快照（做T决策时冻结）；5m 路径仓在数据中心写入；≠持仓实时分 / ≠调仓ŷ开关">会话快照ŷ</span>`;
 }
 
 function previewShowRealized(days) {

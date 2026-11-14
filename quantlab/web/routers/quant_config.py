@@ -62,7 +62,7 @@ def signal_config_scoring_floors(body: ScoringFloorsRequest) -> Dict[str, Any]:
         out = deps.quant.save_scoring_floors(
             min_predicted_score=body.min_predicted_score,
             min_hold_predicted_score=body.min_hold_predicted_score,
-            note=body.note or "策略中心人审",
+            note=body.note or "人审·ŷ门槛",
         )
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e)) from e
@@ -138,7 +138,7 @@ def signal_config_market_prior_save(body: MarketPriorRequest) -> Dict[str, Any]:
             ipo_drain_scale_buy_pct=body.ipo_drain_scale_buy_pct,
             ipo_drain_ratio_high=body.ipo_drain_ratio_high,
             merge_mode=body.merge_mode,
-            note=body.note or "策略中心人审·市场 prior",
+            note=body.note or "市场先验人审·市场 prior",
         )
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e)) from e
@@ -167,7 +167,7 @@ def signal_config_dual_score_save(body: DualScoreRequest) -> Dict[str, Any]:
             w_tau=body.w_tau,
             w_mode=body.w_mode,
             block_buy_if_tau_missing=body.block_buy_if_tau_missing,
-            note=body.note or "策略中心人审·双层ŷ",
+            note=body.note or "人审·双层ŷ",
         )
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e)) from e

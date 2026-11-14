@@ -1,4 +1,4 @@
-/* ══ STRATEGY ══ 策略中心：策略卡、参数、晋升 */
+/* ══ STRATEGY ══ 市场先验：M prior · Regime · 因子字典 */
 
 .strategy-factor-dict-list {
   display: flex;
@@ -38,7 +38,7 @@
   letter-spacing: -0.005em;
 }
 
-/* 策略中心：专业紧凑密度（scoped） */
+/* 市场先验：专业紧凑密度（scoped） */
 .strategy-page .strategy-section {
   margin: 0;
   padding: 0;
@@ -54,24 +54,6 @@
   gap: 6px 10px;
   margin: 0;
   padding: 0 2px;
-}
-
-.strategy-page .strategy-control-band {
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  background: var(--bg-card, var(--surface));
-  padding: 8px 10px;
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
-
-.strategy-page .strategy-field-unit {
-  font-size: 0.68rem;
-  color: var(--ink-3);
-  text-transform: none;
-  letter-spacing: 0;
-  min-width: 0.85rem;
 }
 
 .strategy-page .strategy-prior-status {
@@ -102,8 +84,8 @@ html[data-density="compact"] .strategy-page {
 }
 
 /* ==========================================================================
-   策略中心 · Desk Shell 对齐交易执行 (p886)
-   L1 区段壳 → L2 白卡 → L3 控制带 · 最小圆角 2px · 终端密度
+   市场先验 · Desk Shell 对齐交易执行 (p886)
+   L1 区段壳 → L2 白卡 · 最小圆角 2px · 终端密度
    ========================================================================== */
 body[data-page="strategy"] .strategy-page,
 body[data-page="strategy"] .page-main {
@@ -302,33 +284,13 @@ body[data-page="strategy"] .strategy-page .quant-pro-card-body {
   background: var(--bg-card, #fff);
 }
 
-/* L3 控制带 */
-body[data-page="strategy"] .strategy-control-band,
-body[data-page="strategy"] .strategy-page .quant-control-band {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  padding: 10px 12px;
-  border: 1px solid color-mix(in srgb, var(--line) 88%, transparent);
-  border-radius: 2px;
-  background: color-mix(in srgb, var(--ink) 1.5%, var(--bg-elevated, var(--surface)));
-}
-
-body[data-page="strategy"] .strategy-field-label {
-  font-size: 11px;
-  font-weight: 650;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-  color: var(--ink-3);
-}
-
 .strategy-prior-status {
   margin: 0;
   font-size: var(--d-fs-micro, 0.6875rem);
   color: var(--ink-3);
 }
 
-/* ——— 盘前 M prior（上）· Regime（下）（策略中心） ——— */
+/* ——— 盘前 M prior（上）· Regime（下）（市场先验） ——— */
 body[data-page="strategy"] .strategy-mctx-panel .dashboard-card-head {
   flex-wrap: nowrap;
   min-height: 40px;
@@ -766,14 +728,6 @@ body[data-page="strategy"] #strategy-mctx-refresh:active {
 
 .strategy-mctx-actions .strategy-prior-status:empty {
   display: none;
-}
-
-body[data-page="strategy"] .strategy-mctx-panel .quant-control-band {
-  border: none;
-  border-radius: 0;
-  padding: 0;
-  gap: 0;
-  background: color-mix(in srgb, var(--ink) 1.5%, var(--bg-elevated, var(--surface)));
 }
 
 .strategy-mctx-head-status {
@@ -1282,62 +1236,6 @@ body[data-page="strategy"] .strategy-mctx-panel .quant-control-band {
   padding: 14px 12px;
 }
 
-body[data-page="strategy"] .strategy-page .quant-pro-field-label {
-  font-size: 11px;
-  font-weight: 650;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  color: var(--ink-3);
-  font-family: var(--font-mono);
-}
-
-body[data-page="strategy"] .strategy-page .quant-pro-field select,
-body[data-page="strategy"] .strategy-page .quant-pro-field input[type="number"] {
-  width: 100%;
-  min-width: 0;
-  max-width: none;
-  height: 24px;
-  min-height: 24px;
-  padding: 0.1rem 0.35rem;
-  border: 1px solid var(--line);
-  border-radius: 3px;
-  background: var(--surface);
-  font: inherit;
-  font-size: 0.76rem;
-  font-variant-numeric: tabular-nums;
-  color: var(--ink);
-  line-height: 1.2;
-  box-sizing: border-box;
-  appearance: none;
-  -webkit-appearance: none;
-}
-
-body[data-page="strategy"] .strategy-page .quant-pro-field select {
-  padding-right: 1.4rem;
-  background-color: var(--surface);
-  background-image: linear-gradient(45deg, transparent 50%, #64748b 50%),
-    linear-gradient(135deg, #64748b 50%, transparent 50%);
-  background-position: calc(100% - 12px) 55%, calc(100% - 8px) 55%;
-  background-size: 4px 4px, 4px 4px;
-  background-repeat: no-repeat;
-  cursor: pointer;
-}
-
-body[data-page="strategy"] .strategy-page .quant-pro-field select:focus,
-body[data-page="strategy"] .strategy-page .quant-pro-field input[type="number"]:focus {
-  outline: 2px solid color-mix(in srgb, var(--accent) 32%, transparent);
-  outline-offset: 1px;
-  border-color: color-mix(in srgb, var(--accent) 40%, var(--line));
-  box-shadow: none;
-}
-
-body[data-page="strategy"] .strategy-page .quant-control-band .dialog-btn {
-  height: 28px;
-  min-height: 28px;
-  padding: 0 10px;
-  font-size: 12px;
-}
-
 body[data-page="strategy"] #strategy-mctx-head-status.quant-fingerprint,
 body[data-page="strategy"] #strategy-mctx-regime-pill.quant-fingerprint {
   padding: 0;
@@ -1357,35 +1255,6 @@ body[data-page="strategy"] #strategy-mctx-head-status.is-busy {
 
 body[data-page="strategy"] #strategy-mctx-head-status.is-warn {
   color: var(--warn, #b45309);
-}
-
-body[data-page="strategy"] .strategy-page .quant-oos-band {
-  width: 100%;
-  max-width: none;
-  box-sizing: border-box;
-  display: flex;
-  align-items: flex-start;
-  gap: 10px;
-  margin: 0;
-  padding: 8px 12px;
-  border: none;
-  border-top: 1px solid color-mix(in srgb, var(--accent) 16%, var(--line));
-  border-radius: 0;
-  background: color-mix(in srgb, var(--accent) 5%, transparent);
-}
-
-body[data-page="strategy"] .strategy-page .quant-oos-band-label {
-  font-size: 10px;
-  font-weight: 700;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-}
-
-body[data-page="strategy"] .strategy-page .quant-oos-band-text {
-  font-size: 12px;
-  color: var(--ink-2);
-  line-height: 1.35;
-  font-family: var(--font-mono);
 }
 
 body[data-page="strategy"] .strategy-page .dialog-btn {

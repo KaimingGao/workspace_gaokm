@@ -25,7 +25,8 @@ def _l2_as_batch_cs(x, names, groups, **_kw):
     from core.research.feature_standardize import cross_section_zscore_matrix
 
     z = cross_section_zscore_matrix(x, groups)
-    return np.where(np.isfinite(z), z, 0.0), {"ok": True}
+    z = np.asarray(z)
+    return np.where(np.isfinite(z), z, np.array(0, dtype=z.dtype)), {"ok": True}
 
 
 def _patch_rank_l2_as_batch():

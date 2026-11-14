@@ -2599,7 +2599,7 @@ class TestDualYDirection(unittest.TestCase):
         self.assertAlmostEqual(float(terms[1]["gain"]), 15.73, places=2)
 
     def test_compute_scores_passes_index_bars_for_rs(self):
-        """缺指数时相对强弱会退回开盘涨跌；须传入 index_bars 与数据中心同源。"""
+        """缺指数时相对强弱会退回开盘涨跌；须传入 index_bars 与观察台同源。"""
         from unittest.mock import patch
 
         from core.t0.score_policy import clear_score_model_cache, compute_scores_from_bars

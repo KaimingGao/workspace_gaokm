@@ -18,10 +18,14 @@ SCHEMA_OO_LGB = "oo_lgb_v1"
 
 
 def _raw_moments(x_raw: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
-    """入模 raw 的列 μ/σ（CS-z 前）。勿写入 zscore_*，避免污染截面推理。"""
-    impute = np.nanmean(x_raw, axis=0)
-    impute = np.where(np.isfinite(impute), impute, 0.0)
-    impute_std = np.nanstd(x_raw, axis=0)
+    """入模 raw 的列 μ/σ（CS-z 前）。勿写入 zscore_*，避免污染截面推理。
+
+    累加在 float64。常数列 σ=0；全缺或含 inf 的列 μ=σ=0。
+    """
+    from core.research.horizon_lgb import _column_mean_var_f64
+
+    impute, var, _n = _column_mean_var_f64(x_raw)
+    impute_std = np.sqrt(var)
     impute_std = np.where(np.isfinite(impute_std), impute_std, 0.0)
     return impute, impute_std
 
@@ -73,7 +77,7 @@ def predict_oo_lgb_on_cs_z(
     col_names: Sequence[str],
 ) -> Optional[np.ndarray]:
     """对已截面 z 的矩阵做批量推理。列名 ``col_names`` 对齐 ``Z`` 列。"""
-    from core.research.horizon_lgb import _predict_lightgbm
+    from core.research.horizon_lgb import _predict_lightgbm, tree_feature_matrix
     from core.research.horizon_tree import load_lightgbm_booster
 
     blob = model.to_dict() if hasattr(model, "to_dict") else None
@@ -89,9 +93,18 @@ def predict_oo_lgb_on_cs_z(
         if j is None:
             return None
         cols.append(int(j))
-    x = np.asarray(Z, dtype=np.float64)[:, cols]
+    try:
+        base = np.asarray(Z)
+        if base.ndim != 2:
+            return None
+        x = tree_feature_matrix(base[:, cols])
+    except (IndexError, ValueError, TypeError):
+        logger.debug("oo lgb cs-z slice failed", exc_info=True)
+        return None
     # 缺测填 0（截面均值）
-    x = np.where(np.isfinite(x), x, 0.0)
+    miss = ~np.isfinite(x)
+    if miss.any():
+        x[miss] = np.float32(0)
     try:
         booster = load_lightgbm_booster(blob.get("booster") or {})
     except Exception:  # noqa: BLE001
@@ -138,6 +151,7 @@ def fit_oo_lgb_matrix(
     row_dates: Optional[Sequence[str]] = None,
     cross_section_zscore: bool = True,
     callbacks: Optional[Sequence[Any]] = None,
+    feature_dtype: Any = np.float32,
 ) -> Tuple[Optional[Dict[str, Any]], Dict[str, Any]]:
     """在与 Ridge 同口径完整行上拟合回归 LightGBM。返回 ``(model_blob|None, report)``。"""
     from core.research.feature_standardize import (
@@ -170,6 +184,7 @@ def fit_oo_lgb_matrix(
         y,
         feature_names,
         row_pos=row_pos,
+        dtype=feature_dtype,
     )
     if x_c is None or y_c is None or not active:
         return None, {
@@ -193,9 +208,9 @@ def fit_oo_lgb_matrix(
         )
 
         x_c, y_c, dates_c, _keep = align_fit_rows_to_l2(
-            x_c, y_c, dates_c, clock="open"
+            x_c, y_c, dates_c, clock="open", x_dtype=feature_dtype
         )
-        # μ/σ 取 z 之前的 raw。inplace 把 z 写回同一块，避免再留一份 float64。
+        # μ/σ 取 z 之前的 raw。inplace 把 z 写回同一块，避免再留一份特征矩阵。
         impute, impute_std = _raw_moments(x_c)
         x_z = cs_z_matrix_prefer_cube(
             x_c, active, dates_c, clock="open", inplace=True
@@ -279,7 +294,7 @@ def predict_oo_lgb_matrix(
     row_dates: Optional[Sequence[str]] = None,
 ) -> List[Optional[float]]:
     """对指定行做回归树推理；截面模型按打分行当天 CS-z。"""
-    from core.research.horizon_lgb import _predict_lightgbm
+    from core.research.horizon_lgb import _predict_lightgbm, tree_feature_matrix
     from core.research.horizon_tree import load_lightgbm_booster
     from core.research.feature_standardize import is_cross_section_zscore
 
@@ -297,8 +312,13 @@ def predict_oo_lgb_matrix(
         if j is None:
             return [None] * n
         cols.append(j)
-    # 先切行再升 float64，避免推理前把全表再复制一份。
-    x_sub = np.asarray(x[np.ix_(idx, cols)], dtype=np.float64)
+    # 先切行再收成 float32，避免推理前把全表再复制一份。
+    # 下标越界或矩阵无法转成数值时整段弃权，不让一次打分把拟合打崩。
+    try:
+        x_sub = tree_feature_matrix(np.asarray(x)[np.ix_(idx, cols)])
+    except (IndexError, ValueError, TypeError):
+        logger.debug("oo lgb feature slice failed", exc_info=True)
+        return [None] * n
     if is_cross_section_zscore(model_blob):
         # 训在 CS-z 上：无日期不能静默用 raw+均值（与 booster 口径错位）
         if row_dates is None or len(row_dates) != int(np.asarray(x).shape[0]):
@@ -311,7 +331,9 @@ def predict_oo_lgb_matrix(
         from core.research.materialize.cube_z import cs_z_matrix_prefer_cube
 
         try:
-            x_sub = cs_z_matrix_prefer_cube(x_sub, feat_names, dates, clock="open")
+            x_sub = cs_z_matrix_prefer_cube(
+                x_sub, feat_names, dates, clock="open", inplace=True
+            )
         except MaterializeRequired:
             # OOS/Holdout 缺单日 Cube：软弃权，勿整次拟合硬失败
             logger.debug(
@@ -334,7 +356,7 @@ def predict_oo_lgb_matrix(
     except Exception:  # noqa: BLE001
         logger.debug("oo lgb load booster failed", exc_info=True)
         return [None] * n
-    raw = _predict_lightgbm(booster, np.asarray(x_sub, dtype=np.float64))
+    raw = _predict_lightgbm(booster, x_sub)
     out: List[Optional[float]] = []
     for v in raw:
         try:

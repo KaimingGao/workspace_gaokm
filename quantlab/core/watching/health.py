@@ -63,7 +63,7 @@ def check_watching_health(
         if watchlist:
             warnings.append("手动模式（sources 为空）· 名单由人工维护，刷新仅更新名称")
         else:
-            warnings.append("sources 为空且无 watchlist · 请在数据中心手动加票，或配置 sources 后刷新")
+            warnings.append("sources 为空且无 watchlist · 请在观察台手动加票，或配置 sources 后刷新")
     if len(watchlist) < min_watchlist:
         issues.append(f"watchlist 仅 {len(watchlist)} 只，建议至少 {min_watchlist} 只")
 

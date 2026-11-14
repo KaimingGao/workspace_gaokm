@@ -589,7 +589,7 @@ class TestEodNextFusion(unittest.TestCase):
         self.assertTrue(bw.get("tau_in_trade"))
 
     def test_offline_yesterday_quote_fuses_tau_next_session(self):
-        """数据中心 offline 昨收 quote：次日盘中 ŷ_trade 须融 τ，不得单头「单」。"""
+        """观察台 offline 昨收 quote：次日盘中 ŷ_trade 须融 τ，不得单头「单」。"""
         from core.signal.dual_score import apply_tau_score_fields
         from core.signal.session_pit import prepare_eod_bars
 

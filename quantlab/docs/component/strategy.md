@@ -6,7 +6,7 @@
 一句话：策略是函数 `f(x) = y` —— `x` 为行情与账户上下文，`f` 为选股/择时/仓位/风控，`y` 为标准化信号（不是直接下真单）。
 
 本仓库 **没有** 经典 `StrategyBase.on_bar` 类体系；等价逻辑拆在 **`score_bars` → `stance` / 回测入场 → 纸面 `rules`**。  
-**Q2**：唯一 canonical 策略为 **`short_conservative`**（`core/strategy.py` + `STRATEGY_SPECS[].lifecycle`）：回测参数、模拟 `paper_rules`、默认 `cost_model`、账户 `risk` 限额。研究配置经 **`POST /api/strategy/promote`** 显式晋级（API 仍在；策略中心页不再挂空壳按钮），禁止静默覆盖。
+**Q2**：唯一 canonical 策略为 **`short_conservative`**（`core/strategy.py` + `STRATEGY_SPECS[].lifecycle`）：回测参数、模拟 `paper_rules`、默认 `cost_model`、账户 `risk` 限额。研究配置经 **`POST /api/strategy/promote`** 显式晋级（无页面按钮），禁止静默覆盖。
 
 **ExecutionSpec（v1.1）**：`lifecycle.execution` 收编两类纸面动作——**结构层调仓**（持有什么、各占多少；ŷ_trade 排序 + ŷ_oo/ŷ_τ 买卖闸）与 **overlay 做 T**（底仓上 dual_y：y_τ 定方向 + 5m 往返 timing；不改变选股主线）。**ŷ_τ 模型共用、决策接口不同**，见 [quant.md · 策略调仓 vs 底仓做 T](../quant.md#策略调仓-vs-底仓做-t)。纸面 / 做 T 回测经 `core/execution.resolve_effective_execution` 合并  
 `DEFAULT → Spec → paper.rules → 请求 → channel runtime_defaults`，禁止入口各自硬编码 `direction` / `path_mode`。  
@@ -91,7 +91,7 @@ API：`GET/POST /api/paper/rebalance/worker`（`worker` + `desk`）。盯盘落�
 
 | 页 | 策略角色 |
 |----|----------|
-| `/strategy` | **看图纸**：M prior（个股舆情只在观察徽章） |
+| `/market-prior` | **看图纸**：M prior（个股舆情只在观察徽章）。旧 `/strategy` 302 到此 |
 | `/watching` | **划狩猎范围**（选股输入名单） |
 | `/replay` | 用图纸交**历史卷**（资金模拟在引擎内） |
 | `/paper` + `/follow` | 图纸 + **假账**持续记账 |
@@ -201,7 +201,7 @@ API：`GET/POST /api/paper/rebalance/worker`（`worker` + `desk`）。盯盘落�
    - 回测 / 调仓写出 Run Manifest（策略版本 · 成本 · 规则指纹）
 ```
 
-配置入口：`data/signal_config.json` · `data/paper.example.json` → `paper.json` · `core/strategy.py` · Web `/strategy` · `POST /api/strategy/promote`。
+配置入口：`data/signal_config.json` · `data/paper.example.json` → `paper.json` · `core/strategy.py` · M prior 在 Web `/market-prior` · 策略晋级 `POST /api/strategy/promote`。
 
 ---
 
@@ -226,7 +226,7 @@ API：`GET/POST /api/paper/rebalance/worker`（`worker` + `desk`）。盯盘落�
 |------|------|
 | [quant.md](../quant.md) | score → stance → 回测 → 纸面 |
 | [quant.md · 入门概念](../quant.md) | 名词与测试类型 |
-| [quant-ui.md](../quant-ui.md) | `/strategy` 页用法 |
+| [quant-ui.md](../quant-ui.md) | `/market-prior` 页用法 |
 | [§ 数据层](./data.md#数据层data-layer) | 策略输入从哪来 |
 | [risk.md · 风控层](./risk.md#风控模型risk-layer) | 账户风控门禁 |
 | [design-spine.md · 路线图](../design-spine.md#能力评估与升级规划路线图视角) | Q1–Q5 与远期缺口 |

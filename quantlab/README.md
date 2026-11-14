@@ -16,14 +16,15 @@
 | 页面 | 路径 | 做什么 |
 |------|------|--------|
 | 仪表盘 | `/dashboard` | 市场、纸面 KPI、净值；不下单、不改名单 |
-| 策略中心 | `/strategy` | M prior · 因子字典 |
-| 数据中心 | `/watching` | 观察名单、评分/倾向、建仓入口 |
+| 观察台 | `/watching` | 观察名单、评分/倾向、建仓入口 |
+| 市场先验 | `/market-prior` | M prior · 因子字典。`/strategy` 302 到此 |
 | 交易执行 | `/follow` | 纸面调仓 · 做 T（`/paper` 重定向到此） |
 | 历史回测 | `/replay` | 调仓回测 · 做 T 回测 |
-| 研究枢纽 | `/quant` | 拉数 · 物化特征 · 拟合 ŷ · 日报 |
+| 数据中心 | `/data` | 日 K · 5m · 物化 |
+| 研究枢纽 | `/quant` | 拟合 ŷ · 观察池分档 · 日报 |
 | 平台 | `/platform` | 调度 · 纸面日更 |
 
-谁决定「买什么、买多少」，就归谁。人决定的走数据中心 / 交易执行；规则决定的标在持仓出处上。闭环与易漏能力见 [docs/quant-ui.md · 用户心智与验证闭环](docs/quant-ui.md#用户心智与验证闭环)。
+谁决定「买什么、买多少」，就归谁。人决定的走观察台 / 交易执行；规则决定的标在持仓出处上。闭环与易漏能力见 [docs/quant-ui.md · 用户心智与验证闭环](docs/quant-ui.md#用户心智与验证闭环)。
 
 **产品核心设计主轴**：**本质** 已发生事实 → 影响估计 → 验证 → 动作；**现行** 数据 → 信号 → 因子 → 模型(ŷ) → 动作（量化主轴 + AI 旁路）；**北极星** = 纸面风险调整收益 × 迭代速度 × 回测–纸面拟合度。见 **[docs/design-spine.md](docs/design-spine.md)**。
 
@@ -164,7 +165,7 @@ quantlab/
 
 ## 快速开始
 
-逐步操作（虚拟环境、先放 3 只股票、在研究枢纽拉日线和分钟线、物化特征、拟合并启用研究套、再跑调仓回测）见 **[docs/getting-started.md](docs/getting-started.md)**。下面是环境已经就绪时的命令。需要 Python 3.10+。
+逐步操作（虚拟环境、先放 3 只股票、在数据中心拉日线和分钟线并物化、在研究枢纽拟合并启用研究套、再跑调仓回测）见 **[docs/getting-started.md](docs/getting-started.md)**。下面是环境已经就绪时的命令。需要 Python 3.10+。
 
 ```bash
 cd quantlab
@@ -174,7 +175,7 @@ bash scripts/setup_quant.sh   # watching.json / paper.json 不存在时初始化
 python3 run_web.py            # → http://127.0.0.1:8000  （首页 /dashboard）
 ```
 
-第一次回测按 [getting-started.md](docs/getting-started.md) 先写成 3 只，在研究枢纽 **拉日线 / 5m → 物化特征（L1/L2）→ 拟合并启用研究套**，再到历史回测开跑。整池模板会把拉数、物化和拟合拖得很久；窗头双训内存压力大，宜单任务跑，不要和整池分钟预热并行。行情、观察、回测、模拟账户不依赖 API key。
+第一次回测按 [getting-started.md](docs/getting-started.md) 先写成 3 只，在数据中心 **拉日线 / 5m → 物化特征（L1/L2）**，再到研究枢纽 **拟合并启用研究套**，最后到历史回测开跑。整池模板会把拉数、物化和拟合拖得很久；窗头双训内存压力大，宜单任务跑，不要和整池分钟预热并行。行情、观察、回测、模拟账户不依赖 API key。
 
 离线校验（不连外网、不配 key）：
 
@@ -204,9 +205,9 @@ python3 -c "from skills.quote.handler import QuoteHandler; print(QuoteHandler().
 |------|------|--------|------|
 | 观察名单 | `data/watching.example.json` | `setup_quant.sh` → `watching_run.py --init` | 运行时读写 `data/watching.json` |
 | 纸面账户 | 脚本内置 | 同上，`paper_run.py --init` | `data/paper.json` |
-| 日线 | 新浪 `stock_zh_a_daily` | 研究枢纽增量补齐 / preset | 默认 SQLite `data/store/bars.db`（`QUANTLAB_BARS_BACKEND=sqlite`） |
-| 5 分钟 K | 新浪 `getKLineData`（不拉日线） | 研究枢纽增量补齐 | Ready 后才物化分钟 L2 |
-| L1 Feature Lake | 物化 Job | 研究枢纽「物化特征」/ `POST /api/quant/materialize` | `data/cache/feature_lake/`；按股×日 raw |
+| 日线 | 新浪 `stock_zh_a_daily` | 数据中心增量补齐 / preset | 默认 SQLite `data/store/bars.db`（`QUANTLAB_BARS_BACKEND=sqlite`） |
+| 5 分钟 K | 新浪 `getKLineData`（不拉日线） | 数据中心增量补齐 | Ready 后才物化分钟 L2 |
+| L1 Feature Lake | 物化 Job | 数据中心「物化特征」/ `POST /api/quant/materialize` | `data/cache/feature_lake/`；按股×日 raw |
 | L2 DayCube | 同上 | 日线 open + 分钟 τ | `data/cache/day_cubes/`；截面 μ/σ |
 
 只初始化观察名单：
@@ -216,7 +217,7 @@ python3 research/watching_run.py --init    # 已有 watching.json 会报错，�
 python3 research/watching_run.py --show
 ```
 
-仓库提交的是模板 `data/watching.example.json`（约 500 只，`sources` 为空）。改自己的池子时改 `data/watching.json`，或在数据中心 / 研究枢纽里改。
+仓库提交的是模板 `data/watching.example.json`（约 500 只，`sources` 为空）。改自己的池子时改 `data/watching.json`，或在观察台 / 研究枢纽里改。
 
 `sources` 为空时，`python3 research/watching_run.py --refresh` 只补全名称，不改 `watchlist`。要按规则重算名单，在 `watching.json` 里写 `sources`（上限 `max_size`，最大 500），保存后再 `--refresh`：
 

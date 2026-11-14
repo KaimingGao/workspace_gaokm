@@ -229,18 +229,31 @@ class TestOoRidgeCompact(unittest.TestCase):
             [np.ones((n, len(base))), np.full((n, 1), 7.0)], axis=1
         )
         empty = np.zeros((0, len(base)), dtype=np.float64)
-        x, y, names, dates = _stack_blocks(
+        x, y, names, dates, codes = _stack_blocks(
             [
                 (empty, np.zeros((0,)), base, []),
                 (x_base, np.array([1.0, 2.0]), base, ["2024-01-02", "2024-01-03"]),
                 (x_extra, np.array([3.0, 4.0]), extra, ["2024-01-04", "2024-01-05"]),
-            ]
+            ],
+            item_codes=["skip", "000001", "000002"],
         )
         self.assertEqual(names[-1], "raw_aoo_EXTRA_TEST")
         self.assertEqual(dates, ["2024-01-02", "2024-01-03", "2024-01-04", "2024-01-05"])
         self.assertEqual(y.tolist(), [1.0, 2.0, 3.0, 4.0])
+        self.assertEqual(codes, ["000001", "000001", "000002", "000002"])
         self.assertTrue(np.isnan(x[0, -1]))
         self.assertEqual(float(x[2, -1]), 7.0)
+
+    def test_stack_blocks_rejects_none_part(self) -> None:
+        from core.research.oo_model_compact import OoPanelMatrix, _stack_blocks
+
+        base = OoPanelMatrix().names
+        x = np.ones((1, len(base)), dtype=np.float64)
+        with self.assertRaisesRegex(RuntimeError, "分块缺失"):
+            _stack_blocks(
+                [None, (x, np.array([1.0]), base, ["2024-01-02"])],
+                item_codes=["000001", "000002"],
+            )
 
     def test_row_idx_matches_sliced_matrix(self) -> None:
         from core.research.oo_model_compact import fit_oo_ridge_matrix
@@ -326,6 +339,42 @@ class TestPrepareMatrixRowSlice(unittest.TestCase):
         np.testing.assert_allclose(x_c, expect)
         np.testing.assert_allclose(y_c, np.asarray(y[np.asarray(kept)], dtype=np.float64))
         self.assertEqual(meta["complete_sample_count"], len(kept))
+        self.assertEqual(x_c.dtype, np.float64)
+
+    def test_float32_dtype_stays_float32(self) -> None:
+        """枢纽拟合把训练矩阵留在 float32，数值仍与 float64 切片一致。"""
+        from core.research.oo_model_compact import _prepare_matrix
+
+        rng = np.random.RandomState(1)
+        x = rng.randn(40, 3).astype(np.float32)
+        y = rng.randn(40).astype(np.float32)
+        names = ["a", "b", "c"]
+        row_pos = np.arange(4, 36, dtype=np.int64)
+        x_c, y_c, active, _ex, meta = _prepare_matrix(
+            x, y, names, row_pos=row_pos, dtype=np.float32
+        )
+        self.assertEqual(active, names)
+        self.assertEqual(x_c.dtype, np.float32)
+        self.assertEqual(y_c.dtype, np.float64)
+        kept = np.arange(4, 36, dtype=np.int64)
+        np.testing.assert_allclose(x_c, np.asarray(x[kept], dtype=np.float32))
+        self.assertEqual(meta["complete_sample_count"], int(kept.size))
+
+
+class TestReleaseFitPanel(unittest.TestCase):
+    def test_overflow_becomes_nan_and_source_stays(self) -> None:
+        from core.research.oo_model_compact import _release_fit_panel
+
+        src = np.array([[1.5, 1e40], [np.nan, np.inf]], dtype=np.float64)
+        out = _release_fit_panel(src)
+        self.assertEqual(out.dtype, np.float32)
+        self.assertTrue(out.flags.c_contiguous and out.flags.writeable)
+        self.assertAlmostEqual(float(out[0, 0]), 1.5)
+        self.assertTrue(np.isnan(out[0, 1]))
+        self.assertTrue(np.isnan(out[1, 0]))
+        self.assertTrue(np.isnan(out[1, 1]))
+        self.assertEqual(src.dtype, np.float64)
+        self.assertTrue(np.isfinite(src[0, 1]))
 
 
 if __name__ == "__main__":

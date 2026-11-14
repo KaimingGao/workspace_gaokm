@@ -365,7 +365,7 @@
   color: var(--ink-3);
 }
 
-/* 策略调仓内：次日开盘挂单 · 数据中心 watching-react-grid 壳 + 浅黄底 */
+/* 策略调仓内：次日开盘挂单 · 观察台 watching-react-grid 壳 + 浅黄底 */
 .follow-pending-orders {
   padding: 10px;
   border-radius: var(--f-r, 6px);
@@ -431,7 +431,7 @@
   padding: 6px 8px;
 }
 
-/* 覆盖数据中心主表首尾 18/22 留白，避免首列「方向」被裁切 */
+/* 覆盖观察台主表首尾 18/22 留白，避免首列「方向」被裁切 */
 .follow-pending-grid .watching-react-grid-row > .watching-react-grid-cell:first-child {
   padding-left: 10px;
 }
@@ -2433,7 +2433,7 @@ body[data-page="follow"] .follow-ops-t0 {
   color: var(--ink-muted, #94a3b8);
   font-weight: 400;
 }
-/* 分票贡献：对齐数据中心 watching 主表壳（边框/斑马纹/粘性表头/数字列） */
+/* 分票贡献：对齐观察台 watching 主表壳（边框/斑马纹/粘性表头/数字列） */
 .paper-t0-viz-stock-table.watching-desk-table {
   margin: 0;
   width: 100%;
@@ -3640,7 +3640,7 @@ body.paper-t0-trades-fs-open .paper-t0-desk-board {
   width: 100%;
 }
 
-/* 做 T 回测表：壳/密度/列轨对齐数据中心 watching-react-grid（见 watching_table_island COLS） */
+/* 做 T 回测表：壳/密度/列轨对齐观察台 watching-react-grid（见 watching_table_island COLS） */
 .paper-t0-table {
   table-layout: fixed;
   width: max-content;
@@ -4596,7 +4596,7 @@ body[data-page="replay"] .replay-t0-section .paper-t0-trades-wrap .paper-t0-trad
   background: color-mix(in srgb, var(--accent) 5%, var(--bg-card, var(--surface)));
 }
 
-/* 股票列：名称 / 代码上下两行，对齐数据中心 watching-stock */
+/* 股票列：名称 / 代码上下两行，对齐观察台 watching-stock */
 .paper-t0-table td.rebalance-stock,
 .paper-t0-table td.paper-t0-col-stock,
 .paper-t0-table td.watching-stock {

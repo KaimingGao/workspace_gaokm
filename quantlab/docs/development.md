@@ -71,7 +71,7 @@ python3 run_web.py
 | 入口 | `run_web.py` → FastAPI `web/app.py` |
 | 页面 | `web/static/`（对话 UI） |
 | API | `POST /api/chat`、`GET /api/paper*`、`GET/POST /api/evals/*`、`GET /api/usage`、`GET /api/health` |
-| 顶栏 | 主路径：**对话 · 观察 · 策略 · 模拟 · 回溯**；进阶页仍有 `/paper`（→模拟）、`/quant` |
+| 侧栏 | **仪表盘 · 观察台 · 市场先验 · 交易执行 · 历史回测 · 数据中心 · 研究枢纽 · 平台**；顶栏是 AI 抽屉（⌘K）。`/paper` 重定向到交易执行；`/strategy` 重定向到 `/market-prior` |
 | 会话 | 请求头 `X-Session-Id`（前端存 localStorage） |
 | 端口 | 环境变量 `WEB_HOST`（默认 127.0.0.1）、`WEB_PORT`（默认 8000） |
 | 热重载 | 默认 **关**（`WEB_RELOAD=0`）。开发改 py 时设 `WEB_RELOAD=1`；热重载会中断纸面后台任务，确认调仓时勿触发。纸面/网格/对话 job 落盘 `data/jobs/*.json` |
@@ -81,13 +81,13 @@ Web 与 CLI 共用同一套 `Agent` / Skills / prompts；仍需配置 `DASHSCOPE
 
 ### 纸面 / 模拟是什么？
 
-**模拟**（`/follow`）= 用假钱练手的日常账本：加减仓、清仓、净值曲线。  
-**纸面**（`/paper`）= 同一套假账的**初始化 / 高级配置**入口，不进主导航；日常请用「模拟」。  
-行情可以是真的，买卖只记在本地 `data/paper.json`，**不会亏真钱、不会下到真实券商账户**。本系统现行定位为 **策略验证**：**仅限模拟账户交易**。待验证成熟后再评估实盘。新仓从**观察**页建仓进来。完整说明见 [quant.md](quant.md) 与 [quant-ui.md](quant-ui.md)；边界见 [design-spine.md](design-spine.md)。
+**交易执行**（`/follow`）= 用假钱练手的日常账本：加减仓、清仓、净值曲线。账本对外仍称「模拟」，内部名 `paper`。  
+`/paper` 不进主导航，打开后进入交易执行。初始化在该页空态「初始化模拟账户」。  
+行情可以是真的，买卖只记在本地 `data/paper.json`，**不会亏真钱、不会下到真实券商账户**。本系统现行定位为 **策略验证**：**仅限模拟账户交易**。待验证成熟后再评估实盘。新仓从观察台建仓进来。完整说明见 [quant.md](quant.md) 与 [quant-ui.md](quant-ui.md)；边界见 [design-spine.md](design-spine.md)。
 
 ## 持仓（对话）
 
-对话问持仓时，**默认读模拟账户** `data/paper.json`（观察页建仓后即有）。
+对话问持仓时，**默认读模拟账户** `data/paper.json`（观察台建仓后即有）。
 
 ## 使用示例：分析快手的长短期持仓参考
 
@@ -166,7 +166,7 @@ print(SignalHandler().execute({
 
 ## 量化研究台（可选）
 
-逐步操作（观察→回溯→纸面→模拟）见 **[quant-ui.md](quant-ui.md)**。
+逐步操作（观察台 → 历史回测 → 交易执行）见 **[quant-ui.md](quant-ui.md)**。
 
 ```bash
 cd quantlab
@@ -174,7 +174,7 @@ bash scripts/setup_quant.sh                              # watching + 纸面 ini
 python3 research/daily_run.py --preset quant --json      # 每日量化
 python3 research/daily_run.py --preset quant_paper --json # 量化 + 纸面调仓
 python3 evals/run_checklist.py --mock --presets          # golden + preset 校验
-python3 run_web.py                                       # Web → 顶栏工具页
+python3 run_web.py                                       # Web → 侧栏研究台
 ```
 
 ### 研究脚本速查
@@ -184,7 +184,7 @@ README 仅列最常用命令；以下脚本按需调用：
 | 脚本 | 用途 |
 |------|------|
 | `python3 research/watching_run.py --init` / `--refresh` / `--show` | 从 `watching.example.json` 生成 `watching.json`（已存在则拒绝覆盖）/ 按 `sources` 刷新（空 `sources` 只补名称）/ 查看 |
-| `python3 research/paper_run.py --init` / `--run` | 纸面账户初始化 / 运行 |
+| `python3 research/paper_run.py --init` / `--run` | 模拟账户初始化 / 运行 |
 | `python3 research/cross_section_run.py --limit 10` | 横截面回测 |
 | `python3 research/t0_backtest_run.py --code 茅台 --json` | 底仓做T模拟 |
 | `python3 research/sample_ops_run.py status` / `ingest-history` | 样本运营：TTM / 财务 history / 快照覆盖 |
@@ -289,11 +289,9 @@ Web 研究枢纽可查看子目录 README；无 LLM 时「AI 解读」可走 `PO
 
 生产决策为 **规则 score + stance**，未默认线性回归/复杂拟合模型；说明见 [quant.md](quant.md)。
 
-**量化报告分享**：归档报告列表含 `share_url`（如 `/api/quant/reports/quant_daily_YYYYMMDD.html`）；Web 量化面板「运维状态」可 **复制链接**（需 Web 服务运行中）。
+**量化报告分享**：归档报告列表含 `share_url`（如 `/api/quant/reports/quant_daily_YYYYMMDD.html`），由 API 取出（需 Web 服务运行中）。
 
-顶栏 **「纸面」** → 净值曲线、初始化、跑观察池、**每日任务**。  
-顶栏 **「持仓」** → 规则 action / stance；**「打开量化」** / **「量化对照」** 跳转量化联动面板。  
-顶栏 **「量化」** → watching / 横截面 / 组合回测 / diff / daily preset 运维等，详见 [quant-ops.md](quant-ops.md)。
+侧栏对应关系：观察台维护观察池并建仓；交易执行看净值、持仓和调仓；历史回测跑组合回测；数据中心写日 K、5m 并物化；研究枢纽做拟合和观察池分档；平台跑纸面日更（按钮「运行日更」）。预设与调度详见 [quant-ops.md](quant-ops.md)。
 
 ## 扩展新 Skill（约定）
 
@@ -577,14 +575,14 @@ Agent 启动
 **重要限制**：
 
 - 输出偏 **风控**（观望 / 控制 / 减仓 / 止损 / 降集中度），**不会**从规则里吐出「加仓」。
-- 无模拟账户且未传 `holdings` → 报错或提示先初始化 / 去观察建仓。
+- 无模拟账户且未传 `holdings` → 报错或提示先初始化 / 去观察台建仓。
 - LLM 以研究助手口吻解读规则结果；禁止「稳赚 / 必涨 / 保证收益」。
 
 **与 signal 的区别**：`signal` 面向「看什么」；`position` 面向「已持有」的仓位建议。
 
 **怎么用**：
 
-1. 在观察页建仓（写入 `data/paper.json`），问：「我的持仓怎么处理？」  
+1. 在观察台建仓（写入 `data/paper.json`），问：「我的持仓怎么处理？」  
 2. 或口述临时持仓（不必改文件）。  
 3. 调敏感度：编辑 `position_rules.json`（如把 `stop_loss_pnl` 从 -8 调到 -5）。
 

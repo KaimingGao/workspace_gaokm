@@ -96,7 +96,7 @@ async function loadModule(name, path) {
 }
 
 const V = (typeof window !== "undefined" && window.__ASSET_V__) || "dev";
-const QUANT_PAGES = new Set(["quant", "watching", "strategy", "replay", "follow", "dashboard"]);
+const QUANT_PAGES = new Set(["quant", "data", "watching", "strategy", "replay", "follow", "dashboard"]);
 const PAPER_PAGES = new Set(["paper", "follow"]);
 
 if (ctx.refreshHealth) {
@@ -143,15 +143,17 @@ async function bootWorkspace() {
       await ctx.openPlatformPanel().catch((err) => console.error("[QuantLab] openPlatformPanel", err));
     }
   }
-  if (page === "yhat_tf") {
+  if (page === "yhat_l" || page === "yhat_t") {
     const yhatTfMod = await loadModule("yhat_tf", `./js/yhat_tf.js?v=${V}`);
-    if (yhatTfMod) safeInit("yhat_tf", () => yhatTfMod.initYhatTf(ctx));
+    const factory = page === "yhat_l" ? "L" : "T";
+    if (yhatTfMod) safeInit(page, () => yhatTfMod.initYhatTf(ctx, factory));
   }
 
   if (
     QUANT_PAGES.has(page) &&
     page !== "follow" &&
     page !== "dashboard" &&
+    page !== "data" &&
     ctx.openQuantDialog
   ) {
     // follow / dashboard 不进研究枢纽引导加载，避免拖慢交易执行主链路

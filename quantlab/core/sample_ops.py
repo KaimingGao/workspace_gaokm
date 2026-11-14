@@ -795,7 +795,7 @@ def _status_hints(
     elif densified_n > snap_n * 0.5:
         hints.append("纸面快照过半为 densified，应用真实日更替换")
     if int(rb.get("block_count") or 0) and not rb.get("labeled_count"):
-        hints.append("策略页标注 risk_block outcome")
+        hints.append("POST /api/paper/risk-blocks/annotate 标注 risk_block outcome")
     elif int(rb.get("labeled_count") or 0) < 20 and int(rb.get("block_count") or 0):
         hints.append("继续标注 outcome 至 ≥20 再解读有效率")
     if not hints:

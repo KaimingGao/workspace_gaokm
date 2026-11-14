@@ -55,7 +55,6 @@ DEFAULT_FOLDS = 3
 DEFAULT_Y_MIN = 0.5  # 百分点
 DEFAULT_RANK_SCORE_MIN = 0.5  # oo_rank / τc_rank 相对分
 DEFAULT_TOP_N = 10  # 过闸后按相对分最多取 N
-DEFAULT_RIDGE_LAMBDA = 1.0
 
 ProgressCb = Optional[Callable[[int, int, str], None]]
 
@@ -237,7 +236,7 @@ def _stack_days(
             names = nm
         elif nm != names:
             continue
-        xs.append(np.asarray(x, dtype=np.float64))
+        xs.append(np.asarray(x, dtype=np.float32))
         for y in yrow:
             try:
                 ys.append(float(y))
@@ -246,7 +245,7 @@ def _stack_days(
         dates.extend([date] * n)
     if not xs or not names:
         return (
-            np.zeros((0, 0), dtype=np.float64),
+            np.zeros((0, 0), dtype=np.float32),
             np.zeros(0, dtype=np.float64),
             [],
             [],
@@ -471,7 +470,6 @@ def run_roll_gate(
     y_min: float = DEFAULT_Y_MIN,
     rank_score_min: float = DEFAULT_RANK_SCORE_MIN,
     top_n: int = DEFAULT_TOP_N,
-    ridge_lambda: float = DEFAULT_RIDGE_LAMBDA,
     progress_cb: ProgressCb = None,
     persist: bool = True,
     job_id: Optional[str] = None,
@@ -484,8 +482,6 @@ def run_roll_gate(
     from core.research.oo_rank_lambdarank import _predict_oo_rank_matrix
     from core.research.rank_day_panels import build_rank_day_panels
     from core.research.tc_lgb import predict_tc_lgb_matrix
-
-    del ridge_lambda  # ŷ_τc 已切 LightGBM；形参保留兼容旧请求体
 
     from core.data.policy import BARS_DAILY_LOOKBACK
 
@@ -537,7 +533,7 @@ def run_roll_gate(
     if not a_codes:
         out = {
             "success": False,
-            "error": "无 A 档股票：请先在数据中心跑观察池分档",
+            "error": "无 A 档股票：请先在研究枢纽跑观察池分档",
         }
         _set_progress(status="failed", message=out["error"])
         return out

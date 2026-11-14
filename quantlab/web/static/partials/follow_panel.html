@@ -4,9 +4,9 @@
     <h2>交易执行</h2>
     <p id="follow-meta" class="dashboard-meta quant-meta" aria-live="polite">调仓ŷ读物化特征 · 做T选向会话快照 · 现价/落账走行情</p>
     <p class="dashboard-section-desc follow-head-path">
-      <a class="follow-hero-link" href="/quant">补日K·5m</a>
+      <a class="follow-hero-link" href="/data">补日K·5m</a>
       → 调仓 / 做T →
-      <a class="follow-hero-link" href="/strategy">策略</a>
+      <a class="follow-hero-link" href="/market-prior">市场先验</a>
       ·
       <a class="follow-hero-link" href="#follow-north-star">北极星</a>
       ·
@@ -16,7 +16,7 @@
   <div class="dashboard-head-actions quant-head-actions follow-head-actions">
     <label
       class="paper-t0-toggle data-offline-toggle"
-      title="关：不触发增量补齐；ŷ 读已物化特征（名单与现价/浮盈不受此开关；与数据中心同源）"
+      title="关：不触发增量补齐；ŷ 读已物化特征（名单与现价/浮盈不受此开关；与观察台同源）"
     >
       <input type="checkbox" id="follow-data-offline" role="switch" />
       <span class="paper-t0-toggle-track" aria-hidden="true"></span>
@@ -36,7 +36,7 @@
 
 <div class="quant-body follow-page">
   <div id="paper-empty" class="watching-empty" hidden>
-    <p class="watching-empty-text">尚未创建模拟账户。初始化后可从观察建仓，并在此管理持仓。</p>
+    <p class="watching-empty-text">尚未创建模拟账户。初始化后可从观察台建仓，并在此管理持仓。</p>
     <button type="button" id="paper-init" class="dialog-btn">初始化模拟账户</button>
   </div>
 
@@ -192,8 +192,8 @@
           <span class="quant-pro-path-num follow-path-num">4</span> 做T
         </a>
         <span class="quant-path-sep quant-pro-path-sep follow-path-sep" aria-hidden="true">/</span>
-        <a class="quant-path-step quant-pro-path-step follow-path-step" href="/strategy" data-step="strategy" data-state="idle">
-          <span class="quant-pro-path-num follow-path-num">5</span> 策略
+        <a class="quant-path-step quant-pro-path-step follow-path-step" href="/market-prior" data-step="strategy" data-state="idle">
+          <span class="quant-pro-path-num follow-path-num">5</span> 市场先验
         </a>
       </nav>
     </div>
@@ -415,7 +415,7 @@
           <input type="hidden" id="paper-strategy" value="short_conservative" />
           <p class="quant-sub follow-rules-edit-hint">规则在 <a class="follow-hero-link" href="/replay#replay-section-run">历史回测</a> 改。手动执行只复现 09:30 开盘预估分，不落账。舆情只读 09:30 前已入库。</p>
           <div class="quant-actions-inline paper-t0-manual-actions follow-rebalance-exec-actions">
-            <button type="button" id="paper-adjust" class="dialog-btn" title="手动执行：复现当日 09:30 开盘时刻的调仓预估分（开盘 Z，不用开盘后 5m）。舆情只读 09:30 前已入库的标题。不含开仓/加仓。不写入纸面账户，只作对照。">手动执行</button>
+            <button type="button" id="paper-adjust" class="dialog-btn" title="手动执行：复现当日 09:30 开盘时刻的调仓预估分（开盘 Z，不用开盘后 5m）。舆情只读 09:30 前已入库的标题。不含开仓/加仓。不写入模拟账户，只作对照。">手动执行</button>
             <span id="paper-path-matrix-status" class="quant-sub follow-holdings-load-status follow-ops-load-status" aria-live="polite"></span>
           </div>
           <div
@@ -449,7 +449,7 @@
         <summary class="quant-secondary-fold-sum follow-secondary-fold-sum">
           <h3 id="follow-section-t0-title" class="dashboard-section-title">做 T</h3>
           <p class="dashboard-section-desc quant-section-desc" id="follow-t0-data-foot" title="选向用会话快照ŷ；路径用5m仓；Worker可拉最新5m；现价盯盘行情">
-            选向ŷ=会话快照 · 路径5m=研究枢纽仓 · Worker可补拉5m · 现价行情 · ≠ 持仓实时分
+            选向ŷ：回测/预演用各日会话快照（≠持仓实时分） · 路径5m：数据中心仓 / 页头可拉远端增量补齐（L0） · Worker/落账可拉最新5m · 现价盯盘走行情
           </p>
         </summary>
       <div class="dashboard-card quant-pro-card follow-ops-card follow-t0-run-card" id="follow-fold-t0-run">

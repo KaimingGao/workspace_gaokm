@@ -60,7 +60,7 @@ class TestTcLgbFitWeights(unittest.TestCase):
 
         captured = {}
 
-        def _fake_align(x_c, y_c, dates_c, clock="open"):
+        def _fake_align(x_c, y_c, dates_c, clock="open", x_dtype=None):
             return (
                 np.asarray(x_c)[keep],
                 np.asarray(y_c)[keep],

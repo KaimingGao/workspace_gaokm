@@ -4,9 +4,14 @@
  * 面板按 lookback 全窗（优先 Feature Lake）；live 档位跟随历史回测「分档」勾选。
  */
 import { createScoreTooltipController } from "../score_tooltip.js";
-import { syncOverviewUniverse } from "./factor_corr_ui.js";
+import {
+  syncOverviewBarsCoverage,
+  syncOverviewMinute,
+  syncOverviewUniverse,
+} from "./factor_corr_ui.js";
 import {
   BARS_DAILY_LOOKBACK,
+  BARS_WATCHING_LIMIT,
   MODEL_FIT_LIMIT,
   markWatchingPoolLimitReady,
   notifyWatchingPoolLimitChanged,
@@ -1013,25 +1018,45 @@ export function installResearchUniverseUi(q) {
 
   async function hydrateWatchingMaxSize() {
     const input = el.maxSize();
-    if (!input) {
-      markWatchingPoolLimitReady(readWatchingPoolLimit());
-      return;
-    }
+    let capFromFile = null;
     try {
       const { ok, data } = await apiFetch("/api/watching/file");
       const watching = data && data.watching;
       const cap = Number((watching && watching.max_size) || (data && data.max_size));
-      if (ok && Number.isFinite(cap)) paintPoolSize(cap);
-      const wl = watching && watching.watchlist;
-      if (ok && Array.isArray(wl)) {
-        syncPoolOverview(wl.filter((c) => String(c || "").trim()).length);
+      if (ok && Number.isFinite(cap)) capFromFile = cap;
+      if (input) {
+        if (capFromFile != null) paintPoolSize(capFromFile);
+        const wl = watching && watching.watchlist;
+        if (ok && Array.isArray(wl)) {
+          syncPoolOverview(wl.filter((c) => String(c || "").trim()).length);
+        }
       }
     } catch (_) {
-      paintPoolSize(input.value || 300);
+      if (input) paintPoolSize(input.value || 300);
     } finally {
-      // 先就绪再通知：日线/5m 首刷 await ready，避免用 HTML 默认 300 截断满池
-      markWatchingPoolLimitReady(readWatchingPoolLimit());
+      // 先就绪再让日线/5m 首刷：有滑条用滑条，数据中心用文件上限，避免默认 300 截断满池
+      const ready = input ? readWatchingPoolLimit() : capFromFile;
+      markWatchingPoolLimitReady(ready != null ? ready : readWatchingPoolLimit());
     }
+  }
+
+  async function refreshHubWarehouseKpis() {
+    if (document.body?.dataset?.page !== "quant") return;
+    if (document.getElementById("quant-bars-topup")) return;
+    const limit = Math.min(BARS_WATCHING_LIMIT, readWatchingPoolLimit());
+    const paint = (res, sync) => {
+      if (res && res.ok && res.data) sync(res.data);
+    };
+    await Promise.all([
+      apiFetch(`/api/quant/bars/status?watching_limit=${encodeURIComponent(limit)}`)
+        .then((res) => paint(res, syncOverviewBarsCoverage))
+        .catch(() => {}),
+      apiFetch(
+        `/api/quant/minute/status?watching_limit=${encodeURIComponent(limit)}&min_span_days=40&include_label_portrait=0`
+      )
+        .then((res) => paint(res, syncOverviewMinute))
+        .catch(() => {}),
+    ]);
   }
 
   async function saveWatchingMaxSize() {
@@ -1064,10 +1089,16 @@ export function installResearchUniverseUi(q) {
     void rebuildAndAlignUniverse();
   });
 
-  if (el.maxSize()) {
-    void hydrateWatchingMaxSize().catch(() => {
-      markWatchingPoolLimitReady(readWatchingPoolLimit());
-    });
+  if (el.maxSize() || document.body?.dataset?.page === "data") {
+    void hydrateWatchingMaxSize()
+      .catch(() => {
+        markWatchingPoolLimitReady(readWatchingPoolLimit());
+      })
+      .then(() => {
+        if (document.body?.dataset?.page === "quant") {
+          void refreshHubWarehouseKpis();
+        }
+      });
   } else {
     markWatchingPoolLimitReady(readWatchingPoolLimit());
   }

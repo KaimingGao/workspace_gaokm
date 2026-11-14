@@ -38,7 +38,7 @@
   padding: 0;
 }
 
-/* ── 页头：对齐策略中心 / 研究枢纽 ── */
+/* ── 页头：对齐市场先验 / 研究枢纽 ── */
 body[data-page="platform"] .dashboard-head.quant-head {
   display: flex;
   align-items: flex-start;

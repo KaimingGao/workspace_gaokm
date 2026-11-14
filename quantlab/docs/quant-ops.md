@@ -76,11 +76,11 @@ bash scripts/daily_paper.sh   # P2 / N5：paper_daily（五问 + DecisionRecord 
 - `POST /api/schedule/run` — `{ "kind": "paper_daily", "strategy": "short", "simulate_buy": false }`
 - `GET /api/schedule/last` — 上次调度摘要（`data/schedule_last_run.json`，含五问字段）
 
-量化面板 **「每日量化」** 按钮等价于 `preset: "quant"`。平台页 **「运行纸面日更」** / 模拟页 **「纸面日更」** 等价于 `kind: "paper_daily"`。
+`POST /api/daily/run` 且 `preset: "quant"` 即每日量化。平台 **「运行日更」** 等价于 `kind: "paper_daily"`。
 
-**P2 演示闭环**：纸面日更告警 → 研究枢纽 `POST /api/feedback/suggest` → 策略页人审 **promote** → 再回测/纸面。
+**P2 演示闭环**：纸面日更告警 → 研究枢纽 `POST /api/feedback/suggest` → 人审 `POST /api/strategy/promote` → 再回测/纸面。
 
-**P23 运维区**：打开量化面板 →「运维状态」→ 下拉选择 `advisor` / `quant` / `full` / `quant_paper` → **「运行 daily」**（与底部快捷按钮共用同一 API）。
+**P23 日更预设**：`advisor` / `quant` / `full` / `quant_paper` 走 `POST /api/daily/run` 或 `research/daily_run.py --preset`。Web 上纸面日更在平台「运行日更」。
 
 ---
 
@@ -178,18 +178,18 @@ Agent：`quant(task=health)` · `quant(task=package_info)` 查看包模块树。
 
 CLI 抽查：`python3 -c "from services.agent_ops import AgentOpsService; print(AgentOpsService().run({'task':'ops_snapshot'}))"`
 
-Web 量化面板 **「运维状态」** 区可 **「量化 CI」**（9 quant_* + preset）、**运行 daily**、复制报告链接；包模块树见 `GET /api/quant/package`。
+量化 CI（9 quant_* + preset）与 daily 走 CLI / Eval API；包模块树见 `GET /api/quant/package`。归档报告的 `share_url` 由 API 取出。
 
 Agent：`quant(task=daily_presets)` 列出 preset；`quant(task=config_diff)` 预览 signal_config diff；`quant(task=portfolio_bridge)` 汇总持仓/纸面/量化联动。
 
-归档报告含 `share_url`（如 `/api/quant/reports/quant_daily_YYYYMMDD.html`）；Web 运维区可 **复制链接**。导出 MD/HTML 顶部含 **一页摘要**（`GET /api/quant/export/summary`）。
+归档报告含 `share_url`（如 `/api/quant/reports/quant_daily_YYYYMMDD.html`）。导出 MD/HTML 顶部含 **一页摘要**（`GET /api/quant/export/summary`）。
 
 ### 持仓 ↔ 量化联动（P24）
 
 | 入口 | 说明 |
 |------|------|
-| Web 持仓 ·「打开量化」 | 关闭持仓弹窗，打开量化面板并加载联动摘要 |
-| Web · 持仓联动 | `GET /api/portfolio/quant-bridge`（只读：模拟持仓 ↔ 观察重叠） |
+| 交易执行 | 持仓在本页管理；联动不另开弹窗 |
+| API | `GET /api/portfolio/quant-bridge`（只读：模拟持仓 ↔ 观察池重叠） |
 | Agent | `quant(task=portfolio_bridge)` |
 
 ### Agent 周末回归（P24，可选）
@@ -208,7 +208,7 @@ python3 evals/run_checklist.py --mock --quant-only --presets
 
 ## Watching 编辑（P18）
 
-Web 量化面板 **「编辑 watching.json」** 可修改 `sources` / `max_size` / `watchlist`（保存后不会自动 refresh，需点「刷新」）。
+观察台用搜索加入或移除名单。研究枢纽概览的观察池滑条改只数上限。没有「编辑 watching.json」按钮。
 
 | API | 说明 |
 |-----|------|
@@ -235,7 +235,7 @@ python3 research/daily_check.py --require-run --json
 
 ## 信号配置（P19）
 
-Web 量化面板 **「信号配置（只读）」** 展示当前 `signal_config.json` 合并后的权重、stance 阈值与 rank 参数。
+没有「信号配置（只读）」面板。`signal_config.json` 用下面的接口读取。市场先验人审写入 M prior；ŷ 权重不从这里改。
 
 | API | 说明 |
 |-----|------|
@@ -272,4 +272,4 @@ curl -s 'localhost:8000/api/signal/config/diff-export?use_saved=true'
 
 - [quant.md](quant.md) — ŷ / stance / 回测–纸面契约
 - [design-spine.md · 路线图](design-spine.md#能力评估与升级规划路线图视角) — 产品节奏
-- [quant-ui.md](quant-ui.md) — 研究枢纽「运维状态」
+- [quant-ui.md](quant-ui.md) — 研究枢纽与侧栏页面

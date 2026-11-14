@@ -923,7 +923,6 @@ class QuantReplayMixin:
                         codes=kwargs.get("codes"),
                         lookback=int(kwargs.get("lookback") or 600),
                         horizon_days=int(kwargs.get("horizon_days") or 3),
-                        ridge_lambda=float(kwargs.get("ridge_lambda") or 0.0),
                         watching_limit=int(kwargs.get("watching_limit") or 12),
                         min_samples=int(kwargs.get("min_samples") or 24),
                         save_draft=bool(kwargs.get("save_draft", True)),

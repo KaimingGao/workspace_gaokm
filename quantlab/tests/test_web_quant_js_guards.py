@@ -170,14 +170,17 @@ class TestWebQuantJsGuards(unittest.TestCase):
         self.assertIn("quant-weight-table-wrap", panel)
         self.assertNotIn("quant-cross-run", panel)
 
-        self.assertIn('id="quant-section-minute"', panel)
-        self.assertIn('id="quant-daily-integrity"', panel)
-        self.assertIn('id="quant-minute-integrity"', panel)
-        self.assertIn('id="quant-minute-refresh"', panel)
-        self.assertIn('id="quant-minute-topup"', panel)
-        self.assertIn("强更 5m（L0）", panel)
-        self.assertIn("增量补齐（L0）", panel)
-        self.assertIn('id="quant-bars-topup"', panel)
+        data_panel = self._read("web", "static", "partials", "data_panel.html")
+        self.assertIn('id="quant-section-minute"', data_panel)
+        self.assertIn('id="quant-daily-integrity"', data_panel)
+        self.assertIn('id="quant-minute-integrity"', data_panel)
+        self.assertIn('id="quant-minute-refresh"', data_panel)
+        self.assertIn('id="quant-minute-topup"', data_panel)
+        self.assertIn("强更 5m（L0）", data_panel)
+        self.assertIn("增量补齐（L0）", data_panel)
+        self.assertIn('id="quant-bars-topup"', data_panel)
+        self.assertNotIn('id="quant-bars-topup"', panel)
+        self.assertNotIn('id="quant-section-minute"', panel)
         self.assertIn('id="quant-watching-limit"', panel)
         self.assertIn('id="quant-watching-limit" value="1600"', panel)
         self.assertIn('id="quant-watching-max-size"', panel)
@@ -249,9 +252,11 @@ class TestWebQuantJsGuards(unittest.TestCase):
         self.assertIn("WATCHING_POOL_LIMIT_CHANGED", params_js)
         self.assertIn("markWatchingPoolLimitReady", params_js)
         self.assertIn("notifyWatchingPoolLimitChanged", params_js)
-        self.assertIn("强更日 K（L0）", panel)
-        self.assertIn('id="quant-bars-strip"', panel)
-        self.assertIn("quant-desk-status-strip quant-bars-desk-status quant-card-head-status is-busy", panel)
+        data_panel = self._read("web", "static", "partials", "data_panel.html")
+        self.assertIn("强更日 K（L0）", data_panel)
+        self.assertIn('id="quant-bars-strip"', data_panel)
+        self.assertIn("quant-desk-status-strip quant-bars-desk-status quant-card-head-status is-busy", data_panel)
+        self.assertNotIn("强更日 K（L0）", panel)
         self.assertIn("quant-desk-status-strip.is-busy .quant-desk-status-msg::before", self._read("web", "static", "css", "base.css"))
         css_base = self._read("web", "static", "css", "base.css")
         self.assertIn(".topbar-ai-btn {\n  --ai-wash: var(--surface);", css_base)
@@ -666,7 +671,7 @@ class TestWebQuantJsGuards(unittest.TestCase):
         self.assertNotIn(".quant-ru-run.dialog-btn", css)
         ru_head = panel[
             panel.find('id="quant-section-research-universe"') : panel.find(
-                'id="quant-section-bars"'
+                'id="quant-section-factors"'
             )
         ]
         self.assertIn('id="quant-ru-ran"', ru_head)
@@ -1107,11 +1112,13 @@ class TestWebQuantJsGuards(unittest.TestCase):
         self.assertIn('id="quant-return-model-promote" class="dialog-btn warn"', panel)
         self.assertNotIn("quant-return-model-status", panel)
         self.assertIn('aria-label="观察池分档操作"', panel)
-        self.assertIn('aria-label="日线 L0"', panel)
-        self.assertIn('aria-label="日线物化"', panel)
-        self.assertIn('aria-label="分钟线 L0"', panel)
-        self.assertIn('aria-label="分钟线物化"', panel)
-        self.assertEqual(panel.count("> 说明</summary>"), 5)
+        self.assertIn('aria-label="日线 L0"', data_panel)
+        self.assertIn('aria-label="日线物化"', data_panel)
+        self.assertIn('aria-label="分钟线 L0"', data_panel)
+        self.assertIn('aria-label="分钟线物化"', data_panel)
+        self.assertNotIn('aria-label="日线 L0"', panel)
+        self.assertEqual(panel.count("> 说明</summary>"), 1)
+        self.assertEqual(data_panel.count("> 说明</summary>"), 4)
         self.assertIn("> 语法</summary>", panel)
         self.assertIn('id="quant-oo-coef-table"', panel)
         self.assertIn('id="quant-tau-coef-table"', panel)
@@ -1417,8 +1424,11 @@ class TestWebQuantJsGuards(unittest.TestCase):
         self.assertIn("updateTauMaterializeReady", minute_js)
         self.assertNotIn("runTauMaterializeJob", minute_js)
         self.assertNotIn("quant-minute-auto-materialize", minute_js)
-        quant_html = self._read("web", "static", "partials", "quant_panel.html")
+        quant_html = self._read("web", "static", "partials", "data_panel.html")
         self.assertNotIn('id="quant-bars-auto-materialize"', quant_html)
+        hub_html = self._read("web", "static", "partials", "quant_panel.html")
+        self.assertNotIn('id="quant-materialize-run"', hub_html)
+        self.assertIn('href="/data"', hub_html)
         self.assertIn('id="quant-materialize-run"', quant_html)
         self.assertRegex(
             quant_html,
@@ -2883,7 +2893,7 @@ class TestWebQuantJsGuards(unittest.TestCase):
         self.assertNotIn("watching_quotes_ui.js?v=p2298", insights)
 
     def test_watching_holdings_tables_rebalance_tau_titles(self):
-        """数据中心观察池 / 持仓表列头用 09:30–10:00 调仓因果前缀 ŷ。"""
+        """观察台主表 / 持仓表列头用 09:30–10:00 调仓因果前缀 ŷ。"""
         fmt = self._read("web", "static", "js", "paper", "fmt.js")
         self.assertIn("export const Y_OC_REBALANCE_TITLE", fmt)
         self.assertIn("export const FUSE_REBALANCE_TITLE", fmt)
@@ -2908,7 +2918,7 @@ class TestWebQuantJsGuards(unittest.TestCase):
         self.assertIn("FUSE_REBALANCE_TITLE", insights)
         policy = self._read("web", "static", "js", "data_policy.js")
         minute = self._read("web", "static", "js", "quant", "minute_ui.js")
-        panel = self._read("web", "static", "partials", "quant_panel.html")
+        panel = self._read("web", "static", "partials", "data_panel.html")
         self.assertNotIn("ŷ_oc@10:30", policy)
         self.assertNotIn("ŷ_oc@10:30", minute)
         self.assertNotIn("ŷ_oc@10:30", panel)
@@ -4582,7 +4592,7 @@ class TestWebQuantJsGuards(unittest.TestCase):
                 "dashboard-head-actions"
             )
         ]
-        self.assertIn('href="#quant-section-minute"', path)
+        self.assertIn('href="/data#quant-section-minute"', path)
         self.assertIn(">分钟线<", path)
         self.assertNotIn("ŷ_τc_tree", path)
         self.assertNotIn("ŷ_oo_tree", path)

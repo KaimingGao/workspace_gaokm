@@ -1,12 +1,13 @@
-"""离线 Holdout：四头 ŷ_* Scheme LT 双臂对照（默认 head=oo；研究轨，不入库）。
+"""离线 Holdout：四头 ŷ_* 工厂单臂 / 可选双臂（默认 head=oo；研究轨，不入库）。
 
-臂（固定 L+T）：
-  L = 因子 + LightGBM（硬闸基线；回归走 live ``fit_*_lgb_matrix`` + L2 立方 CS-z）
-  T = 双支路晚融合（序列塔 ∥ 因子支；因子支与 L 同用 L2 立方截面 CS-z）
+``--factory``：
+  L = 仅 Arm·L（因子 + LightGBM / LambdaRank；不建序列面板）
+  T = 仅 Arm·T（序列塔 ∥ 因子支；L2 立方 CS-z）
+  LT = 旧 Scheme 双臂对照（页已拆分；CLI 保留）
 
-Arm·L 固定全量，对齐 live。``--full-aoo`` / ``--atc-core`` 只改 Arm·T 因子列，不改 CS-z。
+Arm·L 固定全量因子。``--full-aoo`` / ``--atc-core`` 只改 Arm·T 因子列，不改 CS-z。
 用法:
-  PYTHONUNBUFFERED=1 .venv/bin/python scripts/run_yhat_transformer_holdout.py --head oo
+  PYTHONUNBUFFERED=1 .venv/bin/python scripts/run_yhat_transformer_holdout.py --head oo --factory T
 """
 
 from __future__ import annotations
@@ -179,6 +180,165 @@ def _arml_boost_log_cb(period: int = 25):
     return _cb
 
 
+def _stamp_tc_pool_breadth(
+    X: np.ndarray,
+    names: Sequence[str],
+    dates: Sequence[str],
+    codes: Sequence[str],
+) -> Tuple[np.ndarray, List[str]]:
+    """按日补枢纽截面列：``theme_day`` / ``sector_gap_breadth`` / ``gap_vs_sector`` 及 ``z_τc_*``。
+
+    口径走 ``enrich_day_matrix_cross_section``（与 ``attach_cross_section_breadth`` 相同）。
+    单票开盘行没有这三列；全池当天才能算。
+    """
+    from core.research.tau_panel import enrich_day_matrix_cross_section
+
+    base = np.asarray(X, dtype=np.float64)
+    kept = [str(n) for n in names]
+    n = int(base.shape[0])
+    if n == 0 or base.ndim != 2 or int(base.shape[1]) != len(kept):
+        return base, kept
+    by: Dict[str, List[int]] = {}
+    for i, d in enumerate(dates):
+        if i >= n:
+            break
+        by.setdefault(str(d)[:10], []).append(i)
+    have = set(kept)
+    extra: Dict[str, np.ndarray] = {}
+    for idxs in by.values():
+        if len(idxs) < 2:
+            continue
+        ii = np.asarray(idxs, dtype=np.int64)
+        day_codes = [str(codes[i]) if i < len(codes) else "" for i in idxs]
+        out_names, out_x, added = enrich_day_matrix_cross_section(
+            day_codes, kept, base[ii]
+        )
+        if not added:
+            continue
+        out_x = np.asarray(out_x, dtype=np.float64)
+        if out_x.ndim != 2 or int(out_x.shape[0]) != len(idxs):
+            continue
+        for j, nm in enumerate(out_names):
+            key = str(nm)
+            if key in have:
+                continue
+            col = extra.get(key)
+            if col is None:
+                col = np.full(n, np.nan, dtype=np.float64)
+                extra[key] = col
+            col[ii] = out_x[:, j]
+    add_names = [nm for nm in extra if nm not in have]
+    if not add_names:
+        return base, kept
+    stacked = np.concatenate(
+        [base] + [extra[nm].reshape(-1, 1) for nm in add_names],
+        axis=1,
+    )
+    print(
+        f"  ArmL τc breadth +{len(add_names)} cols "
+        f"({', '.join(add_names[:6])}) rss={_rss_mb()}",
+        flush=True,
+    )
+    return stacked, kept + add_names
+
+
+def _theme_weights_from_panel(X: np.ndarray, names: Sequence[str]) -> Optional[List[float]]:
+    """主题日权重与枢纽 ``theme_sample_weights`` 同口径（开盘可知，boost 1.5）。
+
+    面板列可能是 ``z_τc_theme_day`` 或裸名 ``theme_day``。没有这一列则等权。
+    """
+    index = {str(n): i for i, n in enumerate(names)}
+    col_j = None
+    for key in ("z_τc_theme_day", "theme_day"):
+        if key in index:
+            col_j = index[key]
+            break
+    if col_j is None or int(X.shape[0]) == 0:
+        return None
+    from core.research.tau_panel import theme_sample_weights
+
+    col = np.asarray(X[:, col_j], dtype=np.float64)
+    metas = []
+    for v in col.tolist():
+        flag = 0
+        try:
+            fv = float(v)
+        except (TypeError, ValueError):
+            fv = float("nan")
+        if fv == fv and int(round(fv)) == 1:
+            flag = 1
+        metas.append({"theme_day": flag})
+    return theme_sample_weights(metas)
+
+
+def _tc_hub_columns(
+    X: np.ndarray,
+    names: Sequence[str],
+    train_idx: Sequence[int],
+) -> Tuple[np.ndarray, List[str]]:
+    """τ=open 入模列与 ``fit_tau_model_matrices`` 同：丢掉分钟列和别名，留下有限 raw_atc。
+
+    面板若只写了裸名，按 ``z_τc_*`` 别名取列，列名仍用枢纽的 canon。
+    """
+    from core.research.panel_matrix import raw_atc_finite
+    from core.research.tc_model_compact import TAU_FIT_DROP_ALIASES, TAU_Z_FEATURES
+    from core.signal.factors.z_tc import Z_TC_MINUTE_KEYS, to_legacy_key
+
+    drop = set(Z_TC_MINUTE_KEYS) | set(TAU_FIT_DROP_ALIASES)
+    index = {str(n): i for i, n in enumerate(names)}
+    wanted: List[str] = [k for k in TAU_Z_FEATURES if k not in drop]
+    seen = set(wanted)
+    for key in raw_atc_finite(X, names, train_idx):
+        if key not in seen:
+            seen.add(key)
+            wanted.append(key)
+    cols: List[int] = []
+    kept: List[str] = []
+    for name in wanted:
+        j = index.get(name)
+        if j is None:
+            j = index.get(to_legacy_key(name))
+        if j is None:
+            continue
+        cols.append(int(j))
+        kept.append(str(name))
+    if not cols:
+        return np.zeros((int(X.shape[0]), 0), dtype=np.float64), []
+    return np.ascontiguousarray(np.asarray(X)[:, cols]), kept
+
+
+def _stamp_open_clock(days: Sequence[dict]) -> List[dict]:
+    out: List[dict] = []
+    for day in days:
+        row = dict(day)
+        row.setdefault("clock", "open")
+        out.append(row)
+    return out
+
+
+def _cap_rank_days(days: Sequence[dict], max_tr: int) -> List[dict]:
+    """整日丢弃，凑到训练行上限。默认不截断（max_tr<=0）。"""
+    rows = [d for d in days if d]
+    if max_tr <= 0:
+        return rows
+    total = sum(len(d.get("ys") or []) for d in rows)
+    if total <= max_tr:
+        return rows
+    rng = np.random.RandomState(42)
+    order = list(range(len(rows)))
+    rng.shuffle(order)
+    kept: List[dict] = []
+    n_kept = 0
+    for gi in order:
+        day = rows[int(gi)]
+        n = len(day.get("ys") or [])
+        if n_kept and n_kept + n > max_tr:
+            continue
+        kept.append(day)
+        n_kept += n
+    return kept
+
+
 def _run_arm_l_regression(
     fac,
     train_idx: Sequence[int],
@@ -195,7 +355,7 @@ def _run_arm_l_regression(
     hid = str(head_id or "oo").strip() or "oo"
     names = [str(n) for n in fac.feature_names]
     dates = [str(d)[:10] for d in fac.dates]
-    # 全表保持原 dtype（面板是 float32）。训练行在 fit_* 里再升成一份 float64。
+    # 全表保持原 dtype（面板是 float32）。训练行在 fit_* 里收成一份 float32。
     X = fac.X
     y = np.asarray(fac.y, dtype=np.float64)
     max_tr = _arm_l_max_train_rows()
@@ -212,21 +372,43 @@ def _run_arm_l_regression(
         f"F={int(X.shape[1])} rounds={rounds} rss={_rss_mb()}",
         flush=True,
     )
+    theme_boost = None
     try:
         if hid in ("tc", "tc_rank"):
             from core.research.tc_lgb import fit_tc_lgb_matrix, predict_tc_lgb_matrix
 
+            X, names = _stamp_tc_pool_breadth(X, names, dates, list(fac.codes))
+            weights = _theme_weights_from_panel(X, names)
+            X_fit, feat_names = _tc_hub_columns(X, names, tr)
+            if not feat_names:
+                return {
+                    "arm": "L_lightgbm",
+                    "success": False,
+                    "error": "τc 入模列为空（枢纽列过滤后没有 z_τc / raw_atc）",
+                    "elapsed_sec": round(time.time() - t0, 2),
+                    "note": "live fit_tc_lgb_matrix + theme weights + hub columns",
+                }
+            if weights is not None:
+                theme_boost = 1.5
+            print(
+                f"  ArmL τc columns F={len(feat_names)} theme_boost={theme_boost} "
+                f"rss={_rss_mb()}",
+                flush=True,
+            )
             blob, report = fit_tc_lgb_matrix(
-                X,
+                X_fit,
                 y,
-                names,
+                feat_names,
                 row_idx=tr,
                 row_dates=dates,
+                sample_weights=weights,
                 cross_section_zscore=True,
                 clock="open",
                 callbacks=step_cb,
             )
             predict_fn = predict_tc_lgb_matrix
+            X = X_fit
+            names = feat_names
         else:
             from core.research.oo_lgb import fit_oo_lgb_matrix, predict_oo_lgb_matrix
 
@@ -310,12 +492,37 @@ def _run_arm_l_regression(
             "rss_mb": _rss_mb(),
             "note": "live fit_*_lgb_matrix + L2 cube CS-z",
             "max_train_cap": int(max_tr),
+            "theme_boost": theme_boost,
             "live_aligned": True,
         }
     )
     del blob, X, y
     gc.collect()
     return metrics
+
+
+def _rank_day_packs(
+    fac,
+    idx: Sequence[int],
+    X: np.ndarray,
+    names: Sequence[str],
+) -> List[dict]:
+    """训练/测试行 → 枢纽日包（按日 ≥8 名，clock=open）。"""
+    from core.research.oo_rank_panel import group_day_matrices
+
+    ii = [int(i) for i in idx]
+    if not ii:
+        return []
+    pos = np.asarray(ii, dtype=np.int64)
+    days = group_day_matrices(
+        np.asarray(X)[pos],
+        np.asarray(fac.y, dtype=np.float64)[pos],
+        list(names),
+        [fac.dates[i] for i in ii],
+        [fac.codes[i] for i in ii],
+        min_names=8,
+    )
+    return _stamp_open_clock(days)
 
 
 def _run_arm_l_rank(
@@ -326,44 +533,58 @@ def _run_arm_l_rank(
     head_id: str = "oo_rank",
     t0: float,
 ) -> Dict[str, Any]:
-    """排序 Arm·L：L2 立方 CS-z + live LambdaRank 超参（矩阵路径；非 day-pack 全链路）。
+    """排序 Arm·L：日包 ``fit_lambdarank``（threads=1，≥5 个交易日，L2 截面 Z）。
 
-    oo_rank / tc_rank 共用 ``oo_rank_lambdarank`` 超参；面板列已按头部分开（aoo/atc）。
+    ŷ_τc_rank 先补全池截面列，再按枢纽列过滤（分钟列 / 别名丢掉，裸名映到 ``z_τc_*``）。
+    不把 booster 写入研究枢纽槽。
     """
     import gc
 
-    import lightgbm as lgb
-
-    from core.research.horizon_lgb import resolve_lgb_num_threads
     from core.research.materialize.consumer import MaterializeRequired
-    from core.research.materialize.cube_z import cs_z_matrix_prefer_cube
     from core.research.oo_rank_lambdarank import (
-        LAMBDARANK_COLSAMPLE,
-        LAMBDARANK_L2,
-        LAMBDARANK_LEARNING_RATE,
-        LAMBDARANK_MAX_DEPTH,
-        LAMBDARANK_MIN_CHILD_SAMPLES,
-        LAMBDARANK_N_ESTIMATORS,
-        LAMBDARANK_NUM_LEAVES,
-        LAMBDARANK_SUBSAMPLE,
-        LAMBDARANK_TRUNCATION_LEVEL,
-        LAMBDARANK_Z_CLIP,
-        _rank_labels,
+        _predict_oo_rank_matrix,
+        fit_lambdarank,
     )
 
     hid = str(head_id or "oo_rank").strip() or "oo_rank"
     names = [str(n) for n in fac.feature_names]
-    dates = [str(d)[:10] for d in fac.dates]
-    y = np.asarray(fac.y, dtype=np.float64)
-    te = np.asarray(list(test_idx), dtype=np.int64)
     max_tr = _arm_l_max_train_rows()
+    X = fac.X
+    if hid == "tc_rank":
+        X, names = _stamp_tc_pool_breadth(
+            X,
+            names,
+            [str(d)[:10] for d in fac.dates],
+            list(fac.codes),
+        )
+        X, names = _tc_hub_columns(X, names, train_idx)
+        if not names:
+            return {
+                "arm": "L_lambdarank",
+                "success": False,
+                "error": "τc_rank 入模列为空（枢纽列过滤后没有 z_τc / raw_atc）",
+                "elapsed_sec": round(time.time() - t0, 2),
+                "head": hid,
+            }
     print(
-        f"  ArmL cube CS-z start head={hid} N={int(fac.X.shape[0])} F={int(fac.X.shape[1])} "
-        f"rss={_rss_mb()}",
+        f"  ArmL rank day-pack start head={hid} N={int(np.asarray(X).shape[0])} "
+        f"F={len(names)} rss={_rss_mb()}",
+        flush=True,
+    )
+    days_tr = _cap_rank_days(_rank_day_packs(fac, train_idx, X, names), max_tr)
+    if max_tr > 0:
+        print(
+            f"  ArmL rank day cap groups={len(days_tr)} cap={max_tr} "
+            "(env override, not live default)",
+            flush=True,
+        )
+    print(
+        f"  ArmL fit start head={hid} objective=lambdarank "
+        f"groups={len(days_tr)} F={len(names)} threads=1 rss={_rss_mb()}",
         flush=True,
     )
     try:
-        Xz = cs_z_matrix_prefer_cube(fac.X, names, dates, clock="open")
+        fit = fit_lambdarank(days_tr, feature_names=names)
     except MaterializeRequired as exc:
         return {
             "arm": "L_lambdarank",
@@ -371,157 +592,80 @@ def _run_arm_l_rank(
             "error": f"MaterializeRequired: {exc}",
             "elapsed_sec": round(time.time() - t0, 2),
             "head": hid,
-            "note": "L2 cube CS-z + live LambdaRank hypers",
+            "note": "live fit_lambdarank day-pack",
         }
-    z_clip = float(LAMBDARANK_Z_CLIP)
-    if z_clip > 0:
-        np.clip(Xz, -z_clip, z_clip, out=Xz)
-    for _j in range(int(Xz.shape[1])):
-        _col = Xz[:, _j]
-        _bad = ~np.isfinite(_col)
-        if _bad.any():
-            _col[_bad] = 0.0
-    print(
-        f"  ArmL cube CS-z done {time.time() - t0:.1f}s rss={_rss_mb()}",
-        flush=True,
-    )
-
-    tr_sorted = sorted(
-        list(train_idx),
-        key=lambda i: (str(fac.dates[i])[:10], str(fac.codes[i])),
-    )
-    X_tr: List[np.ndarray] = []
-    y_tr: List[int] = []
-    groups: List[int] = []
-    by: Dict[str, List[int]] = {}
-    for i in tr_sorted:
-        by.setdefault(str(fac.dates[i])[:10], []).append(int(i))
-    for rows in by.values():
-        if len(rows) < 4:
-            continue
-        labs = _rank_labels([float(y[i]) for i in rows])
-        if len(set(labs)) < 2:
-            continue
-        X_tr.append(Xz[np.asarray(rows, dtype=np.int64)])
-        y_tr.extend(labs)
-        groups.append(len(rows))
-    if not X_tr:
+    if not isinstance(fit, dict) or not fit.get("success"):
+        err = (fit or {}).get("error") if isinstance(fit, dict) else "lambdarank_fit_failed"
         return {
             "arm": "L_lambdarank",
             "success": False,
-            "error": "no_rank_groups",
+            "error": err or "lambdarank_fit_failed",
             "elapsed_sec": round(time.time() - t0, 2),
             "head": hid,
+            "n_groups": (fit or {}).get("n_groups") if isinstance(fit, dict) else None,
+            "note": "live fit_lambdarank day-pack",
         }
-    X_fit = np.concatenate(X_tr, axis=0)
-    y_fit = np.asarray(y_tr, dtype=np.float64)
-    y_max = int(y_fit.max()) if y_fit.size else 0
-    if max_tr > 0 and int(X_fit.shape[0]) > max_tr:
-        rng = np.random.RandomState(42)
-        order = list(range(len(groups)))
-        rng.shuffle(order)
-        keep_x: List[np.ndarray] = []
-        keep_y: List[float] = []
-        keep_g: List[int] = []
-        n_kept = 0
-        cursor = 0
-        parts = []
-        for g in groups:
-            parts.append((cursor, cursor + int(g)))
-            cursor += int(g)
-        for gi in order:
-            a, b = parts[int(gi)]
-            if n_kept and n_kept + (b - a) > max_tr:
-                continue
-            keep_x.append(X_fit[a:b])
-            keep_y.extend(y_fit[a:b].tolist())
-            keep_g.append(int(b - a))
-            n_kept += b - a
-        if keep_x:
-            print(
-                f"  ArmL rank subsample rows {int(X_fit.shape[0])}→{n_kept} "
-                f"(cap={max_tr}; env override, not live default)",
-                flush=True,
-            )
-            X_fit = np.concatenate(keep_x, axis=0)
-            y_fit = np.asarray(keep_y, dtype=np.float64)
-            groups = keep_g
-            y_max = int(y_fit.max()) if y_fit.size else 0
-    rounds = int(LAMBDARANK_N_ESTIMATORS)
-    trunc = int(LAMBDARANK_TRUNCATION_LEVEL)
-    params = {
-        "objective": "lambdarank",
-        "metric": ["ndcg"],
-        "label_gain": [float(i) for i in range(y_max + 1)],
-        "learning_rate": float(LAMBDARANK_LEARNING_RATE),
-        "num_leaves": int(LAMBDARANK_NUM_LEAVES),
-        "max_depth": int(LAMBDARANK_MAX_DEPTH),
-        "min_data_in_leaf": int(LAMBDARANK_MIN_CHILD_SAMPLES),
-        "subsample": float(LAMBDARANK_SUBSAMPLE),
-        "colsample_bytree": float(LAMBDARANK_COLSAMPLE),
-        "lambda_l2": float(LAMBDARANK_L2),
-        "verbose": -1,
-        "num_threads": int(resolve_lgb_num_threads(None)),
-        "seed": 42,
-    }
-    if trunc > 0:
-        params["lambdarank_truncation_level"] = trunc
-    X_te = np.asarray(Xz[te], dtype=np.float64)
-    n_features = int(X_fit.shape[1])
-    n_train = int(X_fit.shape[0])
-    del X_tr, Xz
-    gc.collect()
+    days_te = _rank_day_packs(fac, test_idx, X, names)
     print(
-        f"  ArmL fit start head={hid} objective=lambdarank rounds={rounds} "
-        f"n_train={n_train} groups={len(groups)} "
-        f"F={n_features} lr={params['learning_rate']} "
-        f"leaves={params['num_leaves']} rss={_rss_mb()}",
+        f"  ArmL predict test_days={len(days_te)} rss={_rss_mb()}",
         flush=True,
     )
-    dtrain = lgb.Dataset(
-        X_fit,
-        label=y_fit,
-        group=np.asarray(groups, dtype=np.int32),
-        free_raw_data=True,
-    )
-    del X_fit, y_fit
-    gc.collect()
-    booster = lgb.train(
-        params,
-        dtrain,
-        num_boost_round=rounds,
-        callbacks=[_arml_boost_log_cb(period=max(10, rounds // 10))],
-    )
-    print(f"  ArmL predict test={int(te.size)} rss={_rss_mb()}", flush=True)
-    preds = booster.predict(X_te)
-    metrics = _eval_pack(
-        list(np.asarray(preds, dtype=np.float64)),
-        [float(y[i]) for i in te.tolist()],
-        _metas(
-            [fac.codes[i] for i in te.tolist()],
-            [fac.dates[i] for i in te.tolist()],
-        ),
-    )
+    preds: List[float] = []
+    ys: List[float] = []
+    codes: List[str] = []
+    dates_te: List[str] = []
+    n_miss = 0
+    for day in days_te:
+        scored = _predict_oo_rank_matrix(fit, day)
+        day_ys = list(day.get("ys") or [])
+        day_codes = list(day.get("codes") or [])
+        day_date = str(day.get("date") or "")[:10]
+        for i, yy in enumerate(day_ys):
+            pv = scored[i] if i < len(scored) else None
+            try:
+                fv = float(pv) if pv is not None else float("nan")
+            except (TypeError, ValueError):
+                fv = float("nan")
+            if fv != fv:
+                n_miss += 1
+                continue
+            preds.append(fv)
+            ys.append(float(yy))
+            codes.append(str(day_codes[i]) if i < len(day_codes) else "")
+            dates_te.append(day_date)
+    if not preds:
+        return {
+            "arm": "L_lambdarank",
+            "success": False,
+            "error": f"holdout preds empty (soft_miss={n_miss})",
+            "elapsed_sec": round(time.time() - t0, 2),
+            "head": hid,
+            "n_groups": fit.get("n_groups"),
+            "note": "live fit_lambdarank day-pack",
+        }
+    metrics = _eval_pack(preds, ys, _metas(codes, dates_te))
+    n_train = int(fit.get("sample_count") or 0)
     metrics.update(
         {
             "arm": "L_lambdarank",
             "success": True,
             "head": hid,
-            "n_features": int(n_features),
+            "n_features": int(len(names)),
             "n_train": n_train,
-            "n_test": int(te.size),
+            "n_test": len(preds),
+            "n_pred_miss": int(n_miss),
+            "n_groups": fit.get("n_groups"),
             "elapsed_sec": round(time.time() - t0, 2),
             "rss_mb": _rss_mb(),
             "note": (
-                "L2 cube CS-z + shared LambdaRank hypers (matrix path; "
-                f"head={hid}; oo_rank/tc_rank 同超参)"
+                "live fit_lambdarank day-pack · num_threads=1 · L2 cube CS-z "
+                f"(head={hid})"
             ),
             "max_train_cap": int(max_tr),
-            # 超参与 live 排序头同源；非 day-pack 全链路，矩阵近似
             "live_aligned": True,
         }
     )
-    del X_te, y, booster, dtrain
+    del fit, X
     gc.collect()
     return metrics
 
@@ -548,11 +692,50 @@ def _run_arm_l(
     )
 
 
+def _drop_aligned_rows_without_cube(seq, fac):
+    """对齐后丢掉早于本地 L2 起点的行。
+
+    单票日线往往比池立方更早。只切这个前缀，与 Arm·L 丢掉无立方早期行同口径。
+    起点之后仍缺的日期留下，截面标准化照旧失败。一个立方都没有时原样返回。
+    """
+    from core.research.materialize.cube_z import groups_with_day_cube
+
+    n = int(getattr(fac, "n", 0) or 0)
+    if n <= 0 or int(getattr(seq, "n", 0) or 0) != n:
+        return seq, fac
+    uniq = sorted({str(d)[:10] for d in fac.dates if len(str(d)[:10]) >= 10})
+    if not uniq:
+        return seq, fac
+    mask, miss = groups_with_day_cube(uniq, clock="open")
+    if int(mask.shape[0]) != len(uniq) or not bool(np.any(mask)):
+        print(
+            f"ArmT 本地无可用 L2，保留全部 N={n} 例如 {list(miss)[:4]}",
+            flush=True,
+        )
+        return seq, fac
+    first = uniq[int(np.flatnonzero(mask)[0])]
+    keep = [
+        i
+        for i, d in enumerate(fac.dates)
+        if len(str(d)[:10]) >= 10 and str(d)[:10] >= first
+    ]
+    if len(keep) == n:
+        return seq, fac
+    if not keep:
+        return seq, fac
+    n_drop = n - len(keep)
+    print(
+        f"ArmT 丢掉早于立方起点 {first} 的历史行 {n_drop}/{n} 例如 {list(miss)[:4]}",
+        flush=True,
+    )
+    return seq.subset(keep), fac.subset(keep)
+
+
 def _run_arm_t(seq, fac, train_idx, test_idx, args) -> Dict[str, Any]:
     """Arm·T：序列 Transformer ∥ 因子支路；固定 seed=42 只训一轮。
 
-    因子支路与 Arm·L 同：全面板 ``cs_z_matrix_prefer_cube``（L2 截面 CS-z）；
-    缺立方显式失败，不做列标准化回退。
+    因子支路与 Arm·L 同：全面板 ``cs_z_matrix_prefer_cube``（L2 截面 CS-z）。
+    早于立方的行已在对齐后丢掉；剩下的面板缺立方则显式失败，不做列标准化回退。
     """
     import gc
 
@@ -721,23 +904,74 @@ def _metric_row(tag: str, pack: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
-def _desk_mark_failed(head: str, error: str) -> None:
-    try:
-        from core.research.yhat_tf_desk import mark_fit_failed
+def _relative_hard_gates(
+    summary: Dict[str, Any],
+    gate_fn,
+    *,
+    factory: str,
+) -> Optional[Dict[str, Any]]:
+    """LT 双臂才写相对硬闸。单臂工厂返回 None。"""
+    if factory != "LT":
+        return None
+    base = summary.get("arm_L") if (summary.get("arm_L") or {}).get("success") else None
+    pack_t = summary.get("arm_T") if isinstance(summary.get("arm_T"), dict) else {}
+    if base and pack_t.get("success"):
+        return {"T": gate_fn(base, pack_t)}
+    if not base and pack_t.get("success"):
+        return {
+            "T": {
+                "pass": False,
+                "lift": None,
+                "reasons": ["baseline missing: Arm·L 失败或无指标"],
+            }
+        }
+    if base and not pack_t.get("success"):
+        return {
+            "T": {
+                "pass": False,
+                "lift": None,
+                "reasons": [
+                    f"Arm·T 失败：{pack_t.get('error') or '无指标'}"
+                    if pack_t
+                    else "Arm·T 未产出"
+                ],
+            }
+        }
+    return {
+        "T": {
+            "pass": False,
+            "lift": None,
+            "reasons": ["Arm·L 与 Arm·T 均无成功指标"],
+        }
+    }
 
-        mark_fit_failed(head, error)
-        print(f"desk 已标记失败 head={head}: {error}", flush=True)
+
+def _desk_mark_failed(head: str, error: str, *, factory: str = "T") -> None:
+    try:
+        from core.research.yhat_tf_desk import factory_scope, mark_fit_failed
+
+        with factory_scope(factory):
+            mark_fit_failed(head, error, factory=factory)
+        print(f"desk 已标记失败 head={head} factory={factory}: {error}", flush=True)
     except Exception as exc:  # noqa: BLE001
         print(f"desk 标记失败异常: {exc}", flush=True)
 
 
 def main() -> int:
-    p = argparse.ArgumentParser(description="四头 ŷ_* Scheme LT Holdout（L+T；默认 head=oo；研究轨）")
+    p = argparse.ArgumentParser(
+        description="四头 ŷ_* 工厂 Holdout（--factory L|T|LT；默认 head=oo；研究轨）"
+    )
     p.add_argument("--codes", default="")
     p.add_argument("--watching-limit", type=int, default=800)
     p.add_argument("--lookback", type=int, default=900)
     p.add_argument("--horizon-days", type=int, default=1)
     p.add_argument("--holdout-trading-days", type=int, default=60)
+    p.add_argument(
+        "--factory",
+        type=str,
+        default="T",
+        help="L=仅 LightGBM 臂；T=仅 Transformer 臂；LT=双臂对照（遗留）",
+    )
     p.add_argument("--seq-len", type=int, default=20)
     p.add_argument(
         "--seq-feat-set",
@@ -770,7 +1004,7 @@ def main() -> int:
         "--update-desk",
         action="store_true",
         default=True,
-        help="回写 live/yhat_tf/{head}_last.json metrics（默认开）",
+        help="回写 live/yhat_{l|t}/{head}_last.json metrics（默认开）",
     )
     p.add_argument(
         "--no-update-desk",
@@ -803,16 +1037,30 @@ def main() -> int:
     p.add_argument("--out", default="")
     args = p.parse_args()
     head_id = str(args.head or "oo").strip() or "oo"
+    fac = str(getattr(args, "factory", "T") or "T")
     try:
         return _run_holdout(args)
-    except SystemExit:
+    except SystemExit as exc:
+        # SIGTERM/SIGINT → SystemExit(128+n)；勿把成功码 0 标成失败
+        code = exc.code
+        ok_exit = code in (0, None, "0")
+        if bool(getattr(args, "update_desk", True)) and not ok_exit:
+            if isinstance(code, int) and code >= 128:
+                sig = code - 128
+                name = {15: "SIGTERM", 2: "SIGINT"}.get(sig, f"signal {sig}")
+                msg = f"拟合进程被终止（{name}）；未回写 metrics，请重新拟合"
+            else:
+                msg = str(code) if code not in (None, "") else "拟合中途退出"
+            _desk_mark_failed(head_id, msg, factory=fac)
         raise
     except Exception as exc:  # noqa: BLE001
         import traceback
 
         traceback.print_exc()
         if bool(getattr(args, "update_desk", True)):
-            _desk_mark_failed(head_id, f"{type(exc).__name__}: {exc}")
+            _desk_mark_failed(
+                head_id, f"{type(exc).__name__}: {exc}", factory=fac
+            )
         return 1
 
 
@@ -844,10 +1092,21 @@ def _run_holdout(args: argparse.Namespace) -> int:
         raise SystemExit(str(exc)) from exc
     args.loss = head_spec.loss
     args.task_type = head_spec.task_type
-    # Scheme LT：固定双臂（不再接受 --arms）
-    arms = ["L", "T"]
+    factory = str(getattr(args, "factory", "T") or "T").strip().upper()
+    if factory in ("L", "ARM-L", "ARM_L", "LGB"):
+        factory = "L"
+        arms = ["L"]
+    elif factory in ("T", "ARM-T", "ARM_T", "TF"):
+        factory = "T"
+        arms = ["T"]
+    elif factory in ("LT", "L+T", "BOTH", "ALL"):
+        factory = "LT"
+        arms = ["L", "T"]
+    else:
+        raise SystemExit(f"unknown --factory {factory!r}; expect L|T|LT")
+    args.factory = factory
     need_fac = True
-    need_seq = True
+    need_seq = "T" in arms
     # mlp_hidden 无配置时对齐 d_model
     if getattr(args, "mlp_hidden", None) is None:
         args.mlp_hidden = int(getattr(args, "d_model", 64) or 64)
@@ -868,8 +1127,9 @@ def _run_holdout(args: argparse.Namespace) -> int:
     ):
         raise SystemExit(f"本期 head={head_spec.id} 仅支持 --tau-end 09:30（开盘）")
     print(
-        f"head={head_spec.id} ({head_spec.label}) package=yhat_transformer "
-        f"loss={args.loss} live_allowed=False tau_end={args.tau_end}",
+        f"head={head_spec.id} ({head_spec.label}) factory={factory} "
+        f"package=yhat_transformer loss={args.loss} live_allowed=False "
+        f"tau_end={args.tau_end}",
         flush=True,
     )
 
@@ -901,8 +1161,9 @@ def _run_holdout(args: argparse.Namespace) -> int:
     print(f"有效日线 {len(stock_bars)} 只 rss={_rss_mb()}", flush=True)
 
     summary: Dict[str, Any] = {
-        "role": "research_yhat_multiarm_holdout",
+        "role": "research_yhat_factory_holdout",
         "package": "yhat_transformer",
+        "factory": factory,
         "head": head_spec.id,
         "live_allowed": False,
         "arms": arms,
@@ -1005,6 +1266,7 @@ def _run_holdout(args: argparse.Namespace) -> int:
                     atc_core_only=atc_core and head_spec.id in ("tc", "tc_rank"),
                 )
                 seq_c, fac_c = align_seq_and_factor(seq, sliced)
+                seq_c, fac_c = _drop_aligned_rows_without_cube(seq_c, fac_c)
                 if fac_c.n <= 0:
                     raise ValueError("对齐后没有共同样本")
                 shared_keys = {
@@ -1039,6 +1301,18 @@ def _run_holdout(args: argparse.Namespace) -> int:
     if "L" in arms and fac_full is not None and fac_full.n > 0:
         import gc
 
+        # 与枢纽 fit_watching_return_model 一致：Holdout 窗用日线交易日，
+        # 不用面板日期（面板少一天会把整窗前移）。
+        bar_cal = sorted(
+            {
+                str(bar.get("date") or bar.get("trade_date") or "")[:10]
+                for bars in (stock_bars or {}).values()
+                for bar in (bars or [])
+                if isinstance(bar, dict)
+                and len(str(bar.get("date") or bar.get("trade_date") or "")[:10])
+                >= 10
+            }
+        )
         stock_bars = None
         if seq is not None and seq is not seq_c:
             seq = None
@@ -1067,20 +1341,31 @@ def _run_holdout(args: argparse.Namespace) -> int:
                     tr.append(int(i))
             n_l_test = len(te_all)
         else:
-            tr, te, meta = _split_for(fac_full.dates)
+            tr, te, meta = _split_for(
+                fac_full.dates,
+                calendar_dates=bar_cal or None,
+            )
             n_l_test = len(te)
             te_shared = list(te)
+        # shared：LT 双臂 Gate 用交集；full：与枢纽 LGB Holdout 同窗（厂 L 默认）。
+        oos_index = "shared" if shared_cal else "full"
         summary["split_L"] = {
             "fit_end": meta.get("fit_end"),
             "eval_start": meta.get("eval_start"),
             "n_train": len(tr),
             "n_test": len(te_shared),
             "n_test_full": n_l_test,
+            "oos_index": oos_index,
         }
+        cal_note = (
+            " shared_cal+pretrain"
+            if shared_cal
+            else (" bar_cal" if bar_cal else "")
+        )
         print(
             f"ArmL 切分 train={len(tr)} test_shared={len(te_shared)}"
-            f"（full_holdout={n_l_test}"
-            f"{' shared_cal+pretrain' if shared_cal else ''}）",
+            f"（full_holdout={n_l_test}{cal_note} oos={oos_index}"
+            f" fit_end={meta.get('fit_end')} eval_start={meta.get('eval_start')}）",
             flush=True,
         )
         if te_shared:
@@ -1184,20 +1469,29 @@ def _run_holdout(args: argparse.Namespace) -> int:
     n_t_test = int((summary.get("split_T") or {}).get("n_test") or 0)
     eval_l = (summary.get("split_L") or {}).get("eval_start")
     eval_t = (summary.get("split_T") or {}).get("eval_start")
-    # 须共享键 + 两侧均有 OOS + 同一 eval_start（同日历）
-    eval_shared = (
-        bool(shared_keys)
-        and n_l_shared > 0
-        and n_t_test > 0
-        and bool(eval_l)
-        and eval_l == eval_t
-    )
+    if factory == "LT":
+        # 双臂：须共享键 + 两侧均有 OOS + 同一 eval_start
+        eval_shared = (
+            bool(shared_keys)
+            and n_l_shared > 0
+            and n_t_test > 0
+            and bool(eval_l)
+            and eval_l == eval_t
+        )
+        eval_start = eval_l if eval_shared else None
+    elif factory == "L":
+        eval_shared = n_l_shared > 0
+        eval_start = eval_l if eval_shared else None
+    else:
+        eval_shared = n_t_test > 0
+        eval_start = eval_t if eval_shared else None
     summary["eval_universe"] = {
         "n_l_test": n_l_test_u,
         "n_t_test": n_t_test,
-        "n_shared": n_l_shared,
+        "n_shared": n_l_shared if factory == "LT" else (n_l_shared or n_t_test),
         "eval_shared": eval_shared,
-        "eval_start": eval_l if eval_shared else None,
+        "eval_start": eval_start,
+        "factory": factory,
     }
     # desk 形 parity（与 ingest 一致）
     try:
@@ -1233,7 +1527,7 @@ def _run_holdout(args: argparse.Namespace) -> int:
             "formal": False,
         }
 
-    # 对比表 + 硬门（相对 Arm·L）；排序头 gate=gate_lift
+    # 对比表；相对硬闸仅 LT 双臂
     from core.research.yhat_transformer.metrics import (
         gate_lift_vs_baseline,
         hard_gate_vs_baseline,
@@ -1257,41 +1551,10 @@ def _run_holdout(args: argparse.Namespace) -> int:
         if key in summary:
             table.append(_metric_row(tag, summary[key]))
     summary["comparison"] = table
-    base = summary.get("arm_L") if (summary.get("arm_L") or {}).get("success") else None
-    pack_t = summary.get("arm_T") if isinstance(summary.get("arm_T"), dict) else {}
-    # 显式 gate：禁止空 {}；L/T 任一失败都写 pass=false + reasons
-    if base and pack_t.get("success"):
-        gates = {"T": gate_fn(base, pack_t)}
-    elif not base and pack_t.get("success"):
-        gates = {
-            "T": {
-                "pass": False,
-                "lift": None,
-                "reasons": ["baseline missing: Arm·L 失败或无指标"],
-            }
-        }
-    elif base and not pack_t.get("success"):
-        gates = {
-            "T": {
-                "pass": False,
-                "lift": None,
-                "reasons": [
-                    f"Arm·T 失败：{pack_t.get('error') or '无指标'}"
-                    if pack_t
-                    else "Arm·T 未产出"
-                ],
-            }
-        }
-    else:
-        gates = {
-            "T": {
-                "pass": False,
-                "lift": None,
-                "reasons": ["Arm·L 与 Arm·T 均无成功指标"],
-            }
-        }
+    # 单臂工厂无页内相对闸；gates 必须在此赋值，后面的打印不能碰未绑定局部变量
+    gates = _relative_hard_gates(summary, gate_fn, factory=factory)
     summary["hard_gate_vs_arm_L"] = gates
-    summary["gate"] = head_spec.gate
+    summary["gate"] = head_spec.gate if factory == "LT" else None
     summary["rss_mb_end"] = _rss_mb()
 
     print("\n=== 对比 ===", flush=True)
@@ -1311,7 +1574,9 @@ def _run_holdout(args: argparse.Namespace) -> int:
             f"{(r.get('cs_top_mean_y') if r.get('cs_top_mean_y') is not None else float('nan')):>8.3f}",
             flush=True,
         )
-    for k, g in gates.items():
+    for k, g in (gates or {}).items():
+        if not isinstance(g, dict):
+            continue
         print(f"硬门 vs ArmL · {k}: pass={g.get('pass')} lift={g.get('lift')} {g.get('reasons')}", flush=True)
 
     out = args.out.strip()
@@ -1327,16 +1592,25 @@ def _run_holdout(args: argparse.Namespace) -> int:
     print(f"写入 {out}", flush=True)
     if bool(getattr(args, "update_desk", True)):
         try:
-            from core.research.yhat_tf_desk import ingest_holdout_summary
+            from core.research.yhat_tf_desk import factory_scope, ingest_holdout_summary
 
-            desk_out = ingest_holdout_summary(head_spec.id, summary, out_path=out)
+            with factory_scope(factory):
+                desk_out = ingest_holdout_summary(
+                    head_spec.id, summary, out_path=out, factory=factory
+                )
             if desk_out.get("success"):
                 print(
                     f"desk last 已回写 head={head_spec.id} metrics={desk_out.get('metrics')}",
                     flush=True,
                 )
+            elif desk_out.get("skipped"):
+                print(f"desk 回写跳过: {desk_out.get('error')}", flush=True)
             else:
-                print(f"desk 回写失败: {desk_out.get('error')}", flush=True)
+                last = desk_out.get("last") if isinstance(desk_out.get("last"), dict) else {}
+                print(
+                    f"desk 已回写失败态: {desk_out.get('error') or last.get('message') or '无可用指标'}",
+                    flush=True,
+                )
         except Exception as exc:  # noqa: BLE001
             print(f"desk 回写异常: {exc}", flush=True)
     return 0

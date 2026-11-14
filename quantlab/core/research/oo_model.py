@@ -918,7 +918,6 @@ def fit_watching_return_model(
     codes: Optional[list] = None,
     lookback: int = 600,
     horizon_days: int = 1,
-    ridge_lambda: float = 0.0,
     watching_limit: int = 12,
     min_samples: int = 24,
     save_draft: bool = True,
@@ -930,15 +929,14 @@ def fit_watching_return_model(
     """研究池堆叠面板：只训回归 LightGBM + Holdout OOS，可选落草稿。
 
     近 ``holdout_trading_days`` 个交易日只测；只训 Holdout 前一套。
-    ``ridge_lambda`` 保留形参兼容 API，不参与拟合。
     拟合固定日截面 Z；``cross_section_zscore=False`` 已下线。
     ``progress_cb(cur, tot, msg)`` / ``job_alive_cb()``：后台 Job 进度与孤儿保护。
     """
-    del ridge_lambda  # ŷ_oo 已切 LightGBM；形参保留兼容旧请求体
     from core.research.feature_standardize import reject_global_zscore
     from core.research.holdout import (
         DEFAULT_HOLDOUT_TRADING_DAYS,
         attach_holdout_meta,
+        empty_holdout_preds,
         refuse_insufficient_holdout,
         resolve_ridge_split,
     )
@@ -1030,14 +1028,19 @@ def fit_watching_return_model(
         progress_cb=progress_cb,
     )
     del items
+    # 装配在写完立方后已收成 float32。这里只保证连续；标签 y 仍是 float64。
+    import numpy as np
+
+    x_mat = np.ascontiguousarray(x_mat, dtype=np.float32)
     shape = getattr(x_mat, "shape", None) or ()
     n_rows = int(shape[0]) if len(shape) >= 1 else 0
     n_cols = int(shape[1]) if len(shape) >= 2 else 0
     logger.info(
-        "oo fit panel rows=%s cols=%s feats=%s elapsed=%.1fs",
+        "oo fit panel rows=%s cols=%s feats=%s dtype=%s elapsed=%.1fs",
         n_rows,
         n_cols,
         len(feat_names or []),
+        getattr(x_mat, "dtype", ""),
         _time.perf_counter() - t_panel,
     )
 
@@ -1062,12 +1065,23 @@ def fit_watching_return_model(
 
     try:
         t_lgb = _time.perf_counter()
+        n_train = len(train_idx)
         logger.info(
             "oo fit lightgbm begin n_train=%s n_test=%s",
-            len(train_idx),
+            n_train,
             len(test_idx),
         )
-        _prog(0, 1, f"ŷ_oo LightGBM · 训 {len(train_idx)} 行…")
+        from core.research.horizon_lgb import HORIZON_LGB
+
+        n_trees = max(1, int(HORIZON_LGB["n_estimators"]))
+
+        def _lgb_cb(env: Any) -> None:
+            cur = int(getattr(env, "iteration", 0)) + 1
+            tot = int(getattr(env, "end_iteration", 0) or n_trees)
+            if cur == 1 or cur == tot or cur % 10 == 0:
+                _prog(cur, tot, f"ŷ_oo LightGBM · {cur}/{tot} 棵 · {n_train} 行")
+
+        _prog(0, n_trees, f"ŷ_oo 整理矩阵 · {n_train} 行…")
         lgb_blob, lgb_report = fit_oo_lgb_matrix(
             x_mat,
             y_mat,
@@ -1078,6 +1092,8 @@ def fit_watching_return_model(
             fitted_as_of=as_of,
             row_dates=all_dates,
             cross_section_zscore=True,
+            callbacks=[_lgb_cb],
+            feature_dtype=np.float32,
         )
         logger.info(
             "oo fit lightgbm done elapsed=%.1fs total=%.1fs",
@@ -1121,6 +1137,23 @@ def fit_watching_return_model(
             test_idx,
             row_dates=all_dates,
         )
+        if empty_holdout_preds(preds, holdout_trading_days=hold_n):
+            return {
+                "success": False,
+                "error": "Holdout 评测缺 L2 立方，预测为空",
+                "task": "fit_return_score_model",
+                "stock_count": len(codes_used),
+                "sample_count": int(lgb_blob.get("sample_count") or 0),
+                "oos": {
+                    "n_train": len(train_idx),
+                    "n_test": len(test_idx),
+                    "n_valid": 0,
+                    "holdout_trading_days": hold_n,
+                    "fit_end": split_meta.get("fit_end"),
+                    "eval_start": split_meta.get("eval_start"),
+                },
+                "split": dict(split_meta),
+            }
         oos = _oo_side_oos(
             preds,
             ys_te,

@@ -177,7 +177,7 @@ def build_audit_timeline(*, limit: int = 40) -> Dict[str, Any]:
                         f"{spec.get('version') or '—'}"
                     ),
                     detail=promo.get("note") or "",
-                    href="/strategy",
+                    href="/platform",
                 )
             )
     except (OSError, TypeError, AttributeError, ValueError) as exc:

@@ -100,7 +100,7 @@ class TestP95P96WebPages(unittest.TestCase):
         self.assertIn("topbar-ai-btn", watching.text)
         self.assertNotIn('class="dialog-btn" id="btn-ai-open"', watching.text)
         self.assertIn("side-nav", watching.text)
-        self.assertIn(">数据中心<", watching.text)
+        self.assertIn(">观察台<", watching.text)
         self.assertIn(">仪表盘<", watching.text)
         self.assertNotIn("dashboard-root", watching.text)
         self.assertNotIn("workspace-main", watching.text)
@@ -154,13 +154,21 @@ class TestP95P96WebPages(unittest.TestCase):
                 "quant-section-research-universe",
             ),
             "/watching": ("data-page=\"watching\"", "watching-search-input", "watching-watchlist-table", "观察", "加入纸面", "quant-watching-sync", "watching-build-layer"),
-            "/strategy": ("data-page=\"strategy\"", "strategy-market-context", "strategy-factor-dict", "strategy-regime-board"),
+            "/market-prior": ("data-page=\"strategy\"", "strategy-market-context", "strategy-factor-dict", "strategy-regime-board"),
             "/replay": (
                 "data-page=\"replay\"",
                 "quant-portfolio-run",
                 "quant-portfolio-chart",
                 "replay-kpi-row",
                 "quant-bt-trades",
+            ),
+            "/data": (
+                'data-page="data"',
+                "数据中心",
+                "quant-section-bars",
+                "quant-bars-topup",
+                "quant-minute-topup",
+                "日K · 5m · 物化",
             ),
             "/follow": ("data-page=\"follow\"", "paper-holdings-table", "paper-trade-status"),
             "/paper": ("data-page=\"follow\"",),  # /paper → 302 /follow
@@ -173,10 +181,12 @@ class TestP95P96WebPages(unittest.TestCase):
                     self.assertIn(n, res.text)
                 self.assertIn("side-nav", res.text)
                 self.assertIn('id="btn-watching"', res.text)
-                self.assertIn(">数据中心<", res.text)
+                self.assertIn(">观察台<", res.text)
                 self.assertIn(">交易执行<", res.text)
                 self.assertIn(">历史回测<", res.text)
-                self.assertIn(">策略中心<", res.text)
+                self.assertIn(">市场先验<", res.text)
+                self.assertIn(">数据中心<", res.text)
+                self.assertLess(res.text.find(">数据中心<"), res.text.find(">研究枢纽<"))
                 self.assertIn("ai-drawer", res.text)
                 self.assertIn('id="btn-ai-open"', res.text)
                 self.assertNotIn("topbar-nav", res.text)
@@ -205,7 +215,12 @@ class TestP95P96WebPages(unittest.TestCase):
         paper = self.client.get("/paper")
         self.assertNotIn("paper-run", paper.text)
         self.assertNotIn('id="paper-rebalance"', paper.text)
-        strategy = self.client.get("/strategy")
+        strategy = self.client.get("/market-prior")
+        old = self.client.get("/strategy", follow_redirects=False)
+        self.assertIn(old.status_code, (301, 302, 303, 307, 308))
+        self.assertEqual(old.headers.get("location"), "/market-prior")
+        self.assertIn('href="/market-prior"', strategy.text)
+        self.assertNotIn('href="/strategy"', strategy.text)
         self.assertNotIn("quant-ops-summary", strategy.text)
         self.assertNotIn("quant-factor-run", strategy.text)
         self.assertNotIn("strategy-weight-suggest-run", strategy.text)

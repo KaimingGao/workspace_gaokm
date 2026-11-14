@@ -1,4 +1,4 @@
-"""观察池 5m 分钟线缓存覆盖与预热（研究枢纽 UI）。"""
+"""观察池 5m 分钟线缓存覆盖与预热（数据中心 / 研究枢纽概览）。"""
 
 from __future__ import annotations
 
@@ -733,7 +733,7 @@ def refresh_minute_only(
     mode: str = "full",
     progress_cb: Optional[Any] = None,
 ) -> Dict[str, Any]:
-    """预热观察池 5m 分钟线（研究枢纽 UI；不占用 schedule slot）。
+    """预热观察池 5m 分钟线（数据中心；不占用 schedule slot）。
 
     ``mode=full``：强更（Ready 跳过 + 新浪近端重拉）。
     ``mode=topup``：增量补齐（今日已拉且齐窗、或跨度够且末根对齐则跳过；缺尾补拉）。

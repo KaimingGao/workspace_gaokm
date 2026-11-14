@@ -127,8 +127,42 @@ class TestOoLgbCsZInfer(unittest.TestCase):
         ).read_text(encoding="utf-8")
         self.assertIn('blob["impute_stds"]', oo_src)
         self.assertIn('blob["impute_stds"]', tc_src)
-        self.assertIn("nanstd", oo_src)
-        self.assertIn("nanstd", tc_src)
+        self.assertIn("_column_mean_var_f64", oo_src)
+        self.assertIn("_column_mean_var_f64", tc_src)
+
+    def test_raw_moments_float32_squares_stay_finite(self):
+        """float32 平方和会溢出成 inf。μ/σ 必须在 float64 里算，常数列 σ 仍是 0。"""
+        import numpy as np
+
+        from core.research.oo_lgb import _raw_moments
+
+        huge = np.array([[1e20], [-1e20], [1e20], [-1e20]], dtype=np.float32)
+        mu, sd = _raw_moments(huge)
+        self.assertTrue(np.isfinite(mu).all())
+        self.assertTrue(np.isfinite(sd).all())
+        self.assertAlmostEqual(float(mu[0]), 0.0, places=3)
+        self.assertGreater(float(sd[0]), 1e19)
+
+        flat = np.ones((6, 1), dtype=np.float32)
+        mu_f, sd_f = _raw_moments(flat)
+        self.assertAlmostEqual(float(mu_f[0]), 1.0)
+        self.assertAlmostEqual(float(sd_f[0]), 0.0)
+
+    def test_predict_bad_index_returns_none(self):
+        import numpy as np
+
+        from core.research.oo_lgb import SCHEMA_OO_LGB, predict_oo_lgb_matrix
+
+        blob = {
+            "feature_names": ["f1"],
+            "booster": {"format": "lightgbm_string", "payload_b64": "YQ=="},
+            "schema": SCHEMA_OO_LGB,
+            "zscore_scope": "cross_section",
+        }
+        out = predict_oo_lgb_matrix(
+            blob, np.ones((2, 1)), ["f1"], [0, 9], row_dates=["2024-01-02", "2024-01-02"]
+        )
+        self.assertEqual(out, [None, None])
 
 
 if __name__ == "__main__":

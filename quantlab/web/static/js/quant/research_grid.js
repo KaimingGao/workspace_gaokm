@@ -1,5 +1,5 @@
 /**
- * 研究台小表网格（与数据中心 watching-react-grid 同壳）。
+ * 研究台小表网格（与观察台 watching-react-grid 同壳）。
  *
  * 行必须用与 virtual_table 相同的 ``grid-template-columns`` 轨道；
  * 仅靠 flex + min-width:0 时，表头按文案缩、表体按数字撑 → 探针等表列错位。

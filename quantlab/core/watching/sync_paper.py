@@ -194,7 +194,7 @@ def sync_paper_watchlist(
         ):
             parts.insert(0, "未能加入持仓")
     else:
-        parts.append(f"无需同步名单 · 持仓 {len(held)} 只（观察请在观察页维护）")
+        parts.append(f"无需同步名单 · 持仓 {len(held)} 只（观察请在观察台维护）")
     if missing:
         out["skipped"] = missing
         parts.append(f"跳过 {len(missing)} 只不在观察中")

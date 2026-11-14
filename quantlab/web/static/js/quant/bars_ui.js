@@ -20,7 +20,7 @@ import {
   awaitWatchingPoolLimitReady,
   WATCHING_POOL_LIMIT_CHANGED,
 } from "./params.js";
-/** 研究枢纽 · 观察池日 K 覆盖 + 「增量补齐（L0）」/「强更日 K（L0）」 */
+/** 数据中心 · 观察池日 K 覆盖 + 「增量补齐（L0）」/「强更日 K（L0）」 */
 export function installBarsUi(q) {
   const { on, apiFetch, escapeHtml } = q;
   const chip = document.getElementById("quant-bars-chip");

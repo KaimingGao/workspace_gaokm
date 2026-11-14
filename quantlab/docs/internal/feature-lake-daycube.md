@@ -261,7 +261,7 @@ L1 存的是特征行和拟合标签 y，不存可成交价格。消费方仍读
 
 ### 5.3 Live 调仓（watching_matrix）
 
-产品调仓（``PaperService.rebalance``）、数据中心观察摘要、持仓表 ŷ 打开消费开关：
+产品调仓（``PaperService.rebalance``）、观察台打分摘要、持仓表 ŷ 打开消费开关：
 
 1. **会话日同钟官方立方**命中 → 读 L2 ``X_raw`` / μ/σ 出 ŷ 与 rank。  
 2. 会话日立方缺失 → ``materialize_required``（手动预演 / 落账 / 持仓与观察摘要同口径）；**禁止**昨收回退与临时拼截面。开盘钟经 ``do_session_open_l2`` → ``ensure_session_open_l2`` 补齐后重试。   
@@ -419,8 +419,8 @@ python3 scripts/backfill_l1_panel_end.py --apply
 
 拟合/OOS 截面 z **只用 L2**。按序做，避免旧 β 混新 z：
 
-1. **日线**：研究枢纽增量补齐（或强更）。  
-2. **分钟**：做 T / ŷ_τ* 须 5m Ready（增量或强更）。  
+1. **日线**：数据中心增量补齐（或强更）。  
+2. **分钟**：做 T / ŷ_τ* 须 5m Ready（数据中心增量或强更）。  
 3. **物化**（手动）  
    - **日线**「物化特征（L1/L2）」：oo/tc + open L2；  
    - **分钟线** Ready 后「物化特征（L1/L2）」：τ 网格 `tc_HHMM` + 按钟 Cube（Ready 不足禁用）。  

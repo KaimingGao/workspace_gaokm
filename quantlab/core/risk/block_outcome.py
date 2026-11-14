@@ -165,7 +165,7 @@ def unlabeled_digest(
         "items": items,
         "note": (
             f"待标注 {len(unlabeled)}/{len(blocks)}；"
-            "策略中心拦截流水点真拦/误拦后有效率可算。"
+            "POST /api/paper/risk-blocks/annotate 标注后有效率可算。"
             if blocks
             else "无 risk_block 流水。"
         ),

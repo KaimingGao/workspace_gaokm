@@ -2,7 +2,8 @@
 
 研究轨 **Scheme LT**（LightGBM vs Transformer）的右臂：双支路晚融合（序列 Transformer ∥ 因子 MLP）。对照左臂 **Arm·L**（现网 LightGBM · 全量）。`live_allowed=False`，不写生产 score。
 
-UI 入口：`/yhat-tf` 模型中心。契约见 [quant-ui.md · `/yhat-tf`](../quant-ui.md#yhat-tf-模型中心)。
+UI 入口：`/yhat-t`（**Transformer 工厂**；旧 `/yhat-tf` 重定向）。契约见 [quant-ui.md · 模型中心](../quant-ui.md#yhat-t--yhat-l-模型中心双工厂)。  
+长期拆分（工厂拟合 vs 枢纽注册 live/回测）见 **[model-factory-hub.md](model-factory-hub.md)**；阶段 A 将下掉草稿→晋级、改为跑次版本下拉。
 
 ---
 
@@ -18,9 +19,9 @@ UI 入口：`/yhat-tf` 模型中心。契约见 [quant-ui.md · `/yhat-tf`](../q
 
 一次 Holdout 只训一个 head（`oo` / `tc` / `oo_rank` / `tc_rank`）；固定双臂 L+T、seed=42。
 
-晋级边界：
+晋级边界（页面草稿/晋级已下线；正式对照与 live 禁令仍有效，见 [model-factory-hub.md](model-factory-hub.md)）：
 
-> draft → research **仅研究槽**；须 `gate_pass` + 正式对照协议（T full 因子 + T 采样 100% + 共享评测）；**禁止 live / active**。
+> 正式对照须 `gate_pass` + T full 因子 + T 采样 100% + 共享评测；**禁止 live / active**。工作配置随拟合意图隐式同步，不再暴露「存草稿 / 晋级研究」。
 
 ---
 
@@ -37,12 +38,15 @@ UI 入口：`/yhat-tf` 模型中心。契约见 [quant-ui.md · `/yhat-tf`](../q
             ▼
     align_seq_and_factor  按 (code,date) 内连接；y 以 seq 为准
             │
+            ▼
+    丢掉没有 L2 的早期行（与 Arm·L 拟合前丢行同口径）
+            │
             ├─ 共享日历 shared_cal → resolve_ridge_split (Holdout 窗)
             │
             ├─ Arm·L：全量 fac 训；OOS 缩到 shared_keys
             │
             └─ Arm·T：_run_arm_t
-                      cs_z_matrix_prefer_cube(fac, clock="open")  ← 缺立方即失败
+                      cs_z_matrix_prefer_cube(fac, clock="open")  ← 剩下的面板缺立方即失败
                       train_seq_factor_transformer (seed=42)
                       predict_seq_factor_transformer on holdout
             │
@@ -59,7 +63,7 @@ UI 入口：`/yhat-tf` 模型中心。契约见 [quant-ui.md · `/yhat-tf`](../q
 2. Gate / OOS 用 **seq∩fac 共享键** 与同一 `eval_start`，避免 L/T 评测窗错位。
 3. Arm·L 训练仍可吃共享日历末端之前的全量 fac 早期日（含 seq 尚未覆盖的日）。
 4. `align_seq_and_factor`：同 `(code,date)` 标签偏差 > `1e-3` 时以 **seq.y 覆盖 fac.y**。
-5. 缺 L2 立方：`MaterializeRequired`，**不做**列标准化回退。
+5. 早于立方起点、没有 L2 的行在对齐后丢掉。剩下的面板仍缺立方：`MaterializeRequired`，**不做**列标准化回退。
 
 ---
 
@@ -134,6 +138,7 @@ x_fac (B, d_factor) ── LayerNorm ── Linear ── GELU ── Dropout �
 **决策日 T**
 
 - 序列 = 完整日 `[T−L … T−1]`（今收 / 今高 / 今低 / 今量 **不进** 序列）
+- 入参按日期排序。窗口内日期必须严格递增，且每一根都早于 T；乱序不会把更晚的 K 线切进特征
 - 附加通道 `gap_t` = 今开 / 昨收 − 1（百分点）
 - 标签 oo：`open[T+h]/open[T]−1`
 - 标签 τc：同日 `close/open−1`（本期 τ=开盘；horizon 忽略）
@@ -157,8 +162,10 @@ seq16 在经典 8 维价量摘要上追加影线 / 位置 / 量变 / 缺口回�
 
 | Head | 构建 | 指纹 |
 |--|--|--|
-| oo / oo_rank | `build_oo_factor_panel`（L1 湖 / collect） | full_aoo |
+| oo / oo_rank | `build_oo_factor_panel` → 枢纽 `assemble_oo_panels` | full_aoo |
 | tc / tc_rank | `build_tc_factor_panel`（`collect_tau_open_panel`，`z ∪ raw_atc`） | atc_full |
+
+磁盘缓存键是 `facv3` 加每只股票的价量指纹（`bars_fingerprint`）。固定 lookback 下滑窗、复权或中间一根价量改动都会 miss。τc 有股票失败时不写缓存。oo 单票失败由枢纽组装抬异常，不落半成品。缺测在面板里保持 NaN。
 
 ### 5.2 `slice_arm_t_panel`（仅 Arm·T）
 
@@ -180,7 +187,7 @@ seq16 在经典 8 维价量摘要上追加影线 / 位置 / 量变 / 缺口回�
 1. `fac.X` 拷出 float64 后置空面板，减轻峰值 RSS
 2. `cs_z_matrix_prefer_cube(..., clock="open")`
 3. 排序头再裁 ±`LAMBDARANK_Z_CLIP`（对齐 LambdaRank）；回归头不裁
-4. 非有限值 → 0，压 float32 进 Transformer
+4. 非有限值 → 0（截面均值），压 float32 进 Transformer。缺测在这一步之前保持 NaN，不先写成原始 0
 
 训练函数内 **不再** 做训练段列标准化。
 
@@ -200,7 +207,7 @@ seq16 在经典 8 维价量摘要上追加影线 / 位置 / 量变 / 缺口回�
 | **grad clip** | 1.0 |
 | **batch** | 默认 32；地板 `max(16, batch_size)` |
 | **val** | 训练日历末 **20%** 日（`val_frac` 钳在 0.1–0.4）；**先切 val 再 subsample train** |
-| **subsample** | `t_sample_frac` 默认 **0.1**；≥1 → 不截断。点损失行级；listwise **整日组** |
+| **subsample** | `t_sample_frac` 默认 **0.1**；≥1 → 不截断。点损失行级；listwise **整日组**，一组放不进剩余名额即停 |
 | **序列预处理** | train 行 1%/99% 分位 clip（最多 2 万行估分位） |
 | **线程** | `TORCH_NUM_THREADS` 默认 **4**；interop=1；BLAS/OMP 仍为 1 |
 | **取数** | numpy 切片再 `as_tensor`（避免大张量高级索引 OpenMP SIGSEGV） |
@@ -293,7 +300,7 @@ Holdout 始终写 `hard_gate_vs_arm_L.T`；L 或 T 失败也写 `pass=false` + r
 | `…/heads.py` / `metrics.py` | HeadSpec / 硬闸 |
 | `core/research/materialize/cube_z.py` | `cs_z_matrix_prefer_cube` |
 | `tests/test_yhat_transformer.py` | CS-z、slice、holdout-by-epoch 等 |
-| `docs/quant-ui.md` § `/yhat-tf` | UI 契约 |
+| `docs/quant-ui.md` § `/yhat-t` · `/yhat-l` | UI 契约 |
 
 **启动链**：UI 拟合 → `build_holdout_argv` → `Popen(python -u script…)`；env：`OMP/MKL/OPENBLAS/HORIZON_LGB_NUM_THREADS=1`，`TORCH_NUM_THREADS=4`；macOS `KMP_DUPLICATE_LIB_OK=TRUE`。
 
@@ -331,3 +338,5 @@ PYTHONUNBUFFERED=1 .venv/bin/python scripts/run_yhat_transformer_holdout.py --he
 |--|--|
 | 2026-11-14 | 初稿：对齐 `yhat_transformer` + Holdout + desk 现行实现 |
 | 2026-11-14 | §3 补全双支路晚融合：支路张量、末步池化、gap 在编码器之外、融合头 129 维 |
+| 2026-11-15 | §4 序列窗口须严格早于 T；§5 因子缓存改为价量指纹，缺测留到 CS-z 之后再写成 0；§6 listwise 抽样放不进即停 |
+| 2026-11-15 | 对齐后丢掉没有 L2 的早期行，与 Arm·L 同；评测窗仍缺立方则失败 |

@@ -1,4 +1,4 @@
-"""观察页 insights 摘要结构。"""
+"""观察台 insights 摘要结构。"""
 
 from __future__ import annotations
 
@@ -62,7 +62,7 @@ class TestWatchingInsights(unittest.TestCase):
         self.assertFalse(item["hard_reject"])
 
     def test_lake_list_skips_per_code_bars(self):
-        """数据中心整池刷新：湖行投影，不按票读日线、不现场 score_stock。"""
+        """观察台整池刷新：湖行投影，不按票读日线、不现场 score_stock。"""
         from core.watching.insights import build_watching_insights, reset_insight_memo
 
         reset_insight_memo()
@@ -107,7 +107,7 @@ class TestWatchingInsights(unittest.TestCase):
         live.assert_not_called()
 
     def test_lake_list_fuse_weights_follow_strategy(self):
-        """数据中心 fuse tip 的 w_oo / w_τc 用调仓回测 rank_lots，不用 0.5/0.5 或缺省 0.6/0.4。"""
+        """观察台 fuse tip 的 w_oo / w_τc 用调仓回测 rank_lots，不用 0.5/0.5 或缺省 0.6/0.4。"""
         import os
 
         from core.watching.insights import build_watching_insights, reset_insight_memo
@@ -161,7 +161,7 @@ class TestWatchingInsights(unittest.TestCase):
         self.assertAlmostEqual(float(item["score"]), float(item["y_oo_fuse"]), places=4)
 
     def test_lake_projection_keeps_formula_terms(self):
-        """数据中心股票表 tip 要能画出因子，湖行投影不能把组成丢掉。"""
+        """观察台股票表 tip 要能画出因子，湖行投影不能把组成丢掉。"""
         from core.watching.insights import _project_lake_insight
 
         row = _project_lake_insight(
@@ -383,7 +383,7 @@ class TestWatchingInsights(unittest.TestCase):
         self.assertAlmostEqual(item.get("y_r"), 0.85, places=6)
 
     def test_insight_one_uses_offline_only(self):
-        """数据中心算分默认 offline_only + 不打实时 quote。"""
+        """观察台算分默认 offline_only + 不打实时 quote。"""
         from core.watching.insights import _insight_one
 
         captured = {}
@@ -469,7 +469,7 @@ class TestWatchingInsights(unittest.TestCase):
         self.assertIs(captured.get("use_minute_tau"), True)
 
     def test_insight_one_stamps_y_oo_fuse_from_paper_fusion(self):
-        """数据中心 y_oo_fuse 用 paper rank_lots 权，与交易执行同式。"""
+        """观察台 y_oo_fuse 用 paper rank_lots 权，与交易执行同式。"""
         from core.watching.insights import _insight_one
 
         paper = {
@@ -510,7 +510,7 @@ class TestWatchingInsights(unittest.TestCase):
         self.assertAlmostEqual(float(row.get("y_oo_fuse")), 0.8 * 2.30 + 0.2 * 5.69, places=4)
 
     def test_insight_one_stamps_remaining_y_oo_fuse(self):
-        """有今开与现价时，数据中心 y_oo_fuse 走 τc（缺 y_spec 时才扣 rot）。"""
+        """有今开与现价时，观察台 y_oo_fuse 走 τc（缺 y_spec 时才扣 rot）。"""
         from core.watching.insights import _insight_one
 
         paper = {

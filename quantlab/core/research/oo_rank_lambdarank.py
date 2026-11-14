@@ -602,16 +602,22 @@ def _collect_feature_names(days: Sequence[Dict[str, Any]]) -> List[str]:
     return names
 
 
-def _raw_day_aligned(day: Dict[str, Any], feature_names: Sequence[str]) -> Optional[np.ndarray]:
+def _raw_day_aligned(
+    day: Dict[str, Any],
+    feature_names: Sequence[str],
+    *,
+    dtype: Any = np.float64,
+) -> Optional[np.ndarray]:
     packed = _day_X(day)
     names = [str(n) for n in feature_names]
     p = len(names)
+    dt = np.dtype(dtype)
     if packed is not None:
         X, col_names = packed
         if list(col_names) == names:
-            return np.asarray(X, dtype=np.float64)
+            return np.array(X, dtype=dt, copy=True)
         idx = {n: j for j, n in enumerate(col_names)}
-        out = np.full((X.shape[0], p), np.nan, dtype=np.float64)
+        out = np.full((X.shape[0], p), np.nan, dtype=dt)
         for j, name in enumerate(names):
             src = idx.get(name)
             if src is not None:
@@ -696,6 +702,7 @@ def _z_day_cross_section(
     feature_names: Sequence[str],
     *,
     clock: str = "open",
+    dtype: Any = np.float64,
 ) -> Optional[np.ndarray]:
     """当天截面 z：只用全池 L2 DayCube μ/σ，**不**进批现算。
 
@@ -703,7 +710,7 @@ def _z_day_cross_section(
     单票 L1 可早于池立方，拟合丢掉无 Cube 日，不因一日 miss 整次失败。
     打分写盘仍走 ``rank_cross_section_z_dicts``（缺 L2 才 ``MaterializeRequired``）。
     """
-    raw = _raw_day_aligned(day, feature_names)
+    raw = _raw_day_aligned(day, feature_names, dtype=dtype)
     if raw is None or int(raw.shape[0]) == 0:
         return None
     n = int(raw.shape[0])
@@ -719,12 +726,14 @@ def _z_day_cross_section(
     try:
         # 与 ŷ_oo ``cs_z_matrix_prefer_cube`` 同：用全池 universe 读 Cube。
         # 传入当日面板 codes 会换 hash，整池已物化的 open Cube 反而 miss。
+        # raw 是本函数自己的副本，z 写回去，不再按 dtype 升一档。
         z, meta = apply_day_cube_mu_sigma_matrix(
             raw,
             names,
             groups,
             clock=str(clk or "open"),
             codes=None,
+            inplace=True,
         )
     except MaterializeRequired:
         # 拟合按日跳过；勿把单日 miss 抬成整次物化闸。
@@ -734,7 +743,7 @@ def _z_day_cross_section(
         logger.debug("rank _z_day L2 failed date=%s", day_s, exc_info=True)
         return None
     if z is not None and isinstance(meta, dict) and meta.get("ok"):
-        return np.where(np.isfinite(z), z, 0.0)
+        return np.where(np.isfinite(z), z, np.array(0, dtype=z.dtype))
     err = str((meta or {}).get("error") or "截面立方缺失")
     logger.debug("rank _z_day skip no cube date=%s clock=%s err=%s", day_s, clock, err)
     return None
@@ -919,14 +928,14 @@ def _z_day(
     means: Dict[str, float],
     stds: Dict[str, float],
 ) -> Optional[np.ndarray]:
-    raw = _raw_day_aligned(day, feature_names)
+    raw = _raw_day_aligned(day, feature_names, dtype=np.float32)
     if raw is None:
         return None
-    mu = np.asarray([float(means.get(n) or 0.0) for n in feature_names], dtype=np.float64)
-    sd = np.asarray([float(stds.get(n) or 1.0) for n in feature_names], dtype=np.float64)
-    sd = np.where(sd < 1e-9, 1.0, sd)
+    mu = np.asarray([float(means.get(n) or 0.0) for n in feature_names], dtype=np.float32)
+    sd = np.asarray([float(stds.get(n) or 1.0) for n in feature_names], dtype=np.float32)
+    sd = np.where(sd < np.float32(1e-9), np.float32(1.0), sd)
     z = (raw - mu) / sd
-    return np.where(np.isfinite(raw), z, 0.0).astype(np.float64, copy=False)
+    return np.where(np.isfinite(raw), z, np.float32(0)).astype(np.float32, copy=False)
 
 
 def _slice_finite_label_rows(
@@ -1074,9 +1083,11 @@ def fit_lambdarank(
     n_rank_rows_dropped = 0
     for day in days:
         ys = label_floats(day.get("ys"))
-        Z = _z_day_cross_section(day, names, clock=_day_pack_clock(day))
+        Z = _z_day_cross_section(
+            day, names, clock=_day_pack_clock(day), dtype=np.float32
+        )
         if Z is not None:
-            Z = np.where(np.isfinite(Z), Z, 0.0)
+            Z = np.where(np.isfinite(Z), Z, np.array(0, dtype=Z.dtype))
             Z = _apply_z_clip(Z, z_clip_f)
         if Z is None or int(Z.shape[0]) != len(ys):
             continue
@@ -1378,9 +1389,9 @@ def _predict_oo_rank_matrix(
     from core.research.feature_standardize import is_cross_section_zscore
 
     if is_cross_section_zscore(model):
-        z = _z_day_cross_section(day, names)
+        z = _z_day_cross_section(day, names, dtype=np.float32)
         if z is not None:
-            z = np.where(np.isfinite(z), z, 0.0)
+            z = np.where(np.isfinite(z), z, np.array(0, dtype=z.dtype))
             z = _apply_z_clip(z, _resolve_z_clip(model, default=0.0))
     else:
         means = zm if isinstance(zm, dict) else (model.get("z_means") or {})
@@ -1544,7 +1555,7 @@ def _explain_oo_rank_lambdarank_rows(
     )
     cs = str(model.get("zscore_scope") or "") == "cross_section"
 
-    mat = np.zeros((n, len(names)), dtype=np.float64)
+    mat = np.zeros((n, len(names)), dtype=np.float32)
     imputed: List[List[bool]] = []
     for i, row in enumerate(xs):
         src = row if isinstance(row, dict) else {}
@@ -1968,7 +1979,7 @@ def _predict_ridge_matrix(
         z = _z_day_cross_section(day, names)
         if z is None or int(z.shape[0]) != n:
             return [None] * n
-        raw = np.where(np.isfinite(z), z, 0.0)
+        raw = np.where(np.isfinite(z), z, np.array(0, dtype=z.dtype))
         feature_zscore = False
     total = np.full(n, intercept, dtype=np.float64)
     used = np.zeros(n, dtype=bool)
@@ -2159,7 +2170,7 @@ def _fit_ridge_baseline(
         Z = _z_day_cross_section(day, names)
         if Z is None or len(ys) != int(Z.shape[0]):
             continue
-        Z = np.where(np.isfinite(Z), Z, 0.0)
+        Z = np.where(np.isfinite(Z), Z, np.array(0, dtype=Z.dtype))
         n_full = len(ys)
         keep = _keep_idx_for_codes(day, n_full, allow)
         ys, Z = _take_rows(ys, Z, keep)

@@ -194,7 +194,7 @@ export function initPaper(ctx) {
   const _sortInit = loadHoldingsSort();
   let holdingsSortKey = _sortInit.key;
   let holdingsSortDir = _sortInit.dir;
-  /** code → 情绪徽章 HTML（与数据中心同源 API） */
+  /** code → 情绪徽章 HTML（与观察台同源 API） */
   const holdingsSentimentHtmlByCode = Object.create(null);
 
   const holdingsIsland = createHoldingsIslandController({
@@ -625,12 +625,12 @@ export function initPaper(ctx) {
     openForm.dataset.wired = "1";
     openForm.addEventListener("submit", async (e) => {
       e.preventDefault();
-      setTradeStatus("请到观察页建仓来添加持仓", { error: true });
+      setTradeStatus("请到观察台建仓来添加持仓", { error: true });
     });
   }
 
   // 带货币单位的金额：A股单位在后（383.01元），港美股单位在前（HK$42.1）。
-  // 与观察页 quote_api 的 _fmt_price 规则保持一致。
+  // 与观察台 quote_api 的 _fmt_price 规则保持一致。
   function renderPaperStats(summary) {
     const s = summary || {};
     const pnl = s.total_pnl_pct;
@@ -940,8 +940,8 @@ export function initPaper(ctx) {
         holdingsEl.innerHTML =
           `<div class="paper-holdings-empty">` +
           `<p class="paper-holdings-empty-title">暂无持仓</p>` +
-          `<p class="paper-holdings-empty-text">本页只管理已有仓位；新仓请到观察页搜索建仓。</p>` +
-          `<a class="dialog-btn" href="/watching">去观察建仓</a>` +
+          `<p class="paper-holdings-empty-text">本页只管理已有仓位；新仓请到观察台搜索建仓。</p>` +
+          `<a class="dialog-btn" href="/watching">去观察台建仓</a>` +
           `</div>`;
       } else {
         if (holdingsCountEl) holdingsCountEl.textContent = String(holdings.length);
@@ -2104,7 +2104,7 @@ export function initPaper(ctx) {
         }
       } else if (target === "strategy" || target === "promote") {
         e.preventDefault();
-        location.href = "/strategy";
+        location.href = "/market-prior";
       }
     });
 
@@ -2201,7 +2201,7 @@ export function initPaper(ctx) {
     if (statusTarget !== false) {
       setTradeStatus(data.message || "完成", statusTarget ? { target: statusTarget } : {});
     }
-    // 加减仓 / 清仓后回写观察页「已持 / 未持」状态
+    // 加减仓 / 清仓后回写观察台「已持 / 未持」状态
     if (typeof ctx.reloadWatching === "function") {
       try {
         await ctx.reloadWatching();
@@ -2819,7 +2819,7 @@ export function initPaper(ctx) {
       const includePaper = paperInitialized;
       setPaperMetaText(includePaper
         ? "每日任务运行中（观察池 + checklist）…"
-        : "纸面未初始化，仅运行 golden checklist…");
+        : "模拟账户未初始化，仅运行 golden checklist…");
       setPaperBusy(true);
       showProgress(8, (document.getElementById("follow-meta")||document.getElementById("paper-meta")||{}).textContent || "");
       try {
@@ -2967,7 +2967,7 @@ export function initPaper(ctx) {
             (res.status === 503
               ? "账本正被其他操作占用，请稍后再试"
               : res.status === 404
-                ? "请先初始化纸面账户"
+                ? "请先初始化模拟账户"
                 : "预演失败");
           setT0ActionBusy(paperT0Run, false, errMsg);
           renderPaperT0Preview(null);

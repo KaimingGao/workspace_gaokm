@@ -93,7 +93,7 @@ def suggest_config_feedback(
             patch["scoring"] = scoring
             reasons.append(
                 f"最大回撤约 {max_dd_f}% ≥ 12%，建议提高 ŷ 买入门槛 "
-                f"min_predicted_score → {new_buy}（策略中心人审写盘）"
+                f"min_predicted_score → {new_buy}（须人审写入 scoring）"
             )
         try:
             probe = float(thresholds.get("probe") or 0.35)

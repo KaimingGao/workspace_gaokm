@@ -288,7 +288,7 @@ export const Y_OO_TITLE = "ŷ_oo · open[T]→open[T+1]（%）";
 export const Y_EOD_TITLE = Y_OO_TITLE;
 export const Y_OC_TITLE = "ŷ_τc · price(τ)→close[T]（拟合原值；τ 闸同源）";
 export const Y_TAU_TITLE = Y_OC_TITLE;
-/** 数据中心观察池 / 持仓表：ŷ_τc 用 09:30–10:00 调仓因果前缀 */
+/** 观察台主表 / 持仓表：ŷ_τc 用 09:30–10:00 调仓因果前缀 */
 export const Y_OC_REBALANCE_TITLE =
   "ŷ_τc · 09:30–10:00 因果前缀 price(τ)→close[T]";
 export const FUSE_REBALANCE_TITLE =

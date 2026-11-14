@@ -299,7 +299,7 @@ def tau_pool_day_score_kwargs(
 
 
 def tip_fields_from_item(item: Optional[dict]) -> Dict[str, Any]:
-    """从 signal_item / 簿行抽出 tip 用因子字段（与数据中心对照）。"""
+    """从 signal_item / 簿行抽出 tip 用因子字段（与观察台对照）。"""
     if not isinstance(item, dict):
         return {}
     out: Dict[str, Any] = {}
@@ -4508,7 +4508,7 @@ def compute_scores_from_bars(
     ``day_bar`` / ``quote``：提供 open[T]（缺口）；勿用收盘价冒充开盘决策现价。
     ``pool_gaps`` / ``sector_gap_breadth``：截面缺口（批量算分时传入，增强 ŷ_τ）。
     ``sector_gap_median``：同行/截面参照缺口（``gap_vs_sector = gap − median``）。
-    ``index_bars`` / ``fundamentals``：可选；缺省时拉本地指数+估值，对齐数据中心相对强弱等。
+    ``index_bars`` / ``fundamentals``：可选；缺省时拉本地指数+估值，对齐观察台相对强弱等。
     ``sector_ret_to_tau``：开→τ 池中位（训练 panel 同口径）；缺省由 dual_score 从分钟仓聚合。
     ``minute_bars``：可选当日 5m；``enable_minute_tau`` 时写入 ≤τ 小包（否则可读缓存）。
     ``minute_tau_hm``：因果 τ 钟（固定前缀末根）；有分钟输入时截面/小包对齐此时钟。

@@ -159,7 +159,7 @@ Agent（编排旁路）
    - 读 `paper.last_ops_report`；若空则返回明确 `success:false` + 提示先跑日更/调仓
    - 附最近 N 条 `risk_block` 操作日志摘要、最近 1 条 `source=paper_daily|advise` Decision
 2. `portfolio_bridge` 可选附带 `last_ops_report` 精简键（或废弃重复，统一走 ops_snapshot）
-3. `artifacts.py`：新 artifact 类型 → 模拟页 / 跟单 tab；`ai_drawer` 深链「打开五问条」
+3. `artifacts.py`：新 artifact 类型 → 交易执行 / 跟单 tab；`ai_drawer` 深链「打开五问条」
 4. prompts：五问固定问答模板（策略 / 成本 / 数据质量 / 风控 / 监控）——**数字来自 JSON**
 
 **验收**
@@ -179,7 +179,7 @@ Agent（编排旁路）
    - 其余透传已有 dry_run / preview 安全子集（禁止 `dry_run=false`）
 2. Application Service 薄封装（建议 `services/agent_ops.py`）：内部调既有 `paper_jobs` / `paper_trades.rebalance` / `plan_watching_to_paper`，**统一收成 `RebalancePreview` 信封**
 3. Artifact：预演成交表摘要 + `buys_blocked` + 风险点 checklist（供 LLM 叙述，UI 可渲染）
-4. Drawer：**不**自动确认；文案引导用户到模拟页已有「确认」按钮，或展示「请到 UI 确认」深链
+4. Drawer：**不**自动确认；文案引导用户到交易执行已有「确认」按钮，或展示「请到 UI 确认」深链
 
 **AO2.5（可选、默认关闭）· 确认写盘**
 
@@ -191,7 +191,7 @@ Agent（编排旁路）
 
 - 三路 preview 各至少 1 个单元/集成测（mock 领域返回）
 - Agent 调用无法传 `dry_run=false`（参数 schema + handler 硬拒）
-- UI：预演 artifact 可点回模拟页对应预演面板
+- UI：预演 artifact 可点回交易执行对应预演面板
 
 ---
 
@@ -203,7 +203,7 @@ Agent（编排旁路）
    - `quant` health / `assess_strategy_health` 摘要
    - `GET` risk-blocks 摘要（`summarize_risk_blocks`）
    - `GET /api/audit/timeline` 尾部（只读）
-2. **`feedback_draft`（B 轨入口）**：包装 `feedback/suggest`，返回建议 patch **不写盘**；prompts 要求「仅展示，人去策略中心 promote」
+2. **`feedback_draft`（B 轨入口）**：包装 `feedback/suggest`，返回建议 patch **不写盘**；prompts 要求「仅展示，人审 `POST /api/strategy/promote`，不在市场先验页操作」
 3. **对照包钩子（效果验收）**：草稿响应附带机器可读字段建议：
    - `baseline_ref`（当前 strategy_version / config hash）
    - `suggested_checks[]`（须跑的回测/纸面 dry 项，如 `portfolio_backtest`、滚动 IC）
@@ -365,9 +365,9 @@ Agent（编排旁路）
 
 | 触点 | 行为 |
 |------|------|
-| ⌘K AI Drawer | 新 artifact：五问卡、预演表、异常 dossier、对照摘要、草稿 diff；深链模拟页 / 风控 / 策略 |
-| 模拟页五问条 | 仍为 SSOT；Agent 只引用同一 `last_ops_report` |
-| 观察页建仓 | 预演仍以现有 preview UI 为准；Agent 给摘要 |
+| ⌘K AI Drawer | 新 artifact：五问卡、预演表、异常 dossier、对照摘要、草稿 diff；深链交易执行 / 风控 / 策略 |
+| 交易执行五问条 | 仍为 SSOT；Agent 只引用同一 `last_ops_report` |
+| 观察台建仓 | 预演仍以现有 preview UI 为准；Agent 给摘要 |
 | 策略 / promote | 展示 Agent 草稿 + `suggested_checks`；**人点 promote** |
 | 平台 / 审计 | 有页则深链；DecisionRecord 区分 `agent_*` 来源 |
 

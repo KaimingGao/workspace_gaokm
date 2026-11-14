@@ -296,7 +296,7 @@ class PaperAccountMixin:
             for code, item in pending_scores:
                 score_by_code[code] = _pack_item(item)
 
-            # 持仓经济字段勿被评分包覆盖；其余与数据中心同源透传
+            # 持仓经济字段勿被评分包覆盖；其余与观察台同源透传
             _HOLDING_KEEP = frozenset(
                 {
                     "stock_code",
@@ -399,7 +399,7 @@ class PaperAccountMixin:
         import threading
 
         if not os.path.isfile(self.path):
-            raise FileNotFoundError("请先初始化纸面账户")
+            raise FileNotFoundError("请先初始化模拟账户")
         lock = getattr(self, "_holding_scores_lock", None)
         if lock is None:
             lock = threading.Lock()
@@ -648,7 +648,7 @@ class PaperAccountMixin:
     def status(self, *, lite: bool = False) -> Dict[str, Any]:
         """账户摘要。
 
-        ``lite=True``：只读落盘（持仓码/流水），不盯市、不打分——供数据中心
+        ``lite=True``：只读落盘（持仓码/流水），不盯市、不打分——供观察台
         快速标「已持」，避免与行情锁互相拖死。
         """
         if not os.path.isfile(self.path):
@@ -803,7 +803,7 @@ class PaperAccountMixin:
     def deposit(self, amount: float) -> Dict[str, Any]:
         """假账注资：增加现金，同步抬高 initial_cash，避免盈亏被注资扭曲。"""
         if not os.path.isfile(self.path):
-            raise FileNotFoundError("请先初始化纸面账户")
+            raise FileNotFoundError("请先初始化模拟账户")
         amt = float(amount)
         if amt <= 0:
             raise ValueError("注资金额须大于 0")
@@ -827,7 +827,7 @@ class PaperAccountMixin:
     def withdraw(self, amount: float) -> Dict[str, Any]:
         """假账减资：减少现金，同步下调 initial_cash（不低于 0）。"""
         if not os.path.isfile(self.path):
-            raise FileNotFoundError("请先初始化纸面账户")
+            raise FileNotFoundError("请先初始化模拟账户")
         amt = float(amount)
         if amt <= 0:
             raise ValueError("减资金额须大于 0")
@@ -864,7 +864,7 @@ class PaperAccountMixin:
         与累计收益同起点；下一自然日自动失效，恢复按昨收。
         """
         if not os.path.isfile(self.path):
-            raise FileNotFoundError("请先初始化纸面账户")
+            raise FileNotFoundError("请先初始化模拟账户")
 
         with paper_write_lock(self.path):
             paper = load_paper(self.path)
@@ -930,7 +930,7 @@ class PaperAccountMixin:
     def clear_records(self, category: str) -> Dict[str, Any]:
         """清除交易记录或资金记录。category: 'trading' | 'fund'。"""
         if not os.path.isfile(self.path):
-            raise FileNotFoundError("请先初始化纸面账户")
+            raise FileNotFoundError("请先初始化模拟账户")
         paper = load_paper(self.path)
         logs = paper.get("operation_log") or []
         fund_types = {"init", "deposit", "withdraw", "reset"}

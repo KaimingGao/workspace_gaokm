@@ -174,7 +174,9 @@ def build_data_quality_report(
         unlabeled_n = int((outcome_nudge or {}).get("unlabeled_count") or 0)
         if unlabeled_n > 0:
             status = "warn" if status == "ok" else status
-            warnings.append(f"风险拦截未标注 outcome={unlabeled_n} 条 · 策略页催办")
+            warnings.append(
+                f"风险拦截未标注 outcome={unlabeled_n} 条 · POST /api/paper/risk-blocks/annotate"
+            )
     except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
         outcome_nudge = None
 

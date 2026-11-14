@@ -382,7 +382,7 @@ flowchart LR
 
 | 项 | 状态 | 落点 |
 |----|------|------|
-| 日更五问 | **已落地** | `ops_report` 顶层字段；模拟页「调仓五问」条；`paper_daily` DecisionRecord |
+| 日更五问 | **已落地** | `ops_report` 顶层字段；交易执行「调仓五问」条；`paper_daily` DecisionRecord |
 | 回测默认 cost/OOS/regime | **已落地** | API `apply_costs=True`；Web 指标卡与摘要展示 |
 | 限额硬拦 + 日志 | **已落地** | `run_daily_cycle` / 横截面调仓拦截加仓；`risk_block` 操作日志 |
 | data_quality 可查 | **已落地** | 调仓/日更/组合回测响应；`fallback_count` UI 文案 |
@@ -396,7 +396,7 @@ flowchart LR
 | PIT 最小约定 | **文档化** | [architecture.md · 数据层](component/data.md#数据层data-layer) |
 | OOS 失败标红 | **已落地** | `oos_summary.failed`；组合回测指标卡 / 摘要 `down` |
 | optimize 进调仓建议 | **已落地** | `last_optimize` / `target_weights` 进 ops_report 与日更/横截面；新开仓受目标仓上限 |
-| StrategySpec 限额 | **已落地** | `StrategySpec.risk` / `paper.rules` 调仓前门禁；只读暴露在仪表盘，策略中心不挂审计折叠 |
+| StrategySpec 限额 | **已落地** | `StrategySpec.risk` / `paper.rules` 调仓前门禁；只读暴露在仪表盘，市场先验不挂审计折叠 |
 | 成本对照 zero vs simple_cn | **已落地** | `cost_compare` 附于组合回测响应与指标卡 |
 | IC 一键导出 · weight_suggest | **已落地** | 研究枢纽只读 IC / 权重 diff（不写盘） |
 
@@ -405,8 +405,8 @@ flowchart LR
 | 项 | 状态 | 落点 |
 |----|------|------|
 | `paper_daily` 定时 | **已落地** | `scripts/daily_paper.sh` · launchd 示例 · `POST /api/schedule/run` · `GET /api/schedule/last` |
-| 监控告警进 UI | **已落地** | 横截面 ops_report 接线 `assess_strategy_health`；平台/模拟页展示告警 |
-| 告警→建议→promote | **已落地** | feedback `monitor_alerts`；研究枢纽 `POST /api/feedback/suggest`；策略卡人审 promote |
+| 监控告警进 UI | **已落地** | 横截面 ops_report 接线 `assess_strategy_health`；平台/交易执行展示告警 |
+| 告警→建议→promote | **已落地** | feedback `monitor_alerts`；研究枢纽 `POST /api/feedback/suggest`；`POST /api/strategy/promote`（无页面按钮） |
 
 ### P2+ 稳态加深（已完成）
 
@@ -506,7 +506,7 @@ N2 ──offline──► research/ml artifact ──promote only──► N5
 | 日线 OHLCV | 因子计算主输入 | `fetch_daily_bars`（失败则 `quote_fallback`） |
 | 基本面（可选） | 估值 / 质量因子 | `build_fundamentals` |
 | 指数相对强弱 | 超额收益 | `build_relative` |
-| 舆情标题（可选） | 对 score 微调；观察页提醒 | `sentiment` / `news` |
+| 舆情标题（可选） | 对 score 微调；观察台提醒 | `sentiment` / `news` |
 | 配置与账本 | 权重、阈值、名单、纸面 | `data/signal_config.json` · `watching.json` · `paper.json` |
 
 领域层不直接碰 HTTP；一律经 **`core/ports/*` → `adapters.*`（由 `adapters.bind` 注入）**。AkShare 调用须进程内串行（见 `core.data.ak_lock`），避免并发打崩 Web 进程。
@@ -575,7 +575,7 @@ StrategySpec（如 `short_conservative` + 成本模型 `simple_cn`）把信号�
 
 | 用户感知 | 系统真实能力 | 校准 |
 |----------|--------------|------|
-| **(1)** 不定期手动「策略调仓」，用一段时间纸面表现验 `short_conservative` | 交易执行：预演→确认；持仓标 `strategy`；净值可累积 | **结构层验证**：截面 Alpha → 持仓结构 → 持有期收益；**纸面流程验证**，不是完整科学验证。名单/建仓常来自数据中心**人工**；持仓可混手动+策略，归因不干净。应配合历史回测、五问、风控、北极星 Corr/TE |
+| **(1)** 不定期手动「策略调仓」，用一段时间纸面表现验 `short_conservative` | 交易执行：预演→确认；持仓标 `strategy`；净值可累积 | **结构层验证**：截面 Alpha → 持仓结构 → 持有期收益；**纸面流程验证**，不是完整科学验证。名单/建仓常来自观察台**人工**；持仓可混手动+策略，归因不干净。应配合历史回测、五问、风控、北极星 Corr/TE |
 | **(2)** 「做 T 回测」验 T 策略 | 做 T 回测 + 预演/确认做 T（ExecutionSpec overlay）；刷新恢复上次落盘，不重跑 | **执行 overlay 验证**：底仓上 5m 往返价差；**非**独立选股 Alpha；仅 5m 第一触达 |
 
 **策略调仓 vs 底仓做 T（产品定义）**
@@ -592,10 +592,10 @@ StrategySpec（如 `short_conservative` + 成本模型 `simple_cn`）把信号�
 更贴近真实产品的心智（五步）：
 
 ```text
-① 数据中心选池与人工建仓
+① 观察台选池与人工建仓
     → ② 历史回测：验证规则（Top-K / WF / 成本）
     → ③ 交易执行：纸面落地（手管仓 · 策略调仓 · 可选做 T）
-    → ④ 策略中心：改参须人审晋升
+    → ④ 市场先验：M prior 人审写盘
     → ⑤ 交易执行：北极星拟合 · 平台：告警 · 审计
 ```
 

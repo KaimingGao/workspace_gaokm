@@ -960,7 +960,7 @@ def run_t0_backtest_for_holdings(
             "success": False,
             "error": "无持仓可回测",
             "task": "t0_backtest",
-            "note": "请先在模拟页建仓，或指定 code",
+            "note": "请先在交易执行建仓，或指定 code",
         }
 
     from core.research.holdout import (
