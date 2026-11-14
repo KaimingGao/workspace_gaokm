@@ -110,8 +110,6 @@ SEQ_FEAT_SETS: Dict[str, Tuple[str, ...]] = {
     "seq64": SEQ64_FEATURE_NAMES,
 }
 DEFAULT_SEQ_FEAT_SET = "seq16"
-# 兼容旧导入：默认指向当前默认集
-SEQ_FEATURE_NAMES: Tuple[str, ...] = SEQ16_FEATURE_NAMES
 
 GAP_FEATURE_NAME = "gap_t"
 
@@ -1053,7 +1051,6 @@ __all__ = [
     "SEQ16_FEATURE_NAMES",
     "SEQ32_FEATURE_NAMES",
     "SEQ64_FEATURE_NAMES",
-    "SEQ_FEATURE_NAMES",
     "SEQ_FEAT_SETS",
     "DEFAULT_SEQ_FEAT_SET",
     "GAP_FEATURE_NAME",

@@ -117,7 +117,9 @@ class TestHeadSpec(unittest.TestCase):
             "000001": _synth_bars(50, seed=1),
             "000002": _synth_bars(50, seed=2),
         }
-        panel = build_seq_panel(stock, head="tc", seq_len=8, horizon_days=1)
+        panel = build_seq_panel(
+            stock, head="tc", seq_len=8, horizon_days=1, use_cache=False
+        )
         self.assertGreater(panel.n, 10)
         # close/open 通常 |y| 小于极端 oo 隔夜；但仍应有限
         self.assertTrue(np.all(np.isfinite(panel.y)))
@@ -129,12 +131,16 @@ class TestHeadSpec(unittest.TestCase):
             "000001": _synth_bars(50, seed=1),
             "000002": _synth_bars(50, seed=2),
         }
-        oo = build_seq_panel(stock, head="oo", seq_len=8, horizon_days=1)
-        oo_r = build_seq_panel(stock, head="oo_rank", seq_len=8, horizon_days=1)
+        oo = build_seq_panel(stock, head="oo", seq_len=8, horizon_days=1, use_cache=False)
+        oo_r = build_seq_panel(
+            stock, head="oo_rank", seq_len=8, horizon_days=1, use_cache=False
+        )
         self.assertEqual(oo.n, oo_r.n)
         np.testing.assert_allclose(oo.y, oo_r.y, rtol=0, atol=1e-5)
-        tc = build_seq_panel(stock, head="tc", seq_len=8, horizon_days=1)
-        tc_r = build_seq_panel(stock, head="tc_rank", seq_len=8, horizon_days=1)
+        tc = build_seq_panel(stock, head="tc", seq_len=8, horizon_days=1, use_cache=False)
+        tc_r = build_seq_panel(
+            stock, head="tc_rank", seq_len=8, horizon_days=1, use_cache=False
+        )
         self.assertEqual(tc.n, tc_r.n)
         np.testing.assert_allclose(tc.y, tc_r.y, rtol=0, atol=1e-5)
 
@@ -294,6 +300,7 @@ class TestYhatSeqPanel(unittest.TestCase):
             head="oo",
             seq_len=8,
             horizon_days=1,
+            use_cache=False,
         )
         self.assertGreater(panel.n, 10)
         self.assertEqual(panel.X.shape[-1], 16)
@@ -490,7 +497,9 @@ class TestYhatModelSmoke(unittest.TestCase):
         )
 
         stock = {f"{i:06d}": _synth_bars(40, seed=i) for i in range(1, 12)}
-        panel = build_seq_panel(stock, head="oo_rank", seq_len=6, horizon_days=1)
+        panel = build_seq_panel(
+            stock, head="oo_rank", seq_len=6, horizon_days=1, use_cache=False
+        )
         self.assertGreater(panel.n, 30)
         idx = list(range(panel.n))
         state, report = train_yhat_transformer(
@@ -536,7 +545,7 @@ class TestYhatModelSmoke(unittest.TestCase):
         )
         fac = rng.randn(n, 3).astype(np.float32)
         train_idx = list(range(48))
-        holdout_idx = list(range(48, n))
+        holdout_idx = np.asarray(list(range(48, n)), dtype=np.int64)
         _state, report = train_seq_factor_transformer(
             panel,
             fac,
@@ -556,6 +565,28 @@ class TestYhatModelSmoke(unittest.TestCase):
         self.assertTrue(all(int(r["n"]) == len(holdout_idx) for r in rows))
         self.assertTrue(all(r["cs_rank_ic"] is not None for r in rows))
         self.assertEqual(report.get("n_train", 0) + report.get("n_val", 0), len(train_idx))
+
+    def test_configure_torch_threads_default_four(self):
+        import os
+        from unittest import mock
+
+        import torch
+
+        from core.research.yhat_transformer.train import _configure_torch_threads
+
+        prev = torch.get_num_threads()
+        try:
+            with mock.patch.dict(os.environ, {"TORCH_NUM_THREADS": "4"}):
+                self.assertEqual(_configure_torch_threads(), 4)
+                self.assertEqual(torch.get_num_threads(), 4)
+            with mock.patch.dict(os.environ, {"TORCH_NUM_THREADS": "1"}):
+                self.assertEqual(_configure_torch_threads(), 1)
+                self.assertEqual(torch.get_num_threads(), 1)
+            with mock.patch.dict(os.environ, {"TORCH_NUM_THREADS": "nope"}):
+                self.assertEqual(_configure_torch_threads(), 4)
+                self.assertEqual(torch.get_num_threads(), 4)
+        finally:
+            torch.set_num_threads(max(1, int(prev)))
 
     def test_listnet_relevance_keeps_cross_section_mass(self):
         import torch

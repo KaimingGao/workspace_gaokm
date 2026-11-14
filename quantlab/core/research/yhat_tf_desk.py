@@ -1241,18 +1241,18 @@ def start_holdout_fit(
         "live_allowed": False,
     }
     _write_json(job_path, starting_job)
-    # 子进程强制单线程 BLAS/OpenMP，避开 libtorch / LGB 线程风暴。
-    # 用赋值覆盖：父进程里已有的 OMP_NUM_THREADS 也要收成 1。
+    # BLAS / OpenMP / LightGBM 保持 1，避免 Arm·L 线程风暴。
+    # Arm·T 只加计算线程；父进程里已有的 OMP_NUM_THREADS 也要收成 1。
     child_env = os.environ.copy()
     child_env.setdefault("PYTHONUNBUFFERED", "1")
     for k in (
         "OMP_NUM_THREADS",
         "MKL_NUM_THREADS",
         "OPENBLAS_NUM_THREADS",
-        "TORCH_NUM_THREADS",
         "HORIZON_LGB_NUM_THREADS",
     ):
         child_env[k] = "1"
+    child_env["TORCH_NUM_THREADS"] = "4"
     # 用裸 fd 交接 stdout：避免 TextIOWrapper 在 with 退出时关 fd 导致子进程日志静默
     log_fd: Optional[int] = None
     try:

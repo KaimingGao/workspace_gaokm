@@ -241,23 +241,29 @@ def _resolve_loss(loss: Optional[str]):
     return "smooth_l1", torch.nn.SmoothL1Loss(beta=1.0)
 
 
-def _configure_torch_threads() -> None:
-    """CPU 训练：默认单线程，避开 libtorch OpenMP index 在大张量上的 SIGSEGV。"""
+def _configure_torch_threads() -> int:
+    """Arm·T 的 intra-op 线程。默认 4。
+
+    BLAS / OpenMP 仍由启动环境保持 1，LightGBM 不跟着放大。
+    全局面板的 PyTorch 高级索引已改成小 batch 的 NumPy 切片。
+    """
     torch = _require_torch()
     try:
         n = int(os.environ.get("TORCH_NUM_THREADS") or 0)
-        if n <= 0:
-            # macOS + 大面板高级索引曾在 __kmp_* 崩；默认 1，需要时再 TORCH_NUM_THREADS=N
-            n = 1
-        os.environ.setdefault("OMP_NUM_THREADS", str(n))
-        os.environ.setdefault("MKL_NUM_THREADS", str(n))
+    except (TypeError, ValueError):
+        n = 0
+    if n <= 0:
+        n = 4
+    n = max(1, n)
+    try:
         torch.set_num_threads(n)
         try:
             torch.set_num_interop_threads(1)
         except Exception:
             pass
     except Exception:
-        pass
+        return 1
+    return n
 
 
 def _batch_to_device(*arrays: np.ndarray, rows: np.ndarray, device) -> tuple:
@@ -588,7 +594,7 @@ def train_seq_factor_transformer(
     import gc
 
     _seed_all(int(seed))
-    _configure_torch_threads()
+    n_threads = _configure_torch_threads()
     dev = pick_device(device)
     loss_name, loss_fn = _resolve_loss(loss)
     listwise = loss_name == "listwise"
@@ -686,8 +692,10 @@ def train_seq_factor_transformer(
     bad = 0
     global_step = 0
     tr_arr = np.asarray(tr, dtype=np.int64)
-    va_arr = np.asarray(va, dtype=np.int64) if va else np.zeros((0,), dtype=np.int64)
-    ho_arr = np.asarray(list(holdout_idx or []), dtype=np.int64)
+    # va / holdout 可能是 ndarray，不能写 `if x` / `x or []`
+    va_arr = np.asarray([] if va is None else va, dtype=np.int64)
+    ho_src = [] if holdout_idx is None else holdout_idx
+    ho_arr = np.asarray(ho_src, dtype=np.int64)
     if ho_arr.size:
         ho_arr = ho_arr[(ho_arr >= 0) & (ho_arr < int(y.shape[0]))]
     bs = max(16, int(batch_size or 128))
@@ -722,7 +730,7 @@ def train_seq_factor_transformer(
     print(
         f"    transformer fit start loss={loss_name} lr={base_lr:.2e} "
         f"sched=cosine warmup={warmup_steps} total_steps={total_steps} "
-        f"batch={bs} steps/ep={steps_per_ep} log_every={log_every} "
+        f"threads={n_threads} batch={bs} steps/ep={steps_per_ep} log_every={log_every} "
         f"epochs={epochs} patience={patience} "
         f"n_tr={tr_arr.size} n_va={va_arr.size}"
         + (

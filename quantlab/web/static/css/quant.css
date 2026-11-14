@@ -14860,44 +14860,46 @@ body[data-page="yhat_tf"] {
 }
 
 [data-arm-console="L"] {
-  border-color: #c7d9ec;
-  background: #aac5e2;
+  border-color: #dee8f4;
+  background: #d3e1f0;
   box-shadow: inset 2px 0 0 #2c4a6e;
 }
 
 [data-arm-console="L"] .yhat-tf-arm-console-head,
 [data-arm-console="L"] .yhat-tf-arm-metrics {
-  border-color: #c7d9ec;
-  background: #aac5e2;
+  border-color: #dee8f4;
+  background: #d3e1f0;
+  color: #1a3354;
 }
 
 [data-arm-console="L"] .yhat-tf-arm-metrics > div {
-  border-right-color: #c7d9ec;
+  border-right-color: #dee8f4;
 }
 
 [data-arm-console="L"].is-lead {
-  border-color: #dde9f6;
+  border-color: #eaf1f9;
   box-shadow: inset 2px 0 0 #1e3a5f, inset 0 1px 0 #1e3a5f;
 }
 
 [data-arm-console="T"] {
-  border-color: #beddd7;
-  background: #a2c8c1;
+  border-color: #d7ebe7;
+  background: #cfe2df;
   box-shadow: inset 2px 0 0 #2a524c;
 }
 
 [data-arm-console="T"] .yhat-tf-arm-console-head,
 [data-arm-console="T"] .yhat-tf-arm-metrics {
-  border-color: #beddd7;
-  background: #a2c8c1;
+  border-color: #d7ebe7;
+  background: #cfe2df;
+  color: #143832;
 }
 
 [data-arm-console="T"] .yhat-tf-arm-metrics > div {
-  border-right-color: #beddd7;
+  border-right-color: #d7ebe7;
 }
 
 [data-arm-console="T"].is-lead {
-  border-color: #d7ede9;
+  border-color: #e7f5f1;
   box-shadow: inset 2px 0 0 #1f4540, inset 0 1px 0 #1f4540;
 }
 
@@ -14927,14 +14929,14 @@ body[data-page="yhat_tf"] {
 }
 
 [data-arm-console="L"] .yhat-tf-arm-badge {
-  border-color: #d4e3f1;
-  background: #bbd4ec;
+  border-color: #e6eff8;
+  background: #dce9f5;
   color: #1a3354;
 }
 
 [data-arm-console="T"] .yhat-tf-arm-badge {
-  border-color: #cde9e2;
-  background: #b7dad3;
+  border-color: #e0f2ed;
+  background: #daece8;
   color: #143832;
 }
 
@@ -14976,13 +14978,16 @@ body[data-page="yhat_tf"] {
 .yhat-tf-arm-state {
   display: inline-flex;
   align-items: center;
+  justify-content: flex-end;
   gap: 6px;
   justify-self: end;
-  padding: 2px 7px;
+  box-sizing: border-box;
+  max-width: 100%;
+  padding: 0;
   border: 0;
-  border-radius: 2px;
-  background: #fff;
-  color: var(--ink-2);
+  border-radius: 0;
+  background: transparent;
+  color: inherit;
   font-size: var(--q-fs-micro, 0.6875rem);
   font-weight: 650;
   line-height: 1.3;
@@ -15000,6 +15005,21 @@ body[data-page="yhat_tf"] {
   color: inherit;
 }
 
+.yhat-tf-arm-state > span:first-child::before {
+  content: "";
+  flex: 0 0 auto;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: currentColor;
+}
+
+.yhat-tf-arm-state[data-state="idle"] > span:first-child::before {
+  width: 6px;
+  height: 6px;
+  opacity: 0.4;
+}
+
 .yhat-tf-arm-state-dur {
   color: inherit;
   font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
@@ -15010,47 +15030,34 @@ body[data-page="yhat_tf"] {
   opacity: 0.82;
 }
 
-.yhat-tf-arm-state[data-state="busy"] {
-  background: color-mix(in srgb, var(--warn, #b45309) 10%, #fff);
-  color: #9a3412;
-}
-
 .yhat-tf-arm-state[data-state="busy"] > span:first-child::before {
-  content: "";
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: currentColor;
-  animation: ytf-arm-pulse 1.2s ease-in-out infinite;
+  background: #f59e0b;
+  box-shadow: 0 0 0 3px rgba(245, 158, 11, 0.4);
+  animation: ytf-arm-pulse 1.25s ease-out infinite;
 }
 
 @keyframes ytf-arm-pulse {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0.28; }
+  0% { box-shadow: 0 0 0 0 rgba(245, 158, 11, 0.55); }
+  70%, 100% { box-shadow: 0 0 0 6px rgba(245, 158, 11, 0); }
 }
 
 @media (prefers-reduced-motion: reduce) {
   .yhat-tf-arm-state[data-state="busy"] > span:first-child::before {
     animation: none;
+    box-shadow: 0 0 0 3px rgba(245, 158, 11, 0.4);
   }
 }
 
-.yhat-tf-arm-state[data-state="ok"] {
-  background: color-mix(in srgb, var(--ok, #16a34a) 10%, #fff);
-  color: #166534;
-}
-
 .yhat-tf-arm-state[data-state="ok"] > span:first-child::before {
-  content: "";
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: currentColor;
+  background: #22c55e;
 }
 
-.yhat-tf-arm-state[data-state="fail"] {
-  background: color-mix(in srgb, var(--danger, #b91c1c) 8%, #fff);
-  color: #991b1b;
+.yhat-tf-arm-state[data-state="fail"] > span:first-child::before {
+  background: #ef4444;
+}
+
+.yhat-tf-arm-state[data-state="warn"] > span:first-child::before {
+  background: #f97316;
 }
 
 .yhat-tf-arm-metrics {

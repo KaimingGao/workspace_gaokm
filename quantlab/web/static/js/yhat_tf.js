@@ -526,14 +526,62 @@ function trainHint(lines) {
   return hint;
 }
 
+function fmtSec(s) {
+  return `${String(s).padStart(2, "0")}s`;
+}
+
 function fmtDur(sec) {
   const n = Number(sec);
   if (!Number.isFinite(n) || n <= 0) return "";
   const total = Math.round(n);
-  if (total < 60) return `${total}s`;
-  const m = Math.floor(total / 60);
   const s = total % 60;
-  return s ? `${m}m ${s}s` : `${m}m`;
+  const m = Math.floor(total / 60) % 60;
+  const h = Math.floor(total / 3600);
+  const secBit = fmtSec(s);
+  if (h > 0) return `${h}h ${String(m).padStart(2, "0")}m ${secBit}`;
+  if (m > 0) return `${m}m ${secBit}`;
+  return secBit;
+}
+
+/** 拟合已进行多久。按 10 秒取整，状态旁的数字也按这个节奏变。秒始终两位。 */
+function elapsedClock(startedAt) {
+  const raw = String(startedAt || "").trim();
+  if (!raw) return "";
+  const date = new Date(raw.includes("T") ? raw : raw.replace(" ", "T"));
+  const t0 = date.getTime();
+  if (Number.isNaN(t0)) return "";
+  const sec = Math.max(0, Math.floor((Date.now() - t0) / 10000) * 10);
+  return fmtDur(sec) || "00s";
+}
+
+const ARM_CLOCK_MS = 10000;
+let armClockTimer = null;
+
+function tickArmClocks() {
+  document.querySelectorAll("[data-arm-state][data-clock-from]").forEach((el) => {
+    const text = elapsedClock(el.dataset.clockFrom);
+    const node = el.querySelector("[data-role='clock']");
+    if (!node || !text || node.textContent === text) return;
+    node.textContent = text;
+    const label = el.querySelector("span:not(.yhat-tf-arm-state-dur)");
+    const hint = [...el.querySelectorAll(".yhat-tf-arm-state-dur")].find(
+      (n) => n.dataset.role !== "clock"
+    );
+    el.dataset.bits = `${label?.textContent || ""}|${text}|${hint?.textContent || ""}|${el.dataset.state || ""}`;
+  });
+}
+
+function syncArmClock() {
+  const any = document.querySelector("[data-arm-state][data-clock-from]");
+  if (!any) {
+    if (armClockTimer) {
+      clearInterval(armClockTimer);
+      armClockTimer = null;
+    }
+    return;
+  }
+  if (armClockTimer) return;
+  armClockTimer = setInterval(tickArmClocks, ARM_CLOCK_MS);
 }
 
 /** 日志按臂拆分：ArmL/ArmT 各自训练与测试行，其余归入共享的数据准备。 */
@@ -641,7 +689,7 @@ function armStatus(st, tag, pack, live) {
       return { text: "完成", dur: fmtDur(live.pack?.elapsed_sec), tone: "ok" };
     }
     if (live.phase === "busy") return { text: "训练中", tone: "busy" };
-    return { text: "准备数据", tone: "busy" };
+    return { text: "准备中", tone: "busy" };
   }
   if (pack?.success === false) return { text: "失败", tone: "fail" };
   if (pack) {
@@ -708,13 +756,23 @@ function highlightJson(text) {
 function renderArmState(el, state) {
   if (!el || !state) return;
   el.dataset.state = state.tone;
-  const key = `${state.text}|${state.dur || ""}|${state.tone}`;
+  if (state.clockFrom) el.dataset.clockFrom = state.clockFrom;
+  else delete el.dataset.clockFrom;
+  const clock = state.clock || "";
+  const key = `${state.text}|${clock}|${state.dur || ""}|${state.tone}`;
   if (el.dataset.bits === key) return;
   el.dataset.bits = key;
   el.replaceChildren();
   const label = document.createElement("span");
   label.textContent = state.text;
   el.append(label);
+  if (clock) {
+    const node = document.createElement("span");
+    node.className = "yhat-tf-arm-state-dur";
+    node.dataset.role = "clock";
+    node.textContent = clock;
+    el.append(node);
+  }
   if (state.dur) {
     const dur = document.createElement("span");
     dur.className = "yhat-tf-arm-state-dur";
@@ -781,6 +839,14 @@ function renderContrast(root, st, metrics) {
     const stateEl = box.querySelector(`[data-arm-state="${tag}"]`);
     const state = armStatus(st, tag, pack, tag === "L" ? liveL : liveT);
     if (state.text === "训练中" && !state.dur) state.dur = trainHint(logs[tag]);
+    if (
+      st?.fit_running &&
+      (state.text === "准备中" || state.text === "训练中") &&
+      st.job?.started_at
+    ) {
+      state.clockFrom = st.job.started_at;
+      state.clock = elapsedClock(st.job.started_at);
+    }
     renderArmState(stateEl, state);
     setMetric(tag, "ic", fmtIc(pack?.cs_rank_ic));
     setMetric(tag, "icir", fmtIc(pack?.cs_rank_icir));
@@ -836,6 +902,7 @@ function renderContrast(root, st, metrics) {
     tagEl.textContent = bits.join(" · ");
     tagEl.hidden = !bits.length;
   }
+  syncArmClock();
 }
 
 function protocolTagFromParams(params) {

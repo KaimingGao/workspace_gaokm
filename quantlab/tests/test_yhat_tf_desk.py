@@ -787,6 +787,9 @@ class TestYhatTfPidAlive(unittest.TestCase):
                 env = popen.call_args.kwargs.get("env") or {}
                 self.assertEqual(env.get("OMP_NUM_THREADS"), "1")
                 self.assertEqual(env.get("MKL_NUM_THREADS"), "1")
+                self.assertEqual(env.get("OPENBLAS_NUM_THREADS"), "1")
+                self.assertEqual(env.get("TORCH_NUM_THREADS"), "4")
+                self.assertEqual(env.get("HORIZON_LGB_NUM_THREADS"), "1")
                 self.assertEqual(out["job"].get("exit_hint"), "early_exit")
                 self.assertIn("Traceback", out.get("error") or "")
                 with open(os.path.join(td, "oo_last.json"), encoding="utf-8") as f:

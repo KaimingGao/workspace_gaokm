@@ -1113,11 +1113,15 @@ def _run_holdout(args: argparse.Namespace) -> int:
                         flush=True,
                     )
             except Exception as exc:  # noqa: BLE001
+                import traceback
+
                 summary["arm_L"] = {
                     "success": False,
                     "error": f"{type(exc).__name__}: {exc}",
                 }
                 print(f"  ArmL 失败：{summary['arm_L']['error']}", flush=True)
+                traceback.print_exc(file=sys.stdout)
+                sys.stdout.flush()
         else:
             summary["arm_L"] = {
                 "success": False,
@@ -1163,11 +1167,15 @@ def _run_holdout(args: argparse.Namespace) -> int:
             try:
                 summary["arm_T"] = _run_arm_t(seq_c, fac_c, tr, te, args)
             except Exception as exc:  # noqa: BLE001
+                import traceback
+
                 summary["arm_T"] = {
                     "success": False,
                     "error": f"{type(exc).__name__}: {exc}",
                 }
                 print(f"  ArmT 失败：{summary['arm_T']['error']}", flush=True)
+                traceback.print_exc(file=sys.stdout)
+                sys.stdout.flush()
         else:
             summary["arm_T"] = {"success": False, "error": "empty holdout"}
 
