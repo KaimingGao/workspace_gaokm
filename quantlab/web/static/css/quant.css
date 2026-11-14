@@ -14483,7 +14483,7 @@ body[data-page="yhat_tf"] {
 }
 
 .yhat-tf-fit-info-note {
-  margin-top: 4px;
+  margin-top: 10px;
   padding: 6px 10px;
   border: 1px solid color-mix(in srgb, var(--warn, #b45309) 18%, transparent);
   border-left: 3px solid color-mix(in srgb, var(--warn, #b45309) 55%, var(--line));
@@ -14859,54 +14859,46 @@ body[data-page="yhat_tf"] {
   background: var(--surface);
 }
 
-.yhat-tf-arm-console.is-lead {
-  box-shadow: none;
-}
-
 [data-arm-console="L"] {
-  border-color: #d7e7f5;
-  background: #c6daf0;
+  border-color: #c7d9ec;
+  background: #aac5e2;
   box-shadow: inset 2px 0 0 #2c4a6e;
 }
 
 [data-arm-console="L"] .yhat-tf-arm-console-head,
 [data-arm-console="L"] .yhat-tf-arm-metrics {
-  border-color: #d7e7f5;
-  background: #c6daf0;
+  border-color: #c7d9ec;
+  background: #aac5e2;
 }
 
 [data-arm-console="L"] .yhat-tf-arm-metrics > div {
-  border-right-color: #d7e7f5;
+  border-right-color: #c7d9ec;
 }
 
 [data-arm-console="L"].is-lead {
-  border-color: #e8f1fa;
+  border-color: #dde9f6;
   box-shadow: inset 2px 0 0 #1e3a5f, inset 0 1px 0 #1e3a5f;
 }
 
 [data-arm-console="T"] {
-  border-color: #d4ebe6;
-  background: #bedbd6;
+  border-color: #beddd7;
+  background: #a2c8c1;
   box-shadow: inset 2px 0 0 #2a524c;
 }
 
 [data-arm-console="T"] .yhat-tf-arm-console-head,
 [data-arm-console="T"] .yhat-tf-arm-metrics {
-  border-color: #d4ebe6;
-  background: #bedbd6;
+  border-color: #beddd7;
+  background: #a2c8c1;
 }
 
 [data-arm-console="T"] .yhat-tf-arm-metrics > div {
-  border-right-color: #d4ebe6;
+  border-right-color: #beddd7;
 }
 
 [data-arm-console="T"].is-lead {
-  border-color: #e7f5f2;
+  border-color: #d7ede9;
   box-shadow: inset 2px 0 0 #1f4540, inset 0 1px 0 #1f4540;
-}
-
-.yhat-tf-arm-console.is-off {
-  opacity: 0.55;
 }
 
 .yhat-tf-arm-console-head {
@@ -14935,14 +14927,14 @@ body[data-page="yhat_tf"] {
 }
 
 [data-arm-console="L"] .yhat-tf-arm-badge {
-  border-color: #e4f0f8;
-  background: #d4e6f6;
+  border-color: #d4e3f1;
+  background: #bbd4ec;
   color: #1a3354;
 }
 
 [data-arm-console="T"] .yhat-tf-arm-badge {
-  border-color: #e4f5f1;
-  background: #d3ebe6;
+  border-color: #cde9e2;
+  background: #b7dad3;
   color: #143832;
 }
 
@@ -15101,16 +15093,12 @@ body[data-page="yhat_tf"] {
 }
 
 [data-arm-console] .yhat-tf-arm-metrics strong.is-empty {
-  color: #3d5574;
+  color: #344863;
   opacity: 1;
 }
 
 [data-arm-console="L"] .yhat-tf-arm-metrics span {
   color: #2c4a6e;
-}
-
-[data-arm-console="L"] .yhat-tf-arm-log .ytf-k {
-  color: #1d4ed8;
 }
 
 [data-arm-console="L"] .yhat-tf-arm-metrics strong:not(.is-empty) {
@@ -15138,7 +15126,7 @@ body[data-page="yhat_tf"] {
 }
 
 .yhat-tf-arm-log {
-  height: 11rem;
+  height: 13rem;
   margin: 0;
   padding: 9px 11px;
   background: #fff;
@@ -15149,35 +15137,15 @@ body[data-page="yhat_tf"] {
 }
 
 .yhat-tf-arm-log .ytf-k,
-.yhat-tf-cli .ytf-k,
 .yhat-tf-pre .ytf-k {
   color: #1d4ed8;
   font-weight: 650;
 }
 
 .yhat-tf-arm-log .ytf-m,
-.yhat-tf-cli .ytf-m,
 .yhat-tf-pre .ytf-m {
   color: #0f766e;
   font-weight: 650;
-}
-
-.yhat-tf-arm-log .ytf-bad,
-.yhat-tf-cli .ytf-bad,
-.yhat-tf-pre .ytf-bad {
-  color: #b91c1c;
-  font-weight: 650;
-}
-
-.yhat-tf-arm-log .ytf-ok,
-.yhat-tf-cli .ytf-ok,
-.yhat-tf-pre .ytf-ok {
-  color: #15803d;
-  font-weight: 650;
-}
-
-.yhat-tf-pre .ytf-str {
-  color: #9a3412;
 }
 
 .yhat-tf-fit-verdict {

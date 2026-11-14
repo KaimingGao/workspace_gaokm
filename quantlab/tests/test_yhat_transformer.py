@@ -180,7 +180,9 @@ class TestYhatSeqPanel(unittest.TestCase):
             return real(code, bars, **kwargs)
 
         with mock.patch.object(seq_dataset, "samples_from_bars", side_effect=_boom):
-            panel = seq_dataset.build_seq_panel(stock, head="oo", seq_len=8)
+            panel = seq_dataset.build_seq_panel(
+                stock, head="oo", seq_len=8, use_cache=False
+            )
         self.assertGreater(panel.n, 0)
         self.assertNotIn("000000", panel.codes)
 
@@ -194,7 +196,51 @@ class TestYhatSeqPanel(unittest.TestCase):
             seq_dataset, "samples_from_bars", side_effect=RuntimeError("bad")
         ):
             with self.assertRaises(RuntimeError):
-                seq_dataset.build_seq_panel(stock, head="oo", seq_len=8)
+                seq_dataset.build_seq_panel(stock, head="oo", seq_len=8, use_cache=False)
+
+    def test_seq_panel_cache_skips_rebuild(self):
+        import tempfile
+        from unittest import mock
+
+        from core.research.yhat_transformer import seq_dataset
+
+        stock = {f"{i:06d}": _synth_bars(40, seed=i) for i in range(3)}
+        with tempfile.TemporaryDirectory() as td:
+            first = seq_dataset.build_seq_panel(
+                stock, head="oo", seq_len=8, cache_dir=td, use_cache=True
+            )
+            self.assertGreater(first.n, 0)
+
+            def _boom(*_a, **_k):
+                raise AssertionError("cache hit should not rebuild")
+
+            with mock.patch.object(seq_dataset, "samples_from_bars", side_effect=_boom):
+                second = seq_dataset.build_seq_panel(
+                    stock, head="oo", seq_len=8, cache_dir=td, use_cache=True
+                )
+            self.assertEqual(second.n, first.n)
+            np.testing.assert_allclose(second.y, first.y)
+
+            changed = {k: list(v) for k, v in stock.items()}
+            changed["000000"][20]["close"] = float(changed["000000"][20]["close"]) + 3.0
+            third = seq_dataset.build_seq_panel(
+                changed, head="oo", seq_len=8, cache_dir=td, use_cache=True
+            )
+            self.assertGreater(third.n, 0)
+            self.assertFalse(np.allclose(third.X, first.X))
+
+    def test_bars_token_tracks_ohlcv(self):
+        from core.research.yhat_transformer.seq_dataset import _bars_token
+
+        bars = _synth_bars(8, seed=1)
+        base = _bars_token(bars)
+        bars[3]["volume"] = float(bars[3]["volume"]) + 1.0
+        self.assertNotEqual(_bars_token(bars), base)
+        bars[3]["high"] = float(bars[3]["high"]) + 0.05
+        vol_and_high = _bars_token(bars)
+        self.assertNotEqual(vol_and_high, base)
+        bars[3]["open"] = float(bars[3]["open"]) + 0.05
+        self.assertNotEqual(_bars_token(bars), vol_and_high)
 
     def test_factor_jobs_keep_going_after_one_failure(self):
         from core.research.yhat_transformer.factor_panel import _run_stock_jobs
@@ -305,6 +351,60 @@ class TestYhatSeqPanel(unittest.TestCase):
         self.assertEqual(x16.shape[0], x32.shape[0])
         self.assertEqual(x32.shape[0], x64.shape[0])
 
+    def test_window_equals_vector_at(self):
+        """窗口行必须等于当日 _vector_at，不能因为只算一次而改值。"""
+        from core.research.yhat_transformer.seq_dataset import (
+            _bar_ohlcv,
+            _vector_at,
+            samples_from_bars,
+        )
+
+        bars = _synth_bars(48, seed=7)
+        L = 8
+        X, _, _, dates = samples_from_bars(
+            "000001", bars, seq_len=L, feat_set="seq64"
+        )
+        ohlcv = []
+        vols = []
+        for b in bars:
+            got = _bar_ohlcv(b)
+            ohlcv.append(got)
+            vols.append(float(got[4]) if got is not None else 0.0)
+        by_date = {str(b["date"])[:10]: j for j, b in enumerate(bars)}
+        self.assertGreater(len(dates), 0)
+        i = by_date[dates[0]]
+        for k in range(L):
+            vec = _vector_at(ohlcv, vols, i - L + k, 64)
+            self.assertIsNotNone(vec)
+            np.testing.assert_array_equal(X[0, k], vec)
+
+    def test_parallel_panel_matches_serial_order(self):
+        import os
+
+        from core.research.yhat_transformer.seq_dataset import build_seq_panel
+
+        bars = {f"{i:06d}": _synth_bars(40, seed=i) for i in range(16)}
+        old = os.environ.get("SEQ_PANEL_WORKERS")
+        try:
+            os.environ["SEQ_PANEL_WORKERS"] = "1"
+            serial = build_seq_panel(
+                bars, head="oo", seq_len=8, feat_set="seq16", use_cache=False
+            )
+            os.environ["SEQ_PANEL_WORKERS"] = "4"
+            parallel = build_seq_panel(
+                bars, head="oo", seq_len=8, feat_set="seq16", use_cache=False
+            )
+        finally:
+            if old is None:
+                os.environ.pop("SEQ_PANEL_WORKERS", None)
+            else:
+                os.environ["SEQ_PANEL_WORKERS"] = old
+        self.assertGreater(serial.n, 0)
+        np.testing.assert_array_equal(serial.X, parallel.X)
+        np.testing.assert_array_equal(serial.y, parallel.y)
+        self.assertEqual(serial.codes, parallel.codes)
+        self.assertEqual(serial.dates, parallel.dates)
+
 
 class TestListwiseGroups(unittest.TestCase):
     def test_subsample_keeps_whole_days(self):
@@ -412,6 +512,50 @@ class TestYhatModelSmoke(unittest.TestCase):
         )
         self.assertEqual(preds.shape[0], 20)
         self.assertTrue(np.all(np.isfinite(preds)))
+
+    def test_arm_t_holdout_each_epoch_does_not_pick_weights(self):
+        from core.research.yhat_transformer.seq_dataset import SeqPanel
+        from core.research.yhat_transformer.train import train_seq_factor_transformer
+
+        rng = np.random.RandomState(0)
+        dates: list = []
+        codes: list = []
+        for d in range(11):
+            for c in range(6):
+                dates.append(f"2024-01-{d + 1:02d}")
+                codes.append(f"{c:06d}")
+        n = len(dates)
+        panel = SeqPanel(
+            X=rng.randn(n, 4, 4).astype(np.float32),
+            gap=rng.randn(n).astype(np.float32),
+            y=rng.randn(n).astype(np.float32) * 2.0,
+            dates=dates,
+            codes=codes,
+            seq_len=4,
+            feature_names=("a", "b", "c", "d"),
+        )
+        fac = rng.randn(n, 3).astype(np.float32)
+        train_idx = list(range(48))
+        holdout_idx = list(range(48, n))
+        _state, report = train_seq_factor_transformer(
+            panel,
+            fac,
+            train_idx,
+            d_model=8,
+            nhead=2,
+            nlayers=1,
+            factor_hidden=8,
+            epochs=2,
+            batch_size=16,
+            seed=0,
+            patience=5,
+            holdout_idx=holdout_idx,
+        )
+        rows = report.get("holdout_by_epoch") or []
+        self.assertEqual([r["epoch"] for r in rows], [1, 2])
+        self.assertTrue(all(int(r["n"]) == len(holdout_idx) for r in rows))
+        self.assertTrue(all(r["cs_rank_ic"] is not None for r in rows))
+        self.assertEqual(report.get("n_train", 0) + report.get("n_val", 0), len(train_idx))
 
     def test_listnet_relevance_keeps_cross_section_mass(self):
         import torch

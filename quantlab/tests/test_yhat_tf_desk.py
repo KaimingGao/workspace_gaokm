@@ -371,6 +371,22 @@ class TestYhatTfFitExitError(unittest.TestCase):
                 msg = _fit_exit_error_from_log("tc")
                 self.assertIn("Arm·L", msg)
                 self.assertIn("LightGBM", msg)
+                self.assertIn("τc", msg)
+
+    def test_oo_arml_oom_hint_does_not_mention_tc(self):
+        with tempfile.TemporaryDirectory() as td:
+            with mock.patch("core.research.yhat_tf_desk.YHAT_TF_DIR", td):
+                from core.research.yhat_tf_desk import _fit_exit_error_from_log
+
+                log_path = os.path.join(td, "oo_fit.log")
+                with open(log_path, "w", encoding="utf-8") as f:
+                    f.write(
+                        "ArmL 切分 train=1 test=1\n"
+                        "  ArmL begin F=225 rss=1200\n"
+                    )
+                msg = _fit_exit_error_from_log("oo")
+                self.assertIn("Arm·L", msg)
+                self.assertNotIn("τc", msg)
 
     def test_interrupt_hint_from_mid_train_log(self):
         with tempfile.TemporaryDirectory() as td:

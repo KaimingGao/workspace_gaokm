@@ -548,7 +548,7 @@ OMS 级盘口布局仍禁止。
 | **Toast** | 顶栏居中宽条；warn/error 更久；点击关闭 |
 | **任务收尾** | ingest 同步 job done/error；父进程 `waitpid` 收割；`run_web.sh stop` 中断中的 Holdout 并落盘，防假「拟合中」；空 metrics 不算成功 |
 | **参数** | 未在跑时表单优先 draft；τc 长窗与 Holdout 不改数、不告警；arms 仅 L/T；Arm·L 固定全量，因子 core/full 只作用于 Arm·T |
-| **内存 / 稳定** | d_model 须整除 nhead；子进程单线程；Arm·L float32 + 按 F 子采样；Arm·T numpy batch；异常回写 `holdout_failed` |
+| **内存 / 稳定** | d_model 须整除 nhead；子进程单线程；序列面板命中磁盘缓存，冷启动最多 4 进程；Arm·L 全表保持 float32，截面 z 写回同一份训练矩阵；Arm·T numpy batch；异常回写 `holdout_failed` |
 | **禁止** | live / active / 生产 score；无 promote-live |
 
 ### `/platform` 平台

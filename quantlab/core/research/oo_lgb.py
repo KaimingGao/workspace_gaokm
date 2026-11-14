@@ -17,6 +17,15 @@ logger = logging.getLogger(__name__)
 SCHEMA_OO_LGB = "oo_lgb_v1"
 
 
+def _raw_moments(x_raw: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
+    """入模 raw 的列 μ/σ（CS-z 前）。勿写入 zscore_*，避免污染截面推理。"""
+    impute = np.nanmean(x_raw, axis=0)
+    impute = np.where(np.isfinite(impute), impute, 0.0)
+    impute_std = np.nanstd(x_raw, axis=0)
+    impute_std = np.where(np.isfinite(impute_std), impute_std, 0.0)
+    return impute, impute_std
+
+
 def is_oo_lightgbm_blob(blob: Any) -> bool:
     if not isinstance(blob, dict):
         return False
@@ -186,10 +195,15 @@ def fit_oo_lgb_matrix(
         x_c, y_c, dates_c, _keep = align_fit_rows_to_l2(
             x_c, y_c, dates_c, clock="open"
         )
-        x_z = cs_z_matrix_prefer_cube(x_c, active, dates_c, clock="open")
+        # μ/σ 取 z 之前的 raw。inplace 把 z 写回同一块，避免再留一份 float64。
+        impute, impute_std = _raw_moments(x_c)
+        x_z = cs_z_matrix_prefer_cube(
+            x_c, active, dates_c, clock="open", inplace=True
+        )
     else:
         from core.research.oo_model_compact import _zscore_matrix
 
+        impute, impute_std = _raw_moments(x_c)
         x_z, _zm, _zs = _zscore_matrix(x_c, active)
 
     if x_z is None or int(np.asarray(x_z).shape[0]) < need:
@@ -199,12 +213,17 @@ def fit_oo_lgb_matrix(
             "sample_count": int(np.asarray(x_z).shape[0]) if x_z is not None else 0,
         }
 
-    w = np.ones(int(x_z.shape[0]), dtype=np.float64)
+    n_fit = int(x_z.shape[0])
+    w = np.ones(n_fit, dtype=np.float64)
     hyper = dict(HORIZON_LGB)
     stamp_cross_section_zscore(hyper)
+    y_fit = np.asarray(y_c, dtype=np.float64)
+    hold = [x_z]
+    x_z = None
+    x_c = None
     booster, gain = _fit_lightgbm(
-        np.asarray(x_z, dtype=np.float64),
-        np.asarray(y_c, dtype=np.float64),
+        hold[0],
+        y_fit,
         w,
         n_estimators=int(hyper["n_estimators"]),
         max_depth=int(hyper["max_depth"]),
@@ -217,13 +236,8 @@ def fit_oo_lgb_matrix(
         lambda_l2=float(hyper["lambda_l2"]),
         min_data_in_leaf=int(hyper["min_data_in_leaf"]),
         callbacks=callbacks,
+        release_hold=hold,
     )
-    x_raw = np.asarray(x_c, dtype=np.float64)
-    impute = np.nanmean(x_raw, axis=0)
-    impute = np.where(np.isfinite(impute), impute, 0.0)
-    # 因子表 μ/σ：入模 raw 样本矩（CS-z 前）；勿写入 zscore_*，避免污染截面推理
-    impute_std = np.nanstd(x_raw, axis=0)
-    impute_std = np.where(np.isfinite(impute_std), impute_std, 0.0)
     blob = pack_tree_return_model(
         head="oo",
         backend="lightgbm",
@@ -238,7 +252,7 @@ def fit_oo_lgb_matrix(
     blob["impute_stds"] = _means_dict(active, impute_std)
     fi = _importance_rows_oo(active, gain if gain is not None else _gain_from_booster(booster, len(active)))
     blob["feature_importance"] = fi
-    blob["sample_count"] = int(x_z.shape[0])
+    blob["sample_count"] = int(n_fit)
     blob["horizon_days"] = int(horizon_days or 1)
     blob["excluded_features"] = list(excluded or [])
     blob["solver"] = "lightgbm"
@@ -247,7 +261,7 @@ def fit_oo_lgb_matrix(
     report: Dict[str, Any] = {
         "success": True,
         "backend": "lightgbm",
-        "sample_count": int(x_z.shape[0]),
+        "sample_count": int(n_fit),
         "n_features": len(active),
         "excluded_features": list(excluded or []),
         "hyperparams": hyper,
@@ -283,7 +297,8 @@ def predict_oo_lgb_matrix(
         if j is None:
             return [None] * n
         cols.append(j)
-    x_sub = np.asarray(x, dtype=np.float64)[np.ix_(idx, cols)]
+    # 先切行再升 float64，避免推理前把全表再复制一份。
+    x_sub = np.asarray(x[np.ix_(idx, cols)], dtype=np.float64)
     if is_cross_section_zscore(model_blob):
         # 训在 CS-z 上：无日期不能静默用 raw+均值（与 booster 口径错位）
         if row_dates is None or len(row_dates) != int(np.asarray(x).shape[0]):

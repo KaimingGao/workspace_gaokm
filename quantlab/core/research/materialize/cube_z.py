@@ -225,6 +225,24 @@ def _cube_mu_sd_for_name(
     return None, None
 
 
+def _zero_nonfinite_inplace(z: np.ndarray) -> np.ndarray:
+    """把非有限值写成 0。按列做，避免再分配一整块布尔掩码。"""
+    if not isinstance(z, np.ndarray) or z.size == 0:
+        return z
+    out = z if z.flags.writeable else np.array(z, copy=True)
+    if out.ndim != 2:
+        bad = ~np.isfinite(out)
+        if bad.any():
+            out[bad] = 0.0
+        return out
+    for j in range(int(out.shape[1])):
+        col = out[:, j]
+        bad = ~np.isfinite(col)
+        if bad.any():
+            col[bad] = 0.0
+    return out
+
+
 def apply_day_cube_mu_sigma_matrix(
     x: np.ndarray,
     names: Sequence[str],
@@ -235,6 +253,7 @@ def apply_day_cube_mu_sigma_matrix(
     min_names: int = 2,
     eps: float = 1e-12,
     fallback_open: Optional[bool] = None,
+    inplace: bool = False,
 ) -> Tuple[Optional[np.ndarray], Dict[str, Any]]:
     """按行分组键读 L2 μ/σ 打 z（不进批现算）。
 
@@ -248,9 +267,20 @@ def apply_day_cube_mu_sigma_matrix(
     """
     from core.research.day_cube import enabled, load_day_cube
 
-    arr = np.asarray(x, dtype=np.float64)
+    base = np.asarray(x)
+    # inplace：调用方已拥有这块 float64，z 直接写进去，不再并行留一份原矩阵。
+    if (
+        inplace
+        and isinstance(base, np.ndarray)
+        and base.ndim == 2
+        and base.dtype == np.float64
+        and base.flags.writeable
+    ):
+        out = base
+    else:
+        out = np.array(base, dtype=np.float64, copy=True)
     name_list = [str(n) for n in names]
-    n, p = arr.shape if arr.ndim == 2 else (0, 0)
+    n, p = out.shape if out.ndim == 2 else (0, 0)
     if n == 0 or p == 0 or len(dates) != n or len(name_list) != p:
         return None, {"ok": False, "error": "shape mismatch"}
     if not enabled():
@@ -266,7 +296,6 @@ def apply_day_cube_mu_sigma_matrix(
         else (not _groups_have_tau_clock(dates))
     )
 
-    out = np.array(arr, copy=True)
     buckets: Dict[Tuple[str, str], List[int]] = {}
     for i, d in enumerate(dates):
         day, clk = _day_clock_from_group(d, default_clock=clock)
@@ -530,13 +559,18 @@ def align_fit_rows_to_l2(
 
     Returns:
         ``(x_keep, y_keep, dates_keep, row_mask)``；``row_mask`` 相对输入行。
+
+    先查哪些行有立方，再拷贝。行都在时，float64 输入原样返回，不再布尔索引复制一整块。
     """
     from core.research.materialize.consumer import MaterializeRequired
 
-    arr_x = np.asarray(x, dtype=np.float64)
-    arr_y = np.asarray(y, dtype=np.float64)
-    n = int(arr_x.shape[0]) if getattr(arr_x, "ndim", 0) == 2 else 0
-    if n == 0 or len(dates) != n or int(arr_y.shape[0]) != n:
+    x_arr = np.asarray(x)
+    y_arr = np.asarray(y)
+    n = int(x_arr.shape[0]) if getattr(x_arr, "ndim", 0) == 2 else 0
+    y_n = int(y_arr.shape[0]) if getattr(y_arr, "ndim", 0) >= 1 else 0
+    if n == 0 or len(dates) != n or y_n != n:
+        arr_x = np.asarray(x_arr, dtype=np.float64)
+        arr_y = np.asarray(y_arr, dtype=np.float64)
         full = np.ones(max(0, n), dtype=bool)
         return arr_x, arr_y, [str(d or "")[:10] for d in (dates or [])], full
 
@@ -569,8 +603,15 @@ def align_fit_rows_to_l2(
             n,
             miss[:5],
         )
-    dates_out = [str(dates[i] or "")[:10] for i in range(n) if mask[i]]
-    return arr_x[mask], arr_y[mask], dates_out, mask
+        kept = np.flatnonzero(mask)
+        arr_x = np.asarray(x_arr[kept], dtype=np.float64)
+        arr_y = np.asarray(y_arr[kept], dtype=np.float64)
+        dates_out = [str(dates[int(i)] or "")[:10] for i in kept.tolist()]
+        return arr_x, arr_y, dates_out, mask
+    arr_x = np.asarray(x_arr, dtype=np.float64)
+    arr_y = np.asarray(y_arr, dtype=np.float64)
+    dates_out = [str(d or "")[:10] for d in dates]
+    return arr_x, arr_y, dates_out, mask
 
 
 def cs_z_matrix_prefer_cube(
@@ -580,17 +621,23 @@ def cs_z_matrix_prefer_cube(
     *,
     clock: str = "open",
     fallback_open: Optional[bool] = None,
+    inplace: bool = False,
 ) -> np.ndarray:
     """拟合/OOS：只用全池 L2 μ/σ；缺 Cube → ``MaterializeRequired``（不进批现算）。"""
     from core.research.materialize.consumer import MaterializeRequired
 
     try:
         z, meta = apply_day_cube_mu_sigma_matrix(
-            x, names, groups, clock=clock, fallback_open=fallback_open
+            x,
+            names,
+            groups,
+            clock=clock,
+            fallback_open=fallback_open,
+            inplace=inplace,
         )
         if z is not None and meta.get("ok"):
             _warn_cube_cs_partial(meta, where="cs_z_matrix_prefer_cube")
-            return np.where(np.isfinite(z), z, 0.0)
+            return _zero_nonfinite_inplace(z)
         hint, clks = _l2_materialize_hint(groups, default_clock=clock)
         raise MaterializeRequired(
             {

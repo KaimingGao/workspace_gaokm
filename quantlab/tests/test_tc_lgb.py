@@ -68,7 +68,8 @@ class TestTcLgbFitWeights(unittest.TestCase):
                 keep,
             )
 
-        def _fake_cs(x_c, active, dates_c, clock="open"):
+        def _fake_cs(x_c, active, dates_c, clock="open", **_kw):
+            captured["inplace"] = bool(_kw.get("inplace"))
             return np.asarray(x_c, dtype=np.float64)
 
         def _fake_fit(x_z, y_z, w, **kwargs):
@@ -112,6 +113,7 @@ class TestTcLgbFitWeights(unittest.TestCase):
         self.assertIsNotNone(w)
         self.assertEqual(int(w.shape[0]), int(keep.sum()))
         self.assertTrue(np.allclose(w, 2.0), w)
+        self.assertTrue(captured.get("inplace"))
 
 
 class TestTcLgbPredictSoftMiss(unittest.TestCase):

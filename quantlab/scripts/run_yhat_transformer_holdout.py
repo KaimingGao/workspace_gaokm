@@ -195,7 +195,8 @@ def _run_arm_l_regression(
     hid = str(head_id or "oo").strip() or "oo"
     names = [str(n) for n in fac.feature_names]
     dates = [str(d)[:10] for d in fac.dates]
-    X = np.asarray(fac.X, dtype=np.float64)
+    # 全表保持原 dtype（面板是 float32）。训练行在 fit_* 里再升成一份 float64。
+    X = fac.X
     y = np.asarray(fac.y, dtype=np.float64)
     max_tr = _arm_l_max_train_rows()
     tr = _arm_l_maybe_subsample_train(
@@ -353,17 +354,16 @@ def _run_arm_l_rank(
     hid = str(head_id or "oo_rank").strip() or "oo_rank"
     names = [str(n) for n in fac.feature_names]
     dates = [str(d)[:10] for d in fac.dates]
-    X = np.asarray(fac.X, dtype=np.float64)
     y = np.asarray(fac.y, dtype=np.float64)
     te = np.asarray(list(test_idx), dtype=np.int64)
     max_tr = _arm_l_max_train_rows()
     print(
-        f"  ArmL cube CS-z start head={hid} N={int(X.shape[0])} F={int(X.shape[1])} "
+        f"  ArmL cube CS-z start head={hid} N={int(fac.X.shape[0])} F={int(fac.X.shape[1])} "
         f"rss={_rss_mb()}",
         flush=True,
     )
     try:
-        Xz = cs_z_matrix_prefer_cube(X, names, dates, clock="open")
+        Xz = cs_z_matrix_prefer_cube(fac.X, names, dates, clock="open")
     except MaterializeRequired as exc:
         return {
             "arm": "L_lambdarank",
@@ -375,8 +375,12 @@ def _run_arm_l_rank(
         }
     z_clip = float(LAMBDARANK_Z_CLIP)
     if z_clip > 0:
-        Xz = np.clip(Xz, -z_clip, z_clip)
-    Xz = np.where(np.isfinite(Xz), Xz, 0.0)
+        np.clip(Xz, -z_clip, z_clip, out=Xz)
+    for _j in range(int(Xz.shape[1])):
+        _col = Xz[:, _j]
+        _bad = ~np.isfinite(_col)
+        if _bad.any():
+            _col[_bad] = 0.0
     print(
         f"  ArmL cube CS-z done {time.time() - t0:.1f}s rss={_rss_mb()}",
         flush=True,
@@ -462,26 +466,34 @@ def _run_arm_l_rank(
     }
     if trunc > 0:
         params["lambdarank_truncation_level"] = trunc
+    X_te = np.asarray(Xz[te], dtype=np.float64)
+    n_features = int(X_fit.shape[1])
+    n_train = int(X_fit.shape[0])
+    del X_tr, Xz
+    gc.collect()
     print(
         f"  ArmL fit start head={hid} objective=lambdarank rounds={rounds} "
-        f"n_train={int(X_fit.shape[0])} groups={len(groups)} "
-        f"F={int(X_fit.shape[1])} lr={params['learning_rate']} "
+        f"n_train={n_train} groups={len(groups)} "
+        f"F={n_features} lr={params['learning_rate']} "
         f"leaves={params['num_leaves']} rss={_rss_mb()}",
         flush=True,
     )
     dtrain = lgb.Dataset(
-        X_fit, label=y_fit, group=np.asarray(groups, dtype=np.int32)
+        X_fit,
+        label=y_fit,
+        group=np.asarray(groups, dtype=np.int32),
+        free_raw_data=True,
     )
+    del X_fit, y_fit
+    gc.collect()
     booster = lgb.train(
         params,
         dtrain,
         num_boost_round=rounds,
         callbacks=[_arml_boost_log_cb(period=max(10, rounds // 10))],
     )
-    n_train = int(X_fit.shape[0])
-    del X_fit, y_fit
     print(f"  ArmL predict test={int(te.size)} rss={_rss_mb()}", flush=True)
-    preds = booster.predict(Xz[te])
+    preds = booster.predict(X_te)
     metrics = _eval_pack(
         list(np.asarray(preds, dtype=np.float64)),
         [float(y[i]) for i in te.tolist()],
@@ -495,7 +507,7 @@ def _run_arm_l_rank(
             "arm": "L_lambdarank",
             "success": True,
             "head": hid,
-            "n_features": int(Xz.shape[1]),
+            "n_features": int(n_features),
             "n_train": n_train,
             "n_test": int(te.size),
             "elapsed_sec": round(time.time() - t0, 2),
@@ -509,7 +521,7 @@ def _run_arm_l_rank(
             "live_aligned": True,
         }
     )
-    del Xz, y, booster, dtrain
+    del X_te, y, booster, dtrain
     gc.collect()
     return metrics
 
@@ -634,6 +646,7 @@ def _run_arm_t(seq, fac, train_idx, test_idx, args) -> Dict[str, Any]:
         patience=args.patience,
         max_train_rows=max_tr,
         loss=getattr(args, "loss", "smooth_l1"),
+        holdout_idx=te_ii,
     )
     Xseq = report.pop("Xseq")
     gap = report.pop("gap")
@@ -658,6 +671,7 @@ def _run_arm_t(seq, fac, train_idx, test_idx, args) -> Dict[str, Any]:
     m["seed"] = seed
     m["elapsed_sec"] = round(time.time() - t0, 2)
     m["n_params"] = report.get("n_params")
+    m["holdout_by_epoch"] = list(report.get("holdout_by_epoch") or [])
     print(
         f"  ArmT seed={seed} {_arm_done_bits(m)} "
         f"{m['elapsed_sec']}s rss={_rss_mb()}",
@@ -1021,7 +1035,15 @@ def _run_holdout(args: argparse.Namespace) -> int:
 
     # ----- Arm·L：全量训练；OOS/Gate 评测缩到共享键 -----
     # 共享日历只锁定 eval 窗；训练仍吃 fac 上 eval 前的全部日（含 seq 尚未覆盖的早期日）
+    # 序列副本和日线在对齐之后不再参与 L。先丢掉，避免和 τc 宽因子矩阵叠在一起。
     if "L" in arms and fac_full is not None and fac_full.n > 0:
+        import gc
+
+        stock_bars = None
+        if seq is not None and seq is not seq_c:
+            seq = None
+        gc.collect()
+        print(f"  ArmL 释放序列/日线 rss={_rss_mb()}", flush=True)
         if shared_cal:
             _, _, meta = _split_for(shared_cal, calendar_dates=shared_cal)
             test_days = {str(d)[:10] for d in (meta.get("test_days") or [])}

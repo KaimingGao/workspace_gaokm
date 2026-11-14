@@ -1030,7 +1030,17 @@ def _prepare_matrix(
                 break
             continue
 
-        x_c = np.ascontiguousarray(sub[rows_idx], dtype=np.float64)
+        # 先丢掉覆盖检查用的 float 块，再按列写入唯一的 float64 训练矩阵。
+        src_rows = (
+            rows_idx
+            if row_pos is None
+            else np.asarray(row_pos, dtype=np.int64)[rows_idx]
+        )
+        del sub
+        base = np.asarray(x)
+        x_c = np.empty((int(src_rows.shape[0]), len(active)), dtype=np.float64)
+        for local_j, name in enumerate(active):
+            x_c[:, local_j] = base[src_rows, name_j[name]]
         y_c = np.ascontiguousarray(y[rows_idx], dtype=np.float64)
         excluded = prep_meta_excluded(meta)
         meta["complete_sample_count"] = n

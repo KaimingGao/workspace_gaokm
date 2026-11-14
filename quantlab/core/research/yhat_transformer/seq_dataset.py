@@ -6,8 +6,13 @@
 
 from __future__ import annotations
 
+import hashlib
 import logging
 import math
+import os
+import time
+from concurrent.futures import ProcessPoolExecutor, as_completed
+from concurrent.futures.process import BrokenProcessPool
 from dataclasses import dataclass
 from typing import Any, Dict, List, Mapping, Optional, Sequence, Tuple  # noqa: I001 — Any used by head dispatch
 
@@ -659,10 +664,19 @@ def samples_from_bars(
         ohlcv.append(got)
         vols.append(float(got[4]) if got is not None else 0.0)
 
-    xs: List[np.ndarray] = []
+    # 每根完整 K 只算一次。窗口是这段特征的切片，不再对同一天重算 L 次。
+    feat = np.zeros((n, F), dtype=np.float32)
+    valid = np.zeros(n, dtype=bool)
+    for j in range(1, n):
+        got = _vector_at(ohlcv, vols, j, F)
+        if got is not None:
+            feat[j] = got
+            valid[j] = True
+
     gaps: List[float] = []
     ys: List[float] = []
     dates: List[str] = []
+    keep: List[int] = []
 
     # 决策下标 i：完整日用到 i-1；序列窗口 [i-L, i)
     end_i = n if tail <= 0 else n - tail
@@ -677,20 +691,7 @@ def samples_from_bars(
         gap_t = (float(cur_o) / float(prev[3]) - 1.0) * 100.0
         if not math.isfinite(gap_t):
             continue
-
-        win = np.zeros((L, F), dtype=np.float32)
-        ok = True
-        for k in range(L):
-            j = i - L + k  # 完整日下标
-            if j < 1 or ohlcv[j] is None or ohlcv[j - 1] is None:
-                ok = False
-                break
-            got = _vector_at(ohlcv, vols, j, F)
-            if got is None:
-                ok = False
-                break
-            win[k] = got
-        if not ok:
+        if i - L < 0 or not valid[i - L : i].all():
             continue
         # PIT：窗口末日必须是 T-1；今收不进序列（仅可进 y）
         last_date = str((bars[i - 1] or {}).get("date") or "")[:10]
@@ -698,24 +699,170 @@ def samples_from_bars(
         if not decision or not last_date or last_date >= decision:
             continue
 
-        xs.append(win)
+        keep.append(i)
         gaps.append(float(gap_t))
         ys.append(float(fr))
         dates.append(decision)
 
-    if not xs:
+    if not keep:
         return (
             np.zeros((0, L, F), dtype=np.float32),
             np.zeros((0,), dtype=np.float32),
             np.zeros((0,), dtype=np.float32),
             [],
         )
+    X = np.empty((len(keep), L, F), dtype=np.float32)
+    for row, i in enumerate(keep):
+        X[row] = feat[i - L : i]
     return (
-        np.stack(xs, axis=0),
+        X,
         np.asarray(gaps, dtype=np.float32),
         np.asarray(ys, dtype=np.float32),
         dates,
     )
+
+
+def _default_seq_cache_dir() -> str:
+    return os.path.abspath(
+        os.path.join(
+            os.path.dirname(__file__),
+            "..",
+            "..",
+            "..",
+            "data",
+            "experiments",
+            "yhat_transformer",
+            "cache",
+        )
+    )
+
+
+def _bars_token(bars: Sequence[dict]) -> str:
+    """长度、首末日，以及开高低收量的累加。任一字段改动后缓存失效。"""
+    n = len(bars or [])
+    if n <= 0:
+        return "0"
+    b0 = bars[0] if isinstance(bars[0], dict) else {}
+    b1 = bars[-1] if isinstance(bars[-1], dict) else {}
+    d0 = str((b0 or {}).get("date") or "")[:10]
+    d1 = str((b1 or {}).get("date") or "")[:10]
+    acc_o = acc_h = acc_l = acc_c = acc_v = 0.0
+    for b in bars:
+        got = _bar_ohlcv(b if isinstance(b, dict) else None)
+        if got is None:
+            continue
+        acc_o += got[0]
+        acc_h += got[1]
+        acc_l += got[2]
+        acc_c += got[3]
+        acc_v += got[4]
+    return (
+        f"{n}|{d0}|{d1}|{acc_o:.4f}|{acc_h:.4f}|{acc_l:.4f}|"
+        f"{acc_c:.4f}|{acc_v:.4f}"
+    )
+
+
+def _seq_cache_key(
+    stock_bars: Mapping[str, Sequence[dict]],
+    *,
+    label: str,
+    seq_len: int,
+    horizon_days: int,
+    feat_set: Optional[str],
+) -> str:
+    h = hashlib.sha1()
+    h.update(
+        (
+            f"seqv1|{label}|L{int(seq_len)}|h{int(horizon_days)}|"
+            f"{resolve_seq_feat_set(feat_set)}|"
+        ).encode()
+    )
+    rows = []
+    for code, bars in stock_bars.items():
+        code_s = str(code).strip()
+        if not code_s:
+            continue
+        rows.append((code_s, _bars_token(bars)))
+    for code_s, token in sorted(rows):
+        h.update(code_s.encode())
+        h.update(b"|")
+        h.update(token.encode())
+        h.update(b"\n")
+    return h.hexdigest()[:20]
+
+
+def _try_load_seq_cache(
+    path: str,
+    *,
+    seq_len: int,
+    feature_names: Tuple[str, ...],
+) -> Optional[SeqPanel]:
+    if not path or not os.path.isfile(path):
+        return None
+    try:
+        z = np.load(path, allow_pickle=True)
+        if int(z["seq_len"]) != int(seq_len):
+            return None
+        names = tuple(str(n) for n in z["feature_names"].tolist())
+        if names != tuple(feature_names):
+            return None
+        return SeqPanel(
+            X=np.asarray(z["X"], dtype=np.float32),
+            gap=np.asarray(z["gap"], dtype=np.float32),
+            y=np.asarray(z["y"], dtype=np.float32),
+            dates=[str(d) for d in z["dates"].tolist()],
+            codes=[str(c) for c in z["codes"].tolist()],
+            seq_len=int(seq_len),
+            feature_names=names,
+        )
+    except Exception:  # noqa: BLE001
+        logger.debug("seq panel cache load failed %s", path, exc_info=True)
+        return None
+
+
+def _save_seq_cache(path: str, panel: SeqPanel) -> None:
+    try:
+        os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
+        np.savez(
+            path,
+            X=panel.X,
+            gap=panel.gap,
+            y=panel.y,
+            dates=np.asarray(panel.dates, dtype=object),
+            codes=np.asarray(panel.codes, dtype=object),
+            feature_names=np.asarray(panel.feature_names, dtype=object),
+            seq_len=np.int32(panel.seq_len),
+        )
+    except Exception:  # noqa: BLE001
+        logger.debug("seq panel cache save failed %s", path, exc_info=True)
+
+
+def _seq_workers(n_stocks: int) -> int:
+    """小样本留在本进程（单测 mock 才能拦住 samples_from_bars）。生产默认 4 进程。"""
+    if n_stocks < 16:
+        return 1
+    raw = os.environ.get("SEQ_PANEL_WORKERS")
+    try:
+        n = int(raw) if raw else 4
+    except ValueError:
+        n = 4
+    n_cpu = os.cpu_count() or 2
+    return max(1, min(n, 4, n_stocks, n_cpu))
+
+
+def _seq_stock_job(
+    job: Tuple[Any, ...],
+) -> Tuple[str, np.ndarray, np.ndarray, np.ndarray, List[str]]:
+    code, bars, seq_len, horizon, label, feat_set = job
+    X, g, y, ds = samples_from_bars(
+        str(code),
+        bars,
+        seq_len=int(seq_len),
+        horizon_days=int(horizon),
+        label=str(label),
+        feat_set=feat_set,
+    )
+    return str(code), X, g, y, ds
 
 
 def _label_for_head(head: Any) -> str:
@@ -738,44 +885,106 @@ def build_seq_panel(
     seq_len: int = 20,
     horizon_days: int = 1,
     feat_set: Optional[str] = None,
+    use_cache: bool = True,
+    cache_dir: Optional[str] = None,
 ) -> SeqPanel:
     """多票堆叠序列面板（float32）；``head`` 可为 HeadSpec 或 id。
 
     ``feat_set``：``seq8`` / ``seq16`` / ``seq32`` / ``seq64``（默认 ``seq16``）。
+    相同日线、标签、窗长和特征集命中磁盘缓存，不再逐票重算。
     """
     L = max(5, int(seq_len or 20))
     names = seq_feature_names(feat_set)
     F = len(names)
     lab = _label_for_head(head)
+    cache_path = ""
+    if use_cache:
+        key = _seq_cache_key(
+            stock_bars,
+            label=lab,
+            seq_len=L,
+            horizon_days=int(horizon_days or 1),
+            feat_set=feat_set,
+        )
+        cache_path = os.path.join(
+            cache_dir or _default_seq_cache_dir(), f"seq_{key}.npz"
+        )
+        hit = _try_load_seq_cache(cache_path, seq_len=L, feature_names=names)
+        if hit is not None and hit.n > 0 and int(hit.X.shape[-1]) == F:
+            print(
+                f"序列面板缓存命中 N={hit.n} L={hit.seq_len} F={hit.X.shape[-1]} "
+                f"← {cache_path}",
+                flush=True,
+            )
+            return hit
     chunks_x: List[np.ndarray] = []
     chunks_g: List[np.ndarray] = []
     chunks_y: List[np.ndarray] = []
     dates: List[str] = []
     codes: List[str] = []
     failed: List[str] = []
-    n_total = sum(1 for code in stock_bars if str(code).strip())
-    print(f"序列面板 开始 stocks={n_total} L={L} F={F}", flush=True)
-    seen = 0
-    for code, bars in stock_bars.items():
-        code_s = str(code).strip()
-        seen += 1
-        if seen == 1 or seen % 100 == 0 or seen == n_total:
-            print(f"  序列面板 {seen}/{n_total}", flush=True)
-        if not code_s:
-            continue
+    items = [
+        (str(code).strip(), bars)
+        for code, bars in stock_bars.items()
+        if str(code).strip()
+    ]
+    n_total = len(items)
+    n_workers = _seq_workers(n_total)
+    jobs = [
+        (code, bars, L, int(horizon_days or 1), lab, feat_set) for code, bars in items
+    ]
+    print(
+        f"序列面板 开始 stocks={n_total} L={L} F={F} workers={n_workers}",
+        flush=True,
+    )
+    t0 = time.time()
+    ordered: List[Optional[Tuple[str, np.ndarray, np.ndarray, np.ndarray, List[str]]]] = [
+        None
+    ] * n_total
+
+    def _take(idx: int, result_fn) -> None:
+        code_s = items[idx][0]
         try:
-            X, g, y, ds = samples_from_bars(
-                code_s,
-                bars,
-                seq_len=L,
-                horizon_days=horizon_days,
-                label=lab,
-                feat_set=feat_set,
-            )
+            ordered[idx] = result_fn()
+        except BrokenProcessPool:
+            raise
         except Exception:  # noqa: BLE001
             failed.append(code_s)
             logger.debug("seq samples failed code=%s head=%s", code_s, lab, exc_info=True)
+
+    def _tick(done: int) -> None:
+        if done == 1 or done % 100 == 0 or done == n_total:
+            print(
+                f"  序列面板 {done}/{n_total} elapsed={time.time() - t0:.0f}s",
+                flush=True,
+            )
+
+    if n_workers <= 1:
+        for idx, job in enumerate(jobs):
+            _take(idx, lambda job=job: _seq_stock_job(job))
+            _tick(idx + 1)
+    else:
+        with ProcessPoolExecutor(max_workers=n_workers) as pool:
+            futs = {
+                pool.submit(_seq_stock_job, job): idx for idx, job in enumerate(jobs)
+            }
+            done = 0
+            try:
+                for fut in as_completed(futs):
+                    _take(futs[fut], fut.result)
+                    done += 1
+                    _tick(done)
+            except BrokenProcessPool as exc:
+                print(
+                    f"  序列面板 进程池崩溃：{exc}；已完成 {done}/{n_total}",
+                    flush=True,
+                )
+                raise
+
+    for packed in ordered:
+        if packed is None:
             continue
+        code_s, X, g, y, ds = packed
         if X.shape[0] <= 0:
             continue
         chunks_x.append(X)
@@ -803,7 +1012,7 @@ def build_seq_panel(
             seq_len=L,
             feature_names=names,
         )
-    return SeqPanel(
+    panel = SeqPanel(
         X=np.concatenate(chunks_x, axis=0),
         gap=np.concatenate(chunks_g, axis=0),
         y=np.concatenate(chunks_y, axis=0),
@@ -812,6 +1021,10 @@ def build_seq_panel(
         seq_len=L,
         feature_names=names,
     )
+    if use_cache and cache_path and not failed and panel.n > 0:
+        _save_seq_cache(cache_path, panel)
+        print(f"  序列面板缓存写入 {cache_path}", flush=True)
+    return panel
 
 
 def assert_pit_last_bar_before_decision(

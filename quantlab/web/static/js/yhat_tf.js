@@ -634,8 +634,7 @@ function liveArmFromLog(lines) {
   return { phase, pack };
 }
 
-function armStatus(st, tag, pack, selected, live) {
-  if (!selected.has(tag)) return { text: "未启用", tone: "idle" };
+function armStatus(st, tag, pack, live) {
   if (st?.fit_running && live) {
     if (live.phase === "fail") return { text: "失败", tone: "fail" };
     if (live.phase === "ok") {
@@ -742,8 +741,6 @@ function renderContrast(root, st, metrics) {
   const box = root.querySelector("[data-fit-contrast]");
   if (!box) return;
   const params = st?.job?.params || st?.last?.params || null;
-  // Scheme LT：固定双臂（页面不再提供臂勾选）
-  const selected = new Set(["L", "T"]);
   const logs = splitFitLog(st?.log_tail);
   // arms_metrics 恒为 dict；空 {} 在 JS 里 truthy，不能盖住 metrics.arms
   const am = st?.arms_metrics;
@@ -779,11 +776,10 @@ function renderContrast(root, st, metrics) {
     const other = tag === "L" ? icT : icL;
     const section = box.querySelector(`[data-arm-console="${tag}"]`);
     if (section) {
-      section.classList.toggle("is-off", !selected.has(tag));
       section.classList.toggle("is-lead", ic != null && (other == null || ic > other));
     }
     const stateEl = box.querySelector(`[data-arm-state="${tag}"]`);
-    const state = armStatus(st, tag, pack, selected, tag === "L" ? liveL : liveT);
+    const state = armStatus(st, tag, pack, tag === "L" ? liveL : liveT);
     if (state.text === "训练中" && !state.dur) state.dur = trainHint(logs[tag]);
     renderArmState(stateEl, state);
     setMetric(tag, "ic", fmtIc(pack?.cs_rank_ic));
@@ -791,11 +787,7 @@ function renderContrast(root, st, metrics) {
     setMetric(tag, "hit", fmtPct(pack?.sign_hit));
     setMetric(tag, "topy", fmtIc(pack?.cs_top_mean_y));
     const own = logs[tag];
-    const show = !selected.has(tag)
-      ? []
-      : own.length
-        ? own
-        : (st?.fit_running ? logs.shared : []);
+    const show = own.length ? own : (st?.fit_running ? logs.shared : []);
     setArmLog(box.querySelector(`[data-arm-log="${tag}"]`), show);
   }
 

@@ -457,14 +457,25 @@ def _fit_lightgbm(
     min_data_in_leaf: Optional[int] = None,
     num_threads: Optional[int] = None,
     callbacks: Optional[Sequence[Any]] = None,
+    release_hold: Optional[List[Any]] = None,
 ) -> Tuple[Any, np.ndarray]:
+    import gc
+
     import lightgbm as lgb
 
     raw_obj = str(objective or "regression").strip().lower() or "regression"
     is_binary = raw_obj == "binary"
     obj = "binary" if is_binary else "regression"
+    n_feat = int(np.asarray(x).shape[1])
+    n_bytes = int(getattr(x, "nbytes", 0) or 0)
     # free_raw_data=True：Dataset 建完后释放传入缓冲，降低峰值内存
     dtrain = lgb.Dataset(x, label=y, weight=w, free_raw_data=True)
+    # release_hold 是调用方唯一的外部引用；建完直方图就丢掉原始矩阵再开训。
+    if release_hold is not None:
+        release_hold.clear()
+    del x
+    if n_bytes >= 8 * 1024 * 1024:
+        gc.collect()
     leaves = int(HORIZON_LGB["num_leaves"] if num_leaves is None else num_leaves)
     threads = resolve_lgb_num_threads(num_threads)
     params: Dict[str, Any] = {
@@ -514,7 +525,7 @@ def _fit_lightgbm(
         num_boost_round=max(1, int(n_estimators)),
         **train_kw,
     )
-    return booster, _gain_from_booster(booster, int(x.shape[1]))
+    return booster, _gain_from_booster(booster, n_feat)
 
 
 def _predict_lightgbm(booster: Any, x: np.ndarray) -> np.ndarray:

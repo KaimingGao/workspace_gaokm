@@ -306,5 +306,27 @@ class TestOoFiniteLabels(unittest.TestCase):
         self.assertTrue(math.isnan(as_float(float("inf"))))
         self.assertFalse(finite_xy(1.0, float("inf")))
 
+class TestPrepareMatrixRowSlice(unittest.TestCase):
+    def test_row_pos_column_fill_matches_direct_slice(self) -> None:
+        """按列写入的训练矩阵须与先切行再升 float64 一致，含缺测行剔除。"""
+        from core.research.oo_model_compact import _prepare_matrix
+
+        rng = np.random.RandomState(0)
+        x = rng.randn(40, 3).astype(np.float32)
+        x[10, 1] = np.nan
+        y = rng.randn(40).astype(np.float32)
+        names = ["a", "b", "c"]
+        row_pos = np.arange(4, 36, dtype=np.int64)
+        x_c, y_c, active, _ex, meta = _prepare_matrix(
+            x, y, names, row_pos=row_pos
+        )
+        self.assertEqual(active, names)
+        kept = [i for i in row_pos.tolist() if i != 10]
+        expect = np.asarray(x[np.asarray(kept)], dtype=np.float64)
+        np.testing.assert_allclose(x_c, expect)
+        np.testing.assert_allclose(y_c, np.asarray(y[np.asarray(kept)], dtype=np.float64))
+        self.assertEqual(meta["complete_sample_count"], len(kept))
+
+
 if __name__ == "__main__":
     unittest.main()

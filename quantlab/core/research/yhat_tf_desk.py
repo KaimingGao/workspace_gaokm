@@ -902,13 +902,25 @@ def _arm_t_log_has(low: str, token: str) -> bool:
     return f"transformer {t}" in low
 
 
+def _oom_retry_hint(head: str) -> str:
+    """8GB 机的重试建议。τc 只在 τc / τc_rank 上出现。"""
+    if str(head or "") in ("tc", "tc_rank"):
+        return "8GB 机建议 d_model≤64；τc 长窗可下调 lookback / Holdout / 池"
+    return "8GB 机建议 d_model≤64，或下调 lookback / 池 / Arm·T 采样%"
+
+
 def _fit_exit_error_from_log(head: str) -> str:
     """进程无 metrics 退出时，据日志末尾推断更可读原因。"""
     tail = _log_tail(head, n_lines=24)
     low = (tail or "").lower()
     if "holdout 收到" in low and "中途退出" in low:
         return "拟合进程被终止（收到 SIGTERM/SIGINT）；未回写 metrics，请重新拟合"
-    hint_8g = "8GB 机建议 d_model≤64；τc 长窗 OOM 时可自行下调 lookback / Holdout / 池"
+    hint_8g = _oom_retry_hint(head)
+    wide = (
+        "τc 因子列更宽"
+        if str(head or "") in ("tc", "tc_rank")
+        else "因子列较宽"
+    )
     if _arm_t_log_has(low, "build") and not _arm_t_log_has(low, "model ready"):
         return (
             "拟合进程被系统终止（疑似内存不足，停在 Arm·T 模型构建）。"
@@ -944,7 +956,7 @@ def _fit_exit_error_from_log(head: str) -> str:
         )
     if arm_l_begin and not arm_l_done:
         return (
-            "拟合进程在 Arm·L LightGBM 训练中被系统终止（疑似内存不足；τc 因子维更高）。"
+            f"拟合进程在 Arm·L LightGBM 训练中被系统终止（疑似内存不足；{wide}）。"
             f"请用默认窗或缩小池后重试（{hint_8g}）"
         )
     if "memoryerror" in low or "killed" in low:

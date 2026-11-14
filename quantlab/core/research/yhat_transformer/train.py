@@ -570,11 +570,13 @@ def train_seq_factor_transformer(
     patience: int = 6,
     max_train_rows: Optional[int] = None,
     loss: str = "smooth_l1",
+    holdout_idx: Optional[Sequence[int]] = None,
 ) -> Tuple[Any, Dict[str, Any]]:
     """Arm·T 训练（固定调用方 seed，默认 42）。
 
     ``fac_X`` 须已由调用方做完与 Arm·L 对齐的 L2 立方截面 CS-z；
     此处不再做训练段列标准化。
+    ``holdout_idx`` 只在每个 epoch 结束后打指标，不参与早停，也不决定留下哪一版权重。
     """
     torch = _require_torch()
     from core.research.yhat_transformer.model import (
@@ -609,6 +611,7 @@ def train_seq_factor_transformer(
     gap = _owned_f32(seq_panel.gap)
     y = _owned_f32(seq_panel.y)
     day_s = [str(d)[:10] for d in seq_panel.dates]
+    code_s = [str(c) for c in list(getattr(seq_panel, "codes", []) or [])]
     try:
         seq_panel.X = np.empty((0, 0, 0), dtype=np.float32)
         seq_panel.gap = np.empty((0,), dtype=np.float32)
@@ -684,6 +687,9 @@ def train_seq_factor_transformer(
     global_step = 0
     tr_arr = np.asarray(tr, dtype=np.int64)
     va_arr = np.asarray(va, dtype=np.int64) if va else np.zeros((0,), dtype=np.int64)
+    ho_arr = np.asarray(list(holdout_idx or []), dtype=np.int64)
+    if ho_arr.size:
+        ho_arr = ho_arr[(ho_arr >= 0) & (ho_arr < int(y.shape[0]))]
     bs = max(16, int(batch_size or 128))
     tr_groups = (
         _group_row_lists(day_s, tr_arr.tolist(), min_group=2) if listwise else []
@@ -820,6 +826,57 @@ def train_seq_factor_transformer(
                 del xs, gg, xf, yb, loss
         return total / float(max(1, n_seen)), last_gn
 
+    def _fmt4(v: Any) -> str:
+        try:
+            x = float(v)
+        except (TypeError, ValueError):
+            return "nan"
+        if x != x:
+            return "nan"
+        return f"{x:.4f}"
+
+    def _score_holdout() -> Optional[Dict[str, Any]]:
+        """当前权重在 Holdout 行上的截面指标。不写回 best，也不改 patience。"""
+        if ho_arr.size <= 0:
+            return None
+        from core.research.yhat_transformer.metrics import daily_cs_ic_report, sign_hit
+
+        was_training = bool(model.training)
+        model.eval()
+        outs: List[np.ndarray] = []
+        try:
+            with torch.no_grad():
+                for start in range(0, int(ho_arr.size), bs):
+                    rows = ho_arr[start : start + bs]
+                    xs, gg, xf = _batch_to_device(
+                        Xseq, gap, Xf, rows=rows, device=dev
+                    )
+                    pred = model(xs, gg, xf)
+                    outs.append(pred.detach().cpu().numpy().astype(np.float64))
+                    del xs, gg, xf, pred
+        finally:
+            if was_training:
+                model.train(True)
+        preds = (
+            np.concatenate(outs, axis=0)
+            if outs
+            else np.zeros((0,), dtype=np.float64)
+        )
+        ys = np.asarray(y[ho_arr], dtype=np.float64)
+        metas = [
+            {
+                "code": code_s[int(i)] if int(i) < len(code_s) else "",
+                "date": day_s[int(i)] if int(i) < len(day_s) else "",
+                "decision_date": day_s[int(i)] if int(i) < len(day_s) else "",
+            }
+            for i in ho_arr.tolist()
+        ]
+        pack = daily_cs_ic_report(preds.tolist(), ys.tolist(), metas)
+        pack["sign_hit"] = sign_hit(preds.tolist(), ys.tolist())
+        pack["n"] = int(ys.shape[0])
+        return pack
+
+    holdout_by_epoch: List[Dict[str, Any]] = []
     t_fit0 = _time.time()
     for ep in range(1, max(1, int(epochs)) + 1):
         t_ep = _time.time()
@@ -850,6 +907,41 @@ def train_seq_factor_transformer(
             f"{ep_sec:.1f}s {tag}",
             flush=True,
         )
+        if ho_arr.size:
+            try:
+                ho_pack = _score_holdout()
+            except Exception as exc:  # noqa: BLE001
+                ho_pack = None
+                print(
+                    f"    transformer ep={ep}/{epochs} holdout 失败："
+                    f"{type(exc).__name__}: {exc}",
+                    flush=True,
+                )
+            if ho_pack is not None:
+                row: Dict[str, Any] = {"epoch": int(ep)}
+                for key in (
+                    "cs_rank_ic",
+                    "cs_rank_icir",
+                    "sign_hit",
+                    "cs_top_mean_y",
+                ):
+                    raw = ho_pack.get(key)
+                    try:
+                        num = float(raw)
+                    except (TypeError, ValueError):
+                        num = float("nan")
+                    row[key] = num if num == num else None
+                row["n"] = int(ho_pack.get("n") or 0)
+                holdout_by_epoch.append(row)
+                print(
+                    f"    transformer ep={ep}/{epochs} holdout "
+                    f"rankIC={_fmt4(ho_pack.get('cs_rank_ic'))} "
+                    f"ICIR={_fmt4(ho_pack.get('cs_rank_icir'))} "
+                    f"sign_hit={_fmt4(ho_pack.get('sign_hit'))} "
+                    f"topY={_fmt4(ho_pack.get('cs_top_mean_y'))} "
+                    f"n={ho_pack.get('n')}",
+                    flush=True,
+                )
         if bad >= max(1, int(patience)):
             print(
                 f"    transformer early stop at ep={ep} step={global_step} "
@@ -873,6 +965,7 @@ def train_seq_factor_transformer(
         "warmup_steps": int(warmup_steps),
         "loss": loss_name,
         "global_step": int(global_step),
+        "holdout_by_epoch": holdout_by_epoch,
         "Xf": Xf,
         "Xseq": Xseq,
         "gap": gap,
