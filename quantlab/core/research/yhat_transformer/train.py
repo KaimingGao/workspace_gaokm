@@ -87,18 +87,25 @@ def _clip_inplace_rows(
     )
 
 
+# 早停只用训练日历末尾这段；下限 10%，把其余样本留给训练。
+_VAL_DAY_FRAC = 0.1
+
+
 def split_train_val_indices(
     dates: Sequence[str],
     train_idx: Sequence[int],
     *,
-    val_frac: float = 0.2,
+    val_frac: float = _VAL_DAY_FRAC,
 ) -> Tuple[List[int], List[int]]:
-    """按日历从训练集末尾切 val（不动 Holdout）。"""
+    """按日历从训练集末尾切 val（不动 Holdout）。
+
+    ``val_frac`` 钳在 0.1–0.4，默认取下限。至少 2 个验证日，训练日至少留 3 天。
+    """
     row_days = [str(dates[i])[:10] for i in train_idx]
     uniq = sorted({d for d in row_days if d})
     if len(uniq) < 8:
         return list(train_idx), []
-    frac = min(0.4, max(0.1, float(val_frac or 0.2)))
+    frac = min(0.4, max(0.1, float(val_frac if val_frac else _VAL_DAY_FRAC)))
     n_val = max(2, int(round(len(uniq) * frac)))
     n_val = min(n_val, len(uniq) - 3)
     val_days = set(uniq[-n_val:])
@@ -339,9 +346,7 @@ def _prepare_listwise_indices(
 ) -> Tuple[List[int], List[int]]:
     """先按日历切验证日；只对 **train 日组** 做 ``max_train_rows`` 抽样，val 保持完整日。"""
     if val_idx is None:
-        tr_full, va_full = split_train_val_indices(
-            dates, list(train_idx), val_frac=0.2
-        )
+        tr_full, va_full = split_train_val_indices(dates, list(train_idx))
     else:
         tr_full = list(train_idx)
         va_full = list(val_idx)
@@ -397,11 +402,13 @@ def train_yhat_transformer(
             val_idx=val_idx,
         )
     else:
-        tr = _maybe_subsample(train_idx, max_train_rows=max_train_rows, seed=seed)
+        # 先切验证日，再只抽训练日，避免抽样把日历末尾的验证日抽掉。
         if val_idx is None:
-            tr, va = split_train_val_indices(panel.dates, tr, val_frac=0.2)
+            tr_full, va = split_train_val_indices(panel.dates, list(train_idx))
         else:
+            tr_full = list(train_idx)
             va = list(val_idx)
+        tr = _maybe_subsample(tr_full, max_train_rows=max_train_rows, seed=seed)
 
     X = _owned_f32(panel.X)
     gap = _owned_f32(panel.gap)
@@ -607,10 +614,8 @@ def train_seq_factor_transformer(
             seed=seed,
         )
     else:
-        # 先切 val，再只 subsample train（与 listwise 一致；避免 val 也被 10% 抽瘦）
-        tr_full, va = split_train_val_indices(
-            seq_panel.dates, list(train_idx), val_frac=0.2
-        )
+        # 先切验证日，再只抽训练日（与 listwise 一致，验证日保持完整）。
+        tr_full, va = split_train_val_indices(seq_panel.dates, list(train_idx))
         tr = _maybe_subsample(tr_full, max_train_rows=max_train_rows, seed=seed)
 
     # 先拆出独立缓冲，再清空面板大数组，避免 clip 时与面板双份并存
@@ -650,9 +655,22 @@ def train_seq_factor_transformer(
         _clip_inplace_rows(Xseq, gap, tr, seed=int(seed))
     gc.collect()
 
+    def _count_days(rows: Sequence[int]) -> int:
+        seen = set()
+        n_days = len(day_s)
+        for i in rows:
+            ii = int(i)
+            if 0 <= ii < n_days and day_s[ii]:
+                seen.add(day_s[ii])
+        return len(seen)
+
+    n_tr_days = _count_days(tr)
+    n_va_days = _count_days(va)
     print(
         f"    transformer build d_model={d_model} layers={nlayers} "
-        f"n_train={len(tr)} batch={batch_size} device={dev} "
+        f"n_train={len(tr)} n_val={len(va)} "
+        f"val_days={n_va_days}/{n_tr_days + n_va_days} "
+        f"batch={batch_size} device={dev} "
         f"Xseq={Xseq.nbytes/1e6:.0f}MB Xf={Xf.nbytes/1e6:.0f}MB",
         flush=True,
     )
@@ -733,7 +751,8 @@ def train_seq_factor_transformer(
         f"sched=cosine warmup={warmup_steps} total_steps={total_steps} "
         f"threads={n_threads} batch={bs} steps/ep={steps_per_ep} log_every={log_every} "
         f"epochs={epochs} patience={patience} "
-        f"n_tr={tr_arr.size} n_va={va_arr.size}"
+        f"n_tr={tr_arr.size} n_va={va_arr.size} "
+        f"val_days={n_va_days}/{n_tr_days + n_va_days}"
         + (
             f" n_groups={len(tr_groups)} "
             f"group_med={sorted(len(g) for g in tr_groups)[len(tr_groups) // 2]}"

@@ -11139,27 +11139,31 @@ body[data-page="quant"] .quant-page .quant-cluster-status .quant-cluster-landing
   color: var(--danger, #dc2626);
 }
 
-/* 拟合进行中：卡头进度用强调色，明暗缓入缓出 */
-@keyframes quant-fit-status-blink {
+/* 拟合进行中：文案与「拟合中」圆点同拍呼吸 */
+@keyframes quant-fit-status-breathe {
   0%,
   100% {
-    color: var(--accent, #1890ff);
     opacity: 1;
   }
   50% {
-    color: color-mix(in srgb, var(--accent, #1890ff) 42%, var(--ink-3));
-    opacity: 0.5;
+    opacity: 0.4;
   }
 }
 
 body[data-page="quant"] .quant-page .quant-card-head--fit .quant-rem-status.is-busy:not(.is-error) .quant-rem-status-msg {
   color: var(--accent, #1890ff);
   font-weight: 650;
-  animation: quant-fit-status-blink 1.8s ease-in-out infinite;
+  font-variant-numeric: tabular-nums;
+  animation: quant-fit-status-breathe 2.4s ease-in-out infinite;
+}
+
+body[data-page="quant"] .quant-page .quant-card-head--fit .quant-rem-status.is-busy:not(.is-error) .quant-pro-status-chip[data-state="busy"]::before {
+  animation: quant-fit-status-breathe 2.4s ease-in-out infinite;
 }
 
 @media (prefers-reduced-motion: reduce) {
-  body[data-page="quant"] .quant-page .quant-card-head--fit .quant-rem-status.is-busy:not(.is-error) .quant-rem-status-msg {
+  body[data-page="quant"] .quant-page .quant-card-head--fit .quant-rem-status.is-busy:not(.is-error) .quant-rem-status-msg,
+  body[data-page="quant"] .quant-page .quant-card-head--fit .quant-rem-status.is-busy:not(.is-error) .quant-pro-status-chip[data-state="busy"]::before {
     animation: none;
     opacity: 1;
     color: var(--accent, #1890ff);
@@ -14303,7 +14307,7 @@ body[data-page="yhat_t"] {
 .yhat-tf-run-bar {
   display: flex;
   align-items: center;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   gap: 8px 12px;
   min-width: 0;
   max-width: 100%;
@@ -14319,14 +14323,18 @@ body[data-page="yhat_t"] {
   align-items: center;
   flex-wrap: nowrap;
   gap: 8px;
-  flex: 1 0 auto;
-  min-width: max-content;
-  max-width: 100%;
+  flex: 0 1 auto;
+  min-width: 0;
   overflow: hidden;
 }
 
+.yhat-tf-run-bar .quant-pro-status-chip {
+  flex: 0 0 auto;
+}
+
 .yhat-tf-status-msg {
-  min-width: max-content;
+  flex: 0 1 auto;
+  min-width: 0;
   overflow: hidden;
   color: var(--ink-2);
   font-size: var(--q-fs-caption, 0.75rem);
@@ -14349,6 +14357,202 @@ body[data-page="yhat_t"] {
   flex: 0 0 auto;
 }
 
+.yhat-tf-run-side {
+  display: inline-flex;
+  align-items: center;
+  flex: 0 0 auto;
+  gap: 12px;
+  min-width: 0;
+  margin-left: auto;
+}
+
+.yhat-tf-run-bar .yhat-tf-run-id-k {
+  color: var(--ink-3);
+  font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+  font-size: 0.6875rem;
+  font-weight: 650;
+  letter-spacing: 0.02em;
+  line-height: 1.2;
+}
+
+.yhat-tf-version {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  flex: 0 0 auto;
+  width: auto;
+  height: var(--ytf-ctrl-h, 28px);
+}
+
+.yhat-tf-version-btn {
+  box-sizing: border-box;
+  width: 20rem;
+  max-width: 20rem;
+  min-width: 12rem;
+  height: var(--ytf-ctrl-h, 28px);
+  margin: 0;
+  padding: 0 22px 0 9px;
+  border: 1px solid var(--line);
+  border-radius: 2px;
+  background-color: var(--surface);
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='10' viewBox='0 0 10 10'%3E%3Cpath d='M2 3.5 5 6.5 8 3.5' fill='none' stroke='%23666' stroke-width='1.2'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 8px center;
+  background-size: 10px 10px;
+  color: var(--ink-2);
+  font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+  font-size: var(--q-fs-caption, 0.75rem);
+  font-weight: 650;
+  letter-spacing: 0.02em;
+  font-variant-numeric: tabular-nums;
+  line-height: 26px;
+  text-align: left;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  cursor: pointer;
+}
+
+.yhat-tf-version-btn:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.yhat-tf-version-menu {
+  position: absolute;
+  z-index: 30;
+  top: calc(100% + 4px);
+  right: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  width: min(20rem, calc(100vw - 16px));
+  max-height: 16rem;
+  margin: 0;
+  padding: 4px;
+  overflow: auto;
+  border: 1px solid var(--line);
+  border-radius: 2px;
+  background: var(--surface);
+  box-shadow: 0 8px 22px color-mix(in srgb, var(--ink) 14%, transparent);
+}
+
+.yhat-tf-version-menu[hidden] {
+  display: none;
+}
+
+.yhat-tf-version-item {
+  display: grid;
+  grid-template-columns: 5.8rem minmax(6.2rem, auto) minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  min-height: 28px;
+  margin: 0;
+  padding: 3px 8px;
+  border: 0;
+  border-radius: 2px;
+  background: transparent;
+  color: var(--ink-2);
+  font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+  font-size: var(--q-fs-caption, 0.75rem);
+  font-weight: 650;
+  letter-spacing: 0.02em;
+  font-variant-numeric: tabular-nums;
+  text-align: left;
+  cursor: pointer;
+}
+
+.yhat-tf-version-item:hover {
+  background: color-mix(in srgb, var(--ink) 5%, var(--surface));
+}
+
+.yhat-tf-version-item.is-current {
+  background: color-mix(in srgb, var(--accent) 10%, var(--surface));
+  color: var(--ink);
+}
+
+.yhat-tf-version-stamp,
+.yhat-tf-version-metric {
+  white-space: nowrap;
+}
+
+.yhat-tf-version-metric:empty {
+  visibility: hidden;
+}
+
+.yhat-tf-version-meta {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 4px;
+  min-width: 0;
+}
+
+.yhat-tf-version-chip {
+  padding: 0 5px;
+  border: 1px solid var(--line);
+  border-radius: 2px;
+  background: color-mix(in srgb, var(--ink) 3%, var(--surface));
+  color: var(--ink-2);
+  font-size: 0.6875rem;
+  line-height: 18px;
+}
+
+.yhat-tf-version-chip.is-ok {
+  color: var(--ok, #16a34a);
+  background: color-mix(in srgb, var(--ok, #16a34a) 8%, var(--surface));
+  border-color: color-mix(in srgb, var(--ok, #16a34a) 28%, var(--line));
+}
+
+.yhat-tf-version-chip.is-warn {
+  color: var(--warn, #b45309);
+  background: color-mix(in srgb, var(--warn, #b45309) 8%, var(--surface));
+  border-color: color-mix(in srgb, var(--warn, #b45309) 28%, var(--line));
+}
+
+.yhat-tf-version-del {
+  justify-self: end;
+  margin: 0;
+  padding: 0 6px;
+  height: 20px;
+  border: 1px solid transparent;
+  border-radius: 2px;
+  background: transparent;
+  color: var(--ink-3);
+  font-family: inherit;
+  font-size: 0.6875rem;
+  font-weight: 650;
+  letter-spacing: 0.02em;
+  line-height: 18px;
+  cursor: pointer;
+}
+
+.yhat-tf-version-del:hover {
+  color: var(--danger, #ef4444);
+  border-color: color-mix(in srgb, var(--danger, #ef4444) 35%, var(--line));
+  background: color-mix(in srgb, var(--danger, #ef4444) 8%, var(--surface));
+}
+
+.yhat-tf-version-chip.is-bad {
+  color: var(--danger, #ef4444);
+  background: color-mix(in srgb, var(--danger, #ef4444) 8%, var(--surface));
+  border-color: color-mix(in srgb, var(--danger, #ef4444) 28%, var(--line));
+}
+
+.yhat-tf-version-empty {
+  padding: 8px;
+  color: var(--ink-3);
+  font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+  font-size: var(--q-fs-caption, 0.75rem);
+  font-weight: 650;
+}
+
+.quant-page .dashboard-card.quant-pro-card .yhat-tf-run-bar > .quant-pro-card-tools {
+  margin-left: 0;
+}
+
 .yhat-tf-run-bar .quant-fit-actions {
   display: inline-flex;
   align-items: center;
@@ -14356,7 +14560,7 @@ body[data-page="yhat_t"] {
   flex-wrap: nowrap;
   justify-content: flex-end;
   gap: 6px;
-  margin-left: auto;
+  margin-left: 0;
 }
 
 .yhat-tf-run-cta.dialog-btn.primary {
@@ -15659,10 +15863,6 @@ body[data-page="yhat_t"] .dashboard-head.quant-head.yhat-tf-head {
 }
 
 
-/* Arm·T 页仍共用模板，藏掉对侧 Arm·L 卡；Arm·L 页在渲染时已剥掉对侧标记 */
-.yhat-tf-page[data-factory="T"] [data-arm-console="L"] {
-  display: none !important;
-}
 .yhat-tf-page[data-factory="L"] .yhat-tf-arm-grid,
 .yhat-tf-page[data-factory="T"] .yhat-tf-arm-grid {
   grid-template-columns: 1fr;

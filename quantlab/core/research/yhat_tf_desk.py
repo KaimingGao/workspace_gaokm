@@ -9,6 +9,7 @@ from __future__ import annotations
 import fcntl
 import functools
 import json
+import logging
 import os
 import subprocess
 import sys
@@ -23,6 +24,8 @@ from core.paths import YHAT_L_LAST_PATH as _DEFAULT_YHAT_L_LAST
 from core.paths import YHAT_T_DIR as _DEFAULT_YHAT_T_DIR
 from core.paths import YHAT_T_LAST_PATH as _DEFAULT_YHAT_T_LAST
 from core.research.yhat_transformer.heads import get_head, head_ids, iter_heads
+
+logger = logging.getLogger(__name__)
 
 # 可被单测 patch；T 侧保留 YHAT_TF_* 别名
 YHAT_L_DIR = _DEFAULT_YHAT_L_DIR
@@ -658,7 +661,7 @@ def default_fit_params(head: str) -> Dict[str, Any]:
         "lr": 1e-3,
         # Arm·T 相对训练段 subsample（%）；默认 10，最大 100=不截断。Arm·L 仍全样本。
         "t_sample_pct": 10.0,
-        "arms": "L,T",
+        "arms": "T",
         "device": "cpu",
         "factor_pack": spec.factor_pack,
         "loss": loss_for_factory(spec),
@@ -688,6 +691,8 @@ def default_fit_params(head: str) -> Dict[str, Any]:
             base["lookback"] = 120
         elif spec.id == "tc_rank":
             base["lookback"] = 700
+    elif normalize_factory() == "LT":
+        base["arms"] = "L,T"
     return base
 
 
@@ -882,14 +887,17 @@ def harden_fit_params(head: str, params: Dict[str, Any]) -> tuple[Dict[str, Any]
 
     out.pop("protocol_preset", None)
 
-    # 厂 L：单臂；厂 T / LT：双臂。历史 seeds 字段丢弃（seed 固定 42）。
-    if normalize_factory() == "L":
+    # 厂按页单臂；只有显式 LT 还写双臂。历史 seeds 字段丢弃（seed 固定 42）。
+    fac_now = normalize_factory()
+    if fac_now == "L":
         out["arms"] = "L"
         if spec.id in ("oo", "oo_rank"):
-            # Arm·L 训练始终全量；草稿勿再写 aoo_core / full_aoo=false 误导。
+            # Arm·L 训练始终全量；勿把 Arm·T 的 core 选择写进 L。
             out["full_aoo"] = True
-    else:
+    elif fac_now == "LT":
         out["arms"] = "L,T"
+    else:
+        out["arms"] = "T"
     out.pop("seeds", None)
     device = str(out.get("device") or "cpu").strip().lower() or "cpu"
     if device not in ("cpu", "mps", "cuda"):
@@ -1148,6 +1156,27 @@ def _fit_exit_error_from_log(head: str) -> str:
     return "拟合进程已结束，但未回写 metrics；请查看下方日志"
 
 
+def _archive_terminal_run(
+    head: str,
+    job: Optional[Dict[str, Any]],
+    last: Optional[Dict[str, Any]],
+    status: str,
+) -> Optional[str]:
+    """终态跑次进工厂版本库。归档失败不打断拟合回写。"""
+    try:
+        from core.research.yhat_factory_versions import archive_factory_run
+
+        return archive_factory_run(
+            head,
+            job=job if isinstance(job, dict) else None,
+            last=last if isinstance(last, dict) else None,
+            status=status,
+        )
+    except Exception:
+        logger.exception("yhat factory version archive failed head=%s", head)
+        return None
+
+
 @_with_head_lock
 def refresh_fit_job(
     head: str, *, factory: Optional[str] = None
@@ -1171,6 +1200,18 @@ def refresh_fit_job(
             job["error"] = "拟合启动超时（未拉起进程）"
             job["exit_hint"] = "start_timeout"
             _write_json(_job_path(h), job)
+            _archive_terminal_run(
+                h,
+                job,
+                {
+                    "action": "holdout_failed",
+                    "head": h,
+                    "message": job.get("error"),
+                    "params": job.get("params"),
+                    "updated_at": job.get("finished_at"),
+                },
+                "error",
+            )
             return job
         status = "running"
         job["status"] = "running"
@@ -1250,6 +1291,7 @@ def refresh_fit_job(
                 if job.get("params") and not failed.get("params"):
                     failed["params"] = job.get("params")
                 _write_json(_path(h, "last"), failed)
+                _archive_terminal_run(h, job, failed, "error")
             return job
         # 进程短暂不可见 / ps 暂不可读 / 刚启动 / 日线静默：宽限，避免误标失败
         if alive and holdout is None:
@@ -1309,6 +1351,7 @@ def refresh_fit_job(
             if job.get("params") and not failed.get("params"):
                 failed["params"] = job.get("params")
             _write_json(_path(h, "last"), failed)
+            _archive_terminal_run(h, job, failed, "error")
     else:
         # error/done 等：Holdout 进程其实还在则纠回 running（避免宽限误杀后假失败钉死）
         if status == "error" and pid > 0:
@@ -1361,6 +1404,7 @@ def refresh_fit_job(
             if job.get("params") and not failed.get("params"):
                 failed["params"] = job.get("params")
             _write_json(_path(h, "last"), failed)
+            _archive_terminal_run(h, job, failed, "error")
             if err != job.get("error"):
                 job["error"] = err
                 _write_json(_job_path(h), job)
@@ -1559,20 +1603,24 @@ def start_holdout_fit(
         }
         _write_json(_job_path(spec.id), failed_job)
         prev_last = _read_json(_path(spec.id, "last")) or {}
-        _write_json(
-            _path(spec.id, "last"),
-            {
-                **prev_last,
-                "role": "yhat_tf_last",
-                "head": spec.id,
-                "action": "holdout_failed",
-                "metrics": None,
-                "message": err,
-                "params": prev_last.get("params") or p,
-                "updated_at": finished,
-                "live_allowed": False,
-            },
-        )
+        failed_last = {
+            **prev_last,
+            "role": "yhat_tf_last",
+            "head": spec.id,
+            "action": "holdout_failed",
+            "metrics": None,
+            "hard_gate_vs_arm_L": None,
+            "gate": None,
+            "parity": None,
+            "eval_universe": None,
+            "message": err,
+            "params": p,
+            "fit_params": dict(p) if isinstance(p, dict) else None,
+            "updated_at": finished,
+            "live_allowed": False,
+        }
+        _write_json(_path(spec.id, "last"), failed_last)
+        _archive_terminal_run(spec.id, failed_job, failed_last, "error")
         return {
             "ok": False,
             "success": False,
@@ -1657,7 +1705,8 @@ def mark_fit_failed(
         "live_allowed": False,
     }
     _write_json(_path(h, "last"), last)
-    return {"ok": True, "success": True, "job": job, "last": last}
+    version_id = _archive_terminal_run(h, job, last, "error")
+    return {"ok": True, "success": True, "job": job, "last": last, "version_id": version_id}
 
 
 def _coerce_slot_params(
@@ -2304,9 +2353,19 @@ def ingest_holdout_summary(
             "updated_at": now,
         },
     )
+    if result_ok and not arm_errors:
+        vstatus = "done"
+    elif result_ok:
+        vstatus = "partial"
+    else:
+        vstatus = "error"
+    version_id = _archive_terminal_run(
+        h, job if isinstance(job, dict) else None, last, vstatus
+    )
     return {
         "ok": True,
         "success": result_ok,
         "last": last,
         "metrics": metrics if has_metrics else {},
+        "version_id": version_id,
     }

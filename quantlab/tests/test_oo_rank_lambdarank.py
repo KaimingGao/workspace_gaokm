@@ -1574,5 +1574,40 @@ class TestRankCrossSectionZ(unittest.TestCase):
         z_a_only = cross_section_zscore_matrix(raw[[0, 1]], ["d", "d"])
         self.assertGreater(float(z_a_only[1, 0]), 0.0)
 
+class TestOoRankLookback(unittest.TestCase):
+    def test_fit_lookback_drops_feature_pad(self):
+        """垫根可以进面板；标签隔离 1 日后，LambdaRank 只看见训练窗。"""
+        from datetime import date, timedelta
+
+        from core.research.oo_rank_lambdarank import fit_oo_rank_report
+
+        start = date(2024, 1, 1)
+        dates = [(start + timedelta(days=i)).isoformat() for i in range(40)]
+        bars = [{"code": "000001", "bars": [{"date": d, "close": 1.0} for d in dates]}]
+        seen = {}
+
+        def fake_panels(stock_bars, **kwargs):
+            return [{"date": d, "names": ["f"]} for d in dates]
+
+        def fake_fit(days, **kwargs):
+            seen["train"] = [str(d.get("date")) for d in days]
+            return {"success": False, "error": "stop_after_train_window"}
+
+        with patch(
+            "core.research.rank_day_panels.build_rank_day_panels",
+            side_effect=fake_panels,
+        ), patch(
+            "core.research.oo_rank_lambdarank.fit_lambdarank",
+            side_effect=fake_fit,
+        ):
+            out = fit_oo_rank_report(
+                bars,
+                holdout_trading_days=0,
+                lookback=12,
+            )
+        self.assertEqual(seen.get("train"), dates[-12:-1])
+        self.assertIn("stop_after_train_window", str(out.get("error") or ""))
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -3,7 +3,7 @@
 研究轨 **Scheme LT**（LightGBM vs Transformer）的右臂：双支路晚融合（序列 Transformer ∥ 因子 MLP）。对照左臂 **Arm·L**（现网 LightGBM · 全量）。`live_allowed=False`，不写生产 score。
 
 UI 入口：`/yhat-t`（**Transformer 工厂**；旧 `/yhat-tf` 重定向）。契约见 [quant-ui.md · 模型中心](../quant-ui.md#yhat-t--yhat-l-模型中心双工厂)。  
-长期拆分（工厂拟合 vs 枢纽注册 live/回测）见 **[model-factory-hub.md](model-factory-hub.md)**；阶段 A 将下掉草稿→晋级、改为跑次版本下拉。
+长期拆分（工厂拟合 vs 枢纽注册 live/回测）见 **[model-factory-hub.md](model-factory-hub.md)**。跑次版本在 `live/yhat_t/versions/{head}/`（Arm·L 为 `yhat_l`）；选中只回看参数、指标和日志。删除只去掉该条归档和日志副本，不改当前拟合，不写 live。
 
 ---
 
@@ -17,7 +17,7 @@ UI 入口：`/yhat-t`（**Transformer 工厂**；旧 `/yhat-tf` 重定向）。�
 | 角色 | Holdout **硬闸基线** | 候选；须过相对 L 的 CS rank IC 硬门 |
 | 归一 | live `fit_*_lgb_matrix` 或立方 CS-z | 因子支路同 **L2 立方截面 CS-z**；序列侧 train 分位 clip |
 
-一次 Holdout 只训一个 head（`oo` / `tc` / `oo_rank` / `tc_rank`）；固定双臂 L+T、seed=42。
+一次 Holdout 只训一个 head（`oo` / `tc` / `oo_rank` / `tc_rank`）。`/yhat-t` 只跑 Arm·T，`/yhat-l` 只跑 Arm·L；双臂只留在 CLI `--factory LT`。seed=42。
 
 晋级边界（页面草稿/晋级已下线；正式对照与 live 禁令仍有效，见 [model-factory-hub.md](model-factory-hub.md)）：
 
@@ -59,7 +59,7 @@ UI 入口：`/yhat-t`（**Transformer 工厂**；旧 `/yhat-tf` 重定向）。�
 
 **关键不变量**
 
-1. 因子面板 **先建全量**：Arm·L 对齐 live；core / full 只在 Arm·T 开跑前裁列。
+1. 因子面板 **先建全量**：Arm·L 对齐 live；core / full 只在 Arm·T 开跑前裁列。构建日志按当前臂写明谁用全量、T 裁成哪一包，T 单臂不标成 Arm·L。
 2. Gate / OOS 用 **seq∩fac 共享键** 与同一 `eval_start`，避免 L/T 评测窗错位。
 3. Arm·L 训练仍可吃共享日历末端之前的全量 fac 早期日（含 seq 尚未覆盖的日）。
 4. `align_seq_and_factor`：同 `(code,date)` 标签偏差 > `1e-3` 时以 **seq.y 覆盖 fac.y**。
@@ -206,7 +206,7 @@ seq16 在经典 8 维价量摘要上追加影线 / 位置 / 量变 / 缺口回�
 | **LR** | cosine + warmup；`TRANSFORMER_WARMUP_STEPS` 默认 100；`min_ratio=0.01` |
 | **grad clip** | 1.0 |
 | **batch** | 默认 32；地板 `max(16, batch_size)` |
-| **val** | 训练日历末 **20%** 日（`val_frac` 钳在 0.1–0.4）；**先切 val 再 subsample train** |
+| **val** | 训练日历末 **10%** 日（`val_frac` 钳在 0.1–0.4，默认取下限；至少 2 日，训练日至少留 3 天）。点损失与 ListNet 都先切验证日，再只抽训练日。`transformer build` 打 `n_val` 与 `val_days` |
 | **subsample** | `t_sample_frac` 默认 **0.1**；≥1 → 不截断。点损失行级；listwise **整日组**，一组放不进剩余名额即停 |
 | **序列预处理** | train 行 1%/99% 分位 clip（最多 2 万行估分位） |
 | **线程** | `TORCH_NUM_THREADS` 默认 **4**；interop=1；BLAS/OMP 仍为 1 |

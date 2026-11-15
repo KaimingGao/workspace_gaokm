@@ -591,7 +591,7 @@ def tau_l1_min_history(
     """开盘 α_τc 的 L1 指纹用抬窗后的起点。
 
     ``collect_tau_open_panel`` 会把窗口抬到 ``ALPHA_TC_PANEL_WINDOW`` 再出行。
-    指纹若仍记调用方的 12，命中和增量合并会留下抬窗前的旧前缀。
+    指纹记调用方的 12 时，命中和增量合并会对不上这批行。
     分钟路径与 stitch 共用调用方窗口，这里不改。
     """
     try:
@@ -605,68 +605,6 @@ def tau_l1_min_history(
     from core.signal.factors.alpha_tc import ALPHA_TC_PANEL_WINDOW
 
     return max(mh, int(ALPHA_TC_PANEL_WINDOW))
-
-
-def open_tc_slice_spec_fp(
-    meta: Optional[Dict[str, Any]],
-    *,
-    tau_hm: str,
-    caller_min_history: int,
-    include_alpha_tc: bool,
-    include_alpha_th: bool = False,
-):
-    """只读切片用的指纹函数。增量合并仍用抬窗后的 ``tau_l1_min_history``。
-
-    新写入的指纹是 62。湖上若仍盖着调用方的 12，但 ``n_bars - n_rows``
-    已经不少于 ``ALPHA_TC_PANEL_WINDOW``，行是按长预热写出的，切片沿用旧戳，
-    短窗才能留住长湖里多出来的决策日。预热缺口更小的旧前缀对不上，不会被切开。
-    """
-    from core.research.panel_fingerprint import make_fingerprint
-    from core.signal.factors.alpha_tc import ALPHA_TC_PANEL_WINDOW
-
-    window = int(ALPHA_TC_PANEL_WINDOW)
-    bumped_history = tau_l1_min_history(
-        caller_min_history,
-        include_alpha_tc=bool(include_alpha_tc),
-        use_minute=False,
-    )
-
-    def _fp(bars_fp: str, history: int) -> str:
-        return make_fingerprint(
-            bars_fp=str(bars_fp),
-            tau_hm=str(tau_hm or "open"),
-            min_history=int(history),
-            include_alpha_tc=int(bool(include_alpha_tc)),
-            include_alpha_th=int(bool(include_alpha_th)),
-            use_minute=0,
-        )
-
-    def bumped(bars_fp: str) -> str:
-        return _fp(bars_fp, bumped_history)
-
-    if not isinstance(meta, dict) or not include_alpha_tc:
-        return bumped
-    try:
-        n_bars = int(meta.get("n_bars") or 0)
-        n_rows = int(meta.get("n_rows") or 0)
-        caller = int(caller_min_history)
-    except (TypeError, ValueError):
-        return bumped
-    stored_fp = str(meta.get("fingerprint") or "")
-    stored_bars = str(meta.get("bars_fp") or "")
-    if (
-        caller < window
-        and n_rows >= 4
-        and n_bars - n_rows >= window
-        and stored_fp
-        and stored_bars
-        and stored_fp == _fp(stored_bars, caller)
-    ):
-        def legacy(bars_fp: str) -> str:
-            return _fp(bars_fp, caller)
-
-        return legacy
-    return bumped
 
 
 def _tau_stock_job(
@@ -736,6 +674,7 @@ def _tau_stock_job(
             use_minute=0,
         )
     from core.research.lake_bridge import family_for_tc
+    from core.research.materialize.consumer import MaterializeRequired
 
     l1_family = family_for_tc(tau_hm=str(tau_hm), rank=rank_cache)
     # L1 命中（含 tc_HHMM / tc_rank_*）。矩阵在返回前收成 float32。
@@ -777,6 +716,8 @@ def _tau_stock_job(
                             )
                         item.pop("minute_bars", None)
                         return _pack_tau_job(code, block, y_arr, dates_l, metas_l)
+        except MaterializeRequired:
+            raise
         except Exception:  # noqa: BLE001
             logger.debug("tau training cache load failed code=%s", code, exc_info=True)
 
@@ -801,24 +742,13 @@ def _tau_stock_job(
             if rank_cache and l1_family != FAMILY_TC:
                 slice_families.append(FAMILY_TC)
             end_lag = allow_l1_end_lag()
-            from core.research.feature_lake import read_stock_meta
 
             for fam in slice_families:
-                try:
-                    slice_meta = read_stock_meta(fam, code)
-                except Exception:  # noqa: BLE001
-                    slice_meta = None
                 sliced = try_slice_shorter_lookback(
                     code,
                     bars,
                     family=fam,
-                    spec_fp=open_tc_slice_spec_fp(
-                        slice_meta,
-                        tau_hm=str(tau_hm),
-                        caller_min_history=int(min_history),
-                        include_alpha_tc=atc,
-                        include_alpha_th=ath,
-                    ),
+                    spec_fp=_tau_open_spec,
                     names=col_names,
                     allow_end_lag=end_lag,
                 )
@@ -832,7 +762,7 @@ def _tau_stock_job(
         except Exception:  # noqa: BLE001
             logger.debug("tau lookback slice failed code=%s", code, exc_info=True)
 
-    from core.research.materialize.consumer import MaterializeRequired, raise_if_consumer_rebuild
+    from core.research.materialize.consumer import raise_if_consumer_rebuild
 
     raise_if_consumer_rebuild(l1_family, code)
     # 开盘 τ：尾窗追加或历史前缀扩展（分钟路径仍全量）

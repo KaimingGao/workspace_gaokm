@@ -2308,6 +2308,7 @@ def fit_oo_rank_report(
     lightgbm_params: Optional[Dict[str, Any]] = None,
     cross_section_zscore: bool = True,
     train_codes: Optional[Collection[str]] = None,
+    lookback: Optional[int] = None,
     progress_cb: Optional[Any] = None,
 ) -> Dict[str, Any]:
     """拟合 ŷ_oo_rank：单头 LambdaRank。
@@ -2322,12 +2323,14 @@ def fit_oo_rank_report(
     OOS 指标：gate_lift（主）/ gate_mean_y / NDCG@K / TopK；IC / ICIR / Rank IC 仅对照。
     ``cs_ic`` / ``cs_icir`` 与 ŷ_oo 同口径：Holdout 日截面 Pearson(排序分, y_oo) 的均值，
     ICIR = 该日序列 mean/std（不足 3 日不出）。用原始排序分，不用 1..n 名次。
+    ``lookback``：训练日历只留最近 N 日。日线里多出来的特征垫根不进训练。
     ``progress_cb(cur, tot, msg)``：建面板 / LambdaRank / Holdout 阶段刷新。
     """
     from core.research.feature_standardize import reject_global_zscore
     from core.research.holdout import (
         attach_holdout_meta,
         calendar_dates_from_stock_bars,
+        clip_calendar_lookback,
         make_research_model,
         refuse_insufficient_holdout,
         resolve_ridge_split,
@@ -2388,7 +2391,10 @@ def fit_oo_rank_report(
         date_rows,
         holdout_trading_days=hold_n,
         label_horizon_days=max(1, int(horizon_days)),
-        calendar_dates=calendar_dates_from_stock_bars(stock_bars),
+        calendar_dates=clip_calendar_lookback(
+            calendar_dates_from_stock_bars(stock_bars),
+            lookback,
+        ),
     )
     blocked_split = refuse_insufficient_holdout(split_meta)
     if blocked_split:

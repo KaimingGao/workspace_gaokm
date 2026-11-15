@@ -1163,13 +1163,51 @@ def test_open_tc_l1_fingerprint_uses_bumped_window():
     assert stale != fresh
 
 
-def test_open_tc_slice_keeps_long_warmup_legacy_stamp():
-    """指纹仍是 12、但预热已经够一窗的湖可以切片；预热只有十几根的旧前缀不行。"""
-    from core.research.panel_fingerprint import make_fingerprint
-    from core.research.panel_matrix import open_tc_slice_spec_fp
+def test_consumer_reads_bumped_stamp_when_lookback_covers_lake():
+    """开盘 tc_rank 指纹用抬窗后的起点。盖满 n_bars 时直接命中。
+
+    调用方窗口 12 的旧戳不再认。价量改过仍要求物化。
+    """
+    import os
+    import tempfile
+    from unittest.mock import patch
+
+    from core.research.feature_lake import write_stock_panel
+    from core.research.incremental_panel import stem_extra_meta
+    from core.research.lake_bridge import FAMILY_TC_RANK
+    from core.research.materialize.consumer import (
+        MaterializeRequired,
+        materialized_consumer,
+    )
+    from core.research.panel_fingerprint import bars_fingerprint, make_fingerprint
+    from core.research.panel_matrix import _tau_stock_job
     from core.signal.factors.alpha_tc import ALPHA_TC_PANEL_WINDOW
 
-    bars_fp = "75da56c4a3ca2f0f"
+    window = int(ALPHA_TC_PANEL_WINDOW)
+    n_bars = window + 18
+    bars = []
+    for i in range(n_bars):
+        px = 10.0 + i * 0.05
+        bars.append(
+            {
+                "date": f"2024-{(i // 28) + 1:02d}-{(i % 28) + 1:02d}",
+                "open": round(px, 4),
+                "high": round(px * 1.01, 4),
+                "low": round(px * 0.99, 4),
+                "close": round(px * 1.002, 4),
+                "volume": 1_000_000 + i,
+            }
+        )
+    meta = stem_extra_meta(bars)
+    bars_fp = bars_fingerprint(bars)
+    bumped = make_fingerprint(
+        bars_fp=bars_fp,
+        tau_hm="open",
+        min_history=window,
+        include_alpha_tc=1,
+        include_alpha_th=0,
+        use_minute=0,
+    )
     legacy = make_fingerprint(
         bars_fp=bars_fp,
         tau_hm="open",
@@ -1178,28 +1216,76 @@ def test_open_tc_slice_keeps_long_warmup_legacy_stamp():
         include_alpha_th=0,
         use_minute=0,
     )
-    window = int(ALPHA_TC_PANEL_WINDOW)
-    long_meta = {
-        "fingerprint": legacy,
-        "bars_fp": bars_fp,
-        "n_bars": 1122,
-        "n_rows": 1122 - window,
+    dates = [str(b["date"])[:10] for b in bars[-18:]]
+    prev = {
+        "QUANTLAB_FEATURE_LAKE_DIR": os.environ.get("QUANTLAB_FEATURE_LAKE_DIR"),
+        "QUANTLAB_FEATURE_LAKE": os.environ.get("QUANTLAB_FEATURE_LAKE"),
+        "QUANTLAB_DAY_CUBE_GC": os.environ.get("QUANTLAB_DAY_CUBE_GC"),
     }
-    spec = open_tc_slice_spec_fp(
-        long_meta,
+    tmp = tempfile.TemporaryDirectory()
+    os.environ["QUANTLAB_FEATURE_LAKE_DIR"] = os.path.join(tmp.name, "l1")
+    os.environ["QUANTLAB_FEATURE_LAKE"] = "1"
+    os.environ["QUANTLAB_DAY_CUBE_GC"] = "0"
+    kw = dict(
+        use_minute=False,
         tau_hm="open",
-        caller_min_history=12,
+        grid=None,
+        min_history=12,
         include_alpha_tc=True,
+        cache_head="tc_rank",
     )
-    assert spec(bars_fp) == legacy
+    try:
+        write_stock_panel(
+            FAMILY_TC_RANK,
+            "009999",
+            dates=dates,
+            X=np.ones((len(dates), 1), dtype=np.float64),
+            names=["f"],
+            fingerprint=bumped,
+            y=np.zeros(len(dates), dtype=np.float64),
+            extra_meta=meta,
+        )
+        with materialized_consumer():
+            pack = _tau_stock_job(
+                {"code": "009999", "bars": [dict(b) for b in bars]},
+                ["f"],
+                [],
+                **kw,
+            )
+        assert pack is not None
+        assert pack[1].shape[0] == len(dates)
 
-    short_meta = dict(long_meta)
-    short_meta["n_bars"] = 200
-    short_meta["n_rows"] = 200 - 12
-    refused = open_tc_slice_spec_fp(
-        short_meta,
-        tau_hm="open",
-        caller_min_history=12,
-        include_alpha_tc=True,
-    )
-    assert refused(bars_fp) != legacy
+        write_stock_panel(
+            FAMILY_TC_RANK,
+            "009999",
+            dates=dates,
+            X=np.ones((len(dates), 1), dtype=np.float64),
+            names=["f"],
+            fingerprint=legacy,
+            y=np.zeros(len(dates), dtype=np.float64),
+            extra_meta=meta,
+        )
+        with patch(
+            "core.research.tau_panel.collect_tau_open_panel",
+            return_value=([], [], [], []),
+        ) as collect:
+            try:
+                with materialized_consumer():
+                    _tau_stock_job(
+                        {"code": "009999", "bars": [dict(b) for b in bars]},
+                        ["f"],
+                        [],
+                        **kw,
+                    )
+            except MaterializeRequired as exc:
+                assert exc.payload.get("stock_code") == "009999"
+            else:
+                raise AssertionError("caller-window stamp should not hit")
+        assert not collect.called
+    finally:
+        for key, val in prev.items():
+            if val is None:
+                os.environ.pop(key, None)
+            else:
+                os.environ[key] = val
+        tmp.cleanup()

@@ -310,7 +310,7 @@ def build_oo_factor_panel(
 ) -> FactorPanel:
     """全量因子面板：走枢纽 ``assemble_oo_panels``（代码序 + coverage）。
 
-    Arm·T 的 core 不在这里裁，等 Arm·L 结束再切。
+    这里始终交回 aoo_full。Arm·T 的 core 由调用方在开跑前裁；Arm·L 继续用这份全量。
     """
     from core.research.oo_model_compact import assemble_oo_panels
 
@@ -371,7 +371,7 @@ def build_oo_factor_panel(
         print(f"  因子面板 {done}/{total} {msg}", flush=True)
 
     print(
-        f"  因子面板 assemble_oo_panels stocks={len(items)} lake_fp=full_aoo",
+        f"  因子面板 assemble_oo_panels stocks={len(items)} 源=aoo_full",
         flush=True,
     )
     t0 = time.time()
@@ -430,7 +430,7 @@ def build_tc_factor_panel(
 ) -> FactorPanel:
     """ŷ_τc（τ=开盘）因子面板：走枢纽 ``collect_tau_compact``。
 
-    截面广度在组装里写完。Arm·T 的 core 不在这里裁。
+    截面广度在组装里写完。这里始终交回 atc_full；Arm·T 的 core 由调用方在开跑前裁。
     传入的是条目指针的副本，避免组装过程 pop 掉调用方的日线。
     """
     from core.research.panel_matrix import collect_tau_compact
@@ -482,7 +482,7 @@ def build_tc_factor_panel(
         print(f"  τc 因子 {done}/{total} {msg}", flush=True)
 
     print(
-        f"  τc 因子面板 collect_tau_compact stocks={len(items)} pack=atc_full",
+        f"  τc 因子面板 collect_tau_compact stocks={len(items)} 源=atc_full",
         flush=True,
     )
     t0 = time.time()

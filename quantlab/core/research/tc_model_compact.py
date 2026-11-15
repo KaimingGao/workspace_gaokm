@@ -475,6 +475,7 @@ def fit_tau_model_matrices(
     tau_hm: str = "open",
     tau_grid: Optional[Sequence[str]] = None,
     cross_section_zscore: bool = True,
+    lookback: Optional[int] = None,
     progress_cb: Optional[Any] = None,
 ) -> Dict[str, Any]:
     """拼面板 + Holdout 前训 LightGBM。不含 OOS 报告包装。
@@ -542,6 +543,7 @@ def fit_tau_model_matrices(
     from core.research.holdout import (
         DEFAULT_HOLDOUT_TRADING_DAYS,
         calendar_dates_from_stock_bars,
+        clip_calendar_lookback,
         refuse_insufficient_holdout,
         resolve_ridge_split,
     )
@@ -556,7 +558,10 @@ def fit_tau_model_matrices(
     train_idx, test_idx, split_meta = resolve_ridge_split(
         dates_use,
         holdout_trading_days=hold_n,
-        calendar_dates=calendar_dates_from_stock_bars(stock_bars),
+        calendar_dates=clip_calendar_lookback(
+            calendar_dates_from_stock_bars(stock_bars),
+            lookback,
+        ),
     )
     blocked_split = refuse_insufficient_holdout(split_meta)
     if blocked_split:

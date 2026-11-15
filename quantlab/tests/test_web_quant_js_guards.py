@@ -1945,8 +1945,18 @@ class TestWebQuantJsGuards(unittest.TestCase):
         self.assertIn("pinMatch || newestMatch || currentMatch || first", quant_js)
         self.assertIn("function showFittedSuiteVersion", quant_js)
         self.assertIn("keepPreview: true", quant_js)
+        self.assertNotIn("quant-fit-status-blink", css_fit)
         self.assertNotIn("step-end infinite", css_fit)
-        self.assertIn("quant-fit-status-blink 1.8s ease-in-out infinite", css_fit)
+        self.assertIn("quant-fit-status-breathe 2.4s ease-in-out infinite", css_fit)
+        breathe_kf = css_fit.split("@keyframes quant-fit-status-breathe")[1].split("body[data-page")[0]
+        self.assertIn("opacity: 0.4;", breathe_kf)
+        self.assertNotIn("color:", breathe_kf)
+        self.assertIn("不重建 .quant-rem-status-msg，呼吸动画不重开", quant_js)
+        chip_breathe = css_fit.split(
+            '.quant-card-head--fit .quant-rem-status.is-busy:not(.is-error) .quant-pro-status-chip[data-state="busy"]::before'
+        )[1].split("}")[0]
+        self.assertIn("quant-fit-status-breathe 2.4s ease-in-out infinite", chip_breathe)
+        self.assertNotIn("quant-pro-pulse", chip_breathe)
         self.assertIn("keepPrev: false", quant_js)
         self.assertIn("仅最新请求写缓存", quant_js)
         self.assertIn("q.refreshSuiteFitSelect = refreshSuiteFitSelect", quant_js)

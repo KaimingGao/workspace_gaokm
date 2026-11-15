@@ -370,6 +370,7 @@ def fit_tau_model_report(
     tau_hm: str = "open",
     tau_grid: Optional[Sequence[str]] = None,
     cross_section_zscore: bool = True,
+    lookback: Optional[int] = None,
     progress_cb: Optional[Any] = None,
 ) -> Dict[str, Any]:
     """池化拟合 ŷ_τ 头 LightGBM + Holdout OOS。
@@ -380,6 +381,7 @@ def fit_tau_model_report(
     （启用研究/执行只是版本槽）。
     ``ridge_lambda`` 保留形参兼容 API，不参与拟合。
     拟合固定日截面 Z；``cross_section_zscore=False`` 已下线。
+    ``lookback``：训练日历只留最近 N 日。日线垫根不进训练。
     ``progress_cb(cur, tot, msg)``：可选，供 job 槽刷新。
     """
     from core.research.feature_standardize import reject_global_zscore
@@ -398,6 +400,7 @@ def fit_tau_model_report(
         tau_hm=tau_hm,
         tau_grid=tau_grid,
         cross_section_zscore=True,
+        lookback=lookback,
         progress_cb=progress_cb,
     )
     if not packed.get("success"):

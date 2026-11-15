@@ -65,6 +65,10 @@ const latestHeads = new Map();
 const pendingHeads = new Set();
 /** 用户改过参数的 head：刷新时勿用 draft 覆盖表单 */
 const dirtyParams = new Set();
+/** 选中的历史跑次预览。拟合中不拿它画运行台。 */
+const viewing = new Map();
+const viewSeq = new Map();
+const versionLists = new Map();
 
 function $(sel, root = document) {
   return root.querySelector(sel);
@@ -395,7 +399,7 @@ function readParams(head) {
       out[key] = raw;
     }
   });
-  if (pageFactory !== "L") out.arms = "L,T";
+  out.arms = pageFactory === "L" ? "L" : "T";
   if (
     panel.querySelector('[data-param-radio="seq_feat_set"]') ||
     panel.querySelector('[data-param="seq_feat_set"]')
@@ -847,7 +851,7 @@ function setArmLog(el, lines) {
   if (text && stick) el.scrollTop = el.scrollHeight;
 }
 
-/** 双臂工作台：每臂一张卡，各自指标和日志；L 的完成不跟 T 对齐。 */
+/** 本厂一张运行卡：指标和日志只跟当前臂。 */
 function renderContrast(root, st, metrics) {
   const box = root.querySelector("[data-fit-contrast]");
   if (!box) return;
@@ -881,7 +885,7 @@ function renderContrast(root, st, metrics) {
     el.classList.toggle("is-empty", value === "—");
   };
 
-  const tags = pageFactory === "L" ? ["L"] : ["L", "T"];
+  const tags = pageFactory === "L" ? ["L"] : ["T"];
   for (const tag of tags) {
     const pack = tag === "L" ? packL : packT;
     const ic = tag === "L" ? icL : icT;
@@ -974,7 +978,235 @@ function fitActionLabel(st) {
   return "";
 }
 
-function renderFitInfo(st) {
+function shownStatus(st) {
+  if (!st) return st;
+  const running =
+    !!st.fit_running || st.job?.status === "running" || st.job?.status === "starting";
+  const view = viewing.get(st.head);
+  if (running || !view) return st;
+  const metrics = view.metrics && typeof view.metrics === "object" ? view.metrics : null;
+  const failed = view.status === "error" || view.action === "holdout_failed";
+  const partial = view.status === "partial";
+  return {
+    ...st,
+    draft: null,
+    research: null,
+    fit_running: false,
+    log_tail: view.log_tail || "",
+    arms_metrics: metrics?.arms || null,
+    job: {
+      run_id: view.run_id,
+      status: failed ? "error" : "done",
+      error: failed || partial ? view.message || "" : "",
+      params: view.fit_params || null,
+      param_warnings: Array.isArray(view.param_warnings) ? view.param_warnings : [],
+      cli: view.cli || "",
+      started_at: view.started_at,
+      finished_at: view.finished_at,
+      exit_hint: view.exit_hint,
+    },
+    last: {
+      action: view.action || (failed ? "holdout_failed" : "holdout_result"),
+      params: view.fit_params || null,
+      fit_params: view.fit_params || null,
+      metrics,
+      hard_gate_vs_arm_L: view.hard_gate_vs_arm_L || null,
+      parity: view.parity || null,
+      eval_universe: view.eval_universe || null,
+      message: view.message || "",
+      updated_at: view.finished_at || view.started_at,
+      cli: view.cli || "",
+    },
+  };
+}
+
+function versionParts(label) {
+  const bits = String(label || "")
+    .split(" · ")
+    .map((bit) => bit.trim())
+    .filter(Boolean);
+  return { stamp: bits[0] || "—", meta: bits.slice(1) };
+}
+
+function versionChipTone(text, status) {
+  if (text === "失败" || status === "error") return "bad";
+  if (text === "未过闸" || text === "部分完成") return "warn";
+  if (text === "正式" || text === "过闸") return "ok";
+  return "";
+}
+
+function placeVersionMenu(root) {
+  const menu = root?.querySelector(".yhat-tf-version-menu");
+  if (!menu) return;
+  menu.style.right = "0px";
+  menu.style.left = "auto";
+  const rect = menu.getBoundingClientRect();
+  if (rect.left >= 8) return;
+  const host = root.getBoundingClientRect().left;
+  menu.style.right = "auto";
+  menu.style.left = `${8 - host}px`;
+}
+
+function closeVersionMenus(except) {
+  document.querySelectorAll(".yhat-tf-version-menu").forEach((menu) => {
+    if (except && menu === except) return;
+    menu.hidden = true;
+    menu.parentElement
+      ?.querySelector(".yhat-tf-version-btn")
+      ?.setAttribute("aria-expanded", "false");
+  });
+}
+
+function renderVersionMenu(menu, items, currentId) {
+  menu.replaceChildren();
+  if (!items.length) {
+    const empty = document.createElement("div");
+    empty.className = "yhat-tf-version-empty";
+    empty.textContent = "尚无版本";
+    menu.append(empty);
+    return;
+  }
+  for (const it of items) {
+    const id = String(it?.id || "");
+    if (!id) continue;
+    const row = document.createElement("div");
+    row.className = "yhat-tf-version-item";
+    row.dataset.versionId = id;
+    row.setAttribute("role", "option");
+    const current = id === currentId;
+    row.setAttribute("aria-selected", current ? "true" : "false");
+    if (current) row.classList.add("is-current");
+    const parts = versionParts(it.label || id);
+    const stamp = document.createElement("span");
+    stamp.className = "yhat-tf-version-stamp";
+    stamp.textContent = parts.stamp;
+    const metric = document.createElement("span");
+    metric.className = "yhat-tf-version-metric";
+    const ic = parts.meta.find((bit) => bit.startsWith("RankIC")) || "";
+    metric.textContent = ic;
+    const chips = document.createElement("span");
+    chips.className = "yhat-tf-version-meta";
+    for (const bit of parts.meta) {
+      if (bit === ic) continue;
+      const chip = document.createElement("span");
+      chip.className = "yhat-tf-version-chip";
+      const tone = versionChipTone(bit, it.status);
+      if (tone) chip.classList.add(`is-${tone}`);
+      chip.textContent = bit;
+      chips.append(chip);
+    }
+    const del = document.createElement("button");
+    del.type = "button";
+    del.className = "yhat-tf-version-del";
+    del.dataset.versionDelete = id;
+    del.textContent = "删除";
+    del.title = "删除该版本";
+    del.setAttribute("aria-label", `删除 ${parts.stamp}`);
+    row.append(stamp, metric, chips, del);
+    menu.append(row);
+  }
+}
+
+function fillVersionSelect(head) {
+  const root = panelOf(head)?.querySelector("[data-version-for]");
+  const btn = root?.querySelector(".yhat-tf-version-btn");
+  const menu = root?.querySelector(".yhat-tf-version-menu");
+  if (!root || !btn || !menu) return;
+  const items = versionLists.get(head) || [];
+  const key = items.map((it) => `${it.id}\t${it.label || ""}\t${it.status || ""}`).join("\n");
+  const want = viewing.get(head)?.run_id || "";
+  const has = !!(want && items.some((it) => String(it.id) === want));
+  if (want && !has) viewing.delete(head);
+  const latest = String(items[0]?.id || "");
+  const next = has ? want : latest;
+  const shown = items.find((it) => String(it.id) === next);
+  btn.textContent = shown ? String(shown.label || shown.id) : "尚无版本";
+  btn.title = shown?.model_id ? String(shown.model_id) : btn.textContent;
+  if (root.dataset.itemsKey === key && root.dataset.value === next) return;
+  root.dataset.itemsKey = key;
+  root.dataset.value = next;
+  renderVersionMenu(menu, items, next);
+}
+
+async function loadVersionList(head) {
+  const seq = (viewSeq.get(`list:${head}`) || 0) + 1;
+  viewSeq.set(`list:${head}`, seq);
+  const { ok, data } = await apiFetch(
+    `${apiBase()}/versions?head=${encodeURIComponent(head)}`
+  );
+  if (seq !== viewSeq.get(`list:${head}`)) return;
+  if (!ok) return;
+  versionLists.set(head, Array.isArray(data?.items) ? data.items : []);
+  fillVersionSelect(head);
+}
+
+function releaseViewing(head) {
+  if (!viewing.has(head)) return false;
+  viewing.delete(head);
+  viewSeq.set(head, (viewSeq.get(head) || 0) + 1);
+  fillVersionSelect(head);
+  return true;
+}
+
+async function onVersionDelete(head, runId) {
+  if (!runId) return;
+  const items = versionLists.get(head) || [];
+  const it = items.find((row) => String(row.id) === runId);
+  const label = String(it?.label || runId);
+  if (!window.confirm(`删除版本「${label}」？只去掉这条归档和日志，当前拟合不动。`)) return;
+  const { ok, data, error } = await apiFetch(
+    `${apiBase()}/versions?head=${encodeURIComponent(head)}&run_id=${encodeURIComponent(runId)}`,
+    { method: "DELETE" }
+  );
+  if (!ok) {
+    showToast(error || "删除失败", "warn");
+    return;
+  }
+  const wasViewing = viewing.get(head)?.run_id === runId;
+  versionLists.set(head, Array.isArray(data?.items) ? data.items : []);
+  if (wasViewing) viewing.delete(head);
+  const root = panelOf(head)?.querySelector("[data-version-for]");
+  if (root) delete root.dataset.itemsKey;
+  const st = latestHeads.get(head);
+  if (wasViewing && st) renderHead(st);
+  else fillVersionSelect(head);
+  const menu = root?.querySelector(".yhat-tf-version-menu");
+  const btn = root?.querySelector(".yhat-tf-version-btn");
+  if (menu && btn && !btn.disabled) {
+    menu.hidden = false;
+    btn.setAttribute("aria-expanded", "true");
+    placeVersionMenu(root);
+  }
+  showToast("已删除版本", "ok");
+}
+
+async function onVersionChange(head, runId) {
+  const seq = (viewSeq.get(head) || 0) + 1;
+  viewSeq.set(head, seq);
+  if (!runId) {
+    viewing.delete(head);
+    dirtyParams.delete(head);
+    const st = latestHeads.get(head);
+    if (st) renderHead(st);
+    return;
+  }
+  const { ok, data, error } = await apiFetch(
+    `${apiBase()}/versions/preview?head=${encodeURIComponent(head)}&run_id=${encodeURIComponent(runId)}`
+  );
+  if (seq !== viewSeq.get(head)) return;
+  if (!ok || !data?.run_id) {
+    showToast(error || "版本读取失败", "warn");
+    fillVersionSelect(head);
+    return;
+  }
+  const live = latestHeads.get(head);
+  if (live?.fit_running || live?.job?.status === "running") return;
+  viewing.set(head, data);
+  dirtyParams.delete(head);
+  if (live) renderHead(live);
+}
+
+function renderFitInfo(st, { replay = false } = {}) {
   const root = document.querySelector(`[data-fit-info-for="${st.head}"]`);
   if (!root) return;
   const job = st.job || null;
@@ -997,7 +1229,7 @@ function renderFitInfo(st) {
   const paramsEl = root.querySelector("[data-fit-info-params]");
   const noteEl = root.querySelector("[data-fit-info-note]");
 
-  const label = fitActionLabel(st) || "本次拟合";
+  const label = `${replay ? "回看 · " : ""}${fitActionLabel(st) || "本次拟合"}`;
   if (statusEl) {
     statusEl.textContent = label;
     statusEl.dataset.state = stateOf(st);
@@ -1062,6 +1294,11 @@ function updateActionStates(head) {
     }
     btn.disabled = disabled;
   });
+  const versionBtn = panel.querySelector("[data-version-for] .yhat-tf-version-btn");
+  if (versionBtn) {
+    versionBtn.disabled = fitRunning;
+    if (fitRunning) closeVersionMenus();
+  }
 }
 
 function fitPollDelayMs() {
@@ -1171,11 +1408,11 @@ function renderHeadSummary(st) {
   }
 }
 
-function renderResult(st) {
+function renderResult(st, { replay = false } = {}) {
   const panel = panelOf(st.head);
   if (!panel) return;
 
-  renderFitInfo(st);
+  renderFitInfo(st, { replay });
 
   const resultEl = panel.querySelector(`[data-result-for="${st.head}"]`);
   if (resultEl) {
@@ -1209,8 +1446,10 @@ function renderResult(st) {
 function renderHead(st) {
   const head = st.head;
   latestHeads.set(head, st);
-  const scheme = st.scheme || {};
-  const outcome = headFitOutcome(st);
+  const shown = shownStatus(st);
+  const replay = shown !== st;
+  const scheme = shown.scheme || {};
+  const outcome = headFitOutcome(shown);
   const outcomeLabel =
     {
       running: "拟合中",
@@ -1221,31 +1460,37 @@ function renderHead(st) {
     }[outcome] || "未拟合";
   const msgBits = [
     st.fit_running ? "拟合中" : null,
-    !st.fit_running && st.job?.status === "error" ? "拟合失败" : null,
+    !st.fit_running && shown.job?.status === "error" ? "拟合失败" : null,
     !st.fit_running && outcome !== "none" && outcome !== "running"
       ? outcomeLabel
       : null,
     pageFactory === "L" ? null : scheme.loss || null,
   ].filter(Boolean);
-  setChip(document.querySelector(`[data-status-for="${head}"]`), stateOf(st), msgBits.join(" · ") || "—");
+  setChip(document.querySelector(`[data-status-for="${head}"]`), stateOf(shown), msgBits.join(" · ") || "—");
 
-  renderHeadSummary(st);
-  renderResult(st);
+  renderHeadSummary(shown);
+  renderResult(shown, { replay });
   // 表单回填：用户改过则不覆盖。
+  // 回看历史版：用该版 fit_params，不写 draft。
   // 未在跑：优先工作配置（拟合意图隐式同步的 draft），切勿让旧 job 盖回。
   // 拟合中：用本次 job/last，与信息窗一致。
   if (!dirtyParams.has(head)) {
-    const running = !!st.fit_running || st.job?.status === "running";
+    const running =
+      !!st.fit_running || st.job?.status === "running" || st.job?.status === "starting";
+    const viewParams = !running && viewing.get(head)?.fit_params;
     const lastParams =
       st.last?.params &&
       ["holdout_intent", "holdout_result", "holdout_failed"].includes(st.last.action)
         ? st.last.params
         : null;
-    const formParams = running
-      ? st.job?.params || lastParams || st.draft?.params || null
-      : st.draft?.params || lastParams || st.job?.params || null;
+    const formParams = viewParams
+      ? viewParams
+      : running
+        ? st.job?.params || lastParams || st.draft?.params || null
+        : st.draft?.params || lastParams || st.job?.params || null;
     if (formParams) applyParams(head, formParams);
   }
+  fillVersionSelect(head);
   updateActionStates(head);
 }
 
@@ -1287,6 +1532,9 @@ function refreshStatus({ quiet = false } = {}) {
         if (meta.textContent !== next) meta.textContent = next;
       }
       scheduleFitPoll(heads);
+      HEADS.forEach((head) => {
+        void loadVersionList(head);
+      });
       setLoadError("");
       return data;
     } catch (err) {
@@ -1312,6 +1560,9 @@ async function onAct(head, act) {
   if (act !== "fit") return;
 
   const statusEl = document.querySelector(`[data-status-for="${head}"]`);
+  viewing.delete(head);
+  viewSeq.set(head, (viewSeq.get(head) || 0) + 1);
+  fillVersionSelect(head);
   pendingHeads.add(head);
   updateActionStates(head);
   showPanelError(head, "");
@@ -1423,6 +1674,10 @@ export function initYhatTf(_ctx, factory = "T") {
   applyView();
   bindCompactHead();
   bindToastDismiss();
+  document.addEventListener("click", () => closeVersionMenus());
+  document.addEventListener("keydown", (ev) => {
+    if (ev.key === "Escape") closeVersionMenus();
+  });
 
   $all("[data-head-select]").forEach((btn) => {
     btn.addEventListener("click", () => selectHead(btn.dataset.headSelect));
@@ -1443,10 +1698,51 @@ export function initYhatTf(_ctx, factory = "T") {
         updateProtocolPreviews(panel);
       }
     };
-    const markDirty = () => dirtyParams.add(head);
+    const markDirty = (ev) => {
+      if (ev?.target?.matches?.("[data-version-for]")) return;
+      if (releaseViewing(head)) {
+        const st = latestHeads.get(head);
+        if (st) {
+          renderHeadSummary(st);
+          renderResult(st);
+        }
+      }
+      dirtyParams.add(head);
+    };
+    const versionRoot = panel.querySelector("[data-version-for]");
+    versionRoot?.addEventListener("click", (ev) => {
+      ev.stopPropagation();
+      const btn = versionRoot.querySelector(".yhat-tf-version-btn");
+      const menu = versionRoot.querySelector(".yhat-tf-version-menu");
+      if (!btn || !menu || btn.disabled) return;
+      const del = ev.target.closest("[data-version-delete]");
+      if (del) {
+        ev.preventDefault();
+        void onVersionDelete(head, del.dataset.versionDelete || "");
+        return;
+      }
+      const picked = ev.target.closest("[data-version-id]");
+      if (picked) {
+        closeVersionMenus();
+        void onVersionChange(head, picked.dataset.versionId || "");
+        return;
+      }
+      if (!ev.target.closest(".yhat-tf-version-btn")) return;
+      const willOpen = menu.hidden;
+      closeVersionMenus();
+      if (!willOpen) return;
+      menu.hidden = false;
+      btn.setAttribute("aria-expanded", "true");
+      placeVersionMenu(versionRoot);
+      menu.querySelector(".is-current")?.scrollIntoView({ block: "nearest" });
+    });
     panel.addEventListener("input", markDirty);
     panel.addEventListener("change", (ev) => {
-      markDirty();
+      if (ev.target?.matches?.("[data-version-for]")) {
+        void onVersionChange(head, ev.target.value);
+        return;
+      }
+      markDirty(ev);
       onProtocolChange(ev);
     });
     updateProtocolPreviews(panel);

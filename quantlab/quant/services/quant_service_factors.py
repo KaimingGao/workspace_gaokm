@@ -1016,6 +1016,7 @@ class QuantFactorMixin:
             tau_grid=tau_grid,
             holdout_trading_days=holdout_trading_days,
             cross_section_zscore=bool(cross_section_zscore),
+            lookback=int(lookback or 120),
             progress_cb=progress_cb,
         )
         report["watching_limit"] = limit
@@ -1385,6 +1386,7 @@ class QuantFactorMixin:
                 persist=False,
                 cross_section_zscore=bool(cross_section_zscore),
                 train_codes=None,
+                lookback=int(lookback or 120),
                 progress_cb=progress_cb,
             )
         finally:
@@ -1772,6 +1774,7 @@ class QuantFactorMixin:
                 cross_section_zscore=bool(cross_section_zscore),
                 train_codes=None,
                 tau_end_hm=tau_end_hm,
+                lookback=int(lookback or 700),
                 progress_cb=progress_cb,
             )
         finally:
@@ -2616,6 +2619,7 @@ class QuantFactorMixin:
         l1_hit_rate = float(l1_n) / float(denom)
 
         _progress(n_codes, n_codes, f"ŷ_τ{hn} 折矩阵…")
+        from core.research.holdout import clip_calendar_lookback
         from core.research.horizon_compact import take_calendar_and_release
         from core.research.horizon_ridge import prepare_horizon_compact
 
@@ -2626,7 +2630,10 @@ class QuantFactorMixin:
             tau_grid=tau_grid,
         )
         compact = prepared["compact"]
-        calendar = take_calendar_and_release(stock_bars)
+        calendar = clip_calendar_lookback(
+            take_calendar_and_release(stock_bars),
+            int(lookback or 120),
+        )
 
         _progress(n_codes, n_codes, f"ŷ_τ{hn} LightGBM + Ridge 双训…")
         report = fit_horizon_dual_report(

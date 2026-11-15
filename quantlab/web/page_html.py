@@ -67,6 +67,7 @@ def _template(name: str) -> str:
 
 
 _YHAT_T_ONLY = re.compile(r"<!--yhat-only:T-->.*?<!--/yhat-only:T-->", re.DOTALL)
+_YHAT_L_ONLY = re.compile(r"<!--yhat-only:L-->.*?<!--/yhat-only:L-->", re.DOTALL)
 
 
 # Arm·L 默认窗跟研究枢纽。共享模板里的 900/60 留给 Arm·T。
@@ -156,6 +157,8 @@ def _yhat_factory_panel(factory: str) -> str:
     if fac == "L":
         html = _YHAT_T_ONLY.sub("", html)
         html = _apply_l_hub_windows(html)
+    else:
+        html = _YHAT_L_ONLY.sub("", html)
     return html
 
 

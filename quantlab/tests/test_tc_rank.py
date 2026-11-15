@@ -17,6 +17,73 @@ class TestTcRank(unittest.TestCase):
             text,
         )
 
+    def test_lookback_drops_feature_pad_from_train_calendar(self):
+        """训练窗 1000 时，窗前的特征垫根不进训练日历。"""
+        from core.research.holdout import clip_calendar_lookback, resolve_ridge_split
+
+        days = [f"2024-01-{i:02d}" for i in range(1, 29)]
+        days += [f"2024-02-{i:02d}" for i in range(1, 29)]
+        clipped = clip_calendar_lookback(list(reversed(days)), 10)
+        self.assertEqual(clipped, days[-10:])
+        self.assertEqual(clip_calendar_lookback(days, None), days)
+        _tr, _te, meta = resolve_ridge_split(
+            days,
+            holdout_trading_days=0,
+            calendar_dates=clipped,
+        )
+        self.assertEqual(meta.get("n_train_days"), 10)
+        self.assertEqual(meta.get("train_days"), days[-10:])
+
+    def test_fit_lookback_trains_only_the_tail(self):
+        """垫根可以进面板，LambdaRank 只看见训练窗尾部。"""
+        from datetime import date, timedelta
+        from unittest.mock import patch
+
+        from core.research.tc_rank import fit_tc_rank_report
+
+        start = date(2024, 1, 1)
+        dates = [(start + timedelta(days=i)).isoformat() for i in range(40)]
+        bars = [{"code": "000001", "bars": [{"date": d, "close": 1.0} for d in dates]}]
+        seen = {}
+
+        def fake_panels(stock_bars, **kwargs):
+            stats = kwargs.get("stats_out")
+            if isinstance(stats, dict):
+                stats["n_stocks"] = 1
+                stats["n_rows"] = 40
+            seen["fit_dates"] = list(kwargs.get("fit_dates") or [])
+            return [{"date": d, "names": ["f"]} for d in dates]
+
+        def fake_fit(days, **kwargs):
+            seen["train"] = [str(d.get("date")) for d in days]
+            return {"success": False, "error": "stop_after_train_window"}
+
+        with patch(
+            "core.research.rank_day_panels.build_rank_day_panels",
+            side_effect=fake_panels,
+        ), patch(
+            "core.research.oo_rank_lambdarank.fit_lambdarank",
+            side_effect=fake_fit,
+        ):
+            out = fit_tc_rank_report(
+                bars,
+                holdout_trading_days=0,
+                lookback=10,
+            )
+        self.assertEqual(seen.get("fit_dates"), dates[-10:])
+        self.assertEqual(seen.get("train"), dates[-10:])
+        self.assertIn("stop_after_train_window", str(out.get("error") or ""))
+
+        with patch(
+            "core.research.rank_day_panels.build_rank_day_panels",
+            side_effect=fake_panels,
+        ), patch(
+            "core.research.oo_rank_lambdarank.fit_lambdarank",
+            side_effect=fake_fit,
+        ):
+            fit_tc_rank_report(bars, holdout_trading_days=20, lookback=30)
+        self.assertEqual(seen.get("train"), dates[-30:-20])
+
     def test_empty_bars_rejected(self):
 
         from core.research.tc_rank import fit_tc_rank_report

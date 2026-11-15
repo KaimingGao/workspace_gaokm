@@ -585,6 +585,25 @@ class TestListwiseGroups(unittest.TestCase):
         # val 不被 cap//4 抽样：完整验证日组保留
         self.assertGreater(sum(va_counts.values()), 250 // 4)
 
+    def test_default_val_is_last_tenth_of_train_days(self):
+        from core.research.yhat_transformer.train import split_train_val_indices
+
+        dates = []
+        for d in range(20):
+            dates.extend([f"2024-02-{d + 1:02d}"] * 5)
+        idx = list(range(len(dates)))
+        tr, va = split_train_val_indices(dates, idx)
+        va_days = sorted({dates[i] for i in va})
+        tr_days = sorted({dates[i] for i in tr})
+        self.assertEqual(va_days, ["2024-02-19", "2024-02-20"])
+        self.assertEqual(len(tr_days), 18)
+        self.assertEqual(len(tr) + len(va), len(idx))
+        # 显式 20% 仍可用；低于下限的请求钳回 10%（20 日 → 2 日）
+        _, va20 = split_train_val_indices(dates, idx, val_frac=0.2)
+        self.assertEqual(len({dates[i] for i in va20}), 4)
+        _, va_lo = split_train_val_indices(dates, idx, val_frac=0.01)
+        self.assertEqual(sorted({dates[i] for i in va_lo}), va_days)
+
     def test_subsample_stops_instead_of_taking_thinner_days(self):
         from unittest import mock
 
@@ -1405,6 +1424,45 @@ class TestHoldoutSystemExitDesk(unittest.TestCase):
             with self.assertRaises(SystemExit):
                 holdout.main()
         self.assertEqual(calls, [])
+
+
+class TestFactorPanelBuildLine(unittest.TestCase):
+    def test_arm_t_only_names_the_slice_not_arm_l(self):
+        from scripts.run_yhat_transformer_holdout import _factor_panel_build_line
+
+        oo = _factor_panel_build_line("oo", ["T"])
+        self.assertIn("head=oo", oo)
+        self.assertIn("先建 aoo_full", oo)
+        self.assertIn("裁成 aoo_core", oo)
+        self.assertNotIn("Arm·L", oo)
+        rank = _factor_panel_build_line("oo_rank", ["T"])
+        self.assertIn("先建 aoo_full", rank)
+        self.assertIn("裁成 aoo_core", rank)
+        full = _factor_panel_build_line("oo", ["T"], full_aoo=True)
+        self.assertIn("Arm·T 用 aoo_full", full)
+        self.assertNotIn("Arm·L", full)
+        tc = _factor_panel_build_line("tc", ["T"], atc_core=True)
+        self.assertIn("先建 atc_full", tc)
+        self.assertIn("裁成 atc_core", tc)
+        self.assertNotIn("Arm·L", tc)
+        tc_full = _factor_panel_build_line("tc", ["T"])
+        self.assertIn("Arm·T 用 atc_full", tc_full)
+        self.assertNotIn("裁成", tc_full)
+
+    def test_arm_l_and_both_keep_the_full_source(self):
+        from scripts.run_yhat_transformer_holdout import _factor_panel_build_line
+
+        lone = _factor_panel_build_line("oo", ["L"])
+        self.assertIn("Arm·L 用 aoo_full", lone)
+        self.assertNotIn("Arm·T", lone)
+        both = _factor_panel_build_line("oo", ["L", "T"])
+        self.assertIn("Arm·L 用 aoo_full", both)
+        self.assertIn("裁成 aoo_core", both)
+        same = _factor_panel_build_line("oo", ["L", "T"], full_aoo=True)
+        self.assertIn("Arm·L 与 Arm·T 都用 aoo_full", same)
+        tc_both = _factor_panel_build_line("tc_rank", ["L", "T"], atc_core=True)
+        self.assertIn("Arm·L 用 atc_full", tc_both)
+        self.assertIn("裁成 atc_core", tc_both)
 
 
 class TestLabelHorizonByHead(unittest.TestCase):

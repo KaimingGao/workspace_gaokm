@@ -81,7 +81,7 @@ class TestYhatTfHardenParams(unittest.TestCase):
         self.assertEqual(out["lookback"], 900)
         self.assertEqual(out["holdout_trading_days"], 60)
         self.assertEqual(out["nhead"], 4)  # 64 % 5 != 0 → 4
-        self.assertEqual(out["arms"], "L,T")  # 非法臂码回落 L,T
+        self.assertEqual(out["arms"], "T")  # 厂 T 单臂；传入的臂码不另开对侧
         self.assertNotIn("seeds", out)  # 固定 seed=42，不再入参
         self.assertFalse(any("长窗" in w for w in warns))
         def_p, _ = harden_fit_params("oo", {})
@@ -89,7 +89,12 @@ class TestYhatTfHardenParams(unittest.TestCase):
         norm = _normalize_fit_params("tc", {"lookback": 900, "holdout_trading_days": 60})
         self.assertEqual(norm["lookback"], 900)
         self.assertEqual(norm["holdout_trading_days"], 60)
-        self.assertEqual(norm["arms"], "L,T")
+        self.assertEqual(norm["arms"], "T")
+        from core.research.yhat_tf_desk import factory_scope
+
+        with factory_scope("LT"):
+            both, _ = harden_fit_params("oo", {})
+        self.assertEqual(both["arms"], "L,T")
         # 脚本 args 只有 watching_limit 时须回填 pool_n，避免 ingest 盖回默认池
         from_args = _normalize_fit_params(
             "tc", {"watching_limit": 600, "lookback": 180, "d_model": 64}
@@ -223,10 +228,10 @@ class TestYhatTfHardenParams(unittest.TestCase):
         tiny, tw = harden_fit_params("oo", {"t_sample_pct": 0.01})
         self.assertEqual(tiny["t_sample_pct"], 0.1)
         self.assertTrue(any("t_sample_pct:" in w for w in tw))
-        # 旧绝对行上限丢弃；臂固定 L,T
-        legacy, _lw = harden_fit_params("oo", {"max_train_rows": 40000, "arms": "T"})
+        # 旧绝对行上限丢弃；厂 T 固定单臂，不因传入 arms 改回双臂
+        legacy, _lw = harden_fit_params("oo", {"max_train_rows": 40000, "arms": "L,T"})
         self.assertNotIn("max_train_rows", legacy)
-        self.assertEqual(legacy["arms"], "L,T")
+        self.assertEqual(legacy["arms"], "T")
         self.assertEqual(legacy["t_sample_pct"], 10.0)
         # Holdout args.t_sample_frac → desk t_sample_pct（避免 ingest 掉回默认 10）
         via_frac = _normalize_fit_params("oo", {"t_sample_frac": 1.0, "watching_limit": 800})
@@ -1619,8 +1624,9 @@ class TestYhatTfPageWiring(unittest.TestCase):
         self.assertIn('value="60"', html_t)
         self.assertNotIn("实验臂与 Gate 说明", html)
         self.assertNotIn("yhat-tf-arms-fold", html)
-        self.assertIn('data-arm-console="L"', html)
-        self.assertIn('data-arm-console="T"', html)
+        self.assertNotIn('data-arm-console="L"', html_t)
+        self.assertIn('data-arm-console="T"', html_t)
+        self.assertNotIn("yhat-only:L", html_t)
         self.assertNotIn("data-contrast-lift", html)
         self.assertIn("双支路晚融合", html_t)
         self.assertNotIn('data-arm="0"', html)
@@ -1694,6 +1700,9 @@ class TestYhatTfPageWiring(unittest.TestCase):
         self.assertNotIn("OOS 指标 · 待回传", html)
         self.assertIn("生产禁用", html)
         self.assertEqual(html.count('data-act="fit"'), 4)
+        self.assertEqual(html.count("data-version-for"), 4)
+        self.assertNotIn("工作配置", html)
+        self.assertIn("尚无版本", html)
         self.assertIn(">拟合</button>", html)
         self.assertEqual(html.count("yhat-tf-output-sec--console"), 4)
         self.assertNotIn("生成拟合命令", html)
@@ -1717,6 +1726,11 @@ class TestYhatTfPageWiring(unittest.TestCase):
         self.assertNotIn("/api/quant/yhat-tf/promote-research", yhat_js)
         self.assertIn("/api/quant/yhat-l", yhat_js)
         self.assertIn("/api/quant/yhat-t", yhat_js)
+        self.assertIn("/versions?head=", yhat_js)
+        self.assertIn("/versions/preview?", yhat_js)
+        self.assertIn('method: "DELETE"', yhat_js)
+        self.assertIn("data-version-delete", yhat_js)
+        self.assertNotIn("/api/quant/model-versions", yhat_js)
         self.assertIn("initYhatTf", yhat_js)
         self.assertIn("pageFactory", yhat_js)
         self.assertNotIn(

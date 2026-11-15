@@ -235,6 +235,27 @@ def calendar_dates_from_stock_bars(stock_bars: Sequence[Any]) -> List[str]:
     return sorted(days)
 
 
+def clip_calendar_lookback(
+    dates: Sequence[str],
+    lookback: Optional[int],
+) -> List[str]:
+    """训练窗只留最近 ``lookback`` 个交易日。
+
+    拉日线会在窗前再垫特征根。这些根若已有 L1 行，不裁日历就会进训练，
+    进度里的训练日数会大于窗长。缺省或非正数时不裁。
+    """
+    out = sorted({str(d)[:10] for d in (dates or []) if len(str(d)[:10]) >= 10})
+    if lookback is None:
+        return out
+    try:
+        n = int(lookback)
+    except (TypeError, ValueError):
+        return out
+    if n <= 0 or len(out) <= n:
+        return out
+    return out[-n:]
+
+
 def split_by_holdout_days(
     dates: Sequence[str],
     *,

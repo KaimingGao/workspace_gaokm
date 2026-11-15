@@ -109,13 +109,13 @@
 | 做 | 不做 |
 |--|--|
 | 四头拟合、双臂对照、Holdout 日志/console | 存草稿 → 晋级研究整套心智 |
-| **跑次版本下拉**：选中 → 表单回填该版 `fit_params`；console 显示该版拟合信息 | 复用 `/quant` 的 `model_versions` suite API（schema 不对） |
+| **跑次版本下拉**：选中只读回看该版参数、指标和日志；可删除该条归档 | 复用 `/quant` 的 `model_versions` suite API（schema 不对）；删除时改当前拟合或写 live |
 | 工作配置（可隐式，无「存草稿」按钮）+ 每次成功/失败 ingest 归档 | 产物栏 / 检查栏 / 摘要栏（信息迁入 console + 版本 meta） |
 | 版本徽章：过闸 / 正式对照 / 采样% / failed | promote-live、写 active |
 
 **交互不变量**
 
-1. 选历史版 = **只读回看**；改参再拟合 = **新版本**（不覆盖旧档）。
+1. 选历史版 = **只读回看**；改参再拟合 = **新版本**（不覆盖旧档）。删除只去掉该条归档和日志副本，不改当前拟合。
 2. 拟合进行中：console **优先当前 job**，不被历史选中版盖住。
 3. 可选「钉选研究指针」替代旧晋级（写入工厂侧 pin 或仅标记）；**live 仍只经枢纽**。
 
@@ -146,18 +146,18 @@
 | **A0** | **拆页**：`/yhat-l`（Arm·L）+ `/yhat-t`（Arm·T）；Holdout `--factory`；分目录落盘 | 一页只训一臂；L 不建 seq；无页内 L↔T 硬闸；`/yhat-tf`→`/yhat-t` |
 | A1 | 去掉「存草稿 / 晋级研究 / 清草稿 / 清研究」主路径；隐式工作配置即可 | HTTP draft/promote/clear 已下线；`save_fit_draft` 仅内部；UI 无晋级按钮 · **已落地** |
 | A2 | 去掉产物 / 检查 / 摘要栏与概览草稿/研究 KPI；硬门进 console / 头卡 Gate | 页面更短；跑中/失败态仍可读 · **已落地** |
-| A3 | 各工厂 **跑次版本库**（勿接 suite `model_versions`） | ingest 归档；列表/预览/选中回填；KEEP 上限 |
-| A4 | 版本 meta：指标、正式对照标记、采样%/因子方案 | 下拉可辨探索 vs 正式 |
-| A5 | 更新 [quant-ui.md](../quant-ui.md) 双页契约 + [arm-t.md](arm-t.md) | 文档与 UI 一致 |
+| A3 | 各工厂 **跑次版本库**（勿接 suite `model_versions`） | ingest 归档；列表/预览/选中回看；可删单条；KEEP 上限 · **已落地**（`live/yhat_l` 与 `live/yhat_t` 的 `versions/{head}/`） |
+| A4 | 版本 meta：指标、正式对照标记、采样%/因子方案 | 下拉可辨探索 vs 正式 · **已落地** |
+| A5 | 更新 [quant-ui.md](../quant-ui.md) 双页契约 + [arm-t.md](arm-t.md) | 文档与 UI 一致 · **已落地** |
 
 **存储草图**（实现时可微调）
 
 ```text
-live/yhat_tf/
-  {head}_job.json / {head}_last.json / {head}_fit.log   # 当前运行
-  {head}_work.json                                      # 可选：工作配置
+live/yhat_l/  或  live/yhat_t/
+  {head}_job.json / {head}_last.json / {head}_draft.json / {head}_fit.log
   versions/{head}/index.json
-  versions/{head}/{run_id}.json                         # 完整跑次快照
+  versions/{head}/{id}.json                             # 跑次快照
+  versions/{head}/{id}.log                              # 归档时复制的日志
 ```
 
 **明确不做（A）**：TF 进 live；与 LGB suite 共用 archive API；自动 promote。
@@ -235,6 +235,7 @@ live/yhat_tf/
 |--|--|
 | TF desk | `core/research/yhat_tf_desk.py` · `scripts/run_yhat_transformer_holdout.py` |
 | 工厂 UI | `web/static/partials/yhat_factory_panel.html` · `web/static/js/yhat_tf.js`（`/yhat-l` · `/yhat-t`） |
+| 跑次版本 | `core/research/yhat_factory_versions.py` · `web/routers/quant_yhat_tf.py`（列表 / 预览 / 删除） |
 | Suite 版本（LGB） | `core/research/model_versions.py` · `/api/quant/model-versions*` |
 | 枢纽拟合 UI | `web/static/js/quant.js` · `web/static/partials/quant_panel.html` |
 | ŷ 落盘 / promote | `core/research/oo_model.py` · `tc_model.py` · `oo_rank_lambdarank.py` · `tc_rank.py` |
@@ -246,3 +247,5 @@ live/yhat_tf/
 | 日期 | 说明 |
 |--|--|
 | 2026-11-14 | 初稿：双工厂 + 枢纽注册；阶段 A–D；纳入 TF 版本下拉与下掉草稿晋级 |
+| 2026-11-16 | A3 跑次版本库落地：L/T 分目录归档，列表/预览，选中回看 |
+| 2026-11-16 | 跑次版本可删除单条归档；A4 徽章与 A5 双页契约与 UI 对齐 |

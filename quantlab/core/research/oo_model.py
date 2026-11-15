@@ -939,6 +939,7 @@ def fit_watching_return_model(
     from core.research.holdout import (
         DEFAULT_HOLDOUT_TRADING_DAYS,
         attach_holdout_meta,
+        clip_calendar_lookback,
         empty_holdout_preds,
         refuse_insufficient_holdout,
         resolve_ridge_split,
@@ -1058,7 +1059,7 @@ def fit_watching_return_model(
         all_dates,
         holdout_trading_days=hold_n,
         label_horizon_days=int(horizon_days or 1),
-        calendar_dates=sorted(cal_days),
+        calendar_dates=clip_calendar_lookback(sorted(cal_days), lookback),
     )
     blocked_split = refuse_insufficient_holdout(split_meta)
     if blocked_split:

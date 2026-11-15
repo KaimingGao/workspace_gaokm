@@ -170,6 +170,7 @@ def fit_tc_rank_report(
     train_codes: Optional[Collection[str]] = None,
     tau_end_hm: Optional[str] = None,
     tau_hm: Optional[str] = None,
+    lookback: Optional[int] = None,
     progress_cb: Optional[Any] = None,
 ) -> Dict[str, Any]:
     """拟合 ŷ_τc_rank。``stock_bars``: ``[{code, bars}, ...]``。不落盘。
@@ -177,12 +178,14 @@ def fit_tc_rank_report(
     前缀与 ŷ_τc 同族：``tau_end_hm`` → ``resolve_tau_train_prefix``。
     拟合固定日截面 Z；``train_codes`` 给定时损失与 Holdout 缩到该子集。
     非开盘前缀按 ``date|clock`` 成 LambdaRank 组。
+    ``lookback``：训练日历只留最近 N 日。日线里多出来的特征垫根不进训练。
     ``progress_cb(cur, tot, msg)``：建面板 / LambdaRank / Holdout 阶段刷新。
     """
     from core.research.feature_standardize import reject_global_zscore
     from core.research.holdout import (
         attach_holdout_meta,
         calendar_dates_from_stock_bars,
+        clip_calendar_lookback,
         make_research_model,
         refuse_insufficient_holdout,
         resolve_ridge_split,
@@ -242,7 +245,10 @@ def fit_tc_rank_report(
     use_minute = bool(prefix.get("use_minute"))
 
     bars = [it for it in (stock_bars or []) if isinstance(it, dict)]
-    calendar = calendar_dates_from_stock_bars(bars)
+    calendar = clip_calendar_lookback(
+        calendar_dates_from_stock_bars(bars),
+        lookback,
+    )
     if holdout_trading_days is None:
         hold_n = int(DEFAULT_HOLDOUT_TRADING_DAYS_TC_RANK)
     else:
@@ -250,18 +256,21 @@ def fit_tc_rank_report(
             hold_n = max(0, int(holdout_trading_days))
         except (TypeError, ValueError):
             hold_n = int(DEFAULT_HOLDOUT_TRADING_DAYS_TC_RANK)
-    # 日历预切：raw 入模列只看训窗（与旧 collect→feature_dates 同口径）
-    _pre_tr, _pre_te, split_pre = resolve_ridge_split(
-        calendar,
-        holdout_trading_days=hold_n,
-        label_horizon_days=0,
-        calendar_dates=calendar,
-    )
-    blocked_pre = refuse_insufficient_holdout(split_pre)
-    if blocked_pre:
-        blocked_pre["task"] = TASK
-        return blocked_pre
-    fit_dates = sorted(split_pre.get("train_days") or [])
+    # 日历预切：raw 入模列只看训窗（与旧 collect→feature_dates 同口径）。
+    # 空池没有日历，先拒 Holdout 会把「没有样本」说成留不出评测窗。
+    fit_dates: List[str] = []
+    if calendar:
+        _pre_tr, _pre_te, split_pre = resolve_ridge_split(
+            calendar,
+            holdout_trading_days=hold_n,
+            label_horizon_days=0,
+            calendar_dates=calendar,
+        )
+        blocked_pre = refuse_insufficient_holdout(split_pre)
+        if blocked_pre:
+            blocked_pre["task"] = TASK
+            return blocked_pre
+        fit_dates = sorted(split_pre.get("train_days") or [])
     panel_stats: Dict[str, Any] = {}
     try:
         _prog(0, 1, "ŷ_τc_rank 组面板…")

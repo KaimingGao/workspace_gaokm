@@ -1904,6 +1904,57 @@ export function initQuant(ctx) {
     return false;
   }
 
+  function directChildByClass(el, cls) {
+    if (!el) return null;
+    for (const node of el.children) {
+      if (node.classList && node.classList.contains(cls)) return node;
+    }
+    return null;
+  }
+
+  /** 结构不变时只改文字，不重建 .quant-rem-status-msg，呼吸动画不重开。 */
+  function patchRemStatusDom(el, parts) {
+    if (!el) return false;
+    const meta = directChildByClass(el, "quant-rem-status-meta");
+    const msg = directChildByClass(el, "quant-rem-status-msg");
+    const chipEl = directChildByClass(el, "quant-rem-status-chip");
+    const wantMeta = !!parts.hasMeta;
+    const wantMsg = !!parts.msgText;
+    const wantChip = !!parts.showChip;
+    let known = 0;
+    for (const node of el.children) {
+      if (
+        node.classList.contains("quant-rem-status-meta") ||
+        node.classList.contains("quant-rem-status-msg") ||
+        node.classList.contains("quant-rem-status-chip")
+      ) {
+        known += 1;
+      }
+    }
+    if (el.children.length !== known) return false;
+    if (!!meta !== wantMeta || !!msg !== wantMsg || !!chipEl !== wantChip) return false;
+    if (wantMeta && meta.innerHTML !== parts.metasHtml) meta.innerHTML = parts.metasHtml;
+    if (wantMsg) {
+      if (parts.messageHtml) {
+        if (msg.innerHTML !== parts.msgInner) msg.innerHTML = parts.msgInner;
+      } else if (msg.textContent !== parts.msgText) {
+        msg.textContent = parts.msgText;
+      }
+    }
+    if (wantChip) {
+      if (chipEl.getAttribute("data-state") !== parts.chipState) {
+        chipEl.setAttribute("data-state", parts.chipState);
+      }
+      if (chipEl.textContent !== parts.chip) chipEl.textContent = parts.chip;
+    }
+    const busyOn = !!parts.busy && !parts.error;
+    el.classList.toggle("is-busy", busyOn);
+    el.classList.toggle("is-error", !!parts.error);
+    if (busyOn) el.setAttribute("aria-busy", "true");
+    else el.removeAttribute("aria-busy");
+    return true;
+  }
+
   /**
    * ŷ_* 卡头状态：拟合时间 / 研究·执行启用时间（或未写盘）；
    * 有启用态 meta 时不再叠「研究+执行」等 chip（与 meta 重复）。
@@ -1975,9 +2026,10 @@ export function initQuant(ctx) {
     // 拟合/研究/执行 meta 已表达落盘态；chip 仅保留忙碌、失败、或尚未有 meta 的空闲提示
     // 顺序：meta 靠左 → 文案 → chip（忙碌/失败时）
     const showChip = !!busy || !!error || metas.length === 0;
+    const metasHtml = metas.join("");
     const html =
       (metas.length
-        ? `<span class="quant-rem-status-meta">${metas.join("")}</span>`
+        ? `<span class="quant-rem-status-meta">${metasHtml}</span>`
         : "") +
       (msgText
         ? `<span class="quant-rem-status-msg">${msgInner}</span>`
@@ -1987,7 +2039,19 @@ export function initQuant(ctx) {
             chipState
           )}">${escapeHtml(chip)}</span>`
         : "");
-    setBusyText(el, html, { busy: !!busy && !error, html: true });
+    const patched = patchRemStatusDom(el, {
+      hasMeta: metas.length > 0,
+      metasHtml,
+      msgText,
+      msgInner,
+      messageHtml: !!opts.messageHtml,
+      showChip,
+      chip,
+      chipState,
+      busy: !!busy && !error,
+      error: !!error,
+    });
+    if (!patched) setBusyText(el, html, { busy: !!busy && !error, html: true });
     if (error) el.classList.add("is-error");
     else el.classList.remove("is-error");
   }

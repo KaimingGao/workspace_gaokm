@@ -1109,6 +1109,37 @@ def _install_stop_handlers() -> None:
             continue
 
 
+def _factor_panel_build_line(
+    head_id: str,
+    arms: Sequence[str],
+    *,
+    full_aoo: bool = False,
+    atc_core: bool = False,
+) -> str:
+    """因子面板先建全量。日志写明谁用全量、Arm·T 裁成哪一包。"""
+    hid = str(head_id or "oo").strip().lower() or "oo"
+    tc = hid in ("tc", "tc_rank")
+    source = "atc_full" if tc else "aoo_full"
+    if tc:
+        t_pack = "atc_core" if atc_core else "atc_full"
+    else:
+        t_pack = "aoo_full" if full_aoo else "aoo_core"
+    has_l = "L" in arms
+    has_t = "T" in arms
+    if has_l and has_t:
+        if t_pack == source:
+            note = f"Arm·L 与 Arm·T 都用 {source}"
+        else:
+            note = f"Arm·L 用 {source}；Arm·T 开跑前裁成 {t_pack}"
+    elif has_l:
+        note = f"Arm·L 用 {source}"
+    elif t_pack == source:
+        note = f"Arm·T 用 {source}"
+    else:
+        note = f"先建 {source}，Arm·T 开跑前裁成 {t_pack}"
+    return f"构建因子面板 head={hid}：{note}…"
+
+
 def _run_holdout(args: argparse.Namespace) -> int:
     _install_stop_handlers()
     from core.research.yhat_transformer.heads import assert_trainable, get_head
@@ -1224,12 +1255,13 @@ def _run_holdout(args: argparse.Namespace) -> int:
 
         t0 = time.time()
         # 先建全量：Arm·L 对齐 live。core / full 只在 Arm·T 开跑前裁列。
-        if head_spec.id in ("tc", "tc_rank"):
-            pack_name = "atc_full"
-        else:
-            pack_name = "aoo_full"
         print(
-            f"构建因子面板 head={head_spec.id} pack={pack_name}（Arm·L 全量）…",
+            _factor_panel_build_line(
+                head_spec.id,
+                arms,
+                full_aoo=bool(getattr(args, "full_aoo", False)),
+                atc_core=bool(getattr(args, "atc_core", False)),
+            ),
             flush=True,
         )
         fac = build_factor_panel(
