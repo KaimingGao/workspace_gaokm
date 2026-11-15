@@ -469,7 +469,7 @@ function currentFitMetrics(st) {
 function metricSummary(metrics) {
   if (!metrics || typeof metrics !== "object") return "";
   const entries = [
-    ["CS-IC", metrics.cs_rank_ic],
+    ["Rank IC", metrics.cs_rank_ic],
     ["Gate lift", metrics.gate_lift],
   ].filter(([, value]) => value != null && value !== "" && Number.isFinite(Number(value)));
   return entries.map(([label, value]) => `${label} ${Number(value).toFixed(4)}`).join(" · ");
@@ -543,6 +543,13 @@ function fmtIc(v) {
   if (v == null || v === "") return "—";
   const n = Number(v);
   return Number.isFinite(n) ? n.toFixed(4) : "—";
+}
+
+/** 与枢纽因子表 KPI 同一位：IC / Rank IC / ICIR / Top10% y 三位。 */
+function fmtKpi3(v) {
+  if (v == null || v === "") return "—";
+  const n = Number(v);
+  return Number.isFinite(n) ? n.toFixed(3) : "—";
 }
 
 function fmtPct(v) {
@@ -693,7 +700,7 @@ export function liveArmFromLog(lines) {
       pack = {
         success: true,
         cs_rank_ic: nums[0],
-        cs_rank_icir: nums[1],
+        cs_icir: nums[1],
         sign_hit: nums[2],
         cs_top_mean_y: nums[3],
         elapsed_sec: pack?.elapsed_sec ?? null,
@@ -717,7 +724,7 @@ export function liveArmFromLog(lines) {
     pack = {
       success: true,
       cs_rank_ic: vals[0],
-      cs_rank_icir: vals[1],
+      cs_icir: vals[1],
       sign_hit: vals[2],
       cs_top_mean_y: vals[3],
       elapsed_sec: sec ? numOrNull(sec[1]) : null,
@@ -895,10 +902,10 @@ function renderContrast(root, st, metrics) {
       state.clock = elapsedClock(st.job.started_at);
     }
     renderArmState(stateEl, state);
-    setMetric(tag, "ic", fmtIc(pack?.cs_rank_ic));
-    setMetric(tag, "icir", fmtIc(pack?.cs_rank_icir));
+    setMetric(tag, "ic", fmtKpi3(pack?.cs_rank_ic));
+    setMetric(tag, "icir", fmtKpi3(pack?.cs_icir));
     setMetric(tag, "hit", fmtPct(pack?.sign_hit));
-    setMetric(tag, "topy", fmtIc(pack?.cs_top_mean_y));
+    setMetric(tag, "topy", fmtKpi3(pack?.cs_top_mean_y));
     const own = logs[tag];
     const show = own.length ? own : (st?.fit_running ? logs.shared : []);
     setArmLog(box.querySelector(`[data-arm-log="${tag}"]`), show);
@@ -1147,7 +1154,7 @@ function renderHeadSummary(st) {
   if (gate) {
     if (pageFactory === "L") {
       const ic = Number(currentFitMetrics(st)?.cs_rank_ic);
-      gate.textContent = Number.isFinite(ic) ? `RankIC ${ic.toFixed(4)}` : "绝对指标";
+      gate.textContent = Number.isFinite(ic) ? `Rank IC ${ic.toFixed(3)}` : "绝对指标";
     } else {
       const g =
         st?.last?.hard_gate_vs_arm_L && typeof st.last.hard_gate_vs_arm_L === "object"

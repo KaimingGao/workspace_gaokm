@@ -113,6 +113,19 @@ class TestOoRankLightgbmLambda(unittest.TestCase):
         active = fit.get("active_features") or []
         self.assertIn("mom3", active)
 
+    def test_fit_refuses_all_nan_theme_column(self):
+        from core.research.oo_rank_lambdarank import fit_lambdarank
+
+        days = _synth_days(8, 12)
+        for day in days:
+            extra = np.full((day["X"].shape[0], 1), np.nan)
+            day["X"] = np.hstack([day["X"], extra])
+            day["names"] = list(day["names"]) + ["z_τc_theme_day"]
+        with _patch_rank_l2_as_batch():
+            fit = fit_lambdarank(days, n_estimators=5, min_child_samples=2)
+        self.assertFalse(fit.get("success"))
+        self.assertIn("z_τc_theme_day", str(fit.get("error")))
+
     def test_predict_round_trip(self):
         """训练后 predict_oo_rank_from_features 对高/低 mom3 的排序方向正确。"""
         from core.research.oo_rank_lambdarank import (

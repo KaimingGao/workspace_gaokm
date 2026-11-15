@@ -236,7 +236,11 @@ def save_oo_rank_last_report(report: Dict[str, Any]) -> None:
     stamp_oo_rank_fitted_at(report)
     path = oo_rank_last_report_path()
     os.makedirs(os.path.dirname(path), exist_ok=True)
-    atomic_write_json(path, _scrub_rank_label_meta(report))
+    doc = _scrub_rank_label_meta(report)
+    atomic_write_json(path, doc)
+    from core.research.model_versions import archive_fit_draft
+
+    archive_fit_draft("oo_rank", doc)
 
 
 def load_oo_rank_last_report() -> Optional[Dict[str, Any]]:
@@ -1016,6 +1020,50 @@ def _apply_z_clip(z: np.ndarray, clip: float) -> np.ndarray:
     return np.clip(z, -c, c)
 
 
+_BREADTH_TRAIN_COLUMNS = frozenset(
+    {
+        "theme_day",
+        "z_τc_theme_day",
+        "sector_gap_breadth",
+        "z_τc_sector_gap_breadth",
+        "gap_vs_sector",
+        "z_τc_gap_vs_sector",
+    }
+)
+
+
+def _breadth_columns_all_dead(
+    days: Sequence[Dict[str, Any]],
+    feature_names: Sequence[str],
+) -> List[str]:
+    """入模的截面列若整段都是 NaN，截面 z 会把它们写成 0。
+
+    这和「原始值就是 0」不是同一列。主题列曾经整段留在湖里的 NaN 上，
+    拟合仍报成功。这里在训练前拒绝。不含这些列的头（ŷ_oo_rank）直接跳过。
+    """
+    watch = [str(n) for n in feature_names if str(n) in _BREADTH_TRAIN_COLUMNS]
+    if not watch:
+        return []
+    seen = {name: False for name in watch}
+    for day in days or []:
+        packed = _day_X(day)
+        if packed is None:
+            continue
+        raw, col_names = packed
+        idx = {str(n): j for j, n in enumerate(col_names)}
+        for name in watch:
+            if seen[name]:
+                continue
+            j = idx.get(name)
+            if j is None:
+                continue
+            if bool(np.isfinite(raw[:, j]).any()):
+                seen[name] = True
+        if all(seen.values()):
+            return []
+    return [name for name, ok in seen.items() if not ok]
+
+
 def fit_lambdarank(
     days: Sequence[Dict[str, Any]],
     *,
@@ -1077,6 +1125,13 @@ def fit_lambdarank(
         trunc = int(LAMBDARANK_TRUNCATION_LEVEL)
     # 日包可带 clock（τc_rank 前缀网格）；统一走 _day_pack_clock
     days = _filter_days_with_l2(days, clock="open")
+    dead = _breadth_columns_all_dead(days, names)
+    if dead:
+        return {
+            "success": False,
+            "error": "截面列全是 NaN，z 会写成 0，拒绝训练：" + ", ".join(dead),
+            "dead_columns": dead,
+        }
     X_blocks: List[np.ndarray] = []
     y_blocks: List[List[int]] = []
     group_sizes: List[int] = []
@@ -2264,7 +2319,7 @@ def fit_oo_rank_report(
 
     ``backend``：``"auto"`` / ``"lambdarank"``（同义）；``"ridge"`` 已退役，返回错误。
     ``lightgbm_params`` 可覆盖超参。
-    OOS 指标：gate_lift（主）/ gate_mean_y / NDCG@K / TopK；IC / Rank IC 仅对照。
+    OOS 指标：gate_lift（主）/ gate_mean_y / NDCG@K / TopK；IC / ICIR / Rank IC 仅对照。
     ``cs_ic`` / ``cs_icir`` 与 ŷ_oo 同口径：Holdout 日截面 Pearson(排序分, y_oo) 的均值，
     ICIR = 该日序列 mean/std（不足 3 日不出）。用原始排序分，不用 1..n 名次。
     ``progress_cb(cur, tot, msg)``：建面板 / LambdaRank / Holdout 阶段刷新。
@@ -2471,7 +2526,7 @@ def fit_oo_rank_report(
         "note": (
             "ŷ_oo_rank=LambdaRank；只训 Holdout 前一套；"
             "启用研究→研究槽；启用执行=研究槽晋级；"
-            "OOS 主看 Gate lift；IC 仅对照；"
+            "OOS 主看 Gate lift；IC / ICIR 仅对照；"
             "不进 y_oo_fuse；相对分进合成 rank_score；成交明细编当日截面 1..n 名次；"
             "可选 rank 相对分闸"
         ),
@@ -2489,7 +2544,7 @@ def compare_oo_rank_shadow_track(
     stock_bars: Sequence[Dict[str, Any]],
     **kwargs: Any,
 ) -> Dict[str, Any]:
-    """历史跑路入口：拟合报告 + LambdaRank OOS（Gate lift 主，IC 对照）。"""
+    """历史跑路入口：拟合报告 + LambdaRank OOS（Gate lift 主，IC / ICIR 对照）。"""
     report = fit_oo_rank_report(stock_bars, persist=False, **kwargs)
     if not report.get("success"):
         return report

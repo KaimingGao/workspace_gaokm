@@ -100,6 +100,58 @@ class TestTcPanel(unittest.TestCase):
         w = theme_sample_weights(enriched[0]["metas"], theme_boost=2.0)
         self.assertEqual(len(w), len(enriched[0]["metas"]))
 
+    def test_matrix_theme_fills_canon_column(self):
+        """入模列只有 z_τc_* 时，主题必须写进 z_τc_theme_day，不能只留在裸名。"""
+        import numpy as np
+
+        from core.research.tau_panel import attach_cross_section_breadth
+
+        names = [
+            "z_τc_gap_pct",
+            "z_τc_theme_day",
+            "z_τc_sector_gap_breadth",
+            "z_τc_gap_vs_sector",
+        ]
+        # 池静（广度与 |gap| 中位都低于门槛），只有本票大缺口记主题。
+        gaps = [0.2, 3.0, 0.1]
+        x = np.full((3, len(names)), np.nan, dtype=np.float64)
+        x[:, 0] = gaps
+        day = "2026-09-28"
+        panel = {
+            "code": "",
+            "xs": [],
+            "X": x,
+            "x_names": list(names),
+            "ys": [0.0, 0.0, 0.0],
+            "dates": [day, day, day],
+            "metas": [
+                {"date": day, "stock_code": code, "tau": "open"}
+                for code in ("000001", "000002", "600519")
+            ],
+        }
+        out = attach_cross_section_breadth([panel], gap_trigger_pct=2.0)
+        got = np.asarray(out[0]["X"])
+        self.assertEqual(list(out[0]["x_names"]), names)
+        self.assertEqual(got.shape, x.shape)
+        self.assertEqual([float(v) for v in got[:, 1]], [0.0, 1.0, 0.0])
+
+    def test_breadth_land_check_flags_unwritten_canon(self):
+        import numpy as np
+
+        from core.research.tau_panel import _breadth_columns_not_landed
+
+        cols = {"theme_day": np.array([0.0, 1.0])}
+        blank = np.full((2, 1), np.nan)
+        missed = _breadth_columns_not_landed(
+            blank, 2, {"z_τc_theme_day": 0}, cols
+        )
+        self.assertEqual(missed, ["theme_day[0]x2"])
+        landed = np.array([[0.0], [1.0]])
+        self.assertEqual(
+            _breadth_columns_not_landed(landed, 2, {"z_τc_theme_day": 0}, cols),
+            [],
+        )
+
     def test_sector_relative_gap_uses_peer_median(self):
         from core.research.tau_panel import (
             gap_vs_sector_value,
@@ -395,8 +447,8 @@ class TestTcModelFit(unittest.TestCase):
                 "schema": "tau_lgb_v1",
                 "backend": "lightgbm",
                 "solver": "lightgbm",
-                "feature_names": ["gap_pct"],
-                "booster": {"payload_b64": "dGVzdA==", "format": "lgb"},
+                "feature_names": ["gap_pct", "gap_atr", "ret_open_to_tau"],
+                "booster": {"payload_b64": "B" * 64, "format": "lgb"},
                 "coefficients": {},
                 "intercept": 0.0,
                 "y_spec": {"formula": "close[T]/open[T]-1", "tau": "open", "unit": "pct"},
@@ -407,7 +459,7 @@ class TestTcModelFit(unittest.TestCase):
                 "n_valid": 100,
                 "buckets": {"abs_ge_0_6": {"n": 40, "sign_hit": 0.62}},
             },
-            "sample_count": 10,
+            "sample_count": 2000,
             "stock_count": 3,
         }
         with tempfile.TemporaryDirectory() as tmp:
@@ -435,7 +487,10 @@ class TestTcModelFit(unittest.TestCase):
                 doc = load_tau_model()
                 rm = doc.get("return_model") or {}
                 self.assertEqual(doc.get("schema"), "tau_lgb_v1")
-                self.assertEqual(rm.get("feature_names"), ["gap_pct"])
+                self.assertEqual(
+                    rm.get("feature_names"),
+                    ["gap_pct", "gap_atr", "ret_open_to_tau"],
+                )
                 self.assertEqual(rm.get("backend"), "lightgbm")
 
 class TestSentimentBullish(unittest.TestCase):

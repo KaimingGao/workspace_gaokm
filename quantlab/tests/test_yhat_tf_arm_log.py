@@ -30,6 +30,15 @@ class TestYhatTfArmLog(unittest.TestCase):
             r"/^transformer\s+ep=\d+\/\d+\s+holdout\b/",
             src,
         )
+        self.assertIn('setMetric(tag, "icir", fmtKpi3(pack?.cs_icir))', src)
+        self.assertNotIn("fmtIc(pack?.cs_rank_icir)", src)
+        panel = os.path.join(ROOT, "web", "static", "partials", "yhat_factory_panel.html")
+        with open(panel, encoding="utf-8") as f:
+            html = f.read()
+        self.assertIn(">Rank IC<", html)
+        self.assertIn(">Top10% y<", html)
+        self.assertNotIn(">RankIC<", html)
+        self.assertNotIn(">TopY<", html)
 
     def test_probe_lines_are_not_terminal(self):
         probe = (

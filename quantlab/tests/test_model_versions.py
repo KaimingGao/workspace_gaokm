@@ -23,6 +23,31 @@ def _complete_rm(sample_count: int, *, tag: str = "a") -> dict:
 
 
 class TestModelVersions(unittest.TestCase):
+    def test_smoke_sample_and_short_booster_stay_out(self):
+        from core.research.model_versions import suite_doc_incomplete_reason
+
+        smoke = {
+            "return_model": {
+                **_complete_rm(800),
+                "booster_b64": "A" * 80,
+            }
+        }
+        self.assertIn("sample_count", suite_doc_incomplete_reason(smoke) or "")
+        short = {
+            "return_model": {
+                **_complete_rm(2000),
+                "booster_b64": "A" * 17,
+            }
+        }
+        self.assertIn("booster", suite_doc_incomplete_reason(short) or "")
+        ok = {
+            "return_model": {
+                **_complete_rm(2000),
+                "booster_b64": "A" * 80,
+            }
+        }
+        self.assertIsNone(suite_doc_incomplete_reason(ok))
+
     def test_archive_list_restore_roundtrip(self):
         with tempfile.TemporaryDirectory() as tmp:
             live = os.path.join(tmp, "live")
@@ -137,7 +162,7 @@ class TestModelVersions(unittest.TestCase):
                     "fitted_at": "2026-04-01T10:00:00Z",
                     "return_model": {
                         **_complete_rm(900, tag="a"),
-                        "booster": {"payload_b64": "HEAVY"},
+                        "booster": {"payload_b64": "H" * 64},
                     },
                     "oos": {"cs_ic": 0.1},
                     "model_role": "research",
@@ -146,7 +171,7 @@ class TestModelVersions(unittest.TestCase):
                     "fitted_at": "2026-04-02T11:00:00Z",
                     "return_model": {
                         **_complete_rm(1100, tag="b"),
-                        "booster": {"payload_b64": "OTHER"},
+                        "booster": {"payload_b64": "O" * 64},
                     },
                     "oos": {"cs_ic": 0.2},
                     "model_role": "research",
@@ -418,6 +443,52 @@ class TestModelVersions(unittest.TestCase):
                 out = mv.preview_suite_version("oo", "research", vid)
                 self.assertFalse(out.get("success"))
                 self.assertTrue(out.get("incomplete"))
+
+    def test_fit_draft_archives_without_writing_slot(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            live = os.path.join(tmp, "live")
+            os.makedirs(live, exist_ok=True)
+            research = os.path.join(live, "tau_lgb_model_research.json")
+            with mock.patch("core.paths.LIVE_DIR", live), mock.patch(
+                "core.research.model_versions.LIVE_DIR", live
+            ), mock.patch(
+                "core.research.model_versions.MODEL_VERSIONS_DIR",
+                os.path.join(live, "model_versions"),
+            ):
+                from core.research import model_versions as mv
+
+                holdout = {
+                    "success": True,
+                    "fitted_at": "2026-11-15T05:52:07Z",
+                    "holdout_trading_days": 20,
+                    "return_model": _complete_rm(1600, tag="t"),
+                }
+                full = {
+                    "success": True,
+                    "fitted_at": "2026-11-15T06:00:00Z",
+                    "holdout_trading_days": 0,
+                    "return_model": _complete_rm(1600, tag="f"),
+                }
+                tiny = {
+                    "success": True,
+                    "fitted_at": "2026-11-15T06:10:00Z",
+                    "return_model": _complete_rm(10, tag="x"),
+                }
+                vid_h = mv.archive_fit_draft("tau", holdout)
+                vid_l = mv.archive_fit_draft("tau", full)
+                self.assertIsNone(mv.archive_fit_draft("tau", tiny))
+                self.assertTrue(vid_h)
+                self.assertTrue(vid_l)
+                research_ids = [
+                    it["id"] for it in mv.list_suite_versions("tau", "research")["items"]
+                ]
+                live_ids = [
+                    it["id"] for it in mv.list_suite_versions("tau", "live")["items"]
+                ]
+                self.assertEqual(research_ids, [vid_h])
+                self.assertEqual(live_ids, [vid_l])
+                self.assertFalse(os.path.isfile(research))
+                self.assertIsNone(mv.list_suite_versions("tau", "research")["current_id"])
 
 
 if __name__ == "__main__":

@@ -98,7 +98,11 @@ def save_tc_rank_last_report(report: Dict[str, Any]) -> None:
     stamp_oo_rank_fitted_at(report)
     path = tc_rank_last_report_path()
     os.makedirs(os.path.dirname(path), exist_ok=True)
-    atomic_write_json(path, _scrub_rank_label_meta(report))
+    doc = _scrub_rank_label_meta(report)
+    atomic_write_json(path, doc)
+    from core.research.model_versions import archive_fit_draft
+
+    archive_fit_draft("tc_rank", doc)
 
 
 def load_tc_rank_last_report() -> Optional[Dict[str, Any]]:
@@ -487,7 +491,7 @@ def fit_tc_rank_report(
             "ŷ_τc_rank=LambdaRank；只训 Holdout 前一套；"
             "前缀与 ŷ_τc 同组（默认 09:30）；"
             "启用研究→研究槽；启用执行=研究槽晋级；"
-            "OOS 主看 Gate lift；IC 仅对照；"
+            "OOS 主看 Gate lift；IC / ICIR 仅对照；"
             "不进 y_oo_fuse；进合成 rank_score（买序/阈值）"
         ),
     }

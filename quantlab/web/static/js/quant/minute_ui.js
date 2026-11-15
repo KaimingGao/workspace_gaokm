@@ -8,7 +8,6 @@ import {
   l0PhaseLabel,
   l0ParsedFacts,
   l0RunningHead,
-  l0DoneHead,
   l0CoverageFacts,
   isJobHeartbeatStale,
   JOB_RESTART_INTERRUPT_ERR,
@@ -206,31 +205,35 @@ export function installMinuteUi(q) {
 
   function paintProgressDone(job, mode) {
     const sum = minuteWarmup(job, mode);
-    const head = l0DoneHead(sum, "minute", lastCoverage, job);
     const topup = isTopupSummary(sum);
-    const hasTimeout = Number(sum.timed_out) > 0;
     setDeskStatusTone([minuteStrip, minuteCard], "primary");
     paintClusterJobPanel(progressEl, {
-      phase: head[0],
+      phase: topup ? "增量完成" : "强更完成",
       job,
       esc,
       mode: "done",
       tone: "primary",
-      hint: head.length > 1
-        ? head.slice(1).join(" · ") + (hasTimeout ? " · 超时票已 skip，其余继续" : "")
-        : topup
-          ? `增量补齐（L0） · 今日已拉/末根对齐则跳过 · 缺尾补拉 · 新浪固定窗 · ${TOPUP_WORKERS} 并发`
-          : FULL_WARMUP_HINT,
+      hideMessage: true,
+      hint: topup
+        ? `增量补齐（L0） · 今日已拉/末根对齐则跳过 · 缺尾补拉 · 新浪固定窗 · ${TOPUP_WORKERS} 并发`
+        : FULL_WARMUP_HINT,
     });
   }
 
   function applyJobSuccess(job, mode) {
     jobSuccess = { job: job || null };
     jobFailure = null;
-    setDeskStatusTone([minuteStrip, minuteCard], "primary");
-    setProStatusChip(chip, "ok", "DONE");
-    const sum = minuteWarmup(job, mode);
-    msgEl.textContent = l0DoneHead(sum, "minute", lastCoverage, job).join(" · ");
+    // 完成计数不回放到卡头，也不再写进终态进度框；覆盖摘要与 KPI 已有。
+    const cover = lastCoverage && lastCoverage.success ? formatStatus(lastCoverage) : null;
+    if (cover) {
+      setDeskStatusTone([minuteStrip, minuteCard], null);
+      setProStatusChip(chip, cover.state, cover.chip);
+      msgEl.textContent = cover.msg;
+    } else {
+      setDeskStatusTone([minuteStrip, minuteCard], "primary");
+      setProStatusChip(chip, "ok", "DONE");
+      msgEl.textContent = isTopupSummary(minuteWarmup(job, mode)) ? "增量完成" : "强更完成";
+    }
     paintProgressDone(job, mode);
     minuteCard?.classList.remove("is-busy");
     minuteStrip?.classList.remove("is-busy");

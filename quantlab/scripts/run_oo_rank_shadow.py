@@ -1,4 +1,4 @@
-"""跑一轮 ŷ_oo_rank LambdaRank OOS（Gate lift 主，IC 对照）。
+"""跑一轮 ŷ_oo_rank LambdaRank OOS（Gate lift 主，IC / ICIR 对照）。
 
 特征与 ŷ_oo 同口径：原始 sub_score。
 标签: excess_mode=index（扣指数后的超额收益）
@@ -107,6 +107,7 @@ def run_one(stock_bars, index_bars, day_panels, excess_mode: str = "index"):
     print(f"  {'Top-10 Overlap':28s}  {_f(rank_m.get('topk_overlap'), fmt='', w=4):>10s}")
     print(f"  {'Top-10 均值收益(%)':28s}  {_f(rank_m.get('topk_mean_y_oo')):>9s}%")
     print(f"  {'IC（对照）':28s}  {_f(rank_m.get('cs_ic')):>10s}")
+    print(f"  {'ICIR（对照）':28s}  {_f(rank_m.get('cs_icir')):>10s}")
     print(f"  {'Rank IC（对照）':28s}  {_f(rank_m.get('spearman')):>10s}")
 
     return track

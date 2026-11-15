@@ -1127,6 +1127,27 @@ def sector_gap_reference_by_code(
     return out
 
 
+def theme_flag_for_row(
+    *,
+    day_theme: int,
+    gap_pct: Optional[float],
+    gap_trigger_pct: float,
+) -> int:
+    """日级主题已含广度和截面 |gap| 中位。行上只再看本票缺口。
+
+    不要把 ``pool_gaps`` 再送进 ``resolve_theme_day``：那会在每一行上
+    重排当天全部缺口。满池大约百万行，截面广度会卡在排序上。
+    """
+    if int(day_theme or 0) == 1:
+        return 1
+    if gap_pct is None:
+        return 0
+    try:
+        return 1 if abs(float(gap_pct)) >= float(gap_trigger_pct) else 0
+    except (TypeError, ValueError):
+        return 0
+
+
 def gap_vs_sector_value(
     gap_pct: Optional[float],
     sector_median: Optional[float],
@@ -1751,7 +1772,10 @@ def _feat_from_matrix(
 ) -> Optional[float]:
     if X is None or not index:
         return None
-    j = index.get(str(key))
+    key_s = str(key)
+    j = index.get(key_s)
+    if j is None and not key_s.startswith("z_τc_"):
+        j = index.get(f"z_τc_{key_s}")
     if j is None:
         return None
     arr = np.asarray(X)
@@ -1812,19 +1836,51 @@ def _write_sector_horizon_ret(
             meta[vs_key] = xs_row[vs_key]
 
 
+def _breadth_columns_not_landed(
+    X: Any,
+    n: int,
+    index: Dict[str, int],
+    cols: Dict[str, Any],
+) -> List[str]:
+    """算出了有限值、列也在矩阵里，写入后仍是 NaN 的列。"""
+    missed: List[str] = []
+    arr = np.asarray(X)
+    for key, col in cols.items():
+        targets: List[int] = []
+        if key in index:
+            targets.append(int(index[key]))
+        j_c = index.get(f"z_τc_{key}")
+        if j_c is not None and int(j_c) not in targets:
+            targets.append(int(j_c))
+        if not targets:
+            continue
+        need = np.isfinite(np.asarray(col))
+        if not bool(np.any(need)):
+            continue
+        for j in targets:
+            n_miss = int(np.count_nonzero(need & ~np.isfinite(arr[:n, j])))
+            if n_miss:
+                missed.append(f"{key}[{j}]x{n_miss}")
+    return missed
+
+
 def _fill_breadth_matrix(
     panel: Dict[str, Any],
     *,
     breadth_by_date: Dict[str, float],
     theme_by_date: Dict[str, int],
-    gaps_by_date: Dict[str, List[float]],
     ref_by_date: Dict[str, Dict[str, Optional[float]]],
     sector_ret_by_date_tau: Dict[Tuple[str, str], Optional[float]],
     sector_horizon_by_date_tau: Dict[str, Dict[Tuple[str, str], Optional[float]]],
     gap_trigger_pct: float,
 ) -> Dict[str, Any]:
-    """把截面广度写回 float64 块，不建逐行 dict。"""
-    X = np.asarray(panel.get("X"), dtype=np.float64)
+    """把截面广度写回矩阵，不建逐行 dict。保持原 dtype（拟合面板是 float32）。"""
+    raw_x = panel.get("X")
+    if isinstance(raw_x, np.ndarray) and raw_x.ndim == 2:
+        X = raw_x
+    else:
+        X = np.asarray(raw_x, dtype=np.float64)
+    dtype = getattr(X, "dtype", np.float64)
     names = [str(n) for n in (panel.get("x_names") or [])]
     dates = list(panel.get("dates") or [])
     metas = list(panel.get("metas") or [])
@@ -1842,15 +1898,8 @@ def _fill_breadth_matrix(
     ]
     for _ret_key, sector_key, vs_key in HORIZON_SEQ_CS_SPECS:
         keys.extend([sector_key, vs_key])
-    missing = [k for k in keys if k not in index]
-    if missing:
-        pad = np.full((int(X.shape[0]), len(missing)), np.nan, dtype=np.float64)
-        X = np.concatenate([X, pad], axis=1)
-        for k in missing:
-            index[k] = len(names)
-            names.append(k)
-    cols = {k: np.full(n, np.nan, dtype=np.float64) for k in keys}
-    from core.research.tau_theme import resolve_theme_day
+    # 缺列不扩表：扩列会把百万行矩阵再拷一份。裸名和 z_τc_* 哪个在就写哪个。
+    cols = {k: np.full(n, np.nan, dtype=dtype) for k in keys}
 
     trigger = float(gap_trigger_pct)
     for i in range(n):
@@ -1867,13 +1916,10 @@ def _fill_breadth_matrix(
                 gap_i = None
         ref = (ref_by_date.get(d) or {}).get(code_i)
         rel = gap_vs_sector_value(gap_i, ref)
-        th = int(
-            resolve_theme_day(
-                gap_pct=gap_i,
-                sector_breadth=b,
-                pool_gaps=gaps_by_date.get(d),
-                gap_trigger_pct=trigger,
-            )
+        th = theme_flag_for_row(
+            day_theme=int(theme_by_date.get(d) or 0),
+            gap_pct=gap_i,
+            gap_trigger_pct=trigger,
         )
         if b is not None:
             cols["sector_gap_breadth"][i] = float(b)
@@ -1894,11 +1940,25 @@ def _fill_breadth_matrix(
             rv = _feat_from_matrix(X, index, i, ret_key)
             if rv is not None:
                 cols[vs_key][i] = round(float(rv) - float(sret_h), 6)
+    def _write_js(key: str) -> List[int]:
+        found: List[int] = []
+        if key in index:
+            found.append(index[key])
+        canon = f"z_τc_{key}"
+        j_c = index.get(canon)
+        if j_c is not None and j_c not in found:
+            found.append(j_c)
+        return found
+
     for key, col in cols.items():
-        j = index[key]
         finite = np.isfinite(col)
-        if np.any(finite):
+        if not np.any(finite):
+            continue
+        for j in _write_js(key):
             X[:n, j] = np.where(finite, col, X[:n, j])
+    missed = _breadth_columns_not_landed(X, n, index, cols)
+    if missed:
+        raise RuntimeError("截面广度已算出但没写进矩阵列：" + ", ".join(missed))
     # 权重和主题报告读 meta，不读 X
     for i in range(n):
         if i >= len(metas) or not isinstance(metas[i], dict):
@@ -1985,7 +2045,6 @@ def attach_cross_section_breadth(
 
     breadth_by_date: Dict[str, float] = {}
     theme_by_date: Dict[str, int] = {}
-    gaps_by_date: Dict[str, List[float]] = {}
     ref_by_date: Dict[str, Dict[str, Optional[float]]] = {}
     sector_ret_by_date_tau: Dict[Tuple[str, str], Optional[float]] = {}
     sector_horizon_by_date_tau: Dict[str, Dict[Tuple[str, str], Optional[float]]] = {
@@ -1998,7 +2057,6 @@ def attach_cross_section_breadth(
         if not pairs:
             continue
         gaps = [g for _c, g in pairs]
-        gaps_by_date[d] = gaps
         # 大缺口广度：|gap|≥trigger（旧实现只计正缺口 → theme 几乎恒 0）
         hit = sum(1 for g in gaps if abs(float(g)) >= trigger)
         b = hit / len(gaps)
@@ -2031,7 +2089,6 @@ def attach_cross_section_breadth(
                     p,
                     breadth_by_date=breadth_by_date,
                     theme_by_date=theme_by_date,
-                    gaps_by_date=gaps_by_date,
                     ref_by_date=ref_by_date,
                     sector_ret_by_date_tau=sector_ret_by_date_tau,
                     sector_horizon_by_date_tau=sector_horizon_by_date_tau,
@@ -2065,17 +2122,11 @@ def attach_cross_section_breadth(
             ref = (ref_by_date.get(d) or {}).get(code_i)
             rel = gap_vs_sector_value(gap_i, ref)
             sret = sector_ret_by_date_tau.get((d, tau_k))
-            # 日级主题 OR 本票大缺口（与 resolve_theme_day 对齐）
-            th_row = int(
-                resolve_theme_day(
-                    gap_pct=gap_i,
-                    sector_breadth=b,
-                    pool_gaps=gaps_by_date.get(d),
-                    gap_trigger_pct=trigger,
-                )
+            th = theme_flag_for_row(
+                day_theme=int(th or 0),
+                gap_pct=gap_i,
+                gap_trigger_pct=trigger,
             )
-            if th_row:
-                th = 1
             meta_i = metas[i] if i < len(metas) else None
             if i < len(xs):
                 xs[i]["sector_gap_breadth"] = b

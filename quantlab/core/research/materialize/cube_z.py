@@ -104,6 +104,58 @@ def _cube_disk_span(clock: str) -> Tuple[str, ...]:
         return ()
 
 
+def _cube_mu_width(cube: Any) -> int:
+    """列名与 μ/σ 对齐后的宽度。截面 z 用这份宽度；读不出则为 0。"""
+    if cube is None:
+        return 0
+    names = list(getattr(cube, "names", None) or [])
+    try:
+        mu_n = int(np.asarray(getattr(cube, "z_mean", None), dtype=np.float64).size)
+        sd_n = int(np.asarray(getattr(cube, "z_std", None), dtype=np.float64).size)
+    except (TypeError, ValueError):
+        return 0
+    return min(len(names), mu_n, sd_n)
+
+
+def first_readable_cube_day(clock: str = "open") -> Tuple[str, int]:
+    """磁盘跨度上第一份能给截面 z 用的立方。
+
+    与 ``cs_z_matrix_prefer_cube`` 一样只读 μ/σ，不读整表。跨度开头读失败的文件
+    跳过，不算起点。后面的缺口留在原处。没有可读立方时日期为空串。
+
+    Returns:
+        ``(YYYY-MM-DD, skipped_leading)``。
+    """
+    clk = str(clock or "open")
+    days = _cube_disk_span(clk)
+    if not days:
+        return "", 0
+    from core.research.day_cube import load_day_cube
+
+    univ = universe_codes()
+    skipped = 0
+    for day in days:
+        cube = None
+        try:
+            cube = load_day_cube(
+                day, univ, clock=clk, remember=False, with_matrix=False
+            )
+        except Exception:  # noqa: BLE001
+            logger.debug("cube start probe failed %s", day, exc_info=True)
+            cube = None
+        if _cube_mu_width(cube) >= 1:
+            if skipped:
+                logger.warning(
+                    "cube span skipped %s unreadable leading files clock=%s start=%s",
+                    skipped,
+                    clk,
+                    day,
+                )
+            return str(day)[:10], skipped
+        skipped += 1
+    return "", skipped
+
+
 def _cube_disk_span_note(clock: str, *, miss_day: str = "") -> str:
     """本地该钟已有 Cube 的日期跨度（便于区分「没物化」vs「物化窗短于 lookback」）。"""
     days = _cube_disk_span(clock)

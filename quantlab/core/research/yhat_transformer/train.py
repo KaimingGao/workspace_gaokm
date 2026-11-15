@@ -945,7 +945,7 @@ def train_seq_factor_transformer(
                 print(
                     f"    transformer ep={ep}/{epochs} holdout "
                     f"rankIC={_fmt4(ho_pack.get('cs_rank_ic'))} "
-                    f"ICIR={_fmt4(ho_pack.get('cs_rank_icir'))} "
+                    f"ICIR={_fmt4(ho_pack.get('cs_icir'))} "
                     f"sign_hit={_fmt4(ho_pack.get('sign_hit'))} "
                     f"topY={_fmt4(ho_pack.get('cs_top_mean_y'))} "
                     f"n={ho_pack.get('n')}",

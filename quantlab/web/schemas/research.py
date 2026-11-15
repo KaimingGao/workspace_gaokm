@@ -188,6 +188,10 @@ class OoRankRequest(_CrossSectionZscore):
         ),
     )
     note: str = Field(default="", max_length=200)
+    commit_research: bool = Field(
+        default=False,
+        description="后台拟合成功后在同一任务写入研究槽；persist=true 时忽略",
+    )
     sync: bool = Field(
         default=False,
         description="true=同步跑（单测）；默认 persist=false 时入队 Job，轮询 GET /api/jobs/oo-rank",

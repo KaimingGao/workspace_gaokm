@@ -425,6 +425,22 @@ class TestYhatTfFitExitError(unittest.TestCase):
                 self.assertIn("LightGBM", msg)
                 self.assertIn("τc", msg)
 
+    def test_arml_column_filter_exit_is_not_called_lgb(self):
+        with tempfile.TemporaryDirectory() as td:
+            with mock.patch("core.research.yhat_tf_desk.YHAT_TF_DIR", td):
+                from core.research.yhat_tf_desk import _fit_exit_error_from_log
+
+                log_path = os.path.join(td, "tc_fit.log")
+                with open(log_path, "w", encoding="utf-8") as f:
+                    f.write(
+                        "  ArmL live-fit start head=tc n_train=1512391 "
+                        "n_test=47866 F=230 rounds=300 rss=1539.3\n"
+                        "  ArmL τc columns start N=1561851 F=230 rss=1539.3\n"
+                    )
+                msg = _fit_exit_error_from_log("tc")
+                self.assertIn("截面列", msg)
+                self.assertNotIn("LightGBM 训练中", msg)
+
     def test_oo_arml_oom_hint_does_not_mention_tc(self):
         with tempfile.TemporaryDirectory() as td:
             with mock.patch("core.research.yhat_tf_desk.YHAT_TF_DIR", td):

@@ -319,8 +319,13 @@ class TestWebQuantJsGuards(unittest.TestCase):
         self.assertIn("l0RunningHead", minute_js)
         self.assertIn("l0CoverageFacts", bars_js)
         self.assertIn("l0CoverageFacts", minute_js)
-        self.assertIn("l0DoneHead", bars_js)
-        self.assertIn("l0DoneHead", minute_js)
+        # 完成计数头已删除；终态进度框也不回放 job.message
+        self.assertNotIn("l0DoneHead", bars_js)
+        self.assertNotIn("l0DoneHead", minute_js)
+        self.assertNotIn("l0DoneBits", bars_js)
+        self.assertNotIn("l0DoneBits", minute_js)
+        self.assertIn("hideMessage: true", bars_js)
+        self.assertIn("hideMessage: true", minute_js)
         self.assertIn("isJobHeartbeatStale", minute_js)
         self.assertIn("isJobHeartbeatStale", bars_js)
         self.assertIn("stillRunning", bars_js)
@@ -350,14 +355,16 @@ class TestWebQuantJsGuards(unittest.TestCase):
         self.assertIn("Number(done) > 0", job_js)
         self.assertIn("parseL0ProgressMessage", job_js)
         self.assertIn("l0RunningHead", job_js)
-        self.assertIn("l0DoneBits", job_js)
-        self.assertIn("l0DoneHead", job_js)
-        # 终态「上次更新」优先 job.updated_at：Ready/今日跳过时仓 fetched_at 不变
+        self.assertNotIn("l0DoneTitle", job_js)
+        self.assertNotIn("l0DoneBits", job_js)
+        self.assertNotIn("l0DoneHead", job_js)
+        self.assertIn("hideMessage", job_js)
+        self.assertNotIn("fmtAgeSec", job_js)
+        self.assertNotIn('!String(bit).startsWith("上次更新")', job_js)
+        self.assertNotIn('showTarget: kind === "minute"', job_js)
+        # 终态耗时仍读 job.updated_at；覆盖条默认不挂目标日，分钟线上下文条显式打开
         self.assertIn("job?.updated_at", job_js)
-        self.assertIn('!String(bit).startsWith("上次更新")', job_js)
-        # 日线状态条不挂「目标 YYYY-MM-DD」（Expected KPI 已有）；分钟线可 showTarget
         self.assertIn("showTarget = false", job_js)
-        self.assertIn("showTarget: kind === \"minute\"", job_js)
         self.assertIn("showTarget: true", minute_js)
         self.assertNotIn("showTarget: true", bars_js)
         self.assertIn("isJobHeartbeatStale", job_js)
@@ -480,8 +487,8 @@ class TestWebQuantJsGuards(unittest.TestCase):
         self.assertIn("oos: oosFlat", paint_rank)
         self.assertIn("showOos: true", paint_rank)
         self.assertIn('suiteView === "research"', paint_rank)
-        # 拟合中 hydrate 不得冲卡头/套包
-        self.assertIn("anyRankFitBusy()", paint_rank)
+        # 拟合中 hydrate 只避开这一头，另一头在跑仍要画出已完成草稿
+        self.assertIn("rankFitHeadBusy(suiteHead)", paint_rank)
         # Holdout=0 顶层不得灌进研究包
         cache_pack = quant_js.split("function cacheHeadSuitePacks")[1].split(
             "function syncBacktestRoleFromSuite"
@@ -548,6 +555,8 @@ class TestWebQuantJsGuards(unittest.TestCase):
         self.assertIn('kpi("特征"', rank_metrics)
         self.assertIn('kpi("省略"', rank_metrics)
         self.assertIn("不跟 Holdout OOS", rank_metrics)
+        self.assertIn('kpi("ICIR"', rank_metrics)
+        self.assertIn("oos.cs_icir", rank_metrics)
         self.assertIn("isHorizon", factor_ic)
         # rank 与 ŷ_oo / ŷ_τc 同壳挂 y 定义公式
         self.assertNotIn("const specY = isOoRank", factor_ic)
@@ -1116,6 +1125,7 @@ class TestWebQuantJsGuards(unittest.TestCase):
         self.assertIn('aria-label="日线物化"', data_panel)
         self.assertIn('aria-label="分钟线 L0"', data_panel)
         self.assertIn('aria-label="分钟线物化"', data_panel)
+        self.assertNotIn("quant-primary-fold", data_panel)
         self.assertNotIn('aria-label="日线 L0"', panel)
         self.assertEqual(panel.count("> 说明</summary>"), 1)
         self.assertEqual(data_panel.count("> 说明</summary>"), 4)
@@ -1323,6 +1333,8 @@ class TestWebQuantJsGuards(unittest.TestCase):
         self.assertIn("onSettled", mat_js)
         self.assertIn("resumeIfRunning", mat_js)
         self.assertIn("完成态保留 7 天", mat_js)
+        # 物化状态条不展示特征 schema 版本（schema v1）
+        self.assertNotIn("schema v", mat_js)
         # 物化状态条带绝对更新时间，对齐日 K / 5m「上次更新」
         self.assertIn("fmtCoverageTime", mat_js)
         self.assertIn("上次更新", mat_js)
@@ -1800,6 +1812,10 @@ class TestWebQuantJsGuards(unittest.TestCase):
         self.assertNotIn("仅供回测透传对照", quant_js)
         self.assertIn("按 Holdout 拟合 → 写入研究槽", panel)
         self.assertIn("ui oo_rank fit-research", quant_js)
+        self.assertIn("commitResearch: true", quant_js)
+        self.assertIn("commit_research: !!commitResearch", quant_js)
+        self.assertIn('committed ? "research"', quant_js)
+        self.assertIn("function rankSlotTimesAfterFit", quant_js)
         self.assertIn("进合成 rank_score（买序/阈值）", panel)
         self.assertIn("ui oo_rank promote-exec full-sample", quant_js)
         self.assertIn('data-suite-head="oo"', panel)
@@ -1921,11 +1937,16 @@ class TestWebQuantJsGuards(unittest.TestCase):
         self.assertIn("paintSuiteFitSelectPack", quant_js)
         self.assertIn("_suiteFitSelectSeqByHead", quant_js)
         self.assertIn("roleChanged", quant_js)
-        # 拟合后版本下拉须钉 current_id，勿被同套 keepPrev 留在旧时间
+        # 拟合后版本下拉选最新一条（未启用也在列表里），勿被同套 keepPrev 留在旧时间
         self.assertIn(
-            "keepPrev=false（刚拟合/落盘）：钉 current_id",
+            "keepPrev=false（刚拟合/落盘）：选列表最新一条，新拟合不必已启用",
             quant_js,
         )
+        self.assertIn("pinMatch || newestMatch || currentMatch || first", quant_js)
+        self.assertIn("function showFittedSuiteVersion", quant_js)
+        self.assertIn("keepPreview: true", quant_js)
+        self.assertNotIn("step-end infinite", css_fit)
+        self.assertIn("quant-fit-status-blink 1.8s ease-in-out infinite", css_fit)
         self.assertIn("keepPrev: false", quant_js)
         self.assertIn("仅最新请求写缓存", quant_js)
         self.assertIn("q.refreshSuiteFitSelect = refreshSuiteFitSelect", quant_js)

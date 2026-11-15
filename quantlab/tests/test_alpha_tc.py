@@ -1115,3 +1115,91 @@ def test_alpha_tc_registered():
     assert meta.get("omit_sub_score") is True
     assert "GAP" in meta
     assert "PROC5" in meta
+
+
+def test_open_tc_l1_fingerprint_uses_bumped_window():
+    """开盘 α_τc 指纹记 62，旧的 min_history=12 对不上，增量合并不会留下旧前缀。"""
+    from core.research.panel_fingerprint import bars_fingerprint, make_fingerprint
+    from core.research.panel_matrix import tau_l1_min_history
+    from core.signal.factors.alpha_tc import ALPHA_TC_PANEL_WINDOW
+
+    assert tau_l1_min_history(12, include_alpha_tc=True, use_minute=False) == int(
+        ALPHA_TC_PANEL_WINDOW
+    )
+    assert tau_l1_min_history(12, include_alpha_tc=True, use_minute=True) == 12
+    assert tau_l1_min_history(12, include_alpha_tc=False, use_minute=False) == 12
+    assert tau_l1_min_history(80, include_alpha_tc=True, use_minute=False) == 80
+    assert tau_l1_min_history(None, include_alpha_tc=True, use_minute=False) == int(
+        ALPHA_TC_PANEL_WINDOW
+    )
+    assert tau_l1_min_history("bad", include_alpha_tc=False, use_minute=False) == 12
+    bars = [
+        {
+            "date": "2026-01-02",
+            "open": 1,
+            "high": 1,
+            "low": 1,
+            "close": 1,
+            "volume": 1,
+        }
+    ]
+    bf = bars_fingerprint(bars)
+    stale = make_fingerprint(
+        bars_fp=bf,
+        tau_hm="open",
+        min_history=12,
+        include_alpha_tc=1,
+        include_alpha_th=0,
+        use_minute=0,
+    )
+    fresh = make_fingerprint(
+        bars_fp=bf,
+        tau_hm="open",
+        min_history=tau_l1_min_history(12, include_alpha_tc=True, use_minute=False),
+        include_alpha_tc=1,
+        include_alpha_th=0,
+        use_minute=0,
+    )
+    assert stale != fresh
+
+
+def test_open_tc_slice_keeps_long_warmup_legacy_stamp():
+    """指纹仍是 12、但预热已经够一窗的湖可以切片；预热只有十几根的旧前缀不行。"""
+    from core.research.panel_fingerprint import make_fingerprint
+    from core.research.panel_matrix import open_tc_slice_spec_fp
+    from core.signal.factors.alpha_tc import ALPHA_TC_PANEL_WINDOW
+
+    bars_fp = "75da56c4a3ca2f0f"
+    legacy = make_fingerprint(
+        bars_fp=bars_fp,
+        tau_hm="open",
+        min_history=12,
+        include_alpha_tc=1,
+        include_alpha_th=0,
+        use_minute=0,
+    )
+    window = int(ALPHA_TC_PANEL_WINDOW)
+    long_meta = {
+        "fingerprint": legacy,
+        "bars_fp": bars_fp,
+        "n_bars": 1122,
+        "n_rows": 1122 - window,
+    }
+    spec = open_tc_slice_spec_fp(
+        long_meta,
+        tau_hm="open",
+        caller_min_history=12,
+        include_alpha_tc=True,
+    )
+    assert spec(bars_fp) == legacy
+
+    short_meta = dict(long_meta)
+    short_meta["n_bars"] = 200
+    short_meta["n_rows"] = 200 - 12
+    refused = open_tc_slice_spec_fp(
+        short_meta,
+        tau_hm="open",
+        caller_min_history=12,
+        include_alpha_tc=True,
+    )
+    assert refused(bars_fp) != legacy

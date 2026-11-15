@@ -1280,7 +1280,7 @@ def _align_row_weights(
 ) -> Optional[np.ndarray]:
     if sample_weights is None:
         return None
-    w = np.asarray(list(sample_weights), dtype=np.float64)
+    w = np.asarray(sample_weights, dtype=np.float64)
     if w.ndim != 1:
         return None
     if row_pos is None:

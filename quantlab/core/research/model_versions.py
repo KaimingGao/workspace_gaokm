@@ -1,6 +1,7 @@
 """ŷ 四头研究/执行套：按拟合时间归档版本，供卡头下拉切回。
 
-每头每槽保留最近 ``KEEP`` 份（默认 10）；落盘成功后归档；切版本 = 覆盖当前槽文件。
+每头每槽保留最近 ``KEEP`` 份（默认 10）。拟合成功即写入版本列表；
+「启用」才把所选版本覆盖进当前槽。落盘成功时再归档一次（同拟合时间覆盖）。
 """
 
 from __future__ import annotations
@@ -25,9 +26,11 @@ logger = logging.getLogger(__name__)
 
 SUITE_HEADS = ("oo", "tau", "oo_rank", "tc_rank")
 KEEP = 10
-# 残缺包（冒烟/误拟合）不进版本库、不晋级槽；满池通常 ≥50 万行
-MIN_ARCHIVE_SAMPLES = 500
+# 残缺包不进版本库、不晋级槽。满池约 150 万行；800 行冒烟晋升曾进过执行下拉。
+MIN_ARCHIVE_SAMPLES = 1000
 MIN_ARCHIVE_FEATURES = 3
+# 真 LightGBM 文本的 base64 远大于此。更短的串不是模型。
+MIN_BOOSTER_CHARS = 64
 MODEL_VERSIONS_DIR = os.path.join(LIVE_DIR, "model_versions")
 
 _SAFE_VID = re.compile(r"[^0-9A-Za-z._+-]+")
@@ -84,10 +87,7 @@ _TOY_BOOSTER_B64 = frozenset(
 )
 
 
-def _doc_looks_toy_booster(doc: Optional[Dict[str, Any]]) -> bool:
-    """单测/冒烟留下的伪 booster（如 ``dGVzdA==``）。"""
-    if not isinstance(doc, dict):
-        return False
+def _iter_booster_payloads(doc: Dict[str, Any]):
     blobs = [doc.get("return_model"), doc.get("model"), doc]
     for blob in blobs:
         if not isinstance(blob, dict):
@@ -99,9 +99,23 @@ def _doc_looks_toy_booster(doc: Optional[Dict[str, Any]]) -> bool:
                 [booster.get("payload_b64"), booster.get("booster_b64")]
             )
         for raw in candidates:
-            if isinstance(raw, str) and raw.strip() in _TOY_BOOSTER_B64:
-                return True
-    return False
+            if isinstance(raw, str) and raw.strip():
+                yield raw.strip()
+
+
+def _booster_payload_reason(doc: Optional[Dict[str, Any]]) -> Optional[str]:
+    """有 booster 字段时，短串和已知占位（``dGVzdA==``）都不是可加载模型。
+
+    没有 booster 的岭回归包不在这里拒绝。
+    """
+    if not isinstance(doc, dict):
+        return None
+    for payload in _iter_booster_payloads(doc):
+        if payload in _TOY_BOOSTER_B64:
+            return "toy booster payload"
+        if len(payload) < int(MIN_BOOSTER_CHARS):
+            return f"booster payload length {len(payload)} < {MIN_BOOSTER_CHARS}"
+    return None
 
 
 def suite_doc_incomplete_reason(doc: Optional[Dict[str, Any]]) -> Optional[str]:
@@ -116,8 +130,9 @@ def suite_doc_incomplete_reason(doc: Optional[Dict[str, Any]]) -> Optional[str]:
     n_feat = _doc_n_features(doc)
     if n_feat is not None and n_feat < int(MIN_ARCHIVE_FEATURES):
         return f"n_features={n_feat} < {MIN_ARCHIVE_FEATURES}"
-    if _doc_looks_toy_booster(doc):
-        return "toy booster payload"
+    why_booster = _booster_payload_reason(doc)
+    if why_booster:
+        return why_booster
     return None
 
 
@@ -313,6 +328,43 @@ def archive_suite_version(
             pass
     _write_index(h, r, items)
     return vid
+
+
+def fit_archive_role(doc: Dict[str, Any]) -> str:
+    """Holdout 拟合进研究列表；Holdout=0 / 全样本部署进执行列表。"""
+    if doc.get("deploy_full_sample"):
+        return MODEL_ROLE_LIVE
+    hold = doc.get("holdout_trading_days")
+    if hold is None:
+        oos = doc.get("oos")
+        if isinstance(oos, dict):
+            hold = oos.get("holdout_trading_days")
+    try:
+        if hold is not None and int(hold) == 0:
+            return MODEL_ROLE_LIVE
+    except (TypeError, ValueError):
+        pass
+    return MODEL_ROLE_RESEARCH
+
+
+def archive_fit_draft(
+    head: str,
+    doc: Optional[Dict[str, Any]],
+    *,
+    role: Optional[str] = None,
+) -> Optional[str]:
+    """拟合草稿记入版本列表。不写研究/执行槽。残缺包跳过。"""
+    if not isinstance(doc, dict):
+        return None
+    h = normalize_suite_head(head)
+    if h not in SUITE_HEADS:
+        return None
+    r = _role(role) if role else fit_archive_role(doc)
+    try:
+        return archive_suite_version(h, r, doc)
+    except Exception:
+        logger.exception("fit draft archive failed head=%s role=%s", h, r)
+        return None
 
 
 def ensure_current_archived(head: str, role: str) -> Optional[str]:

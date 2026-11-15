@@ -190,7 +190,9 @@ def quant_oo_rank(body: OoRankRequest) -> Dict[str, Any]:
     try:
         if body.persist or body.sync:
             return deps.quant.run_oo_rank_experiment(**kwargs)
-        return deps.quant.start_oo_rank_job(**kwargs)
+        return deps.quant.start_oo_rank_job(
+            **kwargs, commit_research=bool(body.commit_research)
+        )
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e)) from e
 
@@ -228,7 +230,9 @@ def quant_tc_rank(body: TcRankRequest) -> Dict[str, Any]:
     try:
         if body.persist or body.sync:
             return deps.quant.run_tc_rank_experiment(**kwargs)
-        return deps.quant.start_tc_rank_job(**kwargs)
+        return deps.quant.start_tc_rank_job(
+            **kwargs, commit_research=bool(body.commit_research)
+        )
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e)) from e
 

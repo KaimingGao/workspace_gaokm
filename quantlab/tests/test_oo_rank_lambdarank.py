@@ -928,8 +928,9 @@ class TestOoRankFit(unittest.TestCase):
             "success": True,
             "backend": "lambdarank",
             "solver": "lambdarank",
-            "booster_b64": "dGVzdA==",
-            "coefficients": {"mom3": 1.0},
+            "booster_b64": "B" * 64,
+            "coefficients": {"mom3": 1.0, "vol": 0.2, "bias": 0.1},
+            "feature_names": ["mom3", "vol", "bias"],
             "target": "oo_rank",
             "model_role": "live",
         }
@@ -966,6 +967,7 @@ class TestOoRankFit(unittest.TestCase):
                 "ridge_oo_baseline": {"ndcg_at_k": 0.58, "success": True},
             },
             "y_spec": {"formula": "rank"},
+            "sample_count": 2000,
         }
         with tempfile.TemporaryDirectory() as td:
             live = os.path.join(td, "oo_rank_model.json")
@@ -1131,7 +1133,7 @@ class TestOoRankFittedAt(unittest.TestCase):
             "model_role": "live",
             "backend": "lambdarank",
             "solver": "lambdarank",
-            "booster_b64": "not-a-toy-payload",
+            "booster_b64": "N" * 64,
             "target": "oo_rank",
             "horizon_mode": "oo_rank",
         }
@@ -1162,7 +1164,7 @@ class TestOoRankFittedAt(unittest.TestCase):
                 "oo_rank": {"ndcg_at_k": 0.55, "success": True},
                 "ridge_oo_baseline": {"ndcg_at_k": 0.5, "success": True},
             },
-            "sample_count": 800,
+            "sample_count": 2000,
             "holdout_trading_days": 20,
         }
         stamp_oo_rank_fitted_at(report)

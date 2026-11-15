@@ -144,6 +144,9 @@ def save_return_model_draft(
         payload["research_ols"] = dict(research_ols)
     payload["saved_at"] = payload["fitted_at"]
     atomic_write_json(RETURN_SCORE_MODEL_DRAFT_PATH, payload)
+    from core.research.model_versions import archive_fit_draft
+
+    archive_fit_draft("oo", payload, role="research")
     n_feats = len((blob or {}).get("feature_names") or [])
     return {
         "success": True,

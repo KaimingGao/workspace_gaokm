@@ -162,15 +162,14 @@
     </div>
   </section>
 
-  <!-- 分钟线：L0 5m 仓 + 物化 τ L1/L2（两块）；可折叠，默认收起 -->
+  <!-- 分钟线：L0 5m 仓 + 物化 τ L1/L2（两块） -->
   <section class="dashboard-section quant-section" id="quant-section-minute" aria-labelledby="quant-section-minute-title">
-    <details class="quant-primary-fold" open>
-      <summary class="quant-primary-fold-sum dashboard-section-head quant-section-head">
-        <h3 id="quant-section-minute-title" class="dashboard-section-title">分钟线</h3>
-        <p class="dashboard-section-desc quant-section-desc" id="quant-section-minute-desc">
-          两块：5m 仓（增量补齐 / 强更 5m）· 物化特征（L1/L2 · τ 网格）· 调度 minute_warmup · 下游 ŷ_τc / 调仓 / 做T
-        </p>
-      </summary>
+    <header class="dashboard-section-head quant-section-head">
+      <h3 id="quant-section-minute-title" class="dashboard-section-title">分钟线</h3>
+      <p class="dashboard-section-desc quant-section-desc" id="quant-section-minute-desc">
+        两块：5m 仓（增量补齐 / 强更 5m）· 物化特征（L1/L2 · τ 网格）· 调度 minute_warmup · 下游 ŷ_τc / 调仓 / 做T
+      </p>
+    </header>
     <div class="quant-bars-panels">
     <div class="dashboard-card quant-pro-card quant-bars-card quant-minute-card quant-bars-panel-l0" aria-label="5m 仓">
       <div class="dashboard-card-head quant-pro-card-head quant-card-head--tools">
@@ -283,7 +282,6 @@
       </div>
     </div>
     </div>
-    </details>
   </section>
 
 </div>

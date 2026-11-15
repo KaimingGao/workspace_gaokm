@@ -444,8 +444,19 @@ export function installSuggest(q) {
         },
       });
     }
+    if (typeof q.showFittedSuiteVersion === "function") {
+      q.showFittedSuiteVersion("oo", "research", {
+        ...data,
+        return_model: rm,
+        fitted_at: data.fitted_at || null,
+      });
+    }
     if (typeof q.setHeadSuiteView === "function") {
-      q.setHeadSuiteView("oo", "research", { paint: true });
+      q.setHeadSuiteView("oo", "research", {
+        paint: true,
+        keepPrev: false,
+        keepPreview: true,
+      });
     } else if (paintCoef) {
       await paintCoef(rm, {
         oos: data.oos || {},
@@ -587,7 +598,22 @@ export function installSuggest(q) {
             },
           });
         }
-        q.setHeadSuiteView("oo", "research", { paint: true });
+        if (typeof q.showFittedSuiteVersion === "function") {
+          q.showFittedSuiteVersion("oo", "research", {
+            return_model: rm,
+            oos,
+            fitted_at: lastFit.fitted_at || lastFit.saved_at || fittedAt,
+            backend: "lightgbm",
+            feature_importance: rm.feature_importance,
+            holdout_trading_days: data.holdout_trading_days,
+            tau_end_hm: data.tau_end_hm,
+          });
+        }
+        q.setHeadSuiteView("oo", "research", {
+          paint: true,
+          keepPrev: false,
+          keepPreview: true,
+        });
       } else if (typeof q.paintHeadSuiteCoef === "function") {
         await q.paintHeadSuiteCoef("oo");
       } else if (paintCoef) {

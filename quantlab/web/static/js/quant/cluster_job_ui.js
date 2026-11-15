@@ -23,15 +23,6 @@ export function fmtDuration(sec) {
   return `${m}m${String(r).padStart(2, "0")}s`;
 }
 
-export function fmtAgeSec(sec) {
-  const s = Math.max(0, Math.round(Number(sec) || 0));
-  if (s < 60) return `${s}s 前`;
-  if (s < 3600) return `${Math.floor(s / 60)}m 前`;
-  const h = Math.floor(s / 3600);
-  const m = Math.floor((s % 3600) / 60);
-  return m > 0 ? `${h}h${m}m 前` : `${h}h 前`;
-}
-
 export function jobTimings(job, pollStartedAt) {
   try {
     const now = Date.now() / 1000;
@@ -118,7 +109,7 @@ export function jobEtaSec(job, elapsed) {
   return null;
 }
 
-function buildClusterJobFacts(job, { pollStartedAt } = {}) {
+function buildClusterJobFacts(job, { pollStartedAt, done = false } = {}) {
   const facts = [];
   const cur = Number(job?.current);
   const tot = Number(job?.total);
@@ -134,17 +125,31 @@ function buildClusterJobFacts(job, { pollStartedAt } = {}) {
       facts.push(`进度 <strong>${Math.round(pct)}%</strong>`);
     }
   }
-  const { elapsed, heartbeat } = jobTimings(job, pollStartedAt);
-  if (elapsed != null) facts.push(`已用 <strong>${fmtDuration(elapsed)}</strong>`);
-  const eta = jobEtaSec(job, elapsed);
-  if (eta != null) facts.push(`预计剩 <strong>${fmtDuration(eta)}</strong>`);
-  if (heartbeat != null) {
-    const hb = fmtDuration(heartbeat);
-    facts.push(
-      heartbeat > 90
-        ? `心跳 <strong class="quant-job-hb-stale">${hb}</strong>`
-        : `心跳 <strong>${hb}</strong>`
-    );
+  // 已结束的任务若仍用 now−started，刷新后「已用 / 心跳」会一直长大。
+  if (done) {
+    const started = Number(job?.started_at);
+    const updated = Number(job?.updated_at);
+    if (
+      Number.isFinite(started) &&
+      started > 0 &&
+      Number.isFinite(updated) &&
+      updated >= started
+    ) {
+      facts.push(`已用 <strong>${fmtDuration(updated - started)}</strong>`);
+    }
+  } else {
+    const { elapsed, heartbeat } = jobTimings(job, pollStartedAt);
+    if (elapsed != null) facts.push(`已用 <strong>${fmtDuration(elapsed)}</strong>`);
+    const eta = jobEtaSec(job, elapsed);
+    if (eta != null) facts.push(`预计剩 <strong>${fmtDuration(eta)}</strong>`);
+    if (heartbeat != null) {
+      const hb = fmtDuration(heartbeat);
+      facts.push(
+        heartbeat > 90
+          ? `心跳 <strong class="quant-job-hb-stale">${hb}</strong>`
+          : `心跳 <strong>${hb}</strong>`
+      );
+    }
   }
   const id = job?.id ? String(job.id).slice(0, 8) : "";
   if (id) {
@@ -389,79 +394,8 @@ export function l0CoverageFacts(data, { showTarget = false } = {}) {
   }
 }
 
-export function l0DoneTitle(sum) {
-  const topup =
-    String(sum?.mode || "") === "topup" ||
-    String(sum?.kind || "").includes("topup") ||
-    sum?.force_latest === true ||
-    sum?.topped != null ||
-    (sum?.full_window !== true && String(sum?.note || "").includes("增量"));
-  return topup ? "增量完成" : "强更完成";
-}
-
-/** 完成态计数，日线与分钟线同一顺序：完成量 · 跳过/已齐 · 失败/超时 · 差异。 */
-export function l0DoneBits(sum, kind) {
-  const bits = [];
-  if (kind === "minute") {
-    if (sum?.warmed != null) bits.push(`完成 ${sum.warmed}/${sum.total ?? "—"}`);
-    if (Number(sum?.skipped_today) > 0) bits.push(`今日跳过 ${sum.skipped_today}`);
-    if (sum?.skipped_aligned != null) bits.push(`对齐跳过 ${sum.skipped_aligned}`);
-    else if (sum?.skipped_ready != null) bits.push(`跳过 ${sum.skipped_ready}`);
-    if (sum?.topped != null) bits.push(`补拉 ${sum.topped}`);
-    if (Number(sum?.bootstrapped) > 0) bits.push(`全窗 ${sum.bootstrapped}`);
-    if (Number(sum?.timed_out) > 0) bits.push(`超时 ${sum.timed_out}`);
-    return bits;
-  }
-  if (sum?.remote_count != null) bits.push(`远端 ${sum.remote_count}/${sum.total ?? "—"}`);
-  if (sum?.gap_count != null) bits.push(`缺口 ${sum.gap_count}`);
-  if (sum?.cache_count != null) bits.push(`已齐 ${sum.cache_count}`);
-  if (Number(sum?.failed_count) > 0) bits.push(`失败 ${sum.failed_count}`);
-  const pruned = sum?.watching_pruned;
-  if (pruned && !pruned.skipped && Number(pruned.removed_count) > 0) {
-    const add = Number(pruned.added) > 0 ? `·补${pruned.added}` : "";
-    bits.push(`剔无日K ${pruned.removed_count}${add}`);
-  }
-  const diff = sum?.diff;
-  if (diff && diff.price_count != null) {
-    bits.push(`价变 ${diff.price_count}`);
-    bits.push(`量纲 ${diff.volume_count ?? 0}`);
-    bits.push(`只补尾 ${diff.tail_count ?? 0}`);
-  }
-  return bits;
-}
-
-/** 完成态状态条：标题 · 计数 · 更新至 · 上次更新。没有写入时间时才退回相对年龄。 */
-export function l0DoneHead(sum, kind, coverage, job) {
-  try {
-    // 仓 last_fetched_at 只表示真实落盘；Ready/今日跳过时不变。
-    // 终态「上次更新」优先 job.updated_at（对齐物化），否则点完仍像没更新。
-    const facts = l0CoverageFacts(coverage, {
-      showTarget: kind === "minute",
-    }).filter((bit) => !String(bit).startsWith("上次更新"));
-    const head = [
-      l0DoneTitle(sum),
-      ...l0DoneBits(sum || {}, kind),
-      ...facts,
-    ];
-    const jobWhen = fmtCoverageTime(job?.updated_at);
-    const coverWhen = fmtCoverageTime(coverage?.last_fetched_at);
-    const when = jobWhen || coverWhen;
-    if (when) {
-      head.push(`上次更新 ${when}`);
-    } else {
-      const updated = Number(job?.updated_at);
-      if (Number.isFinite(updated) && updated > 0) {
-        head.push(fmtAgeSec(Date.now() / 1000 - updated));
-      }
-    }
-    return head.filter(Boolean);
-  } catch (_) {
-    return [l0DoneTitle(sum)];
-  }
-}
-
 export function jobStatusBadge(job) {
-  if (!job || job.status === "idle") return null;
+  if (!job || job.status === "idle" || job.status === "done") return null;
   const st = job.status;
   if (st === "running") {
     const pct = Number(job.pct);
@@ -471,10 +405,6 @@ export function jobStatusBadge(job) {
     };
   }
   if (st === "failed") return { text: "更新失败", cls: "is-bad" };
-  if (st === "done") {
-    const sum = job.result_summary || job.result?.bars_refresh || job.result?.minute_warmup || {};
-    return { text: l0DoneTitle(sum), cls: "is-ok" };
-  }
   return null;
 }
 
@@ -489,6 +419,7 @@ export function jobStatusBadge(job) {
  *   mode?: "running" | "fail" | "done",
  *   errText?: string,
  *   tone?: "primary" | "warn",
+ *   hideMessage?: boolean,
  * }} opts
  */
 export function paintClusterJobPanel(progressEl, opts) {
@@ -514,13 +445,19 @@ export function paintClusterJobPanel(progressEl, opts) {
           ? 100
           : 0;
   pct = Math.max(0, Math.min(100, pct));
+  // 日线/分钟线终态不再回放 job.message（远端/跳过/失败计数）。进行中与失败仍显示。
   const msg =
     mode === "fail"
       ? errText || String(job?.error || job?.message || "更新失败")
-      : job && (job.message || job.error)
-        ? String(job.message || job.error)
-        : phase;
-  const facts = buildClusterJobFacts(job, { pollStartedAt });
+      : opts.hideMessage
+        ? ""
+        : job && (job.message || job.error)
+          ? String(job.message || job.error)
+          : phase;
+  const facts = buildClusterJobFacts(job, {
+    pollStartedAt,
+    done: mode === "done",
+  });
   if (Array.isArray(opts.extraFacts)) facts.push(...opts.extraFacts);
   // tone 显式优先；默认 primary。fail 不再暗绑 warn——否则增量/强更失败刷新后整块退回黄色
   const tone =
@@ -544,7 +481,7 @@ export function paintClusterJobPanel(progressEl, opts) {
       <div class="quant-bars-progress-fill" style="width:${pct.toFixed(1)}%"></div>
     </div>
   ${facts.length ? `<div class="quant-bars-progress-facts">${facts.map((f) => `<span>${f}</span>`).join("")}</div>` : ""}
-    <p class="quant-bars-progress-msg${mode === "fail" ? " quant-bars-progress-msg--err" : ""}">${esc(msg)}</p>
+    ${msg ? `<p class="quant-bars-progress-msg${mode === "fail" ? " quant-bars-progress-msg--err" : ""}">${esc(msg)}</p>` : ""}
     ${hint ? `<p class="quant-bars-progress-hint">${esc(hint)}</p>` : ""}`;
 }
 

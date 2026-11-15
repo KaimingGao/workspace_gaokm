@@ -440,6 +440,13 @@ export function initQuant(ctx) {
     oo_rank: null,
     tc_rank: null,
   };
+  /** 刚拟合、列表尚未返回时钉住这次 fitted_at，避免弹回已启用旧槽 */
+  const _suiteFitPinByHead = {
+    oo: null,
+    tau: null,
+    oo_rank: null,
+    tc_rank: null,
+  };
   let _suiteFitSelectBusy = false;
   let _suitePreviewSeq = 0;
   const _suiteFitSelectSeqByHead = {
@@ -642,7 +649,7 @@ export function initQuant(ctx) {
       [...el.options].some((o) => o.value === String(preview.versionId))
         ? String(preview.versionId)
         : "";
-    // keepPrev=false（刚拟合/落盘）：钉 current_id，预览不得盖住新时间
+    // keepPrev=false（刚拟合/落盘）：选列表最新一条，新拟合不必已启用
     // 日常刷新：预览中仍由 previewVid 保住所选
     const currentMatch =
       currentId && [...el.options].some((o) => o.value === currentId)
@@ -650,11 +657,61 @@ export function initQuant(ctx) {
         : "";
     const prevMatch =
       prev && [...el.options].some((o) => o.value === prev) ? prev : "";
+    const newestId = items[0] && items[0].id ? String(items[0].id) : "";
+    const newestMatch =
+      newestId && [...el.options].some((o) => o.value === newestId)
+        ? newestId
+        : "";
+    const pin = _suiteFitPinByHead[head];
+    let pinMatch = "";
+    if (!keepPrev && pin && pin.view === v) {
+      if (
+        pin.versionId &&
+        [...el.options].some((o) => o.value === String(pin.versionId))
+      ) {
+        pinMatch = String(pin.versionId);
+      } else if (pin.fittedAt) {
+        const hit = items.find((it) => it && it.fitted_at === pin.fittedAt);
+        if (
+          hit &&
+          hit.id &&
+          [...el.options].some((o) => o.value === String(hit.id))
+        ) {
+          pinMatch = String(hit.id);
+        }
+      }
+    }
     const first = el.options[0] ? el.options[0].value : "";
     const pick = !keepPrev
-      ? currentMatch || first
+      ? pinMatch || newestMatch || currentMatch || first
       : previewVid || currentMatch || prevMatch || first;
     el.value = pick;
+    if (!keepPrev && _suitePreviewByHead[head] !== undefined) {
+      if (pin && pin.view === v && !pinMatch) {
+        /* 列表还没带回这次拟合，保留已挂上的面板包 */
+      } else if (pinMatch && pin && pin.pack) {
+        _suitePreviewByHead[head] = {
+          view: v,
+          versionId: pinMatch,
+          pack: pin.pack,
+        };
+        _suiteFitPinByHead[head] = null;
+      } else if (pick && currentId && pick !== String(currentId)) {
+        const prevPv = _suitePreviewByHead[head];
+        _suitePreviewByHead[head] = {
+          view: v,
+          versionId: pick,
+          pack:
+            prevPv &&
+            prevPv.view === v &&
+            String(prevPv.versionId) === pick
+              ? prevPv.pack
+              : null,
+        };
+      } else if (pick && String(pick) === String(currentId || "")) {
+        _suitePreviewByHead[head] = null;
+      }
+    }
     el.disabled = !items.length && !on;
     el.setAttribute("data-empty", items.length || iso || on ? "0" : "1");
     el.dataset.currentId = currentId || "";
@@ -1050,15 +1107,15 @@ export function initQuant(ctx) {
       return;
     }
     if (head === "oo_rank" || head === "tc_rank") {
-      // 拟合进行中勿用 GET hydrate 冲掉「拟合中」卡头
-      if (anyRankFitBusy()) return;
+      // 只跳过正在拟合的那一头；另一头已完成的草稿仍要画出来
+      if (rankFitHeadBusy(head)) return;
       const path =
         head === "tc_rank"
           ? "/api/quant/tc-rank/model"
           : "/api/quant/oo-rank/model";
       const res = await fetch(path);
       const data = await res.json().catch(() => ({}));
-      if (anyRankFitBusy()) return;
+      if (rankFitHeadBusy(head)) return;
       const sumId =
         head === "tc_rank" ? "quant-tc-rank-summary" : "quant-oo-rank-summary";
       const sum = document.getElementById(sumId);
@@ -1356,15 +1413,77 @@ export function initQuant(ctx) {
     }
   }
 
+  function versionIdFromStamp(stamp) {
+    const base = String(stamp || "")
+      .replace(/[^0-9A-Za-z._+-]+/g, "_")
+      .replace(/^[._]+|[._]+$/g, "");
+    return base ? base.slice(0, 96) : "";
+  }
+
+  function suitePackFromFitReport(data) {
+    if (!data || typeof data !== "object") return null;
+    const rm = data.return_model || data.model || null;
+    if (!rm || typeof rm !== "object") return null;
+    const fittedAt = data.fitted_at || rm.fitted_at || data.saved_at || null;
+    return {
+      return_model: rm,
+      oos: data.oos && typeof data.oos === "object" ? data.oos : null,
+      fitted_at: fittedAt,
+      backend: data.backend || rm.backend || null,
+      feature_importance: Array.isArray(data.feature_importance)
+        ? data.feature_importance
+        : Array.isArray(rm.feature_importance)
+          ? rm.feature_importance
+          : null,
+      y_spec:
+        (data.y_spec && typeof data.y_spec === "object" ? data.y_spec : null) ||
+        (rm.y_spec && typeof rm.y_spec === "object" ? rm.y_spec : null),
+      n_train_days: data.n_train_days != null ? data.n_train_days : null,
+      n_test_days: data.n_test_days != null ? data.n_test_days : null,
+      holdout_trading_days:
+        data.holdout_trading_days != null ? data.holdout_trading_days : null,
+      tau_end_hm: data.tau_end_hm != null ? data.tau_end_hm : null,
+      sample_count:
+        data.sample_count != null
+          ? data.sample_count
+          : rm.sample_count != null
+            ? rm.sample_count
+            : null,
+      preview: true,
+      version_id: versionIdFromStamp(fittedAt) || null,
+    };
+  }
+
+  /** 拟合成功：版本框和因子表面板都落到这次拟合，不弹回已启用的旧槽。 */
+  function showFittedSuiteVersion(head, view, data) {
+    if (!head || !_suitePreviewByHead.hasOwnProperty(head)) return null;
+    const pack = suitePackFromFitReport(data);
+    if (!pack) return null;
+    const v = normalizeSuiteView(view || _suiteViewByHead[head] || "research");
+    const pin = {
+      view: v,
+      fittedAt: pack.fitted_at || "",
+      versionId: pack.version_id || "",
+      pack,
+    };
+    _suiteFitPinByHead[head] = pin;
+    _suitePreviewByHead[head] = {
+      view: v,
+      versionId: pin.versionId,
+      pack,
+    };
+    return pin;
+  }
+
   function setHeadSuiteView(
     head,
     view,
-    { paint = true, syncBacktest = true, keepPrev } = {}
+    { paint = true, syncBacktest = true, keepPrev, keepPreview = false } = {}
   ) {
     if (!_suiteViewByHead[head]) return;
     const v = normalizeSuiteView(view);
-    // 切研究|执行时丢掉另一侧预览，避免串套
-    clearSuiteFitPreview(head);
+    // 切研究|执行时丢掉另一侧预览，避免串套。刚拟合保留本次面板包。
+    if (!keepPreview) clearSuiteFitPreview(head);
     const chromeOpts = keepPrev === false ? { keepPrev: false } : {};
     syncSuiteToggleUi(head, v, chromeOpts);
     restoreSuiteStatus(head);
@@ -1877,6 +1996,7 @@ export function initQuant(ctx) {
   q.clearOoResultBox = clearOoResultBox;
   q.cacheHeadSuitePacks = cacheHeadSuitePacks;
   q.setHeadSuiteView = setHeadSuiteView;
+  q.showFittedSuiteVersion = showFittedSuiteVersion;
   q.paintHeadSuiteCoef = paintHeadSuiteCoef;
   q.refreshSuiteFitSelect = refreshSuiteFitSelect;
   q.normalizeSuiteView = normalizeSuiteView;
@@ -2137,7 +2257,14 @@ export function initQuant(ctx) {
         researchAt,
         liveAt,
       });
-      // 拟合/启用成功：清该套版本缓存并选中 current_id（同套 keepPrev 会钉旧时间）
+      if (extra.justFitted) {
+        showFittedSuiteVersion(
+          suiteHead,
+          suiteView || _suiteViewByHead[suiteHead] || "research",
+          src
+        );
+      }
+      // 拟合/启用成功：清该套版本缓存；keepPrev=false 选最新一条（同套 keepPrev 会钉旧时间）
       if (extra.persistOk || extra.justFitted) {
         const role =
           extra.persistOk && extra.persistRole === "live"
@@ -2835,9 +2962,9 @@ export function initQuant(ctx) {
         : extra.justFitted || (extra.persistOk && extra.persistRole === "research")
           ? "research"
           : normalizeSuiteView(_suiteViewByHead[suiteHead] || "research");
-    // hydrate / 晚到 GET 勿冲掉进行中的「拟合中」与套包
+    // 晚到 GET 只避开正在拟合的这一头，勿因另一头在跑而停在「待命」
     if (
-      anyRankFitBusy() &&
+      rankFitHeadBusy(suiteHead) &&
       !extra.justFitted &&
       !extra.persistOk &&
       !extra.forceStatus
@@ -2914,7 +3041,11 @@ export function initQuant(ctx) {
     }
     if (extra.justFitted && suiteView === "research" && rm) {
       // 刚拟合研究：直接刷因子表 KPI，避免 pack 竞态丢 oos
-      setHeadSuiteView(suiteHead, "research", { paint: false, keepPrev: false });
+      setHeadSuiteView(suiteHead, "research", {
+        paint: false,
+        keepPrev: false,
+        keepPreview: true,
+      });
       await renderRankCoefTable(desk, rm, {
         oos: oosFlat,
         showOos: true,
@@ -2923,7 +3054,11 @@ export function initQuant(ctx) {
       return;
     }
     if (extra.justFitted) {
-      setHeadSuiteView(suiteHead, suiteView, { paint: true, keepPrev: false });
+      setHeadSuiteView(suiteHead, suiteView, {
+        paint: true,
+        keepPrev: false,
+        keepPreview: true,
+      });
       return;
     }
     if (extra.persistOk) {
@@ -3544,7 +3679,7 @@ export function initQuant(ctx) {
     try {
       const res = await fetch("/api/quant/oo-rank/model");
       const data = await res.json().catch(() => ({}));
-      if (anyRankFitBusy()) return;
+      if (rankFitHeadBusy("oo_rank")) return;
       const sum = document.getElementById("quant-oo-rank-summary");
       if (!sum) return;
       await paintOoRankDesk(sum, data);
@@ -3558,7 +3693,7 @@ export function initQuant(ctx) {
     try {
       const res = await fetch("/api/quant/tc-rank/model");
       const data = await res.json().catch(() => ({}));
-      if (anyRankFitBusy()) return;
+      if (rankFitHeadBusy("tc_rank")) return;
       const sum = document.getElementById("quant-tc-rank-summary");
       if (!sum) return;
       restoreTauEndFromFitReport(data, "tc_rank");
@@ -4328,10 +4463,11 @@ export function initQuant(ctx) {
             return_model: data.return_model,
             oos: viewKey === "research" ? oos : null,
             fitted_at:
+              data.fitted_at ||
               (data.persisted && data.persisted.fitted_at) ||
               (viewKey === "live"
-                ? data.live_fitted_at || data.fitted_at
-                : data.research_fitted_at || data.fitted_at) ||
+                ? data.live_fitted_at
+                : data.research_fitted_at) ||
               null,
             backend: data.backend,
             backends: data.backends || null,
@@ -4351,7 +4487,11 @@ export function initQuant(ctx) {
           };
         }
         if (viewKey === "research" || !persist) {
-          setHeadSuiteView("tau", viewKey, { paint: true });
+          setHeadSuiteView("tau", viewKey, {
+            paint: true,
+            keepPrev: false,
+            keepPreview: true,
+          });
         } else {
           await paintHeadSuiteCoef("tau");
         }
@@ -4460,7 +4600,11 @@ export function initQuant(ctx) {
         _tauPromoteGate = modelData.promote_gate || null;
         syncTauPersistBtn(_tauPromoteGate, { hasReport: true });
         cacheHeadSuitePacks("tau", modelData);
-        setHeadSuiteView("tau", "research", { paint: true });
+        setHeadSuiteView("tau", "research", {
+          paint: true,
+          keepPrev: false,
+          keepPreview: true,
+        });
       }
       return true;
     } catch (err) {
@@ -4613,6 +4757,35 @@ export function initQuant(ctx) {
     syncRankFitChromeShells();
   }
 
+  function rankSlotTimesAfterFit(data, stData, { persist, persistRole, commitResearch }) {
+    const persisted =
+      data && data.persisted && typeof data.persisted === "object" ? data.persisted : null;
+    const wroteLive = !!(
+      persist && persistRole === "live" && persisted && persisted.fitted_at
+    );
+    const wroteResearch = !!(
+      persisted &&
+      persisted.fitted_at &&
+      persisted.success !== false &&
+      ((persist && persistRole === "research") || commitResearch)
+    );
+    const pack = stData && typeof stData === "object" ? stData : {};
+    return {
+      live: wroteLive
+        ? persisted.fitted_at
+        : (pack.suite_live && pack.suite_live.fitted_at) ||
+          pack.live_fitted_at ||
+          (data && data.live_fitted_at) ||
+          null,
+      research: wroteResearch
+        ? persisted.fitted_at
+        : (pack.suite_research && pack.suite_research.fitted_at) ||
+          pack.research_fitted_at ||
+          (data && data.research_fitted_at) ||
+          null,
+    };
+  }
+
   async function runOoRank({
     persist = false,
     persistRole = "live",
@@ -4620,6 +4793,7 @@ export function initQuant(ctx) {
     deployFullSample = false,
     note = "",
     suiteView = null,
+    commitResearch = false,
   } = {}) {
     const sum = document.getElementById("quant-oo-rank-summary");
     const roleLabel = persistRole === "research" ? "研究套" : "执行套";
@@ -4675,6 +4849,7 @@ export function initQuant(ctx) {
           deploy_full_sample: !!deployFullSample,
           backend: "lambdarank",
           sync: false,
+          commit_research: !!commitResearch,
           ...readCrossSectionFitParams("oo_rank"),
           note:
             note ||
@@ -4719,19 +4894,14 @@ export function initQuant(ctx) {
         const stData = await stRes.json().catch(() => ({}));
         if (stData && typeof stData === "object") {
           status = { ...stData, ...data };
-          // 槽位 stamp / suite 包以 GET 为准；勿被 last report 顶层盖掉
-          status.live_fitted_at =
-            (data.persisted && data.persisted.fitted_at) ||
-            (stData.suite_live && stData.suite_live.fitted_at) ||
-            stData.live_fitted_at ||
-            data.live_fitted_at ||
-            null;
-          status.research_fitted_at =
-            (persist && persistRole === "research" && data.persisted && data.persisted.fitted_at) ||
-            (stData.suite_research && stData.suite_research.fitted_at) ||
-            stData.research_fitted_at ||
-            data.research_fitted_at ||
-            null;
+          // 研究写入的 fitted_at 只进研究戳；执行戳仍以执行套为准
+          const slots = rankSlotTimesAfterFit(data, stData, {
+            persist,
+            persistRole,
+            commitResearch,
+          });
+          status.live_fitted_at = slots.live;
+          status.research_fitted_at = slots.research;
           if (stData.suite_live) status.suite_live = stData.suite_live;
           if (stData.suite_research) status.suite_research = stData.suite_research;
           // 优先保留带 LambdaRank booster 的 backends
@@ -4749,13 +4919,25 @@ export function initQuant(ctx) {
           else if (beB) status.backends = beB;
         }
       } catch (_) {}
-      await paintOoRankDesk(sum, status, {
-        persistOk: !!persist,
-        persistRole: persistRole || "live",
-        justFitted: !persist,
-        suiteView: viewKey,
-      });
-      return true;
+      const committed = !!(
+        commitResearch && data.persisted && data.persisted.success
+      );
+      try {
+        await paintOoRankDesk(sum, status, {
+          persistOk: !!persist || committed,
+          persistRole: committed ? "research" : persistRole || "live",
+          justFitted: !persist && !committed,
+          suiteView: viewKey,
+        });
+      } catch (_) {
+        // 拟合/写入已成功；因子表绘制失败不能把卡头改成「失败」，否则研究槽写入会被跳过
+        paintSuiteHeadStatus("oo_rank", viewKey, {
+          state: "ok",
+          chip: persist || committed ? "已写入" : "已拟合",
+          message: "结果已落盘 · 因子表未刷新，请刷新页面",
+        });
+      }
+      return committed ? { ok: true, committed: true } : true;
     } catch (err) {
       paintSuiteHeadStatus("oo_rank", viewKey, {
         state: "error",
@@ -4776,6 +4958,7 @@ export function initQuant(ctx) {
     deployFullSample = false,
     note = "",
     suiteView = null,
+    commitResearch = false,
   } = {}) {
     const sum = document.getElementById("quant-tc-rank-summary");
     const roleLabel = persistRole === "research" ? "研究套" : "执行套";
@@ -4831,6 +5014,7 @@ export function initQuant(ctx) {
           deploy_full_sample: !!deployFullSample,
           backend: "lambdarank",
           sync: false,
+          commit_research: !!commitResearch,
           ...readTauEndFitParams("tc_rank"),
           ...readCrossSectionFitParams("tc_rank"),
           note:
@@ -4878,18 +5062,13 @@ export function initQuant(ctx) {
         const stData = await stRes.json().catch(() => ({}));
         if (stData && typeof stData === "object") {
           status = { ...stData, ...data };
-          status.live_fitted_at =
-            (data.persisted && data.persisted.fitted_at) ||
-            (stData.suite_live && stData.suite_live.fitted_at) ||
-            stData.live_fitted_at ||
-            data.live_fitted_at ||
-            null;
-          status.research_fitted_at =
-            (persist && persistRole === "research" && data.persisted && data.persisted.fitted_at) ||
-            (stData.suite_research && stData.suite_research.fitted_at) ||
-            stData.research_fitted_at ||
-            data.research_fitted_at ||
-            null;
+          const slots = rankSlotTimesAfterFit(data, stData, {
+            persist,
+            persistRole,
+            commitResearch,
+          });
+          status.live_fitted_at = slots.live;
+          status.research_fitted_at = slots.research;
           if (stData.suite_live) status.suite_live = stData.suite_live;
           if (stData.suite_research) status.suite_research = stData.suite_research;
           const beA =
@@ -4905,18 +5084,29 @@ export function initQuant(ctx) {
         }
       } catch (_) {}
       restoreTauEndFromFitReport(status, "tc_rank");
-      await paintOoRankDesk(
-        sum,
-        status,
-        {
-          persistOk: !!persist,
-          persistRole: persistRole || "live",
-          justFitted: !persist,
-          suiteView: viewKey,
-        },
-        TC_RANK_DESK
+      const committed = !!(
+        commitResearch && data.persisted && data.persisted.success
       );
-      return true;
+      try {
+        await paintOoRankDesk(
+          sum,
+          status,
+          {
+            persistOk: !!persist || committed,
+            persistRole: committed ? "research" : persistRole || "live",
+            justFitted: !persist && !committed,
+            suiteView: viewKey,
+          },
+          TC_RANK_DESK
+        );
+      } catch (_) {
+        paintSuiteHeadStatus("tc_rank", viewKey, {
+          state: "ok",
+          chip: persist || committed ? "已写入" : "已拟合",
+          message: "结果已落盘 · 因子表未刷新，请刷新页面",
+        });
+      }
+      return committed ? { ok: true, committed: true } : true;
     } catch (err) {
       paintSuiteHeadStatus("tc_rank", viewKey, {
         state: "error",
@@ -5026,7 +5216,9 @@ export function initQuant(ctx) {
       }
       if (job.status === "done") {
         const full = await apiFetch(`/api/jobs/${jobName}`);
-        return ((full.data && full.data.job) || job);
+        const got = full && full.ok && full.data && full.data.job;
+        if (got && got.result && typeof got.result === "object") return got;
+        return job;
       }
       const sec = Math.max(1, Math.round((Date.now() - pollStarted) / 1000));
       const hint = job.message || ridgeFitBusyHint(sec);
@@ -5938,17 +6130,21 @@ export function initQuant(ctx) {
     try {
       const fitOk = await runOoRank({
         persist: false,
+        persistRole: "research",
         holdoutOverride: holdN,
         suiteView: "research",
+        commitResearch: true,
       });
       if (!fitOk) return;
-      const persistOk = await runOoRank({
-        persist: true,
-        persistRole: "research",
-        suiteView: "research",
-        note: `ui oo_rank fit-research Holdout=${holdN}`,
-      });
-      if (!persistOk) return;
+      if (!fitOk.committed) {
+        const persistOk = await runOoRank({
+          persist: true,
+          persistRole: "research",
+          suiteView: "research",
+          note: `ui oo_rank fit-research Holdout=${holdN}`,
+        });
+        if (!persistOk) return;
+      }
       clearSuiteFitPreview("oo_rank");
       void refreshSuiteFitSelect("oo_rank", { keepPrev: false });
     } catch (err) {
@@ -6011,17 +6207,21 @@ export function initQuant(ctx) {
     try {
       const fitOk = await runTcRank({
         persist: false,
+        persistRole: "research",
         holdoutOverride: holdN,
         suiteView: "research",
+        commitResearch: true,
       });
       if (!fitOk) return;
-      const persistOk = await runTcRank({
-        persist: true,
-        persistRole: "research",
-        suiteView: "research",
-        note: `ui tc_rank fit-research Holdout=${holdN}`,
-      });
-      if (!persistOk) return;
+      if (!fitOk.committed) {
+        const persistOk = await runTcRank({
+          persist: true,
+          persistRole: "research",
+          suiteView: "research",
+          note: `ui tc_rank fit-research Holdout=${holdN}`,
+        });
+        if (!persistOk) return;
+      }
       clearSuiteFitPreview("tc_rank");
       void refreshSuiteFitSelect("tc_rank", { keepPrev: false });
     } catch (err) {

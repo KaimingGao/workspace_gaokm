@@ -36,6 +36,27 @@ class TestRemTheme(unittest.TestCase):
             ),
             1.0,
         )
+        from core.research.tau_panel import theme_flag_for_row
+
+        day = int(
+            resolve_theme_day(
+                sector_breadth=0.1,
+                pool_gaps=[0.5, 0.4],
+                gap_trigger_pct=2.0,
+            )
+        )
+        self.assertEqual(
+            theme_flag_for_row(day_theme=day, gap_pct=2.5, gap_trigger_pct=2.0),
+            1,
+        )
+        self.assertEqual(
+            theme_flag_for_row(day_theme=day, gap_pct=0.2, gap_trigger_pct=2.0),
+            0,
+        )
+        self.assertEqual(
+            theme_flag_for_row(day_theme=1, gap_pct=0.2, gap_trigger_pct=2.0),
+            1,
+        )
 
 class TestBookConstraints(unittest.TestCase):
     def test_sector_cap_and_tau_defer(self):

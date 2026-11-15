@@ -9435,7 +9435,7 @@ body[data-page="data"] .quant-head.dashboard-head .quant-desk-guard {
   max-height: 28px !important;
   padding: 0 10px !important;
   margin: 0;
-  border-radius: 2px !important;
+  border-radius: var(--data-r, 2px) !important;
   font-size: 12px !important;
   font-weight: 600 !important;
   line-height: 1;
@@ -9457,6 +9457,66 @@ body[data-page="data"] .quant-head.dashboard-head .quant-desk-guard {
   font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace) !important;
   font-weight: 650 !important;
   letter-spacing: 0.04em !important;
+}
+
+/* 数据中心：区段、卡片、按钮、徽章同一圆角。
+   观察台 / 交易执行 / 历史回测 / 平台 / 研究枢纽的区段壳都是 2px。 */
+body[data-page="data"] {
+  --data-r: 2px;
+}
+
+body[data-page="data"] .quant-body.quant-page > .dashboard-section.quant-section,
+body[data-page="data"] .quant-page .quant-pro-card.dashboard-card,
+body[data-page="data"] .quant-page .quant-pro-kpi-card.dashboard-kpi-card,
+body[data-page="data"] .quant-bars-viz-panel,
+body[data-page="data"] .quant-bars-context-strip,
+body[data-page="data"] .quant-bars-progress,
+body[data-page="data"] .quant-bars-progress-track,
+body[data-page="data"] .quant-bars-progress-fill,
+body[data-page="data"] .quant-bars-bar-wrap,
+body[data-page="data"] .quant-bars-bar-fill,
+body[data-page="data"] .quant-integrity,
+body[data-page="data"] .quant-page .quant-pro-status-chip,
+body[data-page="data"] .quant-bars-badge,
+body[data-page="data"] .dialog-btn,
+body[data-page="data"] .quant-help-fold {
+  border-radius: var(--data-r);
+}
+
+/* 增量补齐 / 强更 / 物化：对齐研究枢纽按钮，不用对话框的 10px 20px 大号。
+   悬停不再上浮、不再加对话框阴影。 */
+body[data-page="data"] .quant-page .dialog-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+  height: 28px;
+  min-height: 28px;
+  padding: 0 12px;
+  font-size: var(--q-fs-caption, 0.75rem);
+  font-weight: 600;
+  line-height: 1.25;
+  letter-spacing: 0.01em;
+  text-transform: none;
+  box-shadow: none;
+}
+
+body[data-page="data"] .quant-page .dialog-btn:hover,
+body[data-page="data"] .quant-page .dialog-btn:active {
+  transform: none;
+  box-shadow: none;
+}
+
+body[data-page="data"] .quant-page .dialog-btn.primary,
+body[data-page="data"] .quant-page .dialog-btn.primary:hover:not(:disabled),
+body[data-page="data"] .quant-page .dialog-btn.primary:active {
+  background: var(--accent);
+}
+
+body[data-page="data"] .quant-page .dialog-btn.warn,
+body[data-page="data"] .quant-page .dialog-btn.warn:hover:not(:disabled),
+body[data-page="data"] .quant-page .dialog-btn.warn:active {
+  background: var(--warn, #f59e0b);
 }
 
 body[data-page="quant"] .quant-page {
@@ -11077,6 +11137,33 @@ body[data-page="quant"] .quant-page .quant-cluster-status .quant-cluster-landing
 
 .quant-page .quant-rem-status.is-error .quant-rem-status-msg {
   color: var(--danger, #dc2626);
+}
+
+/* 拟合进行中：卡头进度用强调色，明暗缓入缓出 */
+@keyframes quant-fit-status-blink {
+  0%,
+  100% {
+    color: var(--accent, #1890ff);
+    opacity: 1;
+  }
+  50% {
+    color: color-mix(in srgb, var(--accent, #1890ff) 42%, var(--ink-3));
+    opacity: 0.5;
+  }
+}
+
+body[data-page="quant"] .quant-page .quant-card-head--fit .quant-rem-status.is-busy:not(.is-error) .quant-rem-status-msg {
+  color: var(--accent, #1890ff);
+  font-weight: 650;
+  animation: quant-fit-status-blink 1.8s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  body[data-page="quant"] .quant-page .quant-card-head--fit .quant-rem-status.is-busy:not(.is-error) .quant-rem-status-msg {
+    animation: none;
+    opacity: 1;
+    color: var(--accent, #1890ff);
+  }
 }
 
 .quant-page .quant-rem-coef {

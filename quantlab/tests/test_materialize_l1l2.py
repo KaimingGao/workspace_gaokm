@@ -1555,7 +1555,9 @@ class HorizonL1StitchTests(unittest.TestCase):
         }
         out = attach_cross_section_breadth([panel], gap_trigger_pct=2.0)
         self.assertEqual(out[0].get("xs"), [])
-        self.assertIn("theme_day", out[0]["x_names"])
+        # 拟合矩阵缺列不扩表。主题记在 meta；入模列 z_τc_theme_day 已在表里才写回去。
+        self.assertEqual(out[0]["x_names"], ["gap_pct", "ret_open_to_tau"])
+        self.assertEqual(out[0]["X"].shape, (2, 2))
         self.assertIn("theme_day", out[0]["metas"][0])
         self.assertIn("gap_pct", out[0]["metas"][0])
 

@@ -45,13 +45,38 @@ def _breadth_keys() -> Tuple[str, ...]:
 
 
 class PanelMatrix:
-    """按列名累积 float64 行。``widen_prefix``（如 ``raw_atc_`` / ``raw_aoo_``）可在见到数值时加列。"""
+    """按列名累积行。``widen_prefix``（如 ``raw_atc_`` / ``raw_aoo_``）可在见到数值时加列。
 
-    def __init__(self, names: Sequence[str], *, widen_prefix: str = ""):
+    默认 float64（Ridge / 窗头）。ŷ_τc 拟合传 float32，避免多钟面板把整表留在 float64。
+    """
+
+    def __init__(
+        self,
+        names: Sequence[str],
+        *,
+        widen_prefix: str = "",
+        dtype: Any = np.float64,
+    ):
         self.names: List[str] = [str(n) for n in names]
         self._index: Dict[str, int] = {n: i for i, n in enumerate(self.names)}
         self._widen_prefix = str(widen_prefix or "")
+        self.dtype = np.dtype(dtype)
         self._chunks: List[np.ndarray] = []
+
+    def _cast_block(self, arr: np.ndarray) -> np.ndarray:
+        src = np.asarray(arr)
+        if (
+            src.dtype == self.dtype
+            and src.ndim == 2
+            and src.flags.c_contiguous
+            and src.flags.writeable
+        ):
+            return src
+        with np.errstate(over="ignore"):
+            out = np.array(src, dtype=self.dtype, copy=True)
+        if self.dtype == np.float32 and out.size and np.isinf(out).any():
+            out[np.isinf(out)] = np.nan
+        return out
 
     def _widen(self, name: str) -> int:
         have = self._index.get(name)
@@ -62,7 +87,7 @@ class PanelMatrix:
         self._index[name] = j
         pad_chunks: List[np.ndarray] = []
         for chunk in self._chunks:
-            pad = np.full((chunk.shape[0], 1), np.nan, dtype=np.float64)
+            pad = np.full((chunk.shape[0], 1), np.nan, dtype=self.dtype)
             pad_chunks.append(np.concatenate([chunk, pad], axis=1))
         self._chunks = pad_chunks
         return j
@@ -92,7 +117,7 @@ class PanelMatrix:
         if n <= 0:
             return
         p = len(self.names)
-        block = np.full((n, p), np.nan, dtype=np.float64)
+        block = np.full((n, p), np.nan, dtype=self.dtype)
         index = self._index
         for i, row in enumerate(rows):
             if not isinstance(row, dict):
@@ -110,23 +135,23 @@ class PanelMatrix:
         self._chunks.append(block)
 
     def append_block(self, arr: np.ndarray) -> None:
-        """追加已按 ``self.names`` 对齐的 float64 块。"""
-        a = np.asarray(arr, dtype=np.float64)
+        """追加已按 ``self.names`` 对齐的块，收成 ``self.dtype``。"""
+        a = np.asarray(arr)
         if a.ndim != 2 or a.shape[0] <= 0:
             return
         p = len(self.names)
         if a.shape[1] == p:
-            self._chunks.append(np.ascontiguousarray(a))
+            self._chunks.append(self._cast_block(a))
             return
-        aligned = np.full((a.shape[0], p), np.nan, dtype=np.float64)
+        aligned = np.full((a.shape[0], p), np.nan, dtype=self.dtype)
         ncopy = min(p, int(a.shape[1]))
         if ncopy:
-            aligned[:, :ncopy] = a[:, :ncopy]
+            aligned[:, :ncopy] = self._cast_block(a[:, :ncopy])
         self._chunks.append(aligned)
 
     def finalize(self) -> np.ndarray:
         if not self._chunks:
-            return np.zeros((0, len(self.names)), dtype=np.float64)
+            return np.zeros((0, len(self.names)), dtype=self.dtype)
         if len(self._chunks) == 1:
             out = self._chunks[0]
         else:
@@ -135,12 +160,125 @@ class PanelMatrix:
         return out
 
 
-def _slim_rows(rows: Sequence[dict], keys: Sequence[str]) -> List[dict]:
-    out: List[dict] = []
-    for row in rows:
-        src = row if isinstance(row, dict) else {}
-        out.append({k: src.get(k) for k in keys})
+# 父进程只留这些 meta。price_tau* 已进 L1 的 M，截面输入在矩阵列里。
+_FIT_META_KEYS = (
+    "date",
+    "stock_code",
+    "tau",
+    "gap_pct",
+    "ret_open_to_tau",
+    "ret_last_30m",
+    "ret_last_45m",
+    "ret_last_60m",
+    "ret_last_75m",
+    "ret_last_90m",
+)
+
+
+def _fit_meta(meta: Any, *, code: str, date: str) -> dict:
+    src = meta if isinstance(meta, dict) else {}
+    out = {
+        "date": str(src.get("date") or date or "")[:10],
+        "stock_code": str(src.get("stock_code") or code or "").strip(),
+    }
+    tau = str(src.get("tau") or "").strip()
+    if tau:
+        out["tau"] = tau
+    for key in _FIT_META_KEYS:
+        if key in ("date", "stock_code", "tau"):
+            continue
+        val = src.get(key)
+        if val is None or val == "":
+            continue
+        out[key] = val
     return out
+
+
+def _as_fit_panel(block: np.ndarray) -> np.ndarray:
+    """单票矩阵交给父进程前收成 float32。L1 仍用调用方手里的 float64。"""
+    src = np.asarray(block)
+    if (
+        isinstance(src, np.ndarray)
+        and src.dtype == np.float32
+        and src.ndim == 2
+        and src.flags.c_contiguous
+        and src.flags.writeable
+    ):
+        return src
+    with np.errstate(over="ignore"):
+        out = np.array(src, dtype=np.float32, copy=True)
+    if out.size and np.isinf(out).any():
+        out[np.isinf(out)] = np.nan
+    return out
+
+
+def _pack_tau_job(
+    code: str,
+    block: np.ndarray,
+    ys: Sequence[float],
+    dates: Sequence[str],
+    metas: Sequence[dict],
+) -> Tuple[str, np.ndarray, List[float], List[str], List[dict], List[dict]]:
+    """返回父进程用的包。不再附带逐行 slim dict（广度从矩阵列读）。"""
+    dates_l = [str(d)[:10] for d in dates]
+    metas_l = [
+        _fit_meta(
+            metas[i] if i < len(metas) else {},
+            code=code,
+            date=dates_l[i] if i < len(dates_l) else "",
+        )
+        for i in range(len(dates_l))
+    ]
+    return (
+        code,
+        _as_fit_panel(block),
+        [float(y) for y in ys],
+        dates_l,
+        metas_l,
+        [],
+    )
+
+
+def _take_l1_matrix(
+    family: str,
+    code: str,
+    fingerprint: str,
+    names: Sequence[str],
+) -> Optional[Tuple[np.ndarray, np.ndarray, List[str], List[dict]]]:
+    """L1 命中：``(X, y, dates, metas)``。有 ``M`` 时 metas 带 tau，避免多钟混成 open。"""
+    try:
+        from core.research import feature_lake as lake
+        from core.research.horizon_l1 import metas_from_price_matrix
+    except Exception:  # noqa: BLE001
+        return None
+    if not lake.enabled() or not code:
+        return None
+    pack = lake.load_stock_panel(family, code, fingerprint=str(fingerprint))
+    if not pack:
+        return None
+    X = np.asarray(pack.get("X"))
+    dates = [str(d)[:10] for d in (pack.get("dates") or [])]
+    got = [str(n) for n in (pack.get("names") or [])]
+    want = [str(n) for n in names]
+    if got and got != want:
+        return None
+    y = pack.get("y")
+    if y is None:
+        return None
+    y_arr = np.asarray(y)
+    if X.ndim != 2 or X.shape[0] != len(dates) or int(y_arr.shape[0]) != len(dates):
+        return None
+    if got and int(X.shape[1]) != len(got):
+        return None
+    m_names = [str(n) for n in ((pack.get("_meta") or {}).get("m_names") or [])]
+    metas = metas_from_price_matrix(
+        pack.get("M"),
+        m_names,
+        dates=dates,
+        code=code,
+        default_tau="",
+    )
+    return X, y_arr, dates, metas
 
 
 def _panel_xs_count(panels: Sequence[Dict[str, Any]]) -> int:
@@ -188,6 +326,53 @@ def _finish_breadth(
     n_stocks: int,
 ) -> Tuple[np.ndarray, List[str], List[float], List[str], List[dict]]:
     from core.research.tau_panel import attach_cross_section_breadth
+
+    # 拟合包不再带逐行 xs。广度写进已有列，避免再复制一份 float64 和百万 dict。
+    if not any(p.get("xs") for p in slim_panels):
+        X = block.finalize()
+        ys_out: List[float] = []
+        dates_out: List[str] = []
+        metas_out: List[dict] = []
+        for panel in slim_panels:
+            ys_out.extend(float(y) for y in (panel.get("ys") or []))
+            dates_out.extend(str(d)[:10] for d in (panel.get("dates") or []))
+            metas_out.extend(panel.get("metas") or [])
+        names = list(block.names)
+        n_rows = int(X.shape[0])
+        if not (len(ys_out) == len(dates_out) == len(metas_out) == n_rows):
+            raise RuntimeError(
+                f"{head} 面板行数不一致 matrix={n_rows} y={len(ys_out)} "
+                f"dates={len(dates_out)} metas={len(metas_out)}"
+            )
+        if n_rows:
+            enriched_m = attach_cross_section_breadth(
+                [
+                    {
+                        "code": "",
+                        "xs": [],
+                        "X": X,
+                        "x_names": names,
+                        "ys": ys_out,
+                        "dates": dates_out,
+                        "metas": metas_out,
+                    }
+                ],
+                gap_trigger_pct=gap_trigger_pct,
+            )
+            if enriched_m:
+                got = enriched_m[0]
+                X = got.get("X", X)
+                names = [str(n) for n in (got.get("x_names") or names)]
+                metas_out = list(got.get("metas") or metas_out)
+        logger.info(
+            "compact panel head=%s rows=%s cols=%s stocks=%s dtype=%s",
+            head,
+            int(X.shape[0]),
+            int(X.shape[1]) if X.ndim == 2 else 0,
+            int(n_stocks),
+            getattr(X, "dtype", ""),
+        )
+        return X, names, ys_out, dates_out, metas_out
 
     enriched = attach_cross_section_breadth(
         slim_panels, gap_trigger_pct=gap_trigger_pct
@@ -397,6 +582,93 @@ def _tau_bar_floor(
     return max(floor, need_hist + 4)
 
 
+def tau_l1_min_history(
+    min_history: int,
+    *,
+    include_alpha_tc: bool,
+    use_minute: bool,
+) -> int:
+    """开盘 α_τc 的 L1 指纹用抬窗后的起点。
+
+    ``collect_tau_open_panel`` 会把窗口抬到 ``ALPHA_TC_PANEL_WINDOW`` 再出行。
+    指纹若仍记调用方的 12，命中和增量合并会留下抬窗前的旧前缀。
+    分钟路径与 stitch 共用调用方窗口，这里不改。
+    """
+    try:
+        mh = int(min_history)
+    except (TypeError, ValueError):
+        mh = 12
+    if mh < 1:
+        mh = 12
+    if use_minute or not include_alpha_tc:
+        return mh
+    from core.signal.factors.alpha_tc import ALPHA_TC_PANEL_WINDOW
+
+    return max(mh, int(ALPHA_TC_PANEL_WINDOW))
+
+
+def open_tc_slice_spec_fp(
+    meta: Optional[Dict[str, Any]],
+    *,
+    tau_hm: str,
+    caller_min_history: int,
+    include_alpha_tc: bool,
+    include_alpha_th: bool = False,
+):
+    """只读切片用的指纹函数。增量合并仍用抬窗后的 ``tau_l1_min_history``。
+
+    新写入的指纹是 62。湖上若仍盖着调用方的 12，但 ``n_bars - n_rows``
+    已经不少于 ``ALPHA_TC_PANEL_WINDOW``，行是按长预热写出的，切片沿用旧戳，
+    短窗才能留住长湖里多出来的决策日。预热缺口更小的旧前缀对不上，不会被切开。
+    """
+    from core.research.panel_fingerprint import make_fingerprint
+    from core.signal.factors.alpha_tc import ALPHA_TC_PANEL_WINDOW
+
+    window = int(ALPHA_TC_PANEL_WINDOW)
+    bumped_history = tau_l1_min_history(
+        caller_min_history,
+        include_alpha_tc=bool(include_alpha_tc),
+        use_minute=False,
+    )
+
+    def _fp(bars_fp: str, history: int) -> str:
+        return make_fingerprint(
+            bars_fp=str(bars_fp),
+            tau_hm=str(tau_hm or "open"),
+            min_history=int(history),
+            include_alpha_tc=int(bool(include_alpha_tc)),
+            include_alpha_th=int(bool(include_alpha_th)),
+            use_minute=0,
+        )
+
+    def bumped(bars_fp: str) -> str:
+        return _fp(bars_fp, bumped_history)
+
+    if not isinstance(meta, dict) or not include_alpha_tc:
+        return bumped
+    try:
+        n_bars = int(meta.get("n_bars") or 0)
+        n_rows = int(meta.get("n_rows") or 0)
+        caller = int(caller_min_history)
+    except (TypeError, ValueError):
+        return bumped
+    stored_fp = str(meta.get("fingerprint") or "")
+    stored_bars = str(meta.get("bars_fp") or "")
+    if (
+        caller < window
+        and n_rows >= 4
+        and n_bars - n_rows >= window
+        and stored_fp
+        and stored_bars
+        and stored_fp == _fp(stored_bars, caller)
+    ):
+        def legacy(bars_fp: str) -> str:
+            return _fp(bars_fp, caller)
+
+        return legacy
+    return bumped
+
+
 def _tau_stock_job(
     item: Dict[str, Any],
     col_names: Sequence[str],
@@ -410,10 +682,11 @@ def _tau_stock_job(
     include_alpha_th: bool = False,
     cache_head: str = "tc",
 ) -> Optional[Tuple[str, np.ndarray, List[float], List[str], List[dict], List[dict]]]:
-    """单票 ŷ_τc：任务内折 float64 + slim；写穿 L1（不落整份 xs）。
+    """单票 ŷ_τc：任务内折 float64 并写穿 L1；返回父进程的是 float32，不带逐行 slim。
 
     ``cache_head="tc_rank"`` → L1 family ``tc_rank`` / ``tc_rank_HHMM``。
     ``include_alpha_th``：按钟附加窗头 ``raw_ath_*`` / ``z_τh_*``（H 轨）。
+    ``slim_keys`` 仍留在进程池载荷里，父进程改从矩阵列做截面广度。
     """
     from core.research.panel_fingerprint import bars_fingerprint, make_fingerprint
     from core.research.tau_panel import (
@@ -433,7 +706,11 @@ def _tau_stock_job(
     ):
         item.pop("minute_bars", None)
         return None
-    mh = int(min_history)
+    mh = tau_l1_min_history(
+        min_history,
+        include_alpha_tc=include_alpha_tc,
+        use_minute=use_minute,
+    )
     atc = bool(include_alpha_tc)
     ath = bool(include_alpha_th)
     minute = list(item.get("minute_bars") or []) if use_minute else None
@@ -461,40 +738,25 @@ def _tau_stock_job(
     from core.research.lake_bridge import family_for_tc
 
     l1_family = family_for_tc(tau_hm=str(tau_hm), rank=rank_cache)
-    # L1 命中（含 tc_HHMM / tc_rank_*）
+    # L1 命中（含 tc_HHMM / tc_rank_*）。矩阵在返回前收成 float32。
     if code:
         try:
-            from core.research.lake_bridge import load_training_matrix
-
-            hit = load_training_matrix(
-                l1_family,
-                code,
-                fp,
-                names=col_names,
-            )
+            hit = _take_l1_matrix(l1_family, code, fp, col_names)
             if hit is not None:
-                block, y_arr, _names, dates_l, _src = hit
+                block, y_arr, dates_l, metas_l = hit
                 if block.shape[1] == len(col_names) and len(dates_l) >= 4:
-                    ys_l = [float(y) for y in y_arr.tolist()]
-                    slim = [{} for _ in dates_l]
-                    metas_l = [{"date": d, "stock_code": code} for d in dates_l]
                     item.pop("minute_bars", None)
-                    return code, block, ys_l, dates_l, metas_l, slim
+                    return _pack_tau_job(code, block, y_arr, dates_l, metas_l)
             # 开盘 tc_rank 与 tc 同指纹：直接拷贝，不再把 raw_atc 重算一遍。
             if rank_cache and not use_minute:
-                from core.research.lake_bridge import FAMILY_TC
+                from core.research.incremental_panel import stem_extra_meta
+                from core.research.lake_bridge import FAMILY_TC, sync_panel_to_lake
 
-                adopted = load_training_matrix(
-                    FAMILY_TC, code, fp, names=col_names
-                )
+                adopted = _take_l1_matrix(FAMILY_TC, code, fp, col_names)
                 if adopted is not None:
-                    block, y_arr, _names, dates_l, _src = adopted
+                    block, y_arr, dates_l, metas_l = adopted
                     if block.shape[1] == len(col_names) and len(dates_l) >= 4:
-                        ys_l = [float(y) for y in y_arr.tolist()]
                         try:
-                            from core.research.incremental_panel import stem_extra_meta
-                            from core.research.lake_bridge import sync_panel_to_lake
-
                             sync_panel_to_lake(
                                 l1_family,
                                 code,
@@ -502,7 +764,7 @@ def _tau_stock_job(
                                 dates=dates_l,
                                 names=list(col_names),
                                 fingerprint=fp,
-                                y=np.asarray(ys_l, dtype=np.float64),
+                                y=np.asarray(y_arr, dtype=np.float64),
                                 extra_meta=stem_extra_meta(
                                     bars, panel_dates=dates_l
                                 ),
@@ -513,10 +775,8 @@ def _tau_stock_job(
                                 code,
                                 exc_info=True,
                             )
-                        slim = [{} for _ in dates_l]
-                        metas_l = [{"date": d, "stock_code": code} for d in dates_l]
                         item.pop("minute_bars", None)
-                        return code, block, ys_l, dates_l, metas_l, slim
+                        return _pack_tau_job(code, block, y_arr, dates_l, metas_l)
         except Exception:  # noqa: BLE001
             logger.debug("tau training cache load failed code=%s", code, exc_info=True)
 
@@ -541,12 +801,24 @@ def _tau_stock_job(
             if rank_cache and l1_family != FAMILY_TC:
                 slice_families.append(FAMILY_TC)
             end_lag = allow_l1_end_lag()
+            from core.research.feature_lake import read_stock_meta
+
             for fam in slice_families:
+                try:
+                    slice_meta = read_stock_meta(fam, code)
+                except Exception:  # noqa: BLE001
+                    slice_meta = None
                 sliced = try_slice_shorter_lookback(
                     code,
                     bars,
                     family=fam,
-                    spec_fp=_tau_open_spec,
+                    spec_fp=open_tc_slice_spec_fp(
+                        slice_meta,
+                        tau_hm=str(tau_hm),
+                        caller_min_history=int(min_history),
+                        include_alpha_tc=atc,
+                        include_alpha_th=ath,
+                    ),
                     names=col_names,
                     allow_end_lag=end_lag,
                 )
@@ -554,11 +826,9 @@ def _tau_stock_job(
                     continue
                 block, y_arr, _names, dates_l = sliced
                 if list(_names) == list(col_names) and len(dates_l) >= 4:
-                    ys_l = [float(y) for y in y_arr.tolist()]
-                    slim = [{} for _ in dates_l]
                     metas_l = [{"date": d, "stock_code": code} for d in dates_l]
                     item.pop("minute_bars", None)
-                    return code, block, ys_l, dates_l, metas_l, slim
+                    return _pack_tau_job(code, block, y_arr, dates_l, metas_l)
         except Exception:  # noqa: BLE001
             logger.debug("tau lookback slice failed code=%s", code, exc_info=True)
 
@@ -576,7 +846,7 @@ def _tau_stock_job(
                 atc_out: Dict[str, Any] = {}
                 xs_t, ys_t, dates_t, _metas_t = collect_tau_open_panel(
                     bars,
-                    min_history=min_history,
+                    min_history=mh,
                     index_bars=item.get("index_bars"),
                     fundamentals=item.get("fundamentals"),
                     stock_code=code,
@@ -615,7 +885,6 @@ def _tau_stock_job(
         item.pop("minute_bars", None)
         block, y_arr, _names, dates_l = inc_hit
         ys_l = [float(y) for y in y_arr.tolist()]
-        slim = [{} for _ in dates_l]
         metas_l = [{"date": d, "stock_code": code} for d in dates_l]
         if code:
             try:
@@ -634,7 +903,7 @@ def _tau_stock_job(
                 )
             except Exception:  # noqa: BLE001
                 logger.debug("tau L1 sync (incremental) failed code=%s", code, exc_info=True)
-        return code, block, ys_l, dates_l, metas_l, slim
+        return _pack_tau_job(code, block, ys_l, dates_l, metas_l)
     atc_out: Dict[str, Any] = {}
     if use_minute:
         xs, ys, dates, metas = collect_tau_intraday_panel(
@@ -653,7 +922,7 @@ def _tau_stock_job(
     else:
         xs, ys, dates, metas = collect_tau_open_panel(
             bars,
-            min_history=min_history,
+            min_history=mh,
             index_bars=item.get("index_bars"),
             fundamentals=item.get("fundamentals"),
             stock_code=code,
@@ -676,7 +945,6 @@ def _tau_stock_job(
             except Exception:  # noqa: BLE001
                 logger.debug("stamp_z_th_aliases failed", exc_info=True)
         block = _dict_rows_to_matrix(xs, col_names)
-    slim = _slim_rows(xs, slim_keys)
     del xs
     ys_l = [float(y) for y in ys]
     dates_l = [str(d)[:10] for d in dates]
@@ -715,7 +983,7 @@ def _tau_stock_job(
             )
         except Exception:  # noqa: BLE001
             logger.debug("tau L1 sync failed code=%s", code, exc_info=True)
-    return code, block, ys_l, dates_l, metas_l, slim
+    return _pack_tau_job(code, block, ys_l, dates_l, metas_l)
 
 
 def _tau_grid_clock_fp(
@@ -1415,7 +1683,8 @@ def collect_tau_compact(
         include_alpha_tc=include_alpha_tc,
         include_alpha_th=include_alpha_th,
     )
-    block = PanelMatrix(col_names, widen_prefix="")
+    # 父进程常驻面板用 float32。单票任务里仍用 float64 写 L1，返回前再收窄。
+    block = PanelMatrix(col_names, widen_prefix="", dtype=np.float32)
     slim_keys = _breadth_keys()
     slim_panels: List[Dict[str, Any]] = []
     n_stocks = 0
@@ -1819,30 +2088,61 @@ def named_columns(
     return np.ascontiguousarray(X[:, cols]), kept
 
 
+def _finite_row_index(
+    X: np.ndarray, row_idx: Optional[Sequence[int]]
+) -> Optional[np.ndarray]:
+    """训练行下标。``None`` 表示整表，调用方按列读，不再 ``X[idx]`` 复制全表。"""
+    if row_idx is None:
+        return None
+    if isinstance(row_idx, np.ndarray) and row_idx.dtype == np.int64 and row_idx.ndim == 1:
+        idx = row_idx
+    else:
+        idx = np.asarray(row_idx, dtype=np.int64).reshape(-1)
+    if idx.size == 0:
+        return idx
+    n = int(X.shape[0])
+    if (
+        idx.size == n
+        and int(idx[0]) == 0
+        and int(idx[-1]) == n - 1
+        and (n <= 1 or bool(np.all(np.diff(idx) == 1)))
+    ):
+        return None
+    return idx
+
+
+def _raw_keys_with_finite(
+    X: np.ndarray,
+    names: Sequence[str],
+    row_idx: Optional[Sequence[int]],
+    pred,
+) -> List[str]:
+    """按列看训练行里有没有有限值。一次只取一列，避免把整张训练矩阵再拷一份。"""
+    if X.size == 0 or X.shape[0] == 0:
+        return []
+    idx = _finite_row_index(X, row_idx)
+    if idx is not None and idx.size == 0:
+        return []
+    out: List[str] = []
+    for j, name in enumerate(names):
+        key = str(name)
+        if not pred(key):
+            continue
+        col = X[:, j] if idx is None else X[idx, j]
+        if np.isfinite(col).any():
+            out.append(key)
+    return out
+
+
 def raw_aoo_finite(
     X: np.ndarray,
     names: Sequence[str],
     row_idx: Optional[Sequence[int]] = None,
 ) -> List[str]:
     """训练行（或全表）上至少有一个有限值的 ``raw_aoo_*``，按列序。"""
-    if X.size == 0 or X.shape[0] == 0:
-        return []
-    if row_idx is None:
-        view = X
-    else:
-        idx = np.asarray(list(row_idx), dtype=np.int64)
-        if idx.size == 0:
-            return []
-        view = X[idx]
     from core.signal.factors.alpha_oo import is_alpha_oo_raw_key
 
-    out: List[str] = []
-    for j, name in enumerate(names):
-        if not is_alpha_oo_raw_key(str(name)):
-            continue
-        if np.isfinite(view[:, j]).any():
-            out.append(str(name))
-    return out
+    return _raw_keys_with_finite(X, names, row_idx, is_alpha_oo_raw_key)
 
 
 def raw_atc_finite(
@@ -1851,24 +2151,9 @@ def raw_atc_finite(
     row_idx: Optional[Sequence[int]] = None,
 ) -> List[str]:
     """训练行（或全表）上至少有一个有限值的 ``raw_atc_*``，按列序。"""
-    if X.size == 0 or X.shape[0] == 0:
-        return []
-    if row_idx is None:
-        view = X
-    else:
-        idx = np.asarray(list(row_idx), dtype=np.int64)
-        if idx.size == 0:
-            return []
-        view = X[idx]
     from core.signal.factors.alpha_tc import is_alpha_tc_raw_key
 
-    out: List[str] = []
-    for j, name in enumerate(names):
-        if not is_alpha_tc_raw_key(str(name)):
-            continue
-        if np.isfinite(view[:, j]).any():
-            out.append(str(name))
-    return out
+    return _raw_keys_with_finite(X, names, row_idx, is_alpha_tc_raw_key)
 
 
 def finite_name_set(X: np.ndarray, names: Sequence[str]) -> set:

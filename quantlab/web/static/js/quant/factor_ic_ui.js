@@ -1203,6 +1203,12 @@ export function createFactorIcUi(deps) {
               raw: oos.cs_ic,
             })
           : "") +
+        (oos.cs_icir != null && Number.isFinite(Number(oos.cs_icir))
+          ? kpi("ICIR", Number(oos.cs_icir).toFixed(3), "日频 IC 均值/标准差", {
+              signed: true,
+              raw: oos.cs_icir,
+            })
+          : "") +
         // 入模/特征/省略属模型结构，研究|执行都显示（不跟 Holdout OOS）
         kpi(
           "入模",

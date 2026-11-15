@@ -180,95 +180,27 @@ def _arml_boost_log_cb(period: int = 25):
     return _cb
 
 
-def _stamp_tc_pool_breadth(
-    X: np.ndarray,
-    names: Sequence[str],
-    dates: Sequence[str],
-    codes: Sequence[str],
-) -> Tuple[np.ndarray, List[str]]:
-    """按日补枢纽截面列：``theme_day`` / ``sector_gap_breadth`` / ``gap_vs_sector`` 及 ``z_τc_*``。
+def _theme_weights_from_panel(X: np.ndarray, names: Sequence[str]) -> Optional[np.ndarray]:
+    """主题日权重与枢纽同口径（开盘可知，boost 1.5）。
 
-    口径走 ``enrich_day_matrix_cross_section``（与 ``attach_cross_section_breadth`` 相同）。
-    单票开盘行没有这三列；全池当天才能算。
+    读 ``collect_tau_compact`` 写入的 ``z_τc_theme_day``。没有这一列，或列上没有主题日，则等权。
     """
-    from core.research.tau_panel import enrich_day_matrix_cross_section
-
-    base = np.asarray(X, dtype=np.float64)
-    kept = [str(n) for n in names]
-    n = int(base.shape[0])
-    if n == 0 or base.ndim != 2 or int(base.shape[1]) != len(kept):
-        return base, kept
-    by: Dict[str, List[int]] = {}
-    for i, d in enumerate(dates):
-        if i >= n:
-            break
-        by.setdefault(str(d)[:10], []).append(i)
-    have = set(kept)
-    extra: Dict[str, np.ndarray] = {}
-    for idxs in by.values():
-        if len(idxs) < 2:
-            continue
-        ii = np.asarray(idxs, dtype=np.int64)
-        day_codes = [str(codes[i]) if i < len(codes) else "" for i in idxs]
-        out_names, out_x, added = enrich_day_matrix_cross_section(
-            day_codes, kept, base[ii]
-        )
-        if not added:
-            continue
-        out_x = np.asarray(out_x, dtype=np.float64)
-        if out_x.ndim != 2 or int(out_x.shape[0]) != len(idxs):
-            continue
-        for j, nm in enumerate(out_names):
-            key = str(nm)
-            if key in have:
-                continue
-            col = extra.get(key)
-            if col is None:
-                col = np.full(n, np.nan, dtype=np.float64)
-                extra[key] = col
-            col[ii] = out_x[:, j]
-    add_names = [nm for nm in extra if nm not in have]
-    if not add_names:
-        return base, kept
-    stacked = np.concatenate(
-        [base] + [extra[nm].reshape(-1, 1) for nm in add_names],
-        axis=1,
-    )
-    print(
-        f"  ArmL τc breadth +{len(add_names)} cols "
-        f"({', '.join(add_names[:6])}) rss={_rss_mb()}",
-        flush=True,
-    )
-    return stacked, kept + add_names
-
-
-def _theme_weights_from_panel(X: np.ndarray, names: Sequence[str]) -> Optional[List[float]]:
-    """主题日权重与枢纽 ``theme_sample_weights`` 同口径（开盘可知，boost 1.5）。
-
-    面板列可能是 ``z_τc_theme_day`` 或裸名 ``theme_day``。没有这一列则等权。
-    """
-    index = {str(n): i for i, n in enumerate(names)}
-    col_j = None
-    for key in ("z_τc_theme_day", "theme_day"):
-        if key in index:
-            col_j = index[key]
-            break
-    if col_j is None or int(X.shape[0]) == 0:
+    arr = np.asarray(X)
+    name_list = [str(n) for n in names]
+    index = {n: i for i, n in enumerate(name_list)}
+    col_j = index.get("z_τc_theme_day")
+    if (
+        col_j is None
+        or arr.ndim != 2
+        or int(arr.shape[0]) == 0
+        or int(arr.shape[1]) != len(name_list)
+    ):
         return None
-    from core.research.tau_panel import theme_sample_weights
-
-    col = np.asarray(X[:, col_j], dtype=np.float64)
-    metas = []
-    for v in col.tolist():
-        flag = 0
-        try:
-            fv = float(v)
-        except (TypeError, ValueError):
-            fv = float("nan")
-        if fv == fv and int(round(fv)) == 1:
-            flag = 1
-        metas.append({"theme_day": flag})
-    return theme_sample_weights(metas)
+    col = np.asarray(arr[:, col_j], dtype=np.float64)
+    theme = np.isfinite(col) & (np.rint(col) == 1.0)
+    if not bool(theme.any()):
+        return None
+    return np.where(theme, 1.5, 1.0).astype(np.float64, copy=False)
 
 
 def _tc_hub_columns(
@@ -276,35 +208,32 @@ def _tc_hub_columns(
     names: Sequence[str],
     train_idx: Sequence[int],
 ) -> Tuple[np.ndarray, List[str]]:
-    """τ=open 入模列与 ``fit_tau_model_matrices`` 同：丢掉分钟列和别名，留下有限 raw_atc。
-
-    面板若只写了裸名，按 ``z_τc_*`` 别名取列，列名仍用枢纽的 canon。
-    """
-    from core.research.panel_matrix import raw_atc_finite
+    """τ=open 入模列与 ``fit_tau_model_matrices`` 同：丢掉分钟列和别名，留下有限 raw_atc。"""
+    from core.research.panel_matrix import named_columns, raw_atc_finite
     from core.research.tc_model_compact import TAU_FIT_DROP_ALIASES, TAU_Z_FEATURES
-    from core.signal.factors.z_tc import Z_TC_MINUTE_KEYS, to_legacy_key
+    from core.signal.factors.z_tc import Z_TC_MINUTE_KEYS
 
+    arr = np.asarray(X)
+    name_list = [str(n) for n in names]
+    if arr.ndim != 2 or int(arr.shape[1]) != len(name_list):
+        return np.zeros((int(arr.shape[0]) if arr.ndim == 2 else 0, 0), dtype=np.float64), []
     drop = set(Z_TC_MINUTE_KEYS) | set(TAU_FIT_DROP_ALIASES)
-    index = {str(n): i for i, n in enumerate(names)}
     wanted: List[str] = [k for k in TAU_Z_FEATURES if k not in drop]
     seen = set(wanted)
-    for key in raw_atc_finite(X, names, train_idx):
+    safe_idx: List[int] = []
+    n_rows = int(arr.shape[0])
+    for raw in train_idx or []:
+        try:
+            ii = int(raw)
+        except (TypeError, ValueError):
+            continue
+        if 0 <= ii < n_rows:
+            safe_idx.append(ii)
+    for key in raw_atc_finite(arr, name_list, safe_idx):
         if key not in seen:
             seen.add(key)
             wanted.append(key)
-    cols: List[int] = []
-    kept: List[str] = []
-    for name in wanted:
-        j = index.get(name)
-        if j is None:
-            j = index.get(to_legacy_key(name))
-        if j is None:
-            continue
-        cols.append(int(j))
-        kept.append(str(name))
-    if not cols:
-        return np.zeros((int(X.shape[0]), 0), dtype=np.float64), []
-    return np.ascontiguousarray(np.asarray(X)[:, cols]), kept
+    return named_columns(arr, name_list, wanted)
 
 
 def _stamp_open_clock(days: Sequence[dict]) -> List[dict]:
@@ -337,6 +266,40 @@ def _cap_rank_days(days: Sequence[dict], max_tr: int) -> List[dict]:
         kept.append(day)
         n_kept += n
     return kept
+
+
+def _blank_fac_matrix(fac: Any) -> None:
+    """入模矩阵已经单独拷出后，放开面板宽表。"""
+    try:
+        fac.X = np.empty((0, 0), dtype=np.float32)
+    except Exception:
+        return
+
+
+def _arml_memory_stop(panel_bytes: int) -> str:
+    """超水位就停，避免系统把拟合进程杀掉、桌面只能看到中途消失。"""
+    from core.research.horizon_l1 import (
+        confirm_fit_memory_stop,
+        physical_ram_bytes,
+        process_rss_bytes,
+    )
+
+    return (
+        confirm_fit_memory_stop(
+            panel_bytes=max(0, int(panel_bytes or 0)),
+            rss_bytes=process_rss_bytes(),
+            ram_bytes=physical_ram_bytes(),
+            reread_rss=process_rss_bytes,
+        )
+        or ""
+    )
+
+
+def _arml_oom_error() -> str:
+    return (
+        "内存保护：分配失败，已停止以免进程被系统杀掉。"
+        "请缩小池，或缩短 lookback / Holdout。"
+    )
 
 
 def _run_arm_l_regression(
@@ -375,11 +338,18 @@ def _run_arm_l_regression(
     theme_boost = None
     try:
         if hid in ("tc", "tc_rank"):
+            from core.research.horizon_l1 import release_allocator_cache
             from core.research.tc_lgb import fit_tc_lgb_matrix, predict_tc_lgb_matrix
 
-            X, names = _stamp_tc_pool_breadth(X, names, dates, list(fac.codes))
+            print(
+                f"  ArmL τc columns start N={int(X.shape[0])} "
+                f"F={int(X.shape[1])} rss={_rss_mb()}",
+                flush=True,
+            )
+            # 截面广度已在 collect_tau_compact 写进面板，这里只做入模列过滤。
             weights = _theme_weights_from_panel(X, names)
-            X_fit, feat_names = _tc_hub_columns(X, names, tr)
+            wide = X
+            X_fit, feat_names = _tc_hub_columns(wide, names, tr)
             if not feat_names:
                 return {
                     "arm": "L_lightgbm",
@@ -388,6 +358,13 @@ def _run_arm_l_regression(
                     "elapsed_sec": round(time.time() - t0, 2),
                     "note": "live fit_tc_lgb_matrix + theme weights + hub columns",
                 }
+            if getattr(fac, "X", None) is not X_fit:
+                _blank_fac_matrix(fac)
+            X = X_fit
+            names = feat_names
+            del wide
+            gc.collect()
+            release_allocator_cache()
             if weights is not None:
                 theme_boost = 1.5
             print(
@@ -395,10 +372,19 @@ def _run_arm_l_regression(
                 f"rss={_rss_mb()}",
                 flush=True,
             )
+            stop = _arml_memory_stop(int(getattr(X_fit, "nbytes", 0) or 0))
+            if stop:
+                return {
+                    "arm": "L_lightgbm",
+                    "success": False,
+                    "error": stop,
+                    "elapsed_sec": round(time.time() - t0, 2),
+                    "note": "live fit_tc_lgb_matrix + theme weights + hub columns",
+                }
             blob, report = fit_tc_lgb_matrix(
-                X_fit,
+                X,
                 y,
-                feat_names,
+                names,
                 row_idx=tr,
                 row_dates=dates,
                 sample_weights=weights,
@@ -407,8 +393,6 @@ def _run_arm_l_regression(
                 callbacks=step_cb,
             )
             predict_fn = predict_tc_lgb_matrix
-            X = X_fit
-            names = feat_names
         else:
             from core.research.oo_lgb import fit_oo_lgb_matrix, predict_oo_lgb_matrix
 
@@ -427,6 +411,14 @@ def _run_arm_l_regression(
             "arm": "L_lightgbm",
             "success": False,
             "error": f"MaterializeRequired: {exc}",
+            "elapsed_sec": round(time.time() - t0, 2),
+            "note": "live fit_*_lgb_matrix + L2 cube CS-z",
+        }
+    except MemoryError:
+        return {
+            "arm": "L_lightgbm",
+            "success": False,
+            "error": _arml_oom_error(),
             "elapsed_sec": round(time.time() - t0, 2),
             "note": "live fit_*_lgb_matrix + L2 cube CS-z",
         }
@@ -535,8 +527,8 @@ def _run_arm_l_rank(
 ) -> Dict[str, Any]:
     """排序 Arm·L：日包 ``fit_lambdarank``（threads=1，≥5 个交易日，L2 截面 Z）。
 
-    ŷ_τc_rank 先补全池截面列，再按枢纽列过滤（分钟列 / 别名丢掉，裸名映到 ``z_τc_*``）。
-    不把 booster 写入研究枢纽槽。
+    ŷ_τc_rank 的截面列已在 ``collect_tau_compact`` 里。这里只按枢纽列过滤
+    （丢掉分钟列和别名，留下有限 raw_atc）。不把 booster 写入研究枢纽槽。
     """
     import gc
 
@@ -551,13 +543,8 @@ def _run_arm_l_rank(
     max_tr = _arm_l_max_train_rows()
     X = fac.X
     if hid == "tc_rank":
-        X, names = _stamp_tc_pool_breadth(
-            X,
-            names,
-            [str(d)[:10] for d in fac.dates],
-            list(fac.codes),
-        )
-        X, names = _tc_hub_columns(X, names, train_idx)
+        wide = X
+        X, names = _tc_hub_columns(wide, names, train_idx)
         if not names:
             return {
                 "arm": "L_lambdarank",
@@ -566,6 +553,10 @@ def _run_arm_l_rank(
                 "elapsed_sec": round(time.time() - t0, 2),
                 "head": hid,
             }
+        if getattr(fac, "X", None) is not X:
+            _blank_fac_matrix(fac)
+        del wide
+        gc.collect()
     print(
         f"  ArmL rank day-pack start head={hid} N={int(np.asarray(X).shape[0])} "
         f"F={len(names)} rss={_rss_mb()}",
@@ -585,6 +576,15 @@ def _run_arm_l_rank(
     )
     try:
         fit = fit_lambdarank(days_tr, feature_names=names)
+    except MemoryError:
+        return {
+            "arm": "L_lambdarank",
+            "success": False,
+            "error": _arml_oom_error(),
+            "elapsed_sec": round(time.time() - t0, 2),
+            "head": hid,
+            "note": "live fit_lambdarank day-pack",
+        }
     except MaterializeRequired as exc:
         return {
             "arm": "L_lambdarank",
@@ -693,39 +693,52 @@ def _run_arm_l(
 
 
 def _drop_aligned_rows_without_cube(seq, fac):
-    """对齐后丢掉早于本地 L2 起点的行。
+    """对齐后丢掉早于第一份可读 open 立方的行。
 
-    单票日线往往比池立方更早。只切这个前缀，与 Arm·L 丢掉无立方早期行同口径。
-    起点之后仍缺的日期留下，截面标准化照旧失败。一个立方都没有时原样返回。
+    起点与截面标准化同一读法：文件能列出 μ/σ 才算。跨度开头读失败的文件跳过。
+    起点当天及之后仍缺的日期留下，截面标准化照旧失败。一份可读立方都没有时原样返回。
+    日期全部早于起点时清空面板，避免带着必败的缺日进入截面标准化。
     """
-    from core.research.materialize.cube_z import groups_with_day_cube
+    from core.research.materialize.cube_z import first_readable_cube_day
 
     n = int(getattr(fac, "n", 0) or 0)
     if n <= 0 or int(getattr(seq, "n", 0) or 0) != n:
         return seq, fac
-    uniq = sorted({str(d)[:10] for d in fac.dates if len(str(d)[:10]) >= 10})
-    if not uniq:
+    first, skipped = first_readable_cube_day("open")
+    if len(first) < 10:
+        if skipped:
+            print(
+                f"ArmT 本地立方文件读不出 μ/σ（{skipped} 个），保留全部 N={n}",
+                flush=True,
+            )
+        else:
+            print(f"ArmT 本地无可用 L2，保留全部 N={n}", flush=True)
         return seq, fac
-    mask, miss = groups_with_day_cube(uniq, clock="open")
-    if int(mask.shape[0]) != len(uniq) or not bool(np.any(mask)):
+    if skipped:
         print(
-            f"ArmT 本地无可用 L2，保留全部 N={n} 例如 {list(miss)[:4]}",
+            f"ArmT 跳过读不出 μ/σ 的立方前缀 {skipped} 个，起点 {first}",
             flush=True,
         )
-        return seq, fac
-    first = uniq[int(np.flatnonzero(mask)[0])]
-    keep = [
-        i
-        for i, d in enumerate(fac.dates)
-        if len(str(d)[:10]) >= 10 and str(d)[:10] >= first
-    ]
+    early_example: List[str] = []
+    keep: List[int] = []
+    for i, raw in enumerate(fac.dates):
+        day = str(raw)[:10]
+        if len(day) >= 10 and day >= first:
+            keep.append(i)
+            continue
+        if len(early_example) < 4 and len(day) >= 10 and day not in early_example:
+            early_example.append(day)
     if len(keep) == n:
         return seq, fac
     if not keep:
-        return seq, fac
+        print(
+            f"ArmT 对齐日期都早于立方起点 {first}，面板清空 N={n} 例如 {early_example}",
+            flush=True,
+        )
+        return seq.subset([]), fac.subset([])
     n_drop = n - len(keep)
     print(
-        f"ArmT 丢掉早于立方起点 {first} 的历史行 {n_drop}/{n} 例如 {list(miss)[:4]}",
+        f"ArmT 丢掉早于立方起点 {first} 的历史行 {n_drop}/{n} 例如 {early_example}",
         flush=True,
     )
     return seq.subset(keep), fac.subset(keep)
@@ -880,10 +893,10 @@ def _fmt_metric(v: Any) -> str:
 
 
 def _arm_done_bits(m: Dict[str, Any]) -> str:
-    """完成行带上命中率和 TopY，页面不用等整次 Holdout 结束。"""
+    """完成行与枢纽卡片同名：Rank IC、ICIR（日频 Pearson）、命中、Top10% y。"""
     return (
         f"rankIC={_fmt_metric(m.get('cs_rank_ic'))} "
-        f"ICIR={_fmt_metric(m.get('cs_rank_icir'))} "
+        f"ICIR={_fmt_metric(m.get('cs_icir'))} "
         f"sign_hit={_fmt_metric(m.get('sign_hit'))} "
         f"topY={_fmt_metric(m.get('cs_top_mean_y'))}"
     )
@@ -944,6 +957,21 @@ def _relative_hard_gates(
             "reasons": ["Arm·L 与 Arm·T 均无成功指标"],
         }
     }
+
+
+def label_horizon_days_for_head(head_id: str, horizon_days: int) -> int:
+    """τc 标签当天收盘实现，隔离 0 日；隔夜头用 horizon（至少 1）。
+
+    ``--horizon-days`` 默认 1 是给 ŷ_oo 的。τc / τc_rank 若照搬，
+    会把评测窗前一个交易日空出训练集。
+    """
+    hid = str(head_id or "").strip().lower()
+    if hid in ("tc", "tc_rank"):
+        return 0
+    try:
+        return max(1, int(horizon_days or 1))
+    except (TypeError, ValueError):
+        return 1
 
 
 def _desk_mark_failed(head: str, error: str, *, factory: str = "T") -> None:
@@ -1230,7 +1258,9 @@ def _run_holdout(args: argparse.Namespace) -> int:
         return resolve_ridge_split(
             list(dates),
             holdout_trading_days=args.holdout_trading_days,
-            label_horizon_days=args.horizon_days,
+            label_horizon_days=label_horizon_days_for_head(
+                head_spec.id, args.horizon_days
+            ),
             calendar_dates=cal,
         )
 
@@ -1268,7 +1298,7 @@ def _run_holdout(args: argparse.Namespace) -> int:
                 seq_c, fac_c = align_seq_and_factor(seq, sliced)
                 seq_c, fac_c = _drop_aligned_rows_without_cube(seq_c, fac_c)
                 if fac_c.n <= 0:
-                    raise ValueError("对齐后没有共同样本")
+                    raise ValueError("对齐后没有落在 open 立方起点之后的样本")
                 shared_keys = {
                     (str(c), str(d)[:10])
                     for c, d in zip(fac_c.codes, fac_c.dates)
@@ -1559,7 +1589,7 @@ def _run_holdout(args: argparse.Namespace) -> int:
 
     print("\n=== 对比 ===", flush=True)
     print(
-        f"{'arm':<12} {'rankIC':>8} {'ICIR':>8} {'hit':>8} {'topY':>8}",
+        f"{'arm':<12} {'Rank IC':>8} {'ICIR':>8} {'命中':>8} {'Top10% y':>8}",
         flush=True,
     )
     for r in table:
@@ -1568,8 +1598,8 @@ def _run_holdout(args: argparse.Namespace) -> int:
             continue
         print(
             f"{r['arm']:<12} "
-            f"{(r.get('cs_rank_ic') if r.get('cs_rank_ic') is not None else float('nan')):>8.4f} "
-            f"{(r.get('cs_rank_icir') if r.get('cs_rank_icir') is not None else float('nan')):>8.3f} "
+            f"{(r.get('cs_rank_ic') if r.get('cs_rank_ic') is not None else float('nan')):>8.3f} "
+            f"{(r.get('cs_icir') if r.get('cs_icir') is not None else float('nan')):>8.3f} "
             f"{(r.get('sign_hit') if r.get('sign_hit') is not None else float('nan')):>8.3f} "
             f"{(r.get('cs_top_mean_y') if r.get('cs_top_mean_y') is not None else float('nan')):>8.3f}",
             flush=True,

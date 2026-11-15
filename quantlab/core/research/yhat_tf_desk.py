@@ -1107,6 +1107,16 @@ def _fit_exit_error_from_log(head: str) -> str:
     # live-fit start 也算已进入 LGB（勿只认 "ArmL begin" 字样）
     arm_l_begin = ("arml begin" in low) or ("live-fit start" in low)
     arm_l_done = ("arml rankic" in low) or ("arml 失败" in low)
+    arm_l_step = "arml step=" in low
+    # 入模列还没抽完就消失：不是 LightGBM 轮次里被杀。
+    # columns start 之后、columns F= 之前退出，停在列过滤。
+    tc_columns_begun = "arml τc columns start" in low
+    tc_columns_ready = "arml τc columns f=" in low
+    if tc_columns_begun and not tc_columns_ready and not arm_l_step and not arm_l_done:
+        return (
+            "拟合进程在 τc 截面列准备中退出（尚未进入 LightGBM）。"
+            f"请降低 lookback / 池大小后重试（{hint_8g}）"
+        )
     if arm_l_split and not arm_l_begin and not arm_l_done:
         return (
             "拟合进程在 Arm·L 切分后退出（未进入 LGB）。"
@@ -1750,6 +1760,8 @@ def _summary_arms(last: Any) -> Dict[str, Dict[str, Any]]:
             k: row[k]
             for k in (
                 "cs_rank_ic",
+                "cs_ic",
+                "cs_icir",
                 "cs_rank_icir",
                 "sign_hit",
                 "cs_top_mean_y",
@@ -2076,7 +2088,7 @@ def _arm_metrics_slice(pack: Any) -> Optional[Dict[str, Any]]:
     if not isinstance(pack, dict) or not pack.get("success"):
         return None
     out: Dict[str, Any] = {}
-    for k in ("cs_rank_ic", "cs_rank_icir", "sign_hit", "cs_top_mean_y", "n", "n_test", "n_train", "n_features", "n_eval"):
+    for k in ("cs_rank_ic", "cs_ic", "cs_icir", "cs_rank_icir", "sign_hit", "cs_top_mean_y", "n", "n_test", "n_train", "n_features", "n_eval"):
         if pack.get(k) is not None:
             out[k] = pack.get(k)
     note = pack.get("note")

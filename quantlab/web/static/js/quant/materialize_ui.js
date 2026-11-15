@@ -68,7 +68,6 @@ function resultHeadBits(result, { tau = false } = {}) {
     if (track.headline) bits.push(String(track.headline));
     else bits.push(tau ? "物化完成（τ）" : "物化完成");
     if (track.steps_ok) bits.push(`步骤 ${track.steps_ok}`);
-    if (track.schema != null) bits.push(`schema v${track.schema}`);
     if (track.codes_n != null) bits.push(`${track.codes_n} 只`);
     return bits;
   }

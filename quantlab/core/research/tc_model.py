@@ -644,6 +644,9 @@ def save_tau_last_report(report: Dict[str, Any]) -> None:
     os.makedirs(os.path.dirname(path), exist_ok=True)
     atomic_write_json(path, report)
     _JSON_MODEL_CACHE.pop(path, None)
+    from core.research.model_versions import archive_fit_draft
+
+    archive_fit_draft("tau", report)
 
 
 def load_tau_last_report() -> Optional[Dict[str, Any]]:

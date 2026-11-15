@@ -39,7 +39,7 @@ UI 入口：`/yhat-t`（**Transformer 工厂**；旧 `/yhat-tf` 重定向）。�
     align_seq_and_factor  按 (code,date) 内连接；y 以 seq 为准
             │
             ▼
-    丢掉没有 L2 的早期行（与 Arm·L 拟合前丢行同口径）
+    丢掉早于第一份可读 open 立方的行（起点之后的缺日留下）
             │
             ├─ 共享日历 shared_cal → resolve_ridge_split (Holdout 窗)
             │
@@ -63,7 +63,7 @@ UI 入口：`/yhat-t`（**Transformer 工厂**；旧 `/yhat-tf` 重定向）。�
 2. Gate / OOS 用 **seq∩fac 共享键** 与同一 `eval_start`，避免 L/T 评测窗错位。
 3. Arm·L 训练仍可吃共享日历末端之前的全量 fac 早期日（含 seq 尚未覆盖的日）。
 4. `align_seq_and_factor`：同 `(code,date)` 标签偏差 > `1e-3` 时以 **seq.y 覆盖 fac.y**。
-5. 早于立方起点、没有 L2 的行在对齐后丢掉。剩下的面板仍缺立方：`MaterializeRequired`，**不做**列标准化回退。
+5. 对齐后只丢掉早于第一份可读 open 立方的行。起点与截面标准化同一读法（能列出 μ/σ）；跨度开头读失败的文件跳过，不算起点。起点当天及之后的缺日留下，截面标准化报 `MaterializeRequired`，**不做**列标准化回退。一份可读立方都没有时面板原样留下；日期全部早于起点时清空面板。共享日历在这次丢行之后再切，Holdout 末端不变。
 
 ---
 
@@ -163,9 +163,9 @@ seq16 在经典 8 维价量摘要上追加影线 / 位置 / 量变 / 缺口回�
 | Head | 构建 | 指纹 |
 |--|--|--|
 | oo / oo_rank | `build_oo_factor_panel` → 枢纽 `assemble_oo_panels` | full_aoo |
-| tc / tc_rank | `build_tc_factor_panel`（`collect_tau_open_panel`，`z ∪ raw_atc`） | atc_full |
+| tc / tc_rank | `build_tc_factor_panel` → 枢纽 `collect_tau_compact` | atc_full |
 
-磁盘缓存键是 `facv3` 加每只股票的价量指纹（`bars_fingerprint`）。固定 lookback 下滑窗、复权或中间一根价量改动都会 miss。τc 有股票失败时不写缓存。oo 单票失败由枢纽组装抬异常，不落半成品。缺测在面板里保持 NaN。
+磁盘缓存键是 `facv3` 加每只股票的价量指纹（`bars_fingerprint`）。τc 的 kind 是 `tc_compact_v2`（`tc_compact` 是丢掉长湖前缀的短面板，不再命中）。固定 lookback 下滑窗、复权或中间一根价量改动都会 miss。oo 单票失败由枢纽组装抬异常，不落半成品。缺测在面板里保持 NaN。
 
 ### 5.2 `slice_arm_t_panel`（仅 Arm·T）
 
@@ -244,13 +244,15 @@ seq16 在经典 8 维价量摘要上追加影线 / 位置 / 量变 / 缺口回�
 
 `daily_cs_ic_report` → `cs_ic` / `cs_icir`、`cs_rank_ic` / `cs_rank_icir`、`cs_top_mean_y`、`cs_ls_mean_y`；另加 `pooled_ic`、`sign_hit`（deadband **0.05**）。
 
+工厂卡与枢纽因子表同名同数：Rank IC = `cs_rank_ic`，ICIR = `cs_icir`（日频 Pearson 均值/标准差），命中 = `sign_hit`，Top10% y = `cs_top_mean_y`。三位小数。硬闸里的 ICIR 仍是 Rank ICIR（`cs_rank_icir`），不写在这张卡上。
+
 ### 8.2 `hard_gate_vs_baseline`（相对 Arm·L）
 
 实现：`metrics.py`。
 
 - 绝对 lift：`cs_rank_ic(T) − cs_rank_ic(L) ≥ 0.01`，**或**
 - 相对 lift：≥ **20%**
-- 若基线 ICIR &gt; 0 且候选 ICIR &lt; 基线 × (1 − **0.10**) → 失败
+- 若基线 Rank ICIR &gt; 0 且候选 Rank ICIR &lt; 基线 × (1 − **0.10**) → 失败（`cs_rank_icir`，不是卡片上的 Pearson ICIR）
 
 Holdout 始终写 `hard_gate_vs_arm_L.T`；L 或 T 失败也写 `pass=false` + reasons。顶层展示指标优先 Arm·T；Gate 始终取 `hard_gate.T`。
 
@@ -339,4 +341,5 @@ PYTHONUNBUFFERED=1 .venv/bin/python scripts/run_yhat_transformer_holdout.py --he
 | 2026-11-14 | 初稿：对齐 `yhat_transformer` + Holdout + desk 现行实现 |
 | 2026-11-14 | §3 补全双支路晚融合：支路张量、末步池化、gap 在编码器之外、融合头 129 维 |
 | 2026-11-15 | §4 序列窗口须严格早于 T；§5 因子缓存改为价量指纹，缺测留到 CS-z 之后再写成 0；§6 listwise 抽样放不进即停 |
-| 2026-11-15 | 对齐后丢掉没有 L2 的早期行，与 Arm·L 同；评测窗仍缺立方则失败 |
+| 2026-11-15 | 对齐后只切早于 open 立方起点的前缀；起点之后缺立方仍失败 |
+| 2026-11-15 | 立方起点改为第一份能读出 μ/σ 的文件；开头坏文件跳过，日期全部早于起点则清空面板 |

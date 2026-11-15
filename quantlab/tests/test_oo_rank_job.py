@@ -47,6 +47,79 @@ class TestOoRankJob(unittest.TestCase):
             self.assertTrue(callable(kw.get("progress_cb")))
             self.assertTrue(callable(kw.get("job_alive_cb")))
 
+    def test_commit_research_runs_inside_job(self):
+        from unittest import mock
+
+        from core.job_progress import oo_rank_job
+        from quant.services.quant_service_factors import QuantFactorMixin
+
+        if oo_rank_job.is_running():
+            self.skipTest("oo_rank_job already running")
+        svc = QuantFactorMixin()
+
+        def _fake(**kwargs):
+            time.sleep(0.05)
+            return {"success": True, "task": "oo_rank", "return_model": {"solver": "lambdarank"}}
+
+        svc.run_oo_rank_experiment = _fake
+        saved = {"success": True, "model_role": "research", "path": "/tmp/oo_rank_research.json"}
+        with isolated_live_slot(oo_rank_job), mock.patch(
+            "core.research.oo_rank_lambdarank.persist_oo_rank_model",
+            return_value=saved,
+        ) as persist:
+            out = svc.start_oo_rank_job(
+                watching_limit=8, commit_research=True, note="fit-research"
+            )
+            self.assertTrue(out.get("background"))
+            deadline = time.time() + 6
+            while time.time() < deadline and oo_rank_job.is_running():
+                time.sleep(0.05)
+            snap = oo_rank_job.get()
+            self.assertEqual(snap.get("status"), "done")
+            result = snap.get("result") or {}
+            self.assertTrue(result.get("success"))
+            self.assertEqual((result.get("persisted") or {}).get("model_role"), "research")
+            persist.assert_called_once()
+            self.assertEqual(persist.call_args.kwargs.get("role"), "research")
+            self.assertEqual(persist.call_args.kwargs.get("note"), "fit-research")
+
+
+class TestCommitResearchAfterFit(unittest.TestCase):
+    def test_write_failure_fails_the_report(self):
+        from quant.services.quant_service_factors import commit_research_after_fit
+
+        out = commit_research_after_fit(
+            {"success": True, "task": "oo_rank"},
+            lambda report, note="", role="": {"success": False, "error": "缺 booster"},
+        )
+        self.assertFalse(out["success"])
+        self.assertEqual(out["error"], "缺 booster")
+        self.assertEqual(out["persisted"]["error"], "缺 booster")
+
+    def test_dead_job_does_not_write(self):
+        from quant.services.quant_service_factors import commit_research_after_fit
+
+        called = {"n": 0}
+
+        def _persist(report, note="", role=""):
+            called["n"] += 1
+            return {"success": True}
+
+        src = {"success": True, "task": "oo_rank"}
+        out = commit_research_after_fit(src, _persist, alive=False)
+        self.assertIs(out, src)
+        self.assertEqual(called["n"], 0)
+
+    def test_persist_exception_fails_the_report(self):
+        from quant.services.quant_service_factors import commit_research_after_fit
+
+        def _boom(report, note="", role=""):
+            raise RuntimeError("disk full")
+
+        out = commit_research_after_fit({"success": True}, _boom)
+        self.assertFalse(out["success"])
+        self.assertIn("disk full", out["error"])
+
 
 class TestTcRankJob(unittest.TestCase):
     def test_start_tc_rank_job_returns_background(self):

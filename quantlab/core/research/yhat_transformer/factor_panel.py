@@ -1,6 +1,7 @@
-"""决策日因子面板（研究轨）：z_oo_* ∪ raw_aoo_*，带 code/date 便于与序列对齐。
+"""决策日因子面板（研究轨）：带 code/date，便于与序列对齐。
 
-加速：ProcessPool 并行（复用 ``_oo_stock_job`` / L1 湖）；可选磁盘缓存。
+ŷ_oo 走枢纽 ``assemble_oo_panels``，ŷ_τc 走枢纽 ``collect_tau_compact``。
+可选磁盘缓存。
 """
 
 from __future__ import annotations
@@ -9,74 +10,12 @@ import hashlib
 import logging
 import os
 import time
-from concurrent.futures import ProcessPoolExecutor, as_completed
-from concurrent.futures.process import BrokenProcessPool
 from dataclasses import dataclass
 from typing import Any, Dict, List, Mapping, Optional, Sequence, Tuple
 
 import numpy as np
 
 logger = logging.getLogger(__name__)
-
-
-def _note_stock_failures(label: str, failed: Sequence[str], total: int) -> None:
-    """少数坏票丢掉；成片异常则中止，避免在残缺宇宙上接着训。"""
-    n_fail = len(failed)
-    if n_fail <= 0 or total <= 0:
-        return
-    shown = ",".join(str(c) for c in list(failed)[:6])
-    print(f"  {label} 跳过 {n_fail}/{total} 只（异常）例如 {shown}", flush=True)
-    if n_fail >= 3 and n_fail * 5 >= int(total):
-        raise RuntimeError(f"{label} 异常过多 {n_fail}/{total}，中止")
-
-
-def _run_stock_jobs(
-    jobs: Sequence[Tuple[Any, ...]],
-    fn: Any,
-    *,
-    n_workers: int,
-    progress_every: int,
-    label: str,
-) -> Tuple[List[Any], List[str]]:
-    chunks: List[Any] = []
-    failed: List[str] = []
-    done = 0
-    total = len(jobs)
-    t0 = time.time()
-
-    def _one(code: Any, result_fn) -> None:
-        nonlocal done
-        try:
-            chunks.append(result_fn())
-        except BrokenProcessPool:
-            raise
-        except Exception:  # noqa: BLE001
-            failed.append(str(code))
-            logger.debug("%s job failed %s", label, code, exc_info=True)
-        done += 1
-        if progress_every and done % int(progress_every) == 0:
-            print(
-                f"  {label} {done}/{total} elapsed={time.time() - t0:.0f}s",
-                flush=True,
-            )
-
-    if n_workers <= 1:
-        for job in jobs:
-            _one(job[0], lambda job=job: fn(job))
-    else:
-        with ProcessPoolExecutor(max_workers=n_workers) as pool:
-            futs = {pool.submit(fn, job): job[0] for job in jobs}
-            try:
-                for fut in as_completed(futs):
-                    _one(futs[fut], fut.result)
-            except BrokenProcessPool as exc:
-                print(
-                    f"  {label} 进程池崩溃：{exc}；已完成 {done}/{total}",
-                    flush=True,
-                )
-                raise
-    _note_stock_failures(label, failed, total)
-    return chunks, failed
 
 
 @dataclass
@@ -103,8 +42,11 @@ class FactorPanel:
 
 
 # 价量指纹进键。facv1 只含代码和最长根数，固定 lookback 会一直命中旧面板。
-# facv3：oo 走枢纽 assemble_oo_panels（含 coverage），作废完成序/旧组面板缓存。
+# facv3：oo 走枢纽 assemble_oo_panels（含 coverage）。
+# tc_compact 是指纹抬到 62 后整段重算的短面板，丢掉了长湖前缀。
+# tc_compact_v2：短窗改回只读切片，能留下长湖里已经按 62 根预热写好的决策日。
 _FACTOR_CACHE_SCHEMA = "facv3"
+_TC_CACHE_KIND = "tc_compact_v2"
 
 
 def _cache_key(
@@ -138,12 +80,27 @@ def _default_cache_dir() -> str:
     return root
 
 
+def _panel_is_aligned(panel: "FactorPanel") -> bool:
+    """行、列、代码对齐才允许进训练或落缓存。空代码行无法和序列按 (code, date) 对齐。"""
+    x = getattr(panel, "X", None)
+    y = getattr(panel, "y", None)
+    if x is None or y is None or getattr(x, "ndim", 0) != 2 or getattr(y, "ndim", 0) != 1:
+        return False
+    n = int(x.shape[0])
+    if int(y.shape[0]) != n or len(panel.dates) != n or len(panel.codes) != n:
+        return False
+    names = list(panel.feature_names or [])
+    if names and int(x.shape[1]) != len(names):
+        return False
+    return all(str(c).strip() for c in panel.codes)
+
+
 def _try_load_cache(path: str) -> Optional["FactorPanel"]:
     if not path or not os.path.isfile(path):
         return None
     try:
         z = np.load(path, allow_pickle=True)
-        return FactorPanel(
+        panel = FactorPanel(
             X=np.asarray(z["X"], dtype=np.float32),
             y=np.asarray(z["y"], dtype=np.float32),
             dates=[str(d) for d in z["dates"].tolist()],
@@ -153,6 +110,10 @@ def _try_load_cache(path: str) -> Optional["FactorPanel"]:
     except Exception:  # noqa: BLE001
         logger.debug("factor panel cache load failed %s", path, exc_info=True)
         return None
+    if not _panel_is_aligned(panel):
+        logger.debug("factor panel cache misaligned %s", path)
+        return None
+    return panel
 
 
 def reorder_panel_by_codes(
@@ -177,7 +138,14 @@ def reorder_panel_by_codes(
         rows.sort(key=lambda i: str(panel.dates[i])[:10])
         idx.extend(rows)
     if not idx:
-        return panel
+        width = int(panel.X.shape[1]) if getattr(panel.X, "ndim", 0) == 2 else 1
+        return FactorPanel(
+            X=np.zeros((0, max(1, width)), dtype=np.float32),
+            y=np.zeros((0,), dtype=np.float32),
+            dates=[],
+            codes=[],
+            feature_names=list(panel.feature_names),
+        )
     if len(idx) == panel.n and idx == list(range(panel.n)):
         return panel
     ii = np.asarray(idx, dtype=np.int64)
@@ -444,39 +412,12 @@ def build_oo_factor_panel(
     return panel
 
 
-def _tc_stock_job(
-    job: Tuple[str, List[dict]],
-) -> Tuple[str, np.ndarray, np.ndarray, List[str], List[str]]:
-    """单票 τ=open ŷ_τc 因子行：Z∪raw_atc（日线可算开盘包）。"""
-    code, bars = job
-    from core.research.tau_panel import collect_tau_open_panel
-
-    xs, ys, dates, _metas = collect_tau_open_panel(
-        list(bars or []),
-        include_alpha_tc=True,
-        min_history=12,
-        max_window=60,
-        stock_code=str(code),
-    )
-    if not xs or not ys:
-        return str(code), np.zeros((0, 1), dtype=np.float32), np.zeros((0,), dtype=np.float32), [], []
-    # 稳定列名：并集排序
-    keys: List[str] = sorted({str(k) for row in xs for k in (row or {}).keys() if k})
-    if not keys:
-        return str(code), np.zeros((0, 1), dtype=np.float32), np.zeros((0,), dtype=np.float32), [], []
-    mat = np.full((len(xs), len(keys)), np.nan, dtype=np.float32)
-    for i, row in enumerate(xs):
-        for j, k in enumerate(keys):
-            try:
-                v = float((row or {}).get(k))
-            except (TypeError, ValueError):
-                v = float("nan")
-            if v == v:
-                mat[i, j] = v
-    # y_r_pct 已是百分点，与序列 tc_open 标签同单位
-    y = np.asarray([float(v) for v in ys], dtype=np.float32)
-    ds = [str(d)[:10] for d in dates]
-    return str(code), mat, y, keys, ds
+def _codes_from_tau_metas(metas: Sequence[dict], n: int) -> List[str]:
+    out: List[str] = []
+    for i in range(n):
+        meta = metas[i] if i < len(metas) and isinstance(metas[i], dict) else {}
+        out.append(str(meta.get("stock_code") or meta.get("code") or "").strip())
+    return out
 
 
 def build_tc_factor_panel(
@@ -487,10 +428,14 @@ def build_tc_factor_panel(
     use_cache: bool = True,
     cache_dir: Optional[str] = None,
 ) -> FactorPanel:
-    """ŷ_τc（τ=开盘）因子面板：全量 z∪raw_atc。
+    """ŷ_τc（τ=开盘）因子面板：走枢纽 ``collect_tau_compact``。
 
-    Arm·T 的 core 不在这里裁。
+    截面广度在组装里写完。Arm·T 的 core 不在这里裁。
+    传入的是条目指针的副本，避免组装过程 pop 掉调用方的日线。
     """
+    from core.research.panel_matrix import collect_tau_compact
+    from core.yhat.keys import TAU_Z_FEATURES
+
     items = [
         (str(c).strip(), list(bars or []))
         for c, bars in stock_bars.items()
@@ -509,7 +454,7 @@ def build_tc_factor_panel(
     cdir = cache_dir or _default_cache_dir()
     cache_path = ""
     if use_cache:
-        key = _cache_key(items, horizon_days=0, kind="tc")
+        key = _cache_key(items, horizon_days=0, kind=_TC_CACHE_KIND)
         cache_path = os.path.join(cdir, f"fac_tc_{key}.npz")
         hit = _try_load_cache(cache_path)
         if hit is not None and hit.n > 0:
@@ -527,93 +472,104 @@ def build_tc_factor_panel(
                 )
                 return hit
 
-    n_cpu = os.cpu_count() or 2
-    if workers is None:
-        try:
-            workers = int(os.environ.get("OO_FAC_WORKERS") or 2)
-        except ValueError:
-            workers = 2
-    n_workers = max(1, min(int(workers), 4, len(items), n_cpu))
+    every = max(0, int(progress_every or 0))
+
+    def _prog(done: int, total: int, msg: str) -> None:
+        if every <= 0:
+            return
+        if int(done) != int(total) and int(done) % every != 0:
+            return
+        print(f"  τc 因子 {done}/{total} {msg}", flush=True)
+
     print(
-        f"  τc 因子面板 workers={n_workers} stocks={len(items)} pack=atc_open",
+        f"  τc 因子面板 collect_tau_compact stocks={len(items)} pack=atc_full",
         flush=True,
     )
     t0 = time.time()
-    jobs = [(c, b) for c, b in items]
-    chunks, failed = _run_stock_jobs(
-        jobs,
-        _tc_stock_job,
-        n_workers=n_workers,
-        progress_every=int(progress_every or 0),
-        label="τc 因子",
+    # 新 dict + 新 list，条目指针仍指向原 K 线。pop bars 只清这份副本。
+    stock_items = [{"code": code, "bars": bars} for code, bars in items]
+    x_mat, names, ys, dates, metas, _n_stocks = collect_tau_compact(
+        stock_items,
+        list(TAU_Z_FEATURES),
+        min_history=12,
+        gap_trigger_pct=2.0,
+        tau_hm="open",
+        include_alpha_tc=True,
+        head="y_tc",
+        cache_head="tc",
+        workers=workers,
+        progress_cb=_prog,
     )
-
-    by_code: Dict[str, Tuple[np.ndarray, np.ndarray, List[str], List[str]]] = {}
-    for code, x, y, nm, ds in chunks:
-        by_code[str(code)] = (x, y, list(nm), list(ds))
-
-    names: List[str] = []
-    for code, _bars in items:
-        part = by_code.get(str(code))
-        if part is None:
-            continue
-        _x, _y, nm, _d = part
-        if _x is None or getattr(_x, "size", 0) == 0:
-            continue
-        if len(nm) > len(names):
-            names = list(nm)
-    if not names:
-        return FactorPanel(
-            X=np.zeros((0, 1), dtype=np.float32),
-            y=np.zeros((0,), dtype=np.float32),
-            dates=[],
-            codes=[],
-            feature_names=[],
+    names = [str(n) for n in (names or [])]
+    n = int(len(ys))
+    dates_l = [str(d)[:10] for d in (dates or [])]
+    metas_l = list(metas or [])
+    x_rows = int(getattr(x_mat, "shape", (0,))[0] or 0) if x_mat is not None else 0
+    x_cols = int(getattr(x_mat, "shape", (0, 0))[1] or 0) if getattr(x_mat, "ndim", 0) == 2 else -1
+    aligned = (
+        n >= 1
+        and x_mat is not None
+        and getattr(x_mat, "ndim", 0) == 2
+        and x_rows == n
+        and len(dates_l) == n
+        and len(metas_l) == n
+        and (not names or x_cols == len(names))
+    )
+    if not aligned:
+        print(
+            f"  τc 因子组装对不齐 y={n} rows={x_rows} cols={x_cols} "
+            f"dates={len(dates_l)} metas={len(metas_l)} names={len(names)}，放弃这次结果",
+            flush=True,
         )
-
-    xs_out: List[np.ndarray] = []
-    ys_out: List[np.ndarray] = []
-    dates_out: List[str] = []
-    codes_out: List[str] = []
-    name_idx = {n: i for i, n in enumerate(names)}
-    for code, _bars in items:
-        part = by_code.get(str(code))
-        if part is None:
-            continue
-        x, y, nm, ds = part
-        if x is None or getattr(x, "size", 0) == 0 or not ds:
-            continue
-        aligned = np.full((x.shape[0], len(names)), np.nan, dtype=np.float32)
-        for j, n in enumerate(nm):
-            dest = name_idx.get(n)
-            if dest is None:
-                continue
-            aligned[:, dest] = x[:, j]
-        xs_out.append(aligned)
-        ys_out.append(np.asarray(y, dtype=np.float32))
-        dates_out.extend(ds)
-        codes_out.extend([str(code)] * len(ds))
-    if not xs_out:
         return FactorPanel(
-            X=np.zeros((0, len(names)), dtype=np.float32),
+            X=np.zeros((0, max(1, len(names))), dtype=np.float32),
             y=np.zeros((0,), dtype=np.float32),
             dates=[],
             codes=[],
             feature_names=names,
         )
-    panel = FactorPanel(
-        X=np.concatenate(xs_out, axis=0),
-        y=np.concatenate(ys_out, axis=0),
-        dates=dates_out,
-        codes=codes_out,
-        feature_names=names,
+    codes = _codes_from_tau_metas(metas_l, n)
+    blank = sum(1 for c in codes if not c)
+    if blank:
+        print(
+            f"  τc 因子行缺少股票代码 {blank}/{n}，放弃这次结果",
+            flush=True,
+        )
+        return FactorPanel(
+            X=np.zeros((0, max(1, len(names))), dtype=np.float32),
+            y=np.zeros((0,), dtype=np.float32),
+            dates=[],
+            codes=[],
+            feature_names=names,
+        )
+    panel = reorder_panel_by_codes(
+        FactorPanel(
+            X=np.asarray(x_mat, dtype=np.float32),
+            y=np.asarray(ys, dtype=np.float32),
+            dates=dates_l,
+            codes=codes,
+            feature_names=names,
+        ),
+        item_codes,
     )
+    if not _panel_is_aligned(panel) or not _cache_panel_matches_pool(panel, item_codes):
+        print(
+            f"  τc 因子重排后不能入池 N={panel.n}，放弃这次结果",
+            flush=True,
+        )
+        return FactorPanel(
+            X=np.zeros((0, max(1, len(names))), dtype=np.float32),
+            y=np.zeros((0,), dtype=np.float32),
+            dates=[],
+            codes=[],
+            feature_names=names,
+        )
     print(
         f"  τc 因子完成 N={panel.n} F={panel.X.shape[1]} "
         f"{time.time()-t0:.1f}s 代码序",
         flush=True,
     )
-    if use_cache and cache_path and not failed and panel.n > 0:
+    if use_cache and cache_path and panel.n > 0:
         _save_cache(cache_path, panel)
     return panel
 

@@ -264,6 +264,33 @@ def _attach_ridge_role_flags(
     return out
 
 
+def commit_research_after_fit(
+    report: Any,
+    persist_fn: Any,
+    *,
+    note: str = "",
+    alive: bool = True,
+) -> Any:
+    """拟合成功后把同一份报告写入研究槽。
+
+    研究页「拟合」原先拆成两次请求：后台训完，浏览器再点写入。
+    第二次没发出去时，草稿已在、研究套仍是旧模型，页面只能显示失败。
+    """
+    if not alive or not isinstance(report, dict) or not report.get("success"):
+        return report
+    try:
+        saved = persist_fn(report, note=note or "", role="research")
+    except Exception as exc:  # noqa: BLE001 — 写入失败要回给任务，不能让槽位停在「完成」
+        saved = {"success": False, "error": str(exc).strip() or "写入研究槽失败"}
+    out = dict(report)
+    packed = saved if isinstance(saved, dict) else {"success": False, "error": "写入研究槽失败"}
+    out["persisted"] = packed
+    if not packed.get("success"):
+        out["success"] = False
+        out["error"] = packed.get("error") or "写入研究槽失败"
+    return out
+
+
 def _start_ridge_fit_job(
     *,
     slot: Any,
@@ -1557,9 +1584,13 @@ class QuantFactorMixin:
         backend: str = "auto",
         note: str = "",
         cross_section_zscore: bool = True,
+        commit_research: bool = False,
         **_ignored: Any,
     ) -> Dict[str, Any]:
-        """后台 ŷ_oo_rank 拟合；轮询 ``GET /api/jobs/oo-rank``。不写盘。"""
+        """后台 ŷ_oo_rank 拟合；轮询 ``GET /api/jobs/oo-rank``。
+
+        ``commit_research=True``：成功后在同一任务里写入研究槽，不依赖浏览器第二次请求。
+        """
         from core.job_progress import oo_rank_job
 
         kwargs = dict(
@@ -1574,16 +1605,36 @@ class QuantFactorMixin:
             note=note or "",
             cross_section_zscore=bool(cross_section_zscore),
         )
+
+        def _worker(progress_cb=None, job_alive_cb=None):
+            report = self.run_oo_rank_experiment(
+                **kwargs,
+                progress_cb=progress_cb,
+                job_alive_cb=job_alive_cb,
+            )
+            if not commit_research:
+                return report
+            from core.research.oo_rank_lambdarank import persist_oo_rank_model
+
+            alive = True
+            if callable(job_alive_cb):
+                try:
+                    alive = bool(job_alive_cb())
+                except Exception:  # noqa: BLE001
+                    alive = False
+            return commit_research_after_fit(
+                report,
+                persist_oo_rank_model,
+                note=note or "",
+                alive=alive,
+            )
+
         return _start_ridge_fit_job(
             slot=oo_rank_job,
             kind="oo_rank",
             message="ŷ_oo_rank 拟合中…",
             watching_limit=int(watching_limit or WATCHING_MAX_SIZE),
-            worker_fn=lambda progress_cb=None, job_alive_cb=None: self.run_oo_rank_experiment(
-                **kwargs,
-                progress_cb=progress_cb,
-                job_alive_cb=job_alive_cb,
-            ),
+            worker_fn=_worker,
         )
 
     @records_experiment("tc_rank")
@@ -1924,9 +1975,13 @@ class QuantFactorMixin:
         note: str = "",
         cross_section_zscore: bool = True,
         tau_end_hm: Optional[str] = None,
+        commit_research: bool = False,
         **_ignored: Any,
     ) -> Dict[str, Any]:
-        """后台 ŷ_τc_rank 拟合；轮询 ``GET /api/jobs/tc-rank``。不写盘。"""
+        """后台 ŷ_τc_rank 拟合；轮询 ``GET /api/jobs/tc-rank``。
+
+        ``commit_research=True``：成功后在同一任务里写入研究槽。
+        """
         from core.job_progress import tc_rank_job
 
         kwargs = dict(
@@ -1942,16 +1997,36 @@ class QuantFactorMixin:
             cross_section_zscore=bool(cross_section_zscore),
             tau_end_hm=tau_end_hm,
         )
+
+        def _worker(progress_cb=None, job_alive_cb=None):
+            report = self.run_tc_rank_experiment(
+                **kwargs,
+                progress_cb=progress_cb,
+                job_alive_cb=job_alive_cb,
+            )
+            if not commit_research:
+                return report
+            from core.research.tc_rank import persist_tc_rank_model
+
+            alive = True
+            if callable(job_alive_cb):
+                try:
+                    alive = bool(job_alive_cb())
+                except Exception:  # noqa: BLE001
+                    alive = False
+            return commit_research_after_fit(
+                report,
+                persist_tc_rank_model,
+                note=note or "",
+                alive=alive,
+            )
+
         return _start_ridge_fit_job(
             slot=tc_rank_job,
             kind="tc_rank",
             message="ŷ_τc_rank 拟合中…",
             watching_limit=int(watching_limit or WATCHING_MAX_SIZE),
-            worker_fn=lambda progress_cb=None, job_alive_cb=None: self.run_tc_rank_experiment(
-                **kwargs,
-                progress_cb=progress_cb,
-                job_alive_cb=job_alive_cb,
-            ),
+            worker_fn=_worker,
         )
 
 
