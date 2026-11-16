@@ -1044,7 +1044,7 @@ def main() -> int:
         "--head",
         type=str,
         default="oo",
-        help="oo|tc|oo_rank|tc_rank；排序头用 listwise / Arm·L=LambdaRank",
+        help="oo|tc|oo_rank|tc_rank；排序头 Arm·T 与 Arm·L 都用 LambdaRank",
     )
     p.add_argument(
         "--tau-end",

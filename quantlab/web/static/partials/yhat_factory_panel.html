@@ -94,7 +94,7 @@
           <div class="yhat-tf-run-bar">
             <div class="quant-desk-status-strip quant-card-head-status" data-status-for="oo" aria-live="polite"><span class="quant-pro-status-chip" data-state="idle">待命</span><span class="yhat-tf-status-msg quant-desk-status-msg">状态加载中…</span></div>
             <div class="yhat-tf-run-side">
-              <label class="yhat-tf-version" data-version-for><span class="yhat-tf-k yhat-tf-run-id-k">版本</span><button type="button" class="yhat-tf-version-btn" aria-haspopup="listbox" aria-expanded="false" aria-label="跑次版本">尚无版本</button><div class="yhat-tf-version-menu" role="listbox" hidden></div></label>
+              <label class="yhat-tf-version" data-version-for><span class="yhat-tf-k yhat-tf-run-id-k">版本</span><span class="yhat-tf-version-box"><button type="button" class="yhat-tf-version-btn" aria-haspopup="listbox" aria-expanded="false" aria-label="跑次版本">尚无版本</button><div class="yhat-tf-version-menu" role="listbox" hidden></div></span></label>
               <div class="yhat-tf-run-id" data-run-id-slot></div>
             </div>
             <div class="dashboard-card-tools quant-pro-card-tools quant-fit-actions" role="group" aria-label="ŷ_oo 操作">
@@ -213,7 +213,7 @@
           <div class="yhat-tf-run-bar">
             <div class="quant-desk-status-strip quant-card-head-status" data-status-for="tc" aria-live="polite"><span class="quant-pro-status-chip" data-state="idle">待命</span><span class="yhat-tf-status-msg quant-desk-status-msg">状态加载中…</span></div>
             <div class="yhat-tf-run-side">
-              <label class="yhat-tf-version" data-version-for><span class="yhat-tf-k yhat-tf-run-id-k">版本</span><button type="button" class="yhat-tf-version-btn" aria-haspopup="listbox" aria-expanded="false" aria-label="跑次版本">尚无版本</button><div class="yhat-tf-version-menu" role="listbox" hidden></div></label>
+              <label class="yhat-tf-version" data-version-for><span class="yhat-tf-k yhat-tf-run-id-k">版本</span><span class="yhat-tf-version-box"><button type="button" class="yhat-tf-version-btn" aria-haspopup="listbox" aria-expanded="false" aria-label="跑次版本">尚无版本</button><div class="yhat-tf-version-menu" role="listbox" hidden></div></span></label>
               <div class="yhat-tf-run-id" data-run-id-slot></div>
             </div>
             <div class="dashboard-card-tools quant-pro-card-tools quant-fit-actions" role="group" aria-label="ŷ_τc 操作">
@@ -327,13 +327,13 @@
   <!-- ŷ_oo_rank -->
   <section class="dashboard-section quant-section" id="yhat-tf-section-oo-rank" data-head-section="oo_rank" aria-labelledby="yhat-tf-oo-rank-title" hidden>
     <details class="quant-primary-fold" open data-head-panel="oo_rank">
-      <summary class="quant-primary-fold-sum dashboard-section-head quant-section-head"><h3 id="yhat-tf-oo-rank-title" class="dashboard-section-title">ŷ_oo_rank</h3><p class="dashboard-section-desc quant-section-desc">CS rank · ListNet · Gate=Δcs_rank_ic vs Arm·L</p></summary>
+      <summary class="quant-primary-fold-sum dashboard-section-head quant-section-head"><h3 id="yhat-tf-oo-rank-title" class="dashboard-section-title">ŷ_oo_rank</h3><p class="dashboard-section-desc quant-section-desc">CS rank · LambdaRank · Gate=Δcs_rank_ic vs Arm·L</p></summary>
       <div class="dashboard-card quant-pro-card">
         <div class="dashboard-card-head quant-pro-card-head quant-card-head--tools quant-card-head--fit yhat-tf-run">
           <div class="yhat-tf-run-bar">
             <div class="quant-desk-status-strip quant-card-head-status" data-status-for="oo_rank" aria-live="polite"><span class="quant-pro-status-chip" data-state="idle">待命</span><span class="yhat-tf-status-msg quant-desk-status-msg">状态加载中…</span></div>
             <div class="yhat-tf-run-side">
-              <label class="yhat-tf-version" data-version-for><span class="yhat-tf-k yhat-tf-run-id-k">版本</span><button type="button" class="yhat-tf-version-btn" aria-haspopup="listbox" aria-expanded="false" aria-label="跑次版本">尚无版本</button><div class="yhat-tf-version-menu" role="listbox" hidden></div></label>
+              <label class="yhat-tf-version" data-version-for><span class="yhat-tf-k yhat-tf-run-id-k">版本</span><span class="yhat-tf-version-box"><button type="button" class="yhat-tf-version-btn" aria-haspopup="listbox" aria-expanded="false" aria-label="跑次版本">尚无版本</button><div class="yhat-tf-version-menu" role="listbox" hidden></div></span></label>
               <div class="yhat-tf-run-id" data-run-id-slot></div>
             </div>
             <div class="dashboard-card-tools quant-pro-card-tools quant-fit-actions" role="group" aria-label="ŷ_oo_rank 操作">
@@ -382,7 +382,7 @@
                 <div class="yhat-tf-param-fields">
                   <label class="quant-inline-num"><span>d_model</span><input data-param="d_model" type="number" min="16" step="8" value="64" /></label>
                   <label class="quant-inline-num"><span>layers</span><input data-param="nlayers" type="number" min="1" max="6" step="1" value="3" /></label>
-                  <label class="quant-inline-num"><span>loss</span><select data-param="loss" aria-label="loss" disabled><option value="listwise" selected>listwise</option></select></label>
+                  <label class="quant-inline-num"><span>loss</span><select data-param="loss" aria-label="loss" disabled><option value="lambdarank" selected>lambdarank</option></select></label>
                 </div>
               </div>
               <!--/yhat-only:T-->
@@ -446,13 +446,13 @@
   <!-- ŷ_τc_rank -->
   <section class="dashboard-section quant-section" id="yhat-tf-section-tc-rank" data-head-section="tc_rank" aria-labelledby="yhat-tf-tc-rank-title" hidden>
     <details class="quant-primary-fold" open data-head-panel="tc_rank">
-      <summary class="quant-primary-fold-sum dashboard-section-head quant-section-head"><h3 id="yhat-tf-tc-rank-title" class="dashboard-section-title">ŷ_τc_rank</h3><p class="dashboard-section-desc quant-section-desc">CS rank · ListNet · Gate=Δcs_rank_ic vs Arm·L</p></summary>
+      <summary class="quant-primary-fold-sum dashboard-section-head quant-section-head"><h3 id="yhat-tf-tc-rank-title" class="dashboard-section-title">ŷ_τc_rank</h3><p class="dashboard-section-desc quant-section-desc">CS rank · LambdaRank · Gate=Δcs_rank_ic vs Arm·L</p></summary>
       <div class="dashboard-card quant-pro-card">
         <div class="dashboard-card-head quant-pro-card-head quant-card-head--tools quant-card-head--fit yhat-tf-run">
           <div class="yhat-tf-run-bar">
             <div class="quant-desk-status-strip quant-card-head-status" data-status-for="tc_rank" aria-live="polite"><span class="quant-pro-status-chip" data-state="idle">待命</span><span class="yhat-tf-status-msg quant-desk-status-msg">状态加载中…</span></div>
             <div class="yhat-tf-run-side">
-              <label class="yhat-tf-version" data-version-for><span class="yhat-tf-k yhat-tf-run-id-k">版本</span><button type="button" class="yhat-tf-version-btn" aria-haspopup="listbox" aria-expanded="false" aria-label="跑次版本">尚无版本</button><div class="yhat-tf-version-menu" role="listbox" hidden></div></label>
+              <label class="yhat-tf-version" data-version-for><span class="yhat-tf-k yhat-tf-run-id-k">版本</span><span class="yhat-tf-version-box"><button type="button" class="yhat-tf-version-btn" aria-haspopup="listbox" aria-expanded="false" aria-label="跑次版本">尚无版本</button><div class="yhat-tf-version-menu" role="listbox" hidden></div></span></label>
               <div class="yhat-tf-run-id" data-run-id-slot></div>
             </div>
             <div class="dashboard-card-tools quant-pro-card-tools quant-fit-actions" role="group" aria-label="ŷ_τc_rank 操作">
@@ -502,7 +502,7 @@
                 <div class="yhat-tf-param-fields">
                   <label class="quant-inline-num"><span>d_model</span><input data-param="d_model" type="number" min="16" step="8" value="64" /></label>
                   <label class="quant-inline-num"><span>layers</span><input data-param="nlayers" type="number" min="1" max="6" step="1" value="3" /></label>
-                  <label class="quant-inline-num"><span>loss</span><select data-param="loss" aria-label="loss" disabled><option value="listwise" selected>listwise</option></select></label>
+                  <label class="quant-inline-num"><span>loss</span><select data-param="loss" aria-label="loss" disabled><option value="lambdarank" selected>lambdarank</option></select></label>
                 </div>
               </div>
               <!--/yhat-only:T-->

@@ -23,7 +23,7 @@ class TestHeadSpec(unittest.TestCase):
         oo_r = get_head("oo_rank")
         self.assertEqual(oo_r.task_type, "rank")
         self.assertEqual(oo_r.status, "holdout_ready")
-        self.assertEqual(oo_r.loss, "listwise")
+        self.assertEqual(oo_r.loss, "lambdarank")
         tc_r = get_head("tc_rank")
         self.assertEqual(tc_r.status, "holdout_ready")
         from core.research.yhat_transformer.heads import assert_trainable
@@ -548,12 +548,12 @@ class TestYhatSeqPanel(unittest.TestCase):
         self.assertEqual(serial.dates, parallel.dates)
 
 
-class TestListwiseGroups(unittest.TestCase):
+class TestRankDayGroups(unittest.TestCase):
     def test_subsample_keeps_whole_days(self):
         from collections import Counter
 
         from core.research.yhat_transformer.train import (
-            _prepare_listwise_indices,
+            _prepare_rank_indices,
             _subsample_whole_groups,
         )
 
@@ -573,7 +573,7 @@ class TestListwiseGroups(unittest.TestCase):
         last_days = sorted({dates[i] for i in latest})
         self.assertEqual(last_days[-1], "2024-01-12")
 
-        tr, va = _prepare_listwise_indices(
+        tr, va = _prepare_rank_indices(
             dates, idx, max_train_rows=250, seed=0
         )
         tr_counts = Counter(dates[i] for i in tr)
@@ -664,7 +664,7 @@ class TestYhatModelSmoke(unittest.TestCase):
                 d_seq_in=8, d_factor=2, d_model=64, nhead=3, nlayers=1, factor_hidden=16
             )
 
-    def test_listwise_train_smoke(self):
+    def test_rank_train_smoke(self):
         from core.research.yhat_transformer.seq_dataset import build_seq_panel
         from core.research.yhat_transformer.train import (
             predict_yhat_transformer,
@@ -687,10 +687,10 @@ class TestYhatModelSmoke(unittest.TestCase):
             batch_size=64,
             seed=0,
             patience=2,
-            loss="listwise",
+            loss="lambdarank",
         )
         self.assertTrue(report.get("success"))
-        self.assertEqual(report.get("loss"), "listwise")
+        self.assertEqual(report.get("loss"), "lambdarank")
         preds = predict_yhat_transformer(
             state, panel, idx[:20], d_model=16, nhead=2, nlayers=1
         )
@@ -763,34 +763,58 @@ class TestYhatModelSmoke(unittest.TestCase):
         finally:
             torch.set_num_threads(max(1, int(prev)))
 
-    def test_listnet_relevance_keeps_cross_section_mass(self):
+    def test_lambdarank_pairwise_pushes_inverted_head(self):
         import torch
 
         from core.research.yhat_transformer.train import (
-            _listnet_loss,
-            _listnet_relevance,
+            _lambdarank_group_loss,
+            _resolve_loss,
         )
 
-        y = torch.zeros(40)
-        y[0] = 10.0  # 涨停式离群
-        y[1] = 1.0
-        raw = torch.softmax(y, dim=0)
-        rel = torch.softmax(_listnet_relevance(y), dim=0)
-        self.assertGreater(float(raw[0]), 0.95)
-        self.assertLess(float(rel[0]), 0.5)
-        self.assertGreater(float(rel.min()), 1e-4)
-        self.assertGreater(float(rel[0]), float(rel[1]))
-        self.assertGreater(float(rel[1]), float(rel[2]))
-        flat = _listnet_relevance(torch.ones(8) * 3.0)
-        self.assertTrue(torch.allclose(flat, torch.zeros_like(flat), atol=1e-5))
+        self.assertEqual(_resolve_loss("lambdarank")[0], "lambdarank")
+        y = torch.tensor([0.0, 1.0, 3.0, 8.0])
+        aligned = torch.tensor([0.0, 1.0, 2.0, 3.0], requires_grad=True)
+        flipped = torch.tensor([3.0, 2.0, 1.0, 0.0], requires_grad=True)
+        loss_ok = _lambdarank_group_loss(aligned, y)
+        loss_bad = _lambdarank_group_loss(flipped, y)
+        self.assertLess(float(loss_ok.detach()), float(loss_bad.detach()))
+        shifted = _lambdarank_group_loss(flipped.detach() + 5.0, y)
+        self.assertTrue(torch.allclose(shifted, loss_bad.detach(), atol=1e-5))
+        loss_bad.backward()
+        self.assertIsNotNone(flipped.grad)
+        # y 最高的名字当前分数最低，梯度应为负，下降才会把它抬上去。
+        self.assertLess(float(flipped.grad[-1]), 0.0)
+        self.assertGreater(float(flipped.grad[0]), 0.0)
 
-        pred = torch.zeros(40, requires_grad=True)
-        loss = _listnet_loss(pred, y)
-        loss.backward()
-        self.assertTrue(torch.isfinite(loss).item())
-        self.assertIsNotNone(pred.grad)
-        self.assertLess(float(pred.grad[0]), 0.0)
-        self.assertGreater(float(pred.grad[2]), 0.0)
+        # 截断只留下当前第 1 名和其余名字的对。把第 1 名换成别的人，损失必须变。
+        wide_y = torch.arange(6, dtype=torch.float32)
+        top = torch.tensor([0.0, 1.0, 2.0, 3.0, 4.0, 5.0])
+        swapped = top.clone()
+        swapped[0], swapped[5] = top[5], top[0]
+        full = _lambdarank_group_loss(swapped, wide_y, truncation=100)
+        head = _lambdarank_group_loss(swapped, wide_y, truncation=1)
+        self.assertGreater(float(full), 0.0)
+        self.assertGreater(float(head), 0.0)
+        self.assertFalse(torch.allclose(full, head, atol=1e-5))
+
+        # 分数已经拉开的逆序，梯度应小于贴在一起的逆序。
+        y3 = torch.tensor([0.0, 1.0, 2.0])
+        close = torch.tensor([1.0, 0.0, 2.0], requires_grad=True)
+        far = torch.tensor([50.0, -50.0, 2.0], requires_grad=True)
+        _lambdarank_group_loss(close, y3).backward()
+        _lambdarank_group_loss(far, y3).backward()
+        self.assertLess(float(far.grad[0].abs()), float(close.grad[0].abs()))
+
+    def test_mean_daily_ndcg_perfect_order(self):
+        from core.research.yhat_transformer.metrics import mean_daily_ndcg
+
+        metas = [{"date": "2024-01-02", "code": f"{i:06d}"} for i in range(4)]
+        metas += [{"date": "2024-01-03", "code": f"{i:06d}"} for i in range(4)]
+        ys = [0.0, 1.0, 2.0, 3.0, 0.0, 1.0, 2.0, 3.0]
+        perfect = mean_daily_ndcg(ys, ys, metas, k=100)
+        flipped = mean_daily_ndcg([3, 2, 1, 0, 3, 2, 1, 0], ys, metas, k=100)
+        self.assertAlmostEqual(float(perfect), 1.0, places=6)
+        self.assertLess(float(flipped), float(perfect))
 
 
 class TestArmLLiveAligned(unittest.TestCase):

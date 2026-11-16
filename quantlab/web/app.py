@@ -167,7 +167,7 @@ def platform_page() -> HTMLResponse:
 
 @app.get("/data")
 def data_page() -> HTMLResponse:
-    """数据中心：写当前观察池的日 K / 5m，并物化特征。"""
+    """数据中心：写当前观察池的日 K / 5m 与新闻舆情，并物化特征。"""
     return HTMLResponse(
         render_tool_html("data"),
         headers={"Cache-Control": "no-store"},

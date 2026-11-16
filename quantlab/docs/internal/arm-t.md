@@ -81,7 +81,7 @@ x_fac (B, d_factor) ── LayerNorm ── Linear ── GELU ── Dropout �
                                     cat ── LayerNorm ── Linear ── ŷ (B,)
 ```
 
-标量头没有激活。回归头外面用 SmoothL1，排序头外面用 ListNet，网络本身不包 softmax / sigmoid。
+标量头没有激活。回归头外面用 SmoothL1，排序头外面用 LambdaRank 成对损失，网络本身不包 softmax / sigmoid。
 
 ### 3.1 序列支路
 
@@ -206,8 +206,8 @@ seq16 在经典 8 维价量摘要上追加影线 / 位置 / 量变 / 缺口回�
 | **LR** | cosine + warmup；`TRANSFORMER_WARMUP_STEPS` 默认 100；`min_ratio=0.01` |
 | **grad clip** | 1.0 |
 | **batch** | 默认 32；地板 `max(16, batch_size)` |
-| **val** | 训练日历末 **10%** 日（`val_frac` 钳在 0.1–0.4，默认取下限；至少 2 日，训练日至少留 3 天）。点损失与 ListNet 都先切验证日，再只抽训练日。`transformer build` 打 `n_val` 与 `val_days` |
-| **subsample** | `t_sample_frac` 默认 **0.1**；≥1 → 不截断。点损失行级；listwise **整日组**，一组放不进剩余名额即停 |
+| **val** | 训练日历末 **10%** 日（`val_frac` 钳在 0.1–0.4，默认取下限；至少 2 日，训练日至少留 3 天）。点损失与 LambdaRank 都先切验证日，再只抽训练日。`transformer build` 打 `n_val` 与 `val_days` |
+| **subsample** | `t_sample_frac` 默认 **0.1**；≥1 → 不截断。点损失行级；排序头 **整日组**，一组放不进剩余名额即停 |
 | **序列预处理** | train 行 1%/99% 分位 clip（最多 2 万行估分位） |
 | **线程** | `TORCH_NUM_THREADS` 默认 **4**；interop=1；BLAS/OMP 仍为 1 |
 | **取数** | numpy 切片再 `as_tensor`（避免大张量高级索引 OpenMP SIGSEGV） |
@@ -217,9 +217,9 @@ seq16 在经典 8 维价量摘要上追加影线 / 位置 / 量变 / 缺口回�
 | task | loss | 说明 |
 |--|--|--|
 | regression（oo / tc） | `smooth_l1`（β=1） | |
-| rank（oo_rank / tc_rank） | ListNet | 相关度 = 日截面 z，再 clip ±3.0 |
+| rank（oo_rank / tc_rank） | LambdaRank | 稠密名次 `0..n-1`；成对 logistic × \|ΔNDCG\|；当前分数前 100 名；对取平均；`lambdarank_norm` |
 
-直接对百分点收益 softmax 会退化成涨停 one-hot，截面其余梯度消失，Holdout rank IC / NDCG 学不出来——故用截面 z。
+标签与 Arm·L 相同：收益越高名次越大，`label_gain` 就是名次本身。权重按当前排序计算后断开梯度，只沿分数差反传。`truncation=100` 与 `LAMBDARANK_TRUNCATION_LEVEL` 相同，IDCG 也只累加这前 100 名。鲁棒性和 LightGBM 默认的 `lambdarank_norm` 对齐：权重再除以 `0.01+|分数差|`，整天 λ 质量乘 `log2(1+S)/S`。因子支路仍裁 ±`LAMBDARANK_Z_CLIP`。早停看验证日上的这个成对损失。Holdout 每个 epoch 另打 NDCG@100，不参与选权重。
 
 ---
 
@@ -231,8 +231,8 @@ seq16 在经典 8 维价量摘要上追加影线 / 位置 / 量变 / 缺口回�
 |--|--|--|--|--|
 | `oo` | regression | smooth_l1 | `cs_rank_ic` | aoo_full |
 | `tc` | regression | smooth_l1 | `cs_rank_ic` | atc_full |
-| `oo_rank` | rank | listwise | `gate_lift` | aoo_full |
-| `tc_rank` | rank | listwise | `gate_lift` | atc_full |
+| `oo_rank` | rank | lambdarank | `gate_lift` | aoo_full |
+| `tc_rank` | rank | lambdarank | `gate_lift` | atc_full |
 
 实际 T 列宽由 `full_aoo` / `full_atc` 决定；harden 后写成 `aoo_core|aoo_full|atc_core|atc_full`。τc 仅支持 `--tau-end 09:30`。
 
@@ -340,6 +340,7 @@ PYTHONUNBUFFERED=1 .venv/bin/python scripts/run_yhat_transformer_holdout.py --he
 |--|--|
 | 2026-11-14 | 初稿：对齐 `yhat_transformer` + Holdout + desk 现行实现 |
 | 2026-11-14 | §3 补全双支路晚融合：支路张量、末步池化、gap 在编码器之外、融合头 129 维 |
-| 2026-11-15 | §4 序列窗口须严格早于 T；§5 因子缓存改为价量指纹，缺测留到 CS-z 之后再写成 0；§6 listwise 抽样放不进即停 |
+| 2026-11-15 | §4 序列窗口须严格早于 T；§5 因子缓存改为价量指纹，缺测留到 CS-z 之后再写成 0；§6 整日组抽样放不进即停 |
 | 2026-11-15 | 对齐后只切早于 open 立方起点的前缀；起点之后缺立方仍失败 |
 | 2026-11-15 | 立方起点改为第一份能读出 μ/σ 的文件；开头坏文件跳过，日期全部早于起点则清空面板 |
+| 2026-11-16 | 排序头改为 LambdaRank 成对损失：前 100、对取平均、`lambdarank_norm`、IDCG 只看前 100；Holdout 另打 NDCG@100 |

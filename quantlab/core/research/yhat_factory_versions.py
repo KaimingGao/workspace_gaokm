@@ -166,7 +166,7 @@ def _rank_ic(metrics: Optional[Dict[str, Any]]) -> Optional[float]:
 
 def _loss_label(params: Optional[Dict[str, Any]]) -> str:
     loss = str((params or {}).get("loss") or "").strip().lower()
-    if loss in ("lambdarank", "listwise"):
+    if loss == "lambdarank":
         return "lambdarank"
     if loss:
         return "l2"

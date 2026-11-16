@@ -39,7 +39,7 @@ _FACTORY_CTX = threading.local()
 
 
 def loss_for_factory(spec: Any, factory: Optional[str] = None) -> str:
-    """Arm·T 用 HeadSpec。Arm·L 用 LightGBM 目标，不沿用 smooth_l1 / listwise。"""
+    """Arm·T 用 HeadSpec。Arm·L 回归为 l2，排序为 lambdarank。"""
     if normalize_factory(factory) != "L":
         return str(spec.loss)
     if str(getattr(spec, "task_type", "") or "") == "rank":

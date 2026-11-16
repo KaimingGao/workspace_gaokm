@@ -1275,7 +1275,6 @@ export function installWatching(q) {
       sectionEls: [
         document.getElementById("watching-section-intake"),
         document.getElementById("watching-section-watchlist"),
-        document.getElementById("watching-section-news-archive"),
         document.getElementById("watching-section-build-log"),
         document.getElementById("watching-section-dq"),
       ],

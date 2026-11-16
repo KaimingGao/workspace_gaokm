@@ -903,7 +903,7 @@ def _seq_stock_job(
 
 
 def _label_for_head(head: Any) -> str:
-    """回归/排序共用底层收益标签；排序在 listwise 损失里按日截面 z-score 后做。"""
+    """回归/排序共用底层收益标签；排序头在 LambdaRank 里改用稠密名次。"""
     if head is None:
         return "oo"
     if hasattr(head, "id"):

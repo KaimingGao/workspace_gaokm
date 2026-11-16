@@ -1,4 +1,4 @@
-/** 观察台 · 新闻舆情折叠。与观察池徽章同一本地库；09:30 前只读展示。 */
+/** 数据中心 · 新闻舆情。与观察池徽章同一本地库；09:30 前只读展示。 */
 
 import { escapeHtml } from "../shared.js";
 
@@ -815,7 +815,7 @@ export function installNewsArchivePanel() {
     }
   });
 
-  if (document.body && document.body.dataset.page === "watching") {
+  if (document.body && document.body.dataset.page === "data") {
     load()
       .then(() => pullProgress().then(() => {
         if (held && held.mode === "run") startWatch();

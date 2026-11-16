@@ -182,7 +182,7 @@ class TestYhatTfHardenParams(unittest.TestCase):
 
         with factory_scope("L"):
             arm_l, l_warns = harden_fit_params("oo", {"loss": "smooth_l1"})
-            arm_l_rank, _ = harden_fit_params("oo_rank", {"loss": "listwise"})
+            arm_l_rank, _ = harden_fit_params("oo_rank", {"loss": "smooth_l1"})
         self.assertEqual(arm_l["loss"], "l2")
         self.assertTrue(any("smooth_l1→l2" in w for w in l_warns))
         self.assertEqual(arm_l_rank["loss"], "lambdarank")
@@ -1632,7 +1632,7 @@ class TestYhatTfPageWiring(unittest.TestCase):
         self.assertNotIn('data-arm="0"', html)
         self.assertNotIn('data-arm="A"', html)
         self.assertIn('data-param="loss"', html)
-        self.assertIn("<option value=\"listwise\"", html)
+        self.assertIn("<option value=\"lambdarank\"", html)
         self.assertIn("<option value=\"smooth_l1\"", html)
         self.assertNotIn('data-param="arms" type="text"', html)
         self.assertNotIn('data-param="loss" type="text"', html)
@@ -1701,6 +1701,18 @@ class TestYhatTfPageWiring(unittest.TestCase):
         self.assertIn("生产禁用", html)
         self.assertEqual(html.count('data-act="fit"'), 4)
         self.assertEqual(html.count("data-version-for"), 4)
+        version_box = (
+            '<span class="yhat-tf-version-box"><button type="button" class="yhat-tf-version-btn"'
+        )
+        for page in (html_t, html_l):
+            self.assertEqual(page.count("yhat-tf-version-box"), 4)
+            self.assertEqual(page.count(version_box), 4)
+            self.assertEqual(
+                page.count(
+                    '</button><div class="yhat-tf-version-menu" role="listbox" hidden></div></span>'
+                ),
+                4,
+            )
         self.assertNotIn("工作配置", html)
         self.assertIn("尚无版本", html)
         self.assertIn(">拟合</button>", html)
@@ -1726,6 +1738,13 @@ class TestYhatTfPageWiring(unittest.TestCase):
         self.assertNotIn("/api/quant/yhat-tf/promote-research", yhat_js)
         self.assertIn("/api/quant/yhat-l", yhat_js)
         self.assertIn("/api/quant/yhat-t", yhat_js)
+        place = yhat_js.split("function placeVersionMenu", 1)[1].split(
+            "function ", 1
+        )[0]
+        self.assertIn('menu.style.left = ""', place)
+        self.assertIn('menu.style.right = ""', place)
+        self.assertNotIn("menu.style.width", place)
+        self.assertNotIn("menu.style.minWidth", place)
         self.assertIn("/versions?head=", yhat_js)
         self.assertIn("/versions/preview?", yhat_js)
         self.assertIn('method: "DELETE"', yhat_js)
@@ -1769,6 +1788,15 @@ class TestYhatTfPageWiring(unittest.TestCase):
         self.assertIn(".yhat-tf-result-grid", css)
         self.assertIn(".yhat-tf-head.is-compact", css)
         self.assertIn("--sys-r-tier1", css)
+        btn_css = css.split(".yhat-tf-version-btn {", 1)[1].split("}", 1)[0]
+        self.assertIn("width: max-content", btn_css)
+        self.assertIn("min-width: 24rem", btn_css)
+        menu_css = css.split(".yhat-tf-version-menu {", 1)[1].split("}", 1)[0]
+        self.assertIn("left: 0", menu_css)
+        self.assertIn("right: 0", menu_css)
+        self.assertIn("width: auto", menu_css)
+        self.assertNotIn("28rem", menu_css)
+        self.assertNotIn("max(100%", menu_css)
 
 
 if __name__ == "__main__":

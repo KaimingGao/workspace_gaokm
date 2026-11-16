@@ -134,7 +134,7 @@ def _group_row_lists(
     *,
     min_group: int = 2,
 ) -> List[List[int]]:
-    """按决策日把行索引收成 listwise 组（不足 ``min_group`` 丢弃）。"""
+    """按决策日把行索引收成整日组（不足 ``min_group`` 丢弃）。"""
     by: Dict[str, List[int]] = {}
     for i in indices:
         d = str(dates[int(i)])[:10]
@@ -169,7 +169,7 @@ def _iter_group_batches(
             bucket = []
             bucket_n = 0
         if len(g) > cap and not bucket:
-            # 超大截面：仍整组交出（listwise 不可拆）
+            # 超大截面：仍整组交出（排序损失按日计算，不可拆）
             yield g
             continue
         bucket.extend(g)
@@ -178,42 +178,70 @@ def _iter_group_batches(
         yield bucket
 
 
-# 百分点收益的截面 z 超出此范围就截断，避免单名极端值独占 softmax 质量。
-_LISTNET_Z_CLIP = 3.0
+# 与 Arm·L ``LAMBDARANK_TRUNCATION_LEVEL`` 对齐：当前分数前 100 名。
+_LAMBDARANK_TRUNCATION = 100
 
 
-def _listnet_relevance(yb):
-    """日截面百分点收益 → ListNet 相关度。
+def _lambdarank_group_loss(pred, yb, *, truncation: int = _LAMBDARANK_TRUNCATION):
+    """一天一组的 LambdaRank 成对损失（对计入的对取平均）。
 
-    Softmax 对平移不变、对尺度极敏感。``y`` 是 open→open 百分点（常见约 ±10），
-    直接 softmax 时涨停相对其余名字是 ``e^{8~20}``，目标退化成 one-hot，
-    截面其余梯度消失，Holdout 的 rank IC / NDCG 学不出来。
-    改为当日 z-score，并 clip 到 ±``_LISTNET_Z_CLIP``。
+    标签是稠密名次 ``0..n-1``（收益高 = 名次高）。``w_ij`` 用当前分数的名次断开梯度，
+    只沿 ``ŷ_i - ŷ_j`` 反传。一对里至少有一个落在当前前 ``truncation`` 名才计入；
+    外层从高到低扫这些位置，只和更靠后的位置配对，每对只算一次。
+
+    鲁棒性对齐 LightGBM ``lambdarank_norm``（默认开）：权重再除以
+    ``0.01+|分数差|``，分数已经拉开的对少推动；整天 λ 质量再乘
+    ``log2(1+S)/S``。IDCG 只用前 ``truncation`` 名，尾部不稀释头部。
     """
     torch = _require_torch()
-    if yb.numel() < 2:
-        return yb
-    centered = yb - yb.mean()
-    sd = yb.std(unbiased=False).clamp_min(1e-3)
-    return (centered / sd).clamp(-_LISTNET_Z_CLIP, _LISTNET_Z_CLIP)
+    finite = torch.isfinite(pred) & torch.isfinite(yb)
+    if int(finite.sum().item()) < 2:
+        return pred.sum() * 0.0
+    if not bool(finite.all().item()):
+        pred = pred[finite]
+        yb = yb[finite]
+    n = int(pred.shape[0])
+    k = max(1, min(int(truncation), n))
+    # 稠密名次：argsort 升序，收益最高的名次是 n-1。平局按原序相邻排开，与 Arm·L 一致。
+    order_y = torch.argsort(yb.detach(), stable=True)
+    ranks = torch.empty(n, dtype=pred.dtype, device=pred.device)
+    ranks[order_y] = torch.arange(n, dtype=pred.dtype, device=pred.device)
+    order = torch.argsort(pred.detach(), descending=True, stable=True)
+    pos = torch.arange(n, dtype=pred.dtype, device=pred.device)
+    discount = 1.0 / torch.log2(pos + 2.0)
+    # LightGBM CalMaxDCGAtK(truncation)：理想名次只累加前 k 个位置。
+    ideal_gain = torch.arange(n - 1, n - 1 - k, -1, dtype=pred.dtype, device=pred.device)
+    idcg = (ideal_gain * discount[:k]).sum().clamp_min(1e-6)
+    s_i = pred[order[:k]].unsqueeze(1)
+    s_j = pred[order].unsqueeze(0)
+    r_i = ranks[order[:k]].unsqueeze(1)
+    r_j = ranks[order].unsqueeze(0)
+    d_i = discount[:k].unsqueeze(1)
+    d_j = discount.unsqueeze(0)
+    sign = torch.sign(r_i - r_j)
+    oriented = sign * (s_i - s_j)
+    gap = oriented.detach().abs()
+    weight = ((r_i - r_j).abs() * (d_i - d_j).abs() / idcg).detach()
+    weight = weight / (0.01 + gap)
+    pair = torch.nn.functional.softplus(-oriented) * weight
+    j_pos = pos.unsqueeze(0)
+    i_pos = pos[:k].unsqueeze(1)
+    keep = j_pos > i_pos
+    pair = pair.masked_fill(~keep, 0.0)
+    # sum |λ| 的对数压缩。分母断开，不把归一化本身再求导。
+    sig = torch.sigmoid(-oriented.detach())
+    mass = (weight * sig).masked_fill(~keep, 0.0).sum() * 2.0
+    if float(mass.detach()) > 0.0:
+        pair = pair * (torch.log2(1.0 + mass) / mass).detach()
+    n_pairs = float(k * (2 * n - k - 1) / 2)
+    return pair.sum() / max(n_pairs, 1.0)
 
 
-def _listnet_loss(pred, yb):
-    """ListNet：日截面上 Softmax(相关度) 对 LogSoftmax(ŷ) 的交叉熵。"""
-    torch = _require_torch()
-    # 按组分别算；此处假定 yb/pred 已是同一批内若干完整日组拼接，
-    # 调用方对单组或同日拼接组调用。多日拼接时需外部分组——见 _listwise_batch_loss。
-    p = torch.nn.functional.log_softmax(pred, dim=0)
-    t = torch.nn.functional.softmax(_listnet_relevance(yb), dim=0)
-    return -(t * p).sum()
-
-
-def _listwise_batch_loss(pred, yb, dates_batch: Sequence[str]):
-    """多日拼 batch：按日期拆开后对各日 ListNet 取均值。"""
+def _rank_batch_loss(pred, yb, dates_batch: Sequence[str]):
+    """多日拼 batch：按日期拆开，各日 LambdaRank 再取均值。"""
     torch = _require_torch()
     if pred.numel() <= 1:
         return pred.sum() * 0.0
-    # 单日或日期全同 → 一次
     uniq = []
     seen = set()
     for d in dates_batch:
@@ -222,24 +250,26 @@ def _listwise_batch_loss(pred, yb, dates_batch: Sequence[str]):
             seen.add(ds)
             uniq.append(ds)
     if len(uniq) <= 1:
-        return _listnet_loss(pred, yb)
+        return _lambdarank_group_loss(pred, yb)
     losses = []
     for d in uniq:
         mask = [i for i, x in enumerate(dates_batch) if str(x)[:10] == d]
         if len(mask) < 2:
             continue
         idx = torch.as_tensor(mask, device=pred.device, dtype=torch.long)
-        losses.append(_listnet_loss(pred.index_select(0, idx), yb.index_select(0, idx)))
+        losses.append(
+            _lambdarank_group_loss(pred.index_select(0, idx), yb.index_select(0, idx))
+        )
     if not losses:
         return pred.sum() * 0.0
     return torch.stack(losses).mean()
 
 
 def _resolve_loss(loss: Optional[str]):
-    """返回 (name, pointwise_fn_or_None)；listwise 走专用路径。"""
+    """返回 (name, pointwise_fn_or_None)；排序头走 LambdaRank 成对路径。"""
     name = str(loss or "smooth_l1").strip().lower()
-    if name in ("listwise", "listnet", "rank"):
-        return "listwise", None
+    if name == "lambdarank":
+        return "lambdarank", None
     torch = _require_torch()
     if name in ("smooth_l1", "huber", "regression"):
         return "smooth_l1", torch.nn.SmoothL1Loss(beta=1.0)
@@ -336,7 +366,7 @@ def _subsample_whole_groups(
     return kept
 
 
-def _prepare_listwise_indices(
+def _prepare_rank_indices(
     dates: Sequence[str],
     train_idx: Sequence[int],
     *,
@@ -379,7 +409,7 @@ def train_yhat_transformer(
 ) -> Tuple[Any, Dict[str, Any]]:
     """返回 ``(state_dict_cpu, report)``；模型权重在 CPU。
 
-    ``loss=listwise``：按决策日 ListNet（截面 z-score 后再 softmax）；其余为点损失。
+    ``loss=lambdarank``：按决策日做 LambdaRank 成对损失；其余为点损失。
     """
     torch = _require_torch()
     from core.research.yhat_transformer.model import (
@@ -391,10 +421,10 @@ def train_yhat_transformer(
     _seed_all(int(seed))
     dev = pick_device(device)
     loss_name, loss_fn = _resolve_loss(loss)
-    listwise = loss_name == "listwise"
+    grouped = loss_name == "lambdarank"
     dates = [str(d)[:10] for d in panel.dates]
-    if listwise:
-        tr, va = _prepare_listwise_indices(
+    if grouped:
+        tr, va = _prepare_rank_indices(
             dates,
             train_idx,
             max_train_rows=max_train_rows,
@@ -449,7 +479,7 @@ def train_yhat_transformer(
         n_seen = 0
         ctx = torch.enable_grad() if train else torch.no_grad()
         with ctx:
-            if listwise:
+            if grouped:
                 groups = _group_row_lists(dates, indices, min_group=2)
                 if not groups:
                     return float("nan")
@@ -468,8 +498,8 @@ def train_yhat_transformer(
                 if train:
                     opt.zero_grad(set_to_none=True)
                 pred = model(xb, gb)
-                if listwise:
-                    loss = _listwise_batch_loss(
+                if grouped:
+                    loss = _rank_batch_loss(
                         pred, yb, [dates[int(r)] for r in rows]
                     )
                 else:
@@ -605,16 +635,16 @@ def train_seq_factor_transformer(
     n_threads = _configure_torch_threads()
     dev = pick_device(device)
     loss_name, loss_fn = _resolve_loss(loss)
-    listwise = loss_name == "listwise"
-    if listwise:
-        tr, va = _prepare_listwise_indices(
+    grouped = loss_name == "lambdarank"
+    if grouped:
+        tr, va = _prepare_rank_indices(
             seq_panel.dates,
             train_idx,
             max_train_rows=max_train_rows,
             seed=seed,
         )
     else:
-        # 先切验证日，再只抽训练日（与 listwise 一致，验证日保持完整）。
+        # 先切验证日，再只抽训练日（与排序头一致，验证日保持完整）。
         tr_full, va = split_train_val_indices(seq_panel.dates, list(train_idx))
         tr = _maybe_subsample(tr_full, max_train_rows=max_train_rows, seed=seed)
 
@@ -719,9 +749,9 @@ def train_seq_factor_transformer(
         ho_arr = ho_arr[(ho_arr >= 0) & (ho_arr < int(y.shape[0]))]
     bs = max(16, int(batch_size or 128))
     tr_groups = (
-        _group_row_lists(day_s, tr_arr.tolist(), min_group=2) if listwise else []
+        _group_row_lists(day_s, tr_arr.tolist(), min_group=2) if grouped else []
     )
-    if listwise and tr_groups:
+    if grouped and tr_groups:
         steps_per_ep = max(
             1,
             sum(
@@ -756,7 +786,7 @@ def train_seq_factor_transformer(
         + (
             f" n_groups={len(tr_groups)} "
             f"group_med={sorted(len(g) for g in tr_groups)[len(tr_groups) // 2]}"
-            if listwise and tr_groups
+            if grouped and tr_groups
             else ""
         ),
         flush=True,
@@ -789,7 +819,7 @@ def train_seq_factor_transformer(
         total = 0.0
         n_seen = 0
         last_gn = float("nan")
-        if listwise:
+        if grouped:
             groups = _group_row_lists(day_s, row_ids.tolist(), min_group=2)
             if not groups:
                 return float("nan"), float("nan")
@@ -816,8 +846,8 @@ def train_seq_factor_transformer(
                 if train:
                     opt.zero_grad(set_to_none=True)
                 pred = model(xs, gg, xf)
-                if listwise:
-                    loss = _listwise_batch_loss(
+                if grouped:
+                    loss = _rank_batch_loss(
                         pred, yb, [day_s[int(r)] for r in rows]
                     )
                 else:
@@ -902,6 +932,12 @@ def train_seq_factor_transformer(
         pack = daily_cs_ic_report(preds.tolist(), ys.tolist(), metas)
         pack["sign_hit"] = sign_hit(preds.tolist(), ys.tolist())
         pack["n"] = int(ys.shape[0])
+        if grouped:
+            from core.research.yhat_transformer.metrics import mean_daily_ndcg
+
+            pack["cs_ndcg_100"] = mean_daily_ndcg(
+                preds.tolist(), ys.tolist(), metas, k=_LAMBDARANK_TRUNCATION
+            )
         return pack
 
     holdout_by_epoch: List[Dict[str, Any]] = []
@@ -914,7 +950,7 @@ def train_seq_factor_transformer(
             if va_arr.size
             else (tr_loss, float("nan"))
         )
-        # listwise 若 val 日均 <2 只 → va_loss=nan；回退 train_loss，避免永不落盘 best
+        # 排序日组不足 2 只 → va_loss=nan；回退 train_loss，避免永不落盘 best
         score = va_loss if math.isfinite(va_loss) else tr_loss
         if math.isfinite(score) and score < best_val - 1e-5:
             best_val = float(score)
@@ -947,12 +983,15 @@ def train_seq_factor_transformer(
                 )
             if ho_pack is not None:
                 row: Dict[str, Any] = {"epoch": int(ep)}
-                for key in (
+                ho_keys = [
                     "cs_rank_ic",
                     "cs_rank_icir",
                     "sign_hit",
                     "cs_top_mean_y",
-                ):
+                ]
+                if grouped:
+                    ho_keys.append("cs_ndcg_100")
+                for key in ho_keys:
                     raw = ho_pack.get(key)
                     try:
                         num = float(raw)
@@ -961,12 +1000,16 @@ def train_seq_factor_transformer(
                     row[key] = num if num == num else None
                 row["n"] = int(ho_pack.get("n") or 0)
                 holdout_by_epoch.append(row)
+                ndcg_bit = ""
+                if grouped:
+                    ndcg_bit = f" ndcg100={_fmt4(ho_pack.get('cs_ndcg_100'))}"
                 print(
                     f"    transformer ep={ep}/{epochs} holdout "
                     f"rankIC={_fmt4(ho_pack.get('cs_rank_ic'))} "
                     f"ICIR={_fmt4(ho_pack.get('cs_icir'))} "
                     f"sign_hit={_fmt4(ho_pack.get('sign_hit'))} "
-                    f"topY={_fmt4(ho_pack.get('cs_top_mean_y'))} "
+                    f"topY={_fmt4(ho_pack.get('cs_top_mean_y'))}"
+                    f"{ndcg_bit} "
                     f"n={ho_pack.get('n')}",
                     flush=True,
                 )

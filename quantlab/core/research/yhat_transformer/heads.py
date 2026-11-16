@@ -63,7 +63,7 @@ _HEADS: Dict[str, HeadSpec] = {
         factor_pack="aoo_full",
         seq_label="y_oo_rank",
         group_key="date",
-        loss="listwise",
+        loss="lambdarank",
         gate="gate_lift",
         status="holdout_ready",
         role="rank_score 左端排序头",
@@ -76,7 +76,7 @@ _HEADS: Dict[str, HeadSpec] = {
         factor_pack="atc_full",
         seq_label="y_tc_rank",
         group_key="date_tau",
-        loss="listwise",
+        loss="lambdarank",
         gate="gate_lift",
         status="holdout_ready",
         role="rank_score 右端排序头",
@@ -107,9 +107,9 @@ def assert_trainable(spec: HeadSpec) -> None:
         raise NotImplementedError(f"head={spec.id} status=planned")
     if spec.task_type not in ("regression", "rank"):
         raise NotImplementedError(f"head={spec.id} task_type={spec.task_type!r}")
-    if spec.task_type == "rank" and spec.loss != "listwise":
+    if spec.task_type == "rank" and spec.loss != "lambdarank":
         raise NotImplementedError(
-            f"head={spec.id} rank loss={spec.loss!r}；期望 listwise"
+            f"head={spec.id} rank loss={spec.loss!r}；期望 lambdarank"
         )
 
 

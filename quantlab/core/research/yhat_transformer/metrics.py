@@ -29,6 +29,58 @@ def daily_cs_ic_report(
     }
 
 
+def _ndcg_at_k(
+    pred: Sequence[float],
+    ys: Sequence[float],
+    k: int,
+) -> Optional[float]:
+    """NDCG@k。gain 是收益的升序名次（0=最差），折扣 ``1/log2(position+1)``。"""
+    n = len(pred)
+    if n < 2 or k < 1:
+        return None
+    kk = min(int(k), n)
+    order_by_ys = sorted(range(n), key=lambda i: (float(ys[i]), i))
+    gain = [0.0] * n
+    for rank, idx in enumerate(order_by_ys):
+        gain[idx] = float(rank)
+    pred_order = sorted(range(n), key=lambda i: (-float(pred[i]), i))
+    dcg = 0.0
+    for i, idx in enumerate(pred_order[:kk]):
+        dcg += gain[idx] / math.log2(i + 2)
+    ideal = sorted(range(n), key=lambda i: (-float(ys[i]), i))
+    idcg = 0.0
+    for i, idx in enumerate(ideal[:kk]):
+        idcg += gain[idx] / math.log2(i + 2)
+    if idcg <= 0.0:
+        return None
+    return float(dcg / idcg)
+
+
+def mean_daily_ndcg(
+    preds: Sequence[Optional[float]],
+    ys: Sequence[float],
+    metas: Sequence[Any],
+    *,
+    k: int = 100,
+    min_names: int = 2,
+) -> Optional[float]:
+    """按决策日算 NDCG@k，再对日取平均。不足 ``min_names`` 的截面跳过。"""
+    from core.research.daily_cs_ic import _group_by_section
+
+    days = _group_by_section(preds, ys, metas)
+    scores: List[float] = []
+    for pred_d, y_d in days.values():
+        if len(pred_d) < int(min_names):
+            continue
+        nd = _ndcg_at_k(pred_d, y_d, int(k))
+        if nd is None or nd != nd:
+            continue
+        scores.append(float(nd))
+    if not scores:
+        return None
+    return float(sum(scores) / len(scores))
+
+
 def pooled_pearson(preds: Sequence[float], ys: Sequence[float]) -> Optional[float]:
     from core.backtest.pool_ic import _pearson
 

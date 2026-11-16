@@ -1241,13 +1241,18 @@ class NewsArchiveScheduleTests(unittest.TestCase):
         self.assertFalse(out.get("ran"))
         self.assertEqual(out.get("reason"), "disabled")
 
-    def test_watching_panel_has_news_archive_fold(self):
+    def test_data_panel_has_news_archive(self):
         root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        with open(
+            os.path.join(root, "web", "static", "partials", "data_panel.html"),
+            encoding="utf-8",
+        ) as f:
+            html = f.read()
         with open(
             os.path.join(root, "web", "static", "partials", "watching_panel.html"),
             encoding="utf-8",
         ) as f:
-            html = f.read()
+            watching = f.read()
         with open(
             os.path.join(root, "web", "static", "js", "quant", "news_archive_ui.js"),
             encoding="utf-8",
@@ -1256,16 +1261,21 @@ class NewsArchiveScheduleTests(unittest.TestCase):
         self.assertIn("watching-news-archive-fold", html)
         self.assertIn("更新舆情", html)
         self.assertIn("与观察池同一本地库", html)
-        news = html[html.find('id="watching-section-news-archive"') : html.find('id="watching-section-build-log"')]
-        self.assertIn("watching-section-head", news)
+        news = html[html.find('id="quant-section-news"') :]
+        self.assertIn("quant-section-head", news)
         self.assertNotIn("<details", news)
         self.assertIn("历史回测按发布时间", js)
-        self.assertLess(html.find(">新闻舆情<"), html.find(">建仓记录<"))
-        self.assertLess(html.find(">建仓记录<"), html.find(">数据质量<"))
-        self.assertNotIn("watching-news-detail", html[html.find("watching-news-archive-fold") :])
+        self.assertLess(html.find('id="quant-section-minute"'), html.find('id="quant-section-news"'))
+        self.assertLess(watching.find(">建仓记录<"), watching.find(">数据质量<"))
+        self.assertNotIn("watching-news-archive-fold", watching)
+        self.assertNotIn(">新闻舆情<", watching)
+        self.assertIn("watching-news-detail", watching)
+        self.assertNotIn("watching-news-detail", news)
         self.assertIn("watching-news-archive-chip", html)
         self.assertIn("watching-news-archive-ran", html)
         self.assertIn("watching-news-archive-progress", html)
+        self.assertIn('dataset.page === "data"', js)
+        self.assertNotIn('dataset.page === "watching"', js)
         self.assertIn("/api/news-archive/status", js)
         self.assertIn("/api/news-archive/poll", js)
         self.assertIn("/api/news-archive/poll/progress", js)
@@ -1295,8 +1305,8 @@ class NewsArchiveScheduleTests(unittest.TestCase):
         self.assertNotIn("watching-news-status", css)
         self.assertNotIn("watching-news-portrait-title", css)
         self.assertIn(
-            "body[data-page=\"watching\"] .watching-news-sample-field-control.is-date,\n"
-            "body[data-page=\"watching\"] .watching-news-sample-field-control.is-name {\n"
+            "body[data-page=\"data\"] .watching-news-sample-field-control.is-date,\n"
+            "body[data-page=\"data\"] .watching-news-sample-field-control.is-name {\n"
             "  width: 11rem;\n"
             "}",
             css,

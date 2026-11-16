@@ -129,7 +129,7 @@ def _yhat_factory_panel(factory: str) -> str:
             "{{ARMS_RAIL}}": arms_rail,
             "open[T]→open[T+1] · SmoothL1 · Scheme LT": "open[T]→open[T+1] · LightGBM",
             "price[τ]→close[T] · SmoothL1 · Scheme LT": "price[τ]→close[T] · LightGBM",
-            "CS rank · ListNet · Gate=Δcs_rank_ic vs Arm·L": "CS rank · LambdaRank",
+            "CS rank · LambdaRank · Gate=Δcs_rank_ic vs Arm·L": "CS rank · LambdaRank",
             "Gate · Arm·L": "绝对指标",
             "Gate · Δcs_rank_ic": "绝对指标",
         }
@@ -187,11 +187,11 @@ def _side_nav(active: str) -> str:
     items = "\n          ".join(
         [
             item("dashboard", "/dashboard", "仪表盘", "全局概览 · KPI · 净值曲线", "btn-dashboard"),
-            item("watching", "/watching", "观察台", "名单 · 建仓入口", "btn-watching"),
             item("strategy", "/market-prior", "市场先验", "M prior · Regime", "btn-strategy"),
+            item("watching", "/watching", "观察台", "名单 · 建仓入口", "btn-watching"),
+            item("data", "/data", "数据中心", "日K · 5m · 物化", "btn-data"),
             item("follow", "/follow", "交易执行", "调仓 · 做T执行", "btn-follow"),
             item("replay", "/replay", "历史回测", "调仓回测 · 做T回测", "btn-replay"),
-            item("data", "/data", "数据中心", "日K · 5m · 物化", "btn-data"),
             item("quant", "/quant", "研究枢纽", "因子 · 横截面 · 日报", "btn-quant"),
             item("platform", "/platform", "平台", "调度 · 日更", "btn-settings"),
         ]

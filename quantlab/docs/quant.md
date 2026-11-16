@@ -183,7 +183,7 @@ preset（`advisor` / `quant` / `quant_paper` / `full`）、cron / launchd、报�
 | `/watching` 观察台 | 长期看哪些；**建仓入口** |
 | `/follow` 交易执行 | 已有仓管理 · 调仓/做 T 落账 |
 | `/replay` 历史回测 | rank_lots / 做 T 历史卷 |
-| `/data` 数据中心 | 写当前观察池的日 K / 5m，并物化 |
+| `/data` 数据中心 | 写当前观察池的日 K / 5m / 新闻舆情，并物化 |
 | `/quant` 研究枢纽 | 拟合 ŷ · 分档 · 落地 |
 | `/dashboard` | 开盘态势（`/` 重定向至此） |
 

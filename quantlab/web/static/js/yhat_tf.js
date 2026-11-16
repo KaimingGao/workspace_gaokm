@@ -9,9 +9,6 @@ function apiBase() {
   return pageFactory === "L" ? "/api/quant/yhat-l" : "/api/quant/yhat-t";
 }
 const LOSS_CANON = {
-  listwise: "listwise",
-  listnet: "listwise",
-  rank: "listwise",
   smooth_l1: "smooth_l1",
   huber: "smooth_l1",
   regression: "smooth_l1",
@@ -1035,16 +1032,12 @@ function versionChipTone(text, status) {
   return "";
 }
 
+/** 下拉跟按钮同宽。清掉行内 left/right，避免盖住盒子上的左右对齐。 */
 function placeVersionMenu(root) {
   const menu = root?.querySelector(".yhat-tf-version-menu");
   if (!menu) return;
-  menu.style.right = "0px";
-  menu.style.left = "auto";
-  const rect = menu.getBoundingClientRect();
-  if (rect.left >= 8) return;
-  const host = root.getBoundingClientRect().left;
-  menu.style.right = "auto";
-  menu.style.left = `${8 - host}px`;
+  menu.style.left = "";
+  menu.style.right = "";
 }
 
 function closeVersionMenus(except) {

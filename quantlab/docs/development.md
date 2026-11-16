@@ -71,7 +71,7 @@ python3 run_web.py
 | 入口 | `run_web.py` → FastAPI `web/app.py` |
 | 页面 | `web/static/`（对话 UI） |
 | API | `POST /api/chat`、`GET /api/paper*`、`GET/POST /api/evals/*`、`GET /api/usage`、`GET /api/health` |
-| 侧栏 | **仪表盘 · 观察台 · 市场先验 · 交易执行 · 历史回测 · 数据中心 · 研究枢纽 · 平台**；顶栏是 AI 抽屉（⌘K）。`/paper` 重定向到交易执行；`/strategy` 重定向到 `/market-prior` |
+| 侧栏 | **仪表盘 · 市场先验 · 观察台 · 数据中心 · 交易执行 · 历史回测 · 研究枢纽 · 平台**；顶栏是 AI 抽屉（⌘K）。`/paper` 重定向到交易执行；`/strategy` 重定向到 `/market-prior` |
 | 会话 | 请求头 `X-Session-Id`（前端存 localStorage） |
 | 端口 | 环境变量 `WEB_HOST`（默认 127.0.0.1）、`WEB_PORT`（默认 8000） |
 | 热重载 | 默认 **关**（`WEB_RELOAD=0`）。开发改 py 时设 `WEB_RELOAD=1`；热重载会中断纸面后台任务，确认调仓时勿触发。纸面/网格/对话 job 落盘 `data/jobs/*.json` |
@@ -291,7 +291,7 @@ Web 研究枢纽可查看子目录 README；无 LLM 时「AI 解读」可走 `PO
 
 **量化报告分享**：归档报告列表含 `share_url`（如 `/api/quant/reports/quant_daily_YYYYMMDD.html`），由 API 取出（需 Web 服务运行中）。
 
-侧栏对应关系：观察台维护观察池并建仓；交易执行看净值、持仓和调仓；历史回测跑组合回测；数据中心写日 K、5m 并物化；研究枢纽做拟合和观察池分档；平台跑纸面日更（按钮「运行日更」）。预设与调度详见 [quant-ops.md](quant-ops.md)。
+侧栏对应关系：观察台维护观察池并建仓；交易执行看净值、持仓和调仓；历史回测跑组合回测；数据中心写日 K、5m、新闻舆情并物化；研究枢纽做拟合和观察池分档；平台跑纸面日更（按钮「运行日更」）。预设与调度详见 [quant-ops.md](quant-ops.md)。
 
 ## 扩展新 Skill（约定）
 
