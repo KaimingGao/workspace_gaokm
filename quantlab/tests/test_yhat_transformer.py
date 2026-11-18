@@ -552,10 +552,7 @@ class TestRankDayGroups(unittest.TestCase):
     def test_subsample_keeps_whole_days(self):
         from collections import Counter
 
-        from core.research.yhat_transformer.train import (
-            _prepare_rank_indices,
-            _subsample_whole_groups,
-        )
+        from core.research.yhat_transformer.train import _subsample_whole_groups
 
         dates = []
         for d in range(12):
@@ -572,37 +569,6 @@ class TestRankDayGroups(unittest.TestCase):
         )
         last_days = sorted({dates[i] for i in latest})
         self.assertEqual(last_days[-1], "2024-01-12")
-
-        tr, va = _prepare_rank_indices(
-            dates, idx, max_train_rows=250, seed=0
-        )
-        tr_counts = Counter(dates[i] for i in tr)
-        va_counts = Counter(dates[i] for i in va)
-        self.assertTrue(all(n == 100 for n in tr_counts.values()))
-        self.assertTrue(all(n == 100 for n in va_counts.values()))
-        self.assertTrue(set(tr_counts).isdisjoint(va_counts))
-        self.assertIn("2024-01-12", va_counts)
-        # val 不被 cap//4 抽样：完整验证日组保留
-        self.assertGreater(sum(va_counts.values()), 250 // 4)
-
-    def test_default_val_is_last_tenth_of_train_days(self):
-        from core.research.yhat_transformer.train import split_train_val_indices
-
-        dates = []
-        for d in range(20):
-            dates.extend([f"2024-02-{d + 1:02d}"] * 5)
-        idx = list(range(len(dates)))
-        tr, va = split_train_val_indices(dates, idx)
-        va_days = sorted({dates[i] for i in va})
-        tr_days = sorted({dates[i] for i in tr})
-        self.assertEqual(va_days, ["2024-02-19", "2024-02-20"])
-        self.assertEqual(len(tr_days), 18)
-        self.assertEqual(len(tr) + len(va), len(idx))
-        # 显式 20% 仍可用；低于下限的请求钳回 10%（20 日 → 2 日）
-        _, va20 = split_train_val_indices(dates, idx, val_frac=0.2)
-        self.assertEqual(len({dates[i] for i in va20}), 4)
-        _, va_lo = split_train_val_indices(dates, idx, val_frac=0.01)
-        self.assertEqual(sorted({dates[i] for i in va_lo}), va_days)
 
     def test_subsample_stops_instead_of_taking_thinner_days(self):
         from unittest import mock
@@ -664,39 +630,6 @@ class TestYhatModelSmoke(unittest.TestCase):
                 d_seq_in=8, d_factor=2, d_model=64, nhead=3, nlayers=1, factor_hidden=16
             )
 
-    def test_rank_train_smoke(self):
-        from core.research.yhat_transformer.seq_dataset import build_seq_panel
-        from core.research.yhat_transformer.train import (
-            predict_yhat_transformer,
-            train_yhat_transformer,
-        )
-
-        stock = {f"{i:06d}": _synth_bars(40, seed=i) for i in range(1, 12)}
-        panel = build_seq_panel(
-            stock, head="oo_rank", seq_len=6, horizon_days=1, use_cache=False
-        )
-        self.assertGreater(panel.n, 30)
-        idx = list(range(panel.n))
-        state, report = train_yhat_transformer(
-            panel,
-            idx,
-            d_model=16,
-            nhead=2,
-            nlayers=1,
-            epochs=2,
-            batch_size=64,
-            seed=0,
-            patience=2,
-            loss="lambdarank",
-        )
-        self.assertTrue(report.get("success"))
-        self.assertEqual(report.get("loss"), "lambdarank")
-        preds = predict_yhat_transformer(
-            state, panel, idx[:20], d_model=16, nhead=2, nlayers=1
-        )
-        self.assertEqual(preds.shape[0], 20)
-        self.assertTrue(np.all(np.isfinite(preds)))
-
     def test_arm_t_holdout_each_epoch_does_not_pick_weights(self):
         from core.research.yhat_transformer.seq_dataset import SeqPanel
         from core.research.yhat_transformer.train import train_seq_factor_transformer
@@ -732,14 +665,15 @@ class TestYhatModelSmoke(unittest.TestCase):
             epochs=2,
             batch_size=16,
             seed=0,
-            patience=5,
             holdout_idx=holdout_idx,
         )
         rows = report.get("holdout_by_epoch") or []
         self.assertEqual([r["epoch"] for r in rows], [1, 2])
         self.assertTrue(all(int(r["n"]) == len(holdout_idx) for r in rows))
         self.assertTrue(all(r["cs_rank_ic"] is not None for r in rows))
-        self.assertEqual(report.get("n_train", 0) + report.get("n_val", 0), len(train_idx))
+        self.assertNotIn("n_val", report)
+        self.assertNotIn("best_val_loss", report)
+        self.assertEqual(report.get("n_train"), len(train_idx))
 
     def test_configure_torch_threads_default_four(self):
         import os
@@ -804,6 +738,55 @@ class TestYhatModelSmoke(unittest.TestCase):
         _lambdarank_group_loss(close, y3).backward()
         _lambdarank_group_loss(far, y3).backward()
         self.assertLess(float(far.grad[0].abs()), float(close.grad[0].abs()))
+
+    def test_lambdarank_large_cross_section_keeps_gradient(self):
+        """A 股一日 ~1500 只时，loss 和分数梯度不能被 pair 平均打成 0。"""
+        import torch
+
+        from core.research.yhat_transformer.train import _lambdarank_group_loss
+
+        n = 1500
+        y = torch.arange(n, dtype=torch.float32)
+        g = torch.Generator().manual_seed(0)
+        pred = (torch.randn(n, generator=g) * 0.1).requires_grad_(True)
+        loss = _lambdarank_group_loss(pred, y)
+        self.assertGreater(float(loss.detach()), 1e-2)
+        loss.backward()
+        self.assertGreater(float(pred.grad.abs().mean()), 1e-4)
+        # 高名次目前分数偏低时，梯度应把它往上推。
+        worst = int(torch.argmin(pred.detach()).item())
+        if float(y[worst]) > float(y.median()):
+            self.assertLess(float(pred.grad[worst]), 0.0)
+
+    def test_rank_hybrid_value_loss_pins_zero_point(self):
+        """保值项把整段下沉的 logit 往日 z 拉；序损失仍对平移不敏感。"""
+        import torch
+
+        from core.research.yhat_transformer.train import (
+            _RANK_VALUE_LOSS_WEIGHT,
+            _rank_batch_loss,
+            _section_z_by_day,
+        )
+
+        dates = ["2024-01-02"] * 4
+        y = torch.tensor([0.0, 1.0, 2.0, 3.0])
+        target = _section_z_by_day(y, dates)
+        self.assertAlmostEqual(float(target.mean()), 0.0, places=5)
+        self.assertGreater(float(target[-1]), float(target[0]))
+
+        aligned = torch.tensor([0.0, 1.0, 2.0, 3.0], requires_grad=True)
+        sunk = torch.tensor([-5.0, -4.0, -3.0, -2.0], requires_grad=True)
+        loss_aligned = _rank_batch_loss(aligned, y, dates)
+        loss_sunk = _rank_batch_loss(sunk, y, dates)
+        self.assertGreater(float(loss_sunk.detach()), float(loss_aligned.detach()))
+        loss_sunk.backward()
+        # 整段偏负时，保值项应对所有名字给出负梯度方向的反力（抬高分数）。
+        self.assertTrue(torch.all(sunk.grad < 0))
+
+        order_only = _rank_batch_loss(sunk.detach(), y, dates, value_weight=0.0)
+        shifted = _rank_batch_loss(sunk.detach() + 7.0, y, dates, value_weight=0.0)
+        self.assertTrue(torch.allclose(order_only, shifted, atol=1e-5))
+        self.assertGreater(float(_RANK_VALUE_LOSS_WEIGHT), 0.0)
 
     def test_mean_daily_ndcg_perfect_order(self):
         from core.research.yhat_transformer.metrics import mean_daily_ndcg
@@ -1067,6 +1050,50 @@ class TestArmLLiveAligned(unittest.TestCase):
         self.assertIn("ArmL step=30/300", text)
         self.assertNotIn("ArmL step=2/300", text)
 
+    def test_holdout_zero_is_full_sample_train(self):
+        from scripts.run_yhat_transformer_holdout import _holdout_is_full_sample
+
+        self.assertTrue(_holdout_is_full_sample(0))
+        self.assertTrue(_holdout_is_full_sample("0"))
+        self.assertFalse(_holdout_is_full_sample(5))
+        self.assertFalse(_holdout_is_full_sample(None))
+
+    def test_hub_live_note_forces_holdout_zero(self):
+        from unittest import mock
+
+        from web.routers.quant_yhat_tf import YhatFactoryFitBody, _fit
+
+        seen = {}
+
+        def _capture(head, params, factory=None, suite=None):
+            seen["head"] = head
+            seen["params"] = dict(params)
+            seen["factory"] = factory
+            seen["suite"] = suite
+            return {"success": True, "ok": True}
+
+        body = YhatFactoryFitBody(
+            head="tc_rank",
+            params={"holdout_trading_days": 5, "epochs": 2},
+            note="hub arm-t live",
+        )
+        with mock.patch("web.routers.quant_yhat_tf.start_holdout_fit", _capture):
+            out = _fit("T", body)
+        self.assertTrue(out.get("success"))
+        self.assertEqual(seen["params"]["holdout_trading_days"], 0)
+        self.assertEqual(seen["params"]["epochs"], 2)
+        self.assertEqual(seen["suite"], "live")
+
+        research = YhatFactoryFitBody(
+            head="tc_rank",
+            params={"holdout_trading_days": 5},
+            note="hub arm-t research",
+        )
+        with mock.patch("web.routers.quant_yhat_tf.start_holdout_fit", _capture):
+            _fit("T", research)
+        self.assertEqual(seen["params"]["holdout_trading_days"], 5)
+        self.assertEqual(seen["suite"], "research")
+
     def test_max_train_default_unlimited(self):
         import os
         from unittest import mock
@@ -1250,7 +1277,6 @@ class TestArmLLiveAligned(unittest.TestCase):
             batch_size=8,
             lr=1e-3,
             device="cpu",
-            patience=1,
             t_sample_frac=1.0,
             loss="smooth_l1",
         )
@@ -1348,7 +1374,6 @@ class TestArmLLiveAligned(unittest.TestCase):
             batch_size=4,
             lr=1e-3,
             device="cpu",
-            patience=1,
             t_sample_frac=1.0,
             loss="smooth_l1",
         )

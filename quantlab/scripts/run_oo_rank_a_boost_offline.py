@@ -166,7 +166,7 @@ def main() -> None:
     pool = [str(c).strip() for c in (uni.get("watchlist") or []) if str(c).strip()]
     tier_rep = load_predictability_tiers_last()
     if not tier_rep or not tier_rep.get("success"):
-        _log("ERROR: 无 predictability_tiers_last；请先跑观察池分档")
+        _log("ERROR: 无 predictability_tiers_last；请先跑股票分档")
         sys.exit(1)
     a_codes = set(tier_code_set(tier_rep, ["A"]))
     if len(a_codes) < 8:

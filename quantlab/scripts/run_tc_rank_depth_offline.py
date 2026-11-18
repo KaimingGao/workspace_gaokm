@@ -240,7 +240,7 @@ def main() -> None:
         tier_labels = [t.strip().upper() for t in tiers_raw.split(",") if t.strip()]
         tier_rep = load_predictability_tiers_last()
         if not tier_rep or not tier_rep.get("success"):
-            _log("ERROR: 无 predictability_tiers_last；请先跑观察池分档，或 TC_RANK_DEPTH_TIERS=")
+            _log("ERROR: 无 predictability_tiers_last；请先跑股票分档，或 TC_RANK_DEPTH_TIERS=")
             sys.exit(1)
         train_codes = set(tier_code_set(tier_rep, tier_labels))
         eval_codes = set(tier_code_set(tier_rep, ["A"]))

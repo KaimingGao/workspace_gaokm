@@ -1,6 +1,6 @@
 # 策略调仓产品文档
 
-> A 股 T+1 **rank_lots** 调仓：每个交易日 fill_clock（默认 09:30）用 y_oo_fuse 做入场，过线后按 **rank_score**=`w_oo_rank·y_oo_rank_score+w_τc_rank·y_tc_rank_score` 买（缺分才按 fuse；默认权 0.6/0.4），可选 rank 阈值 / **y_*>0**（四头）；按已保存金额换算股数开仓或加仓（缺省 1 万/2 万）。高阈旁路与单头 `y_τc_gt0` 已退役。非实盘、不代客下单。
+> A 股 T+1 **rank_lots** 调仓：每个交易日 fill_clock（默认 09:30）用 y_oo_fuse 做入场，过线后按 **rank_score**=`0.6·y_oo_rank_score+0.4·y_tc_rank_score` 买（缺分才按 fuse；权重固定，不进配置），可选 rank 名次 / **y_*>0**（只看 ŷ_oo / ŷ_τc）；按已保存金额换算股数开仓或加仓（缺省 1 万/2 万）。高阈旁路与单头 `y_τc_gt0` 已退役。非实盘、不代客下单。
 
 ---
 
@@ -8,7 +8,7 @@
 
 ### 1.1 一句话定义
 
-每个交易日 **fill_clock（默认 09:30）**，对观察池打 **y_oo_fuse**（UI fuse；某一 τ：`fusion_w_oo·((ŷ_oo+1)/(1+rot)−1)+fusion_w_oc·ŷ_τc`，开盘 rot=0 即 `fusion_w_oo·ŷ_oo+fusion_w_oc·ŷ_τc`），fuse 过入场（可选 **y_*>0** 四头闸 / 入场 rank；fuse>强档改看强档 rank，默认 0.3）后按 **rank_score** 买序，并按已保存 **lot_base_amount / lot_strong_amount** 建仓/加仓（缺省 1 万 / 2 万；股数=金额/价向下取整到一手，不够一手则跳过；单票市值上限 = 强档 × 120%；live 开/加不按 `max_positions` 截断，另受观察池容量与组合持仓市值上限约束，默认 15 万；**历史回测** 面向全部观察池，本金默认 20 万，不套 15 万帽）；已持仓且 **未过入场、缺 y_oo_fuse 或 hard_reject** 则清仓（仅 T+1 可卖部分）。无「持」动作。现金用完即止，不够整手则缩到整百（最少一手），不另留地板。旧高阈旁路（`fuse_high` / `lot_high_amount` / `oo_tc_score_high_min`）与单头 `y_τc_gt0` 已退役。
+每个交易日 **fill_clock（默认 09:30）**，对观察池打 **y_oo_fuse**（UI fuse；某一 τ：`fusion_w_oo·((ŷ_oo+1)/(1+rot)−1)+fusion_w_oc·ŷ_τc`，开盘 rot=0 即 `fusion_w_oo·ŷ_oo+fusion_w_oc·ŷ_τc`），fuse 过入场（可选 **y_*>0** 只看 ŷ_oo / ŷ_τc；名次门槛默认 <6，fuse>强档改看 <12）后按 **rank_score** 买序，并按已保存 **lot_base_amount / lot_strong_amount** 建仓/加仓（缺省 1 万 / 2 万；股数=金额/价向下取整到一手，不够一手则跳过；单票市值上限 = 强档 × 120%；live 开/加不按 `max_positions` 截断，另受观察池容量与组合持仓市值上限约束，默认 15 万；**历史回测** 面向全部观察池，本金默认 20 万，不套 15 万帽）；已持仓且 **未过入场、缺 y_oo_fuse 或 hard_reject** 则清仓（仅 T+1 可卖部分）。无「持」动作。现金用完即止，不够整手则缩到整百（最少一手），不另留地板。旧高阈旁路（`fuse_high` / `lot_high_amount` / `oo_tc_score_high_min`）与单头 `y_τc_gt0` 已退役。
 
 ### 1.2 与底仓做 T 的边界
 
@@ -61,13 +61,11 @@ live 与历史回测统一走 `rank_lots`（`watching_matrix` / `backtest_paper_
 |------|------|------|
 | `fuse_enter` | 0.001 | fuse 入场下限（0.1%；旧 1.01 / 101% 自动换成净收益） |
 | `fuse_strong` | 0.001 | 超过则买 lot_strong_amount，否则 lot_base_amount；缺省 2 万 / 1 万。与历史回测表单同一键 |
-| `y_oo_gt0` | 关 | 开则入场须 y_*>0（四头 ŷ_oo / ŷ_τc / y_oo_rank_score / y_tc_rank_score 均 >0）；关=不看。缺分不拦。旧 `y_τc_gt0` 读盘并入后丢弃 |
-| `oo_tc_score_min` | 0.3 | 未过强档时入场另须 **rank_score** ≥ 阈值（UI「rank 阈值」；**不是** y_oo / y_τc）；显式 null=关；两侧都缺不拦 |
-| `oo_tc_score_strong_min` | 0.3 | fuse&gt;fuse_strong 后改看强档 rank 阈值（仍看合成 rank_score）；显式 null=关；缺键=0.3 |
+| `y_oo_gt0` | 关 | 开则入场须 y_*>0（只看 ŷ_oo / ŷ_τc）；关=不看。缺分不拦。rank 原始分不进这道闸。旧 `y_τc_gt0` 读盘并入后丢弃 |
+| `oo_rank_max` | 6 | 未过强档时入场另须 max(oo_rank, τc_rank) < N（UI「rank 名次」；**不是** y_oo / y_τc，也不是原始分）；显式 null=关；两头都缺不拦 |
+| `oo_rank_strong_max` | 12 | fuse&gt;fuse_strong 后改看强档名次（仍看 max(oo_rank, τc_rank)）；显式 null=关；缺键=12 |
 | `fusion_w_oo` | 0.6（回测）/ live 随启动时间建议 | ŷ_oo 融合权重；Follow 单条滑条左端 |
 | `fusion_w_oc` | 0.4（回测）/ live 随启动时间建议 | ŷ_τc 头权重（键名历史遗留 `oc`）；Follow 滑条右端 |
-| `fusion_w_oo_rank` | 0.6 | rank_score 中 y_oo_rank_score 权重；与 `fusion_w_tc_rank` 归一化 |
-| `fusion_w_tc_rank` | 0.4 | rank_score 中 y_tc_rank_score 权重 |
 | `cash_floor` | 0 | 不留现金地板。现金不够该手则缩到整百（最少一手）；仍买不起才跳过。强档买不下先试基础手数。 |
 | `holdings_mv_cap` | 150_000 | **live** 持仓市值上限；本笔将超则跳过该买。历史回测为 0（不限） |
 | `max_positions` | 策略限额 | 仅持仓规则日循环 / 风控仍可读；**rank_lots 开/加不再用它截断** |
@@ -75,7 +73,7 @@ live 与历史回测统一走 `rank_lots`（`watching_matrix` / `backtest_paper_
 
 配置写在 `execution.rebalance_timing.rank_lots`（仍认旧键 `path_matrix`）。
 
-观察池还可按枢纽「观察池分档」A/B/C 收缩宇宙（`/replay` 勾选，同步 live 闸）。闸门代码集 = **枢纽 last 报告行 ∩ 勾选档**（勾满 A+B+C **不等于**关闸）。**新开/加**只进该集合；**报告外票**（分档后新进观察池、未重跑分档）一律不新开。**已持仓不在允许集 → live 硬清仓**（理由如「可预测性非 A 档 清仓」）。回测 / live 会校验报告协议、Holdout N、评测末日（Holdout 末）新鲜度与池指纹；过期或不一致须重跑「观察池分档」。回测天数仍用独立 lookback。**做 T 不套分档**（只在已持底仓上 overlay；v6 估 ĉ / 选腿不吃 ŷ_oo）。
+观察池还可按枢纽「股票分档」A/B/C 收缩宇宙（`/replay` 勾选，同步 live 闸）。闸门代码集 = **枢纽 last 报告行 ∩ 勾选档**（勾满 A+B+C **不等于**关闸）。**新开/加**只进该集合；**报告外票**（分档后新进观察池、未重跑分档）一律不新开。**已持仓不在允许集 → live 硬清仓**（理由如「可预测性非 A 档 清仓」）。回测 / live 会校验报告协议、Holdout N、评测末日（Holdout 末）新鲜度与池指纹；过期或不一致须重跑「股票分档」。回测天数仍用独立 lookback。**做 T 不套分档**（只在已持底仓上 overlay；v6 估 ĉ / 选腿不吃 ŷ_oo）。
 
 ---
 
@@ -106,11 +104,9 @@ live 与历史回测统一走 `rank_lots`（`watching_matrix` / `backtest_paper_
 | `stock_mv_cap` | 强档×120% | 派生：单票持仓市值上限（不落盘；跟 `lot_strong_amount`） |
 | `fusion_w_oo` | 0.6（回测表单）/ live 建议见下 | ŷ_oo 权重；Follow 单条滑条左端 |
 | `fusion_w_oc` | 0.4（回测表单）/ live 建议见下 | ŷ_τc 头权重（键名历史遗留 `oc`）；Follow 滑条右端 |
-| `fusion_w_oo_rank` | 0.6 | rank_score 中 y_oo_rank_score 权重 |
-| `fusion_w_tc_rank` | 0.4 | rank_score 中 y_tc_rank_score 权重 |
-| `y_oo_gt0` | 关 | 开则入场须 y_*>0（四头均 >0）；旧 `y_τc_gt0` 并入后丢弃 |
-| `oo_tc_score_min` | 0.3 | 未过强档时另须 **rank_score** ≥ rank 阈值（UI「rank 阈值」；**不是** y_oo / y_τc；两侧都缺不拦）；显式 null=关 |
-| `oo_tc_score_strong_min` | 0.3 | fuse&gt;fuse_strong 后改看强档 rank 阈值（仍看合成 rank_score；与强档手数同一比较）；显式 null=关；缺键=0.3 |
+| `y_oo_gt0` | 关 | 开则入场须 y_*>0（只看 ŷ_oo / ŷ_τc）；旧 `y_τc_gt0` 并入后丢弃 |
+| `oo_rank_max` | 6 | 未过强档时另须 max(oo_rank, τc_rank) < N（UI「rank 名次」；**不是** y_oo / y_τc；两头都缺不拦）；显式 null=关 |
+| `oo_rank_strong_max` | 12 | fuse&gt;fuse_strong 后改看强档名次（仍看名次；与强档手数同一比较）；显式 null=关；缺键=12 |
 | `cash_floor` | 0 | 不留现金地板；现金不够该手则缩到整百（最少一手） |
 | `holdings_mv_cap` | 150_000 | live 持仓市值上限；历史回测为 0 |
 | `fill_clock` | 09:30 | **仅历史回测**：成交钟 09:30–10:00；09:30 日开盘不读整池 5m；>09:30 加载分钟，ŷ_τc+τc_rank 走前缀刷新 |

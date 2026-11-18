@@ -6,7 +6,7 @@ const COMMANDS = [
   { id: "nav-strategy", label: "前往 · 市场先验", hint: "/market-prior", href: "/market-prior", keywords: "M prior 市场先验 人审 Regime strategy" },
   { id: "nav-follow", label: "前往 · 交易执行", hint: "/follow", href: "/follow", keywords: "模拟 持仓 调仓 做T" },
   { id: "nav-replay", label: "前往 · 历史回测", hint: "/replay", href: "/replay", keywords: "回测 回溯 绩效 grid 做T" },
-  { id: "nav-data", label: "前往 · 数据中心", hint: "/data", href: "/data", keywords: "数据 日K 日线 5m 分钟 物化 补齐 强更 新闻 舆情" },
+  { id: "nav-data", label: "前往 · 数据中心", hint: "/data", href: "/data", keywords: "数据 日K 日线 5m 分钟 物化 补齐 强更 新闻 舆情 观察池 重建 对齐 只数" },
   { id: "nav-quant", label: "前往 · 研究枢纽", hint: "/quant", href: "/quant", keywords: "研究 因子 ic ols 运维 日报 hub" },
   { id: "nav-platform", label: "前往 · 平台", hint: "/platform", href: "/platform", keywords: "调度 日更 平台 系统设置" },
   {
@@ -22,6 +22,13 @@ const COMMANDS = [
     hint: "/yhat-l",
     href: "/yhat-l",
     keywords: "模型中心 arm-l lightgbm lambdarank yhat-l oo τc tau rank lgb l4 拟合 隐藏",
+  },
+  {
+    id: "nav-yhat-r",
+    label: "前往 · 模型中心 Arm·R",
+    hint: "/yhat-r",
+    href: "/yhat-r",
+    keywords: "模型中心 arm-r ridge yhat-r oo τc tau rank 岭回归 l4 拟合 隐藏",
   },
   {
     id: "ai-open",

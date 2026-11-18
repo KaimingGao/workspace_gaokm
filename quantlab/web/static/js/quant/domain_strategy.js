@@ -1,5 +1,5 @@
 import { mergeScoringFloors } from "./scoring.js";
-import { runMarketContextIngest } from "../macro_context_ui.js";
+import { loadAndPaintMacroStrip, runMarketContextIngest } from "../macro_context_ui.js";
 
 /** Quant domain: strategy */
 export function installStrategy(q) {
@@ -312,6 +312,10 @@ export function installStrategy(q) {
   }
 
   async function loadMarketContextPanel() {
+    const macroHost = document.getElementById("quant-macro-context-strip");
+    if (macroHost) {
+      loadAndPaintMacroStrip(macroHost, apiFetch, escapeHtml).catch(() => {});
+    }
     if (!document.querySelector(".strategy-mctx-unit")) return;
     const spark = document.getElementById("strategy-mctx-spark");
     try {

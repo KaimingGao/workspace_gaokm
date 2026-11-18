@@ -1,17 +1,11 @@
 /**
- * 观察池分档：Holdout 前 60 日四头猜涨 lift 等权（oo / oo_rank / τc / τc_rank）。
+ * 股票分档：Holdout 前 60 日四头猜涨 lift 等权（oo / oo_rank / τc / τc_rank）。
  * 表内：四头 lift / Lift_Score。档标题只留 Holdout Lift_Score 均值。
  * 面板按 lookback 全窗（优先 Feature Lake）；live 档位跟随历史回测「分档」勾选。
  */
 import { createScoreTooltipController } from "../score_tooltip.js";
 import {
-  syncOverviewBarsCoverage,
-  syncOverviewMinute,
-  syncOverviewUniverse,
-} from "./factor_corr_ui.js";
-import {
   BARS_DAILY_LOOKBACK,
-  BARS_WATCHING_LIMIT,
   MODEL_FIT_LIMIT,
   markWatchingPoolLimitReady,
   notifyWatchingPoolLimitChanged,
@@ -569,7 +563,7 @@ export function installResearchUniverseUi(q) {
       ? `Holdout Lift_Score 均值（有分数 ${n}/${total}）。` +
         "定档仍用表内 Lift_Score。猜涨 lift = 说涨精度 − 上涨日比例。" +
         "说涨少于 8 次没有 Holdout 分数。收益大小不进分数"
-      : "这份报告没有 Holdout Lift_Score。再跑一次「观察池分档」后，这里是 Holdout 猜涨 lift 均值。定档仍用表内 Lift_Score";
+      : "这份报告没有 Holdout Lift_Score。再跑一次「股票分档」后，这里是 Holdout 猜涨 lift 均值。定档仍用表内 Lift_Score";
     return (
       `<span class="quant-ru-tier-score" title="${escapeHtml(tip)}">` +
       `<span class="quant-ru-tier-cs-lab">Lift_Score</span>` +
@@ -773,15 +767,15 @@ export function installResearchUniverseUi(q) {
         const bits = [];
         if (stale) {
           bits.push(
-            "这份报告不是四头猜涨 lift 定档。请再点「观察池分档」：oo 与 τc 用落盘 LightGBM，排序头用内存 LambdaRank（不改研究套），有样本头等权，用说涨精度减去上涨日比例重写 A/B/C"
+            "这份报告不是四头猜涨 lift 定档。请再点「股票分档」：oo 与 τc 用落盘 LightGBM，排序头用内存 LambdaRank（不改研究套），有样本头等权，用说涨精度减去上涨日比例重写 A/B/C"
           );
         }
         if (missingHold) {
-          bits.push("报告缺 Holdout 元数据，请重跑「观察池分档」");
+          bits.push("报告缺 Holdout 元数据，请重跑「股票分档」");
         }
         if (mm) {
           bits.push(
-            `分档 Holdout=${mm.cur} 与这份报告的 Holdout=${mm.last} 不一致，请重跑「观察池分档」`
+            `分档 Holdout=${mm.cur} 与这份报告的 Holdout=${mm.last} 不一致，请重跑「股票分档」`
           );
         }
         if (!stale) bits.push(tierStatusShort(lastTiers));
@@ -809,7 +803,7 @@ export function installResearchUniverseUi(q) {
         tierStatusLine(lastTiers)
       );
     } else if (liveStatus && liveStatus.enabled) {
-      setStatus("ok", "live", `${liveBit()} · 可先「观察池分档」刷新`);
+      setStatus("ok", "live", `${liveBit()} · 可先「股票分档」刷新`);
     }
   }
 
@@ -984,10 +978,7 @@ export function installResearchUniverseUi(q) {
         { method: "POST" }
       );
       if (!ok || (data && data.ok === false)) return;
-      const rec = data.reconcile || {};
-      const after = Number(rec.after);
       await hydrateWatchingMaxSize();
-      if (Number.isFinite(after)) syncPoolOverview(after);
       notifyWatchingPoolLimitChanged(readWatchingPoolLimit());
     } finally {
       setRebuildAlignBusy(false);
@@ -1006,16 +997,6 @@ export function installResearchUniverseUi(q) {
     return n;
   }
 
-  function syncPoolOverview(n) {
-    const count = Number(n);
-    if (!Number.isFinite(count) || count < 0) return;
-    try {
-      syncOverviewUniverse(count);
-    } catch (_) {
-      /* overview optional */
-    }
-  }
-
   async function hydrateWatchingMaxSize() {
     const input = el.maxSize();
     let capFromFile = null;
@@ -1024,39 +1005,14 @@ export function installResearchUniverseUi(q) {
       const watching = data && data.watching;
       const cap = Number((watching && watching.max_size) || (data && data.max_size));
       if (ok && Number.isFinite(cap)) capFromFile = cap;
-      if (input) {
-        if (capFromFile != null) paintPoolSize(capFromFile);
-        const wl = watching && watching.watchlist;
-        if (ok && Array.isArray(wl)) {
-          syncPoolOverview(wl.filter((c) => String(c || "").trim()).length);
-        }
-      }
+      if (input && capFromFile != null) paintPoolSize(capFromFile);
     } catch (_) {
       if (input) paintPoolSize(input.value || 300);
     } finally {
-      // 先就绪再让日线/5m 首刷：有滑条用滑条，数据中心用文件上限，避免默认 300 截断满池
+      // 滑条在数据中心。研究枢纽无滑条时仍用文件上限，避免默认 300 截断满池。
       const ready = input ? readWatchingPoolLimit() : capFromFile;
       markWatchingPoolLimitReady(ready != null ? ready : readWatchingPoolLimit());
     }
-  }
-
-  async function refreshHubWarehouseKpis() {
-    if (document.body?.dataset?.page !== "quant") return;
-    if (document.getElementById("quant-bars-topup")) return;
-    const limit = Math.min(BARS_WATCHING_LIMIT, readWatchingPoolLimit());
-    const paint = (res, sync) => {
-      if (res && res.ok && res.data) sync(res.data);
-    };
-    await Promise.all([
-      apiFetch(`/api/quant/bars/status?watching_limit=${encodeURIComponent(limit)}`)
-        .then((res) => paint(res, syncOverviewBarsCoverage))
-        .catch(() => {}),
-      apiFetch(
-        `/api/quant/minute/status?watching_limit=${encodeURIComponent(limit)}&min_span_days=40&include_label_portrait=0`
-      )
-        .then((res) => paint(res, syncOverviewMinute))
-        .catch(() => {}),
-    ]);
   }
 
   async function saveWatchingMaxSize() {
@@ -1069,12 +1025,11 @@ export function installResearchUniverseUi(q) {
       body: JSON.stringify({ max_size: cap }),
     });
     if (!ok || (data && data.ok === false)) {
-      // 概览旁路无状态条（分档卡 #quant-ru-strip 另论）：失败回灌服务端上限
+      // 数据中心概览无状态条（分档卡 #quant-ru-strip 另论）：失败回灌服务端上限
       await hydrateWatchingMaxSize();
       return;
     }
     const saved = paintPoolSize(data && data.max_size != null ? data.max_size : cap);
-    syncPoolOverview(data && data.count);
     notifyWatchingPoolLimitChanged(saved);
   }
 
@@ -1089,16 +1044,11 @@ export function installResearchUniverseUi(q) {
     void rebuildAndAlignUniverse();
   });
 
-  if (el.maxSize() || document.body?.dataset?.page === "data") {
-    void hydrateWatchingMaxSize()
-      .catch(() => {
-        markWatchingPoolLimitReady(readWatchingPoolLimit());
-      })
-      .then(() => {
-        if (document.body?.dataset?.page === "quant") {
-          void refreshHubWarehouseKpis();
-        }
-      });
+  const page = document.body?.dataset?.page;
+  if (el.maxSize() || page === "data" || page === "quant") {
+    void hydrateWatchingMaxSize().catch(() => {
+      markWatchingPoolLimitReady(readWatchingPoolLimit());
+    });
   } else {
     markWatchingPoolLimitReady(readWatchingPoolLimit());
   }

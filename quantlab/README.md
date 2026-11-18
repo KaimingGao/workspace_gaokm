@@ -21,7 +21,7 @@
 | 数据中心 | `/data` | 日 K · 5m · 物化 |
 | 交易执行 | `/follow` | 纸面调仓 · 做 T（`/paper` 重定向到此） |
 | 历史回测 | `/replay` | 调仓回测 · 做 T 回测 |
-| 研究枢纽 | `/quant` | 拟合 ŷ · 观察池分档 · 日报 |
+| 研究枢纽 | `/quant` | 拟合 ŷ · 股票分档 · 日报 |
 | 平台 | `/platform` | 调度 · 纸面日更 |
 
 谁决定「买什么、买多少」，就归谁。人决定的走观察台 / 交易执行；规则决定的标在持仓出处上。闭环与易漏能力见 [docs/quant-ui.md · 用户心智与验证闭环](docs/quant-ui.md#用户心智与验证闭环)。
@@ -217,7 +217,7 @@ python3 research/watching_run.py --init    # 已有 watching.json 会报错，�
 python3 research/watching_run.py --show
 ```
 
-仓库提交的是模板 `data/watching.example.json`（约 500 只，`sources` 为空）。改自己的池子时改 `data/watching.json`，或在观察台 / 研究枢纽里改。
+仓库提交的是模板 `data/watching.example.json`（约 500 只，`sources` 为空）。改自己的池子时改 `data/watching.json`，或在观察台改成员、在数据中心概览改只数并对齐。
 
 `sources` 为空时，`python3 research/watching_run.py --refresh` 只补全名称，不改 `watchlist`。要按规则重算名单，在 `watching.json` 里写 `sources`（上限 `max_size`，最大 500），保存后再 `--refresh`：
 

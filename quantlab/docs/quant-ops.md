@@ -8,7 +8,7 @@
 
 | 步骤 | API / 动作 |
 |------|------------|
-| 重建并对齐（**Web 唯一按钮**） | `POST /api/quant/research-universe/rebuild-and-reconcile` |
+| 重建并对齐（**Web 唯一按钮**，数据中心概览） | `POST /api/quant/research-universe/rebuild-and-reconcile` |
 | 只重建研究宇宙（运维/脚本分步） | `POST /api/quant/research-universe/rebuild-tradable` |
 | 只对齐观察池（运维/脚本分步） | `POST /api/quant/research-universe/reconcile-watching` |
 | 门槛配置 | `data/tradable_universe_policy.json` |
@@ -208,7 +208,7 @@ python3 evals/run_checklist.py --mock --quant-only --presets
 
 ## Watching 编辑（P18）
 
-观察台用搜索加入或移除名单。研究枢纽概览的观察池滑条改只数上限。没有「编辑 watching.json」按钮。
+观察台用搜索加入或移除名单。数据中心概览的观察池滑条改只数上限，「重建并对齐」严筛研究宇宙并裁观察池。没有「编辑 watching.json」按钮。
 
 | API | 说明 |
 |-----|------|

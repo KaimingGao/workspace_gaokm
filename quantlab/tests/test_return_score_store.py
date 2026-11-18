@@ -56,7 +56,50 @@ def _patch_paths(td: str):
     )
 
 
+def _complete_lgb(**kwargs) -> dict:
+    blob = _lgb_blob(sample_count=1600, names=("momentum", "value", "quality"), **kwargs)
+    blob["booster"] = {"format": "lightgbm_string", "payload_b64": "A" * 80}
+    return blob
+
+
 class TestReturnScoreStore(unittest.TestCase):
+    def test_full_sample_draft_archives_to_live_not_research(self):
+        """Holdout=0 的执行拟合进执行版本列表，不进研究列表。"""
+        with tempfile.TemporaryDirectory() as td:
+            p_draft, p_active, p_research, p_rep, p_live, _draft, active, research = (
+                _patch_paths(td)
+            )
+            versions = os.path.join(td, "model_versions")
+            with p_draft, p_active, p_research, p_rep, p_live, patch(
+                "core.research.model_versions.MODEL_VERSIONS_DIR", versions
+            ), patch("core.paths.RETURN_SCORE_MODEL_RESEARCH_PATH", research), patch(
+                "core.paths.RETURN_SCORE_MODEL_ACTIVE_PATH", active
+            ):
+                from core.research import model_versions as mv
+
+                full = store.save_return_model_draft(
+                    _complete_lgb(mark=0.2),
+                    oos={"holdout_trading_days": 0, "n_train": 1600, "n_test": 0},
+                )
+                self.assertTrue(full["success"], full)
+                hold = store.save_return_model_draft(
+                    _complete_lgb(mark=0.3),
+                    oos={"holdout_trading_days": 20, "n_train": 1400, "n_test": 200},
+                )
+                self.assertTrue(hold["success"], hold)
+                research_ids = [
+                    it["id"] for it in mv.list_suite_versions("oo", "research")["items"]
+                ]
+                live_ids = [
+                    it["id"] for it in mv.list_suite_versions("oo", "live")["items"]
+                ]
+                self.assertEqual(len(research_ids), 1)
+                self.assertEqual(len(live_ids), 1)
+                live_doc = mv.load_version_doc("oo", "live", live_ids[0])
+                research_doc = mv.load_version_doc("oo", "research", research_ids[0])
+                self.assertEqual(int(live_doc["holdout_trading_days"]), 0)
+                self.assertEqual(int(research_doc["holdout_trading_days"]), 20)
+
     def test_full_sample_without_research_does_not_write_live(self):
         blob = _lgb_blob(sample_count=40, mark=0.2, names=("momentum", "value"))
         with tempfile.TemporaryDirectory() as td:

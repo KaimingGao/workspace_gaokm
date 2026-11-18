@@ -132,7 +132,7 @@ def _load_pool(lookback: int, a_codes: Set[str]) -> List[dict]:
     uni = read_watching()
     watch = [str(c).strip() for c in (uni.get("watchlist") or []) if str(c).strip()]
     inter = [c for c in watch if c in a_codes]
-    # 截面 μ/σ 用「观察池∩A」近似；A 档本就来自观察池分档
+    # 截面 μ/σ 用「观察池∩A」近似；A 档本就来自股票分档
     pool = inter if len(inter) >= 40 else watch
     _log(f"拉日线 pool={len(pool)}（观察池 {len(watch)} · A∩池 {len(inter)}）lookback={lookback}")
     packs = get_bars_batch(pool, limit=int(lookback))

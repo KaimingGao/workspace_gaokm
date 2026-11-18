@@ -81,6 +81,12 @@ class TestYhatTfHardenParams(unittest.TestCase):
         self.assertEqual(out["lookback"], 900)
         self.assertEqual(out["holdout_trading_days"], 60)
         self.assertEqual(out["nhead"], 4)  # 64 % 5 != 0 → 4
+        live, live_warns = harden_fit_params("oo", {"holdout_trading_days": 0})
+        self.assertEqual(live["holdout_trading_days"], 0)
+        self.assertFalse(any(w.startswith("Holdout") for w in live_warns))
+        raised, raised_warns = harden_fit_params("oo", {"holdout_trading_days": 3})
+        self.assertEqual(raised["holdout_trading_days"], 5)
+        self.assertTrue(any(w.startswith("Holdout") for w in raised_warns))
         self.assertEqual(out["arms"], "T")  # 厂 T 单臂；传入的臂码不另开对侧
         self.assertNotIn("seeds", out)  # 固定 seed=42，不再入参
         self.assertFalse(any("长窗" in w for w in warns))
@@ -224,7 +230,18 @@ class TestYhatTfHardenParams(unittest.TestCase):
         full, warns = harden_fit_params("oo", {"t_sample_pct": 100, "d_model": 512})
         self.assertEqual(full["t_sample_pct"], 100)
         self.assertIn("--t-sample-frac 1", build_holdout_cli("oo", full))
-        self.assertTrue(any("OOM" in w for w in warns))
+        self.assertFalse(any("OOM" in w for w in warns))
+        from core.research.yhat_tf_desk import without_retired_param_warnings
+
+        stale = {
+            "param_warnings": [
+                "t_sample_pct=100 且 d_model≥256：Arm·T 易 OOM，建议降低采样%或 d_model",
+                "batch: 8→16",
+            ]
+        }
+        served = without_retired_param_warnings(stale)
+        self.assertEqual(served["param_warnings"], ["batch: 8→16"])
+        self.assertEqual(len(stale["param_warnings"]), 2)
         tiny, tw = harden_fit_params("oo", {"t_sample_pct": 0.01})
         self.assertEqual(tiny["t_sample_pct"], 0.1)
         self.assertTrue(any("t_sample_pct:" in w for w in tw))
@@ -266,6 +283,71 @@ class TestYhatTfHardenParams(unittest.TestCase):
         argv_t = build_holdout_argv("oo", factory="T")
         self.assertEqual(argv_t[argv_t.index("--lookback") + 1], "900")
         self.assertEqual(argv_t[argv_t.index("--holdout-trading-days") + 1], "60")
+
+    def test_arm_r_is_ridge_factory(self):
+        from core.research.yhat_tf_desk import (
+            _metrics_from_holdout_summary,
+            build_holdout_argv,
+            default_fit_params,
+            desk_status,
+            factory_scope,
+            harden_fit_params,
+            normalize_factory,
+        )
+
+        self.assertEqual(normalize_factory("ARM-R"), "R")
+        self.assertEqual(normalize_factory("ridge"), "R")
+        import tempfile
+        from unittest import mock
+
+        with tempfile.TemporaryDirectory() as td, mock.patch(
+            "core.research.yhat_tf_desk.YHAT_R_DIR", td
+        ), mock.patch(
+            "core.research.yhat_tf_desk.YHAT_R_LAST_PATH",
+            os.path.join(td, "last_status.json"),
+        ), factory_scope("R"):
+            oo = default_fit_params("oo")
+            self.assertEqual(oo["arms"], "R")
+            self.assertEqual(oo["loss"], "ridge")
+            self.assertEqual(oo["lookback"], 600)
+            self.assertEqual(oo["holdout_trading_days"], 20)
+            self.assertEqual(oo["ridge_alpha"], 1.0)
+            self.assertNotIn("d_model", oo)
+            self.assertNotIn("seq_len", oo)
+            self.assertNotIn("batch_size", oo)
+            self.assertEqual(default_fit_params("tc")["lookback"], 120)
+            self.assertEqual(default_fit_params("oo_rank")["loss"], "ridge")
+            kept, warns = harden_fit_params("oo", {"ridge_alpha": 250, "d_model": 128})
+            self.assertEqual(kept["ridge_alpha"], 100.0)
+            self.assertNotIn("d_model", kept)
+            self.assertTrue(any("ridge_alpha:" in w for w in warns))
+            st = desk_status(factory="R")
+        self.assertEqual(st["package"], "yhat_r")
+        argv = build_holdout_argv("oo", factory="R")
+        self.assertIn("--factory", argv)
+        self.assertEqual(argv[argv.index("--factory") + 1], "R")
+        self.assertIn("--ridge-alpha", argv)
+        self.assertNotIn("--d-model", argv)
+        self.assertNotIn("--seq-len", argv)
+        metrics = _metrics_from_holdout_summary(
+            {"arm_R": {"success": True, "cs_rank_ic": 0.21, "n_test": 4}}
+        )
+        self.assertEqual(metrics.get("arm"), "R")
+        self.assertEqual(metrics.get("cs_rank_ic"), 0.21)
+        failed = _metrics_from_holdout_summary(
+            {
+                "factory": "R",
+                "arm_R": {"success": False, "error": "cube miss"},
+                "split_R": {
+                    "n_train": 10,
+                    "n_test": 4,
+                    "fit_end": "2026-08-13",
+                    "eval_start": "2026-08-17",
+                },
+            }
+        )
+        self.assertEqual(failed.get("arm"), "R")
+        self.assertNotIn("T", (failed.get("splits") or {}))
 
     def test_nested_lock_keeps_ambient_factory_L(self):
         """外层 factory_scope(L) 时，无 factory= 的嵌套调用不得盖成 T。"""
@@ -1309,7 +1391,7 @@ class TestYhatTfDesk(unittest.TestCase):
                 self.assertEqual(p_full["mlp_hidden"], 128)
                 self.assertEqual(p_full["nhead"], 8)
                 self.assertEqual(p_full["dropout"], 0.2)
-                self.assertEqual(p_full["patience"], 6)
+                self.assertNotIn("patience", p_full)
                 p_def, _ = harden_fit_params(
                     "oo", {"d_model": 128, "full_aoo": True}
                 )
@@ -1317,13 +1399,13 @@ class TestYhatTfDesk(unittest.TestCase):
                 self.assertEqual(p_def["mlp_hidden"], 128)
                 self.assertEqual(p_def["dropout"], 0.1)
                 self.assertEqual(p_def["lr"], 1e-3)
-                self.assertEqual(p_def["patience"], 6)
+                self.assertNotIn("patience", p_def)
                 from core.research.yhat_tf_desk import build_holdout_cli
 
                 cli = build_holdout_cli("oo", p_full)
                 self.assertIn("--mlp-hidden 128", cli)
                 self.assertIn("--dropout 0.2", cli)
-                self.assertIn("--patience 6", cli)
+                self.assertNotIn("--patience", cli)
                 self.assertIn("--nhead 8", cli)
                 self.assertIn("--lr 0.0005", cli)
                 self.assertEqual(
@@ -1396,7 +1478,7 @@ class TestYhatTfDesk(unittest.TestCase):
                 self.assertFalse(drift["success"])
                 self.assertIn("不一致", str(drift.get("error") or ""))
 
-                # 旧 last.fit_params 缺 patience/dropout/lr 不应误拦晋级
+                # 旧 last.fit_params 缺 dropout/lr 不应误拦晋级
                 from core.research.yhat_tf_desk import promote_eligibility
 
                 draft_ok = {
@@ -1438,7 +1520,7 @@ class TestYhatTfDesk(unittest.TestCase):
                         "epochs": 12,
                         "arms": "L,T",
                         "loss": "smooth_l1",
-                        # 故意缺 dropout / lr / patience
+                        # 故意缺 dropout / lr
                     },
                 }
                 elig = promote_eligibility(
@@ -1509,6 +1591,100 @@ class TestYhatSharedEvalCalendar(unittest.TestCase):
         self.assertTrue(any(d < shared_cal[0] for d in tr_days))
         self.assertTrue(all(d < eval_start for d in tr_days))
 
+    def test_arml_lookback_drops_pad_and_keeps_holdout(self):
+        """垫根不进 Arm·L 训练；Holdout 截止日不变。窗内早于序列的因子日仍保留。"""
+        from core.research.holdout import resolve_ridge_split
+        from scripts.run_yhat_transformer_holdout import (
+            arml_fit_calendar,
+            arml_keep_train_day,
+        )
+
+        full = [f"2024-03-{d:02d}" for d in range(1, 32)]
+        lookback = 20
+        fit = arml_fit_calendar(full, lookback)
+        self.assertEqual(fit, full[-lookback:])
+        self.assertEqual(arml_fit_calendar(full, None), full)
+
+        _, _, wide = resolve_ridge_split(
+            full,
+            holdout_trading_days=5,
+            label_horizon_days=1,
+            calendar_dates=full,
+        )
+        _, _, clipped = resolve_ridge_split(
+            full,
+            holdout_trading_days=5,
+            label_horizon_days=1,
+            calendar_dates=fit,
+        )
+        self.assertEqual(wide.get("eval_start"), clipped.get("eval_start"))
+        self.assertEqual(list(wide.get("test_days") or []), list(clipped.get("test_days") or []))
+        self.assertEqual((clipped.get("train_days") or [None])[0], fit[0])
+        pad = set(full[:-lookback])
+        self.assertTrue(pad.isdisjoint(clipped.get("train_days") or []))
+        self.assertTrue(pad.issubset(set(wide.get("train_days") or [])))
+
+        test_days = set(clipped.get("test_days") or [])
+        embargo = set(clipped.get("embargo_days") or [])
+        eval_start = clipped.get("eval_start")
+        inside = fit[1]
+        shared_start = fit[4]
+        self.assertLess(inside, shared_start)
+        self.assertTrue(
+            arml_keep_train_day(
+                inside,
+                test_days=test_days,
+                embargo_days=embargo,
+                eval_start=eval_start,
+                train_start=fit[0],
+            )
+        )
+        self.assertFalse(
+            arml_keep_train_day(
+                full[0],
+                test_days=test_days,
+                embargo_days=embargo,
+                eval_start=eval_start,
+                train_start=fit[0],
+            )
+        )
+        self.assertFalse(
+            arml_keep_train_day(
+                next(iter(test_days)),
+                test_days=test_days,
+                embargo_days=embargo,
+                eval_start=eval_start,
+                train_start=fit[0],
+            )
+        )
+
+    def test_clip_train_start_to_open_cube(self):
+        """训练窗早于立方时收到立方日；立方落进 Holdout 时不裁。"""
+        from scripts.run_yhat_transformer_holdout import clip_train_to_open_cube
+
+        dates = ["2022-07-01", "2022-07-04", "2024-01-02"]
+        kept, start, n_drop = clip_train_to_open_cube(
+            [0, 1, 2],
+            dates,
+            train_start="2022-07-01",
+            eval_start="2026-10-20",
+            cube_start="2022-07-04",
+        )
+        self.assertEqual(kept, [1, 2])
+        self.assertEqual(start, "2022-07-04")
+        self.assertEqual(n_drop, 1)
+
+        kept_hold, start_hold, n_hold = clip_train_to_open_cube(
+            [0, 1],
+            ["2022-07-01", "2022-07-04"],
+            train_start="2022-07-01",
+            eval_start="2022-07-04",
+            cube_start="2022-07-04",
+        )
+        self.assertEqual(kept_hold, [0, 1])
+        self.assertEqual(start_hold, "2022-07-01")
+        self.assertEqual(n_hold, 0)
+
     def test_metrics_gate_pass_when_t_fails(self):
         from core.research.yhat_tf_desk import _metrics_from_holdout_summary
 
@@ -1550,17 +1726,24 @@ class TestYhatTfPageWiring(unittest.TestCase):
         self.assertIn("/yhat-l", pal_js)
         self.assertIn("模型中心 Arm·T", pal_js)
         self.assertIn("模型中心 Arm·L", pal_js)
+        self.assertIn('id: "nav-yhat-r"', pal_js)
+        self.assertIn("/yhat-r", pal_js)
+        self.assertIn("模型中心 Arm·R", pal_js)
 
         clear_html_cache()
         html_t = render_tool_html("yhat_t")
         html_l = render_tool_html("yhat_l")
+        html_r = render_tool_html("yhat_r")
         html = html_t  # 契约主检 Arm·T 页
         self.assertIn("模型中心 · Arm·T", html_t)
         self.assertIn("模型中心 · Arm·L", html_l)
+        self.assertIn("模型中心 · Arm·R", html_r)
         self.assertIn("<title>QuantLab · 模型中心 · Arm·T</title>", html_t)
         self.assertIn("<title>QuantLab · 模型中心 · Arm·L</title>", html_l)
+        self.assertIn("<title>QuantLab · 模型中心 · Arm·R</title>", html_r)
         self.assertIn('data-factory="T"', html_t)
         self.assertIn('data-factory="L"', html_l)
+        self.assertIn('data-factory="R"', html_r)
         self.assertIn('data-head-panel="oo_rank"', html)
         self.assertIn('data-head-select="oo_rank"', html)
         self.assertIn('data-head-section="tc_rank"', html)
@@ -1597,6 +1780,8 @@ class TestYhatTfPageWiring(unittest.TestCase):
             'data-param="batch_size"',
             'data-param="loss"',
             'data-arm-console="T"',
+            'data-arm-console="R"',
+            'data-param="ridge_alpha"',
             "data-contrast-lift",
             "yhat-only:T",
             "ListNet",
@@ -1620,6 +1805,17 @@ class TestYhatTfPageWiring(unittest.TestCase):
         )
         self.assertNotIn('value="900"', html_l)
         self.assertNotIn('value="60"', html_l)
+        self.assertIn("open[T]→open[T+1] · Ridge", html_r)
+        self.assertIn("CS rank · Ridge", html_r)
+        self.assertIn('data-arm-console="R"', html_r)
+        self.assertIn('data-param="ridge_alpha"', html_r)
+        self.assertNotIn('data-arm-console="L"', html_r)
+        self.assertNotIn('data-arm-console="T"', html_r)
+        self.assertNotIn('data-param="d_model"', html_r)
+        self.assertIn(
+            'data-param="lookback" type="number" min="100" max="1200" step="10" value="600"',
+            html_r,
+        )
         self.assertIn('value="900"', html_t)
         self.assertIn('value="60"', html_t)
         self.assertNotIn("实验臂与 Gate 说明", html)
@@ -1637,7 +1833,7 @@ class TestYhatTfPageWiring(unittest.TestCase):
         self.assertNotIn('data-param="arms" type="text"', html)
         self.assertNotIn('data-param="loss" type="text"', html)
         # 四头字段对齐：模型 d_model/layers/loss · 训练 batch/epochs/T采样%；仅 τc* 多 tau_end
-        # nhead/mlp/dropout/lr/patience 不进页面（CLI/草稿可配）
+        # nhead/mlp/dropout/lr 不进页面（CLI/草稿可配）
         self.assertIn("T采样%", html)
         self.assertIn('data-param="t_sample_pct"', html)
         self.assertNotIn('data-param="max_train_rows"', html)
@@ -1704,8 +1900,8 @@ class TestYhatTfPageWiring(unittest.TestCase):
         version_box = (
             '<span class="yhat-tf-version-box"><button type="button" class="yhat-tf-version-btn"'
         )
-        for page in (html_t, html_l):
-            self.assertEqual(page.count("yhat-tf-version-box"), 4)
+        for page in (html_t, html_l, html_r):
+            self.assertEqual(page.count("yhat-tf-version-box"), 8)
             self.assertEqual(page.count(version_box), 4)
             self.assertEqual(
                 page.count(
@@ -1738,6 +1934,7 @@ class TestYhatTfPageWiring(unittest.TestCase):
         self.assertNotIn("/api/quant/yhat-tf/promote-research", yhat_js)
         self.assertIn("/api/quant/yhat-l", yhat_js)
         self.assertIn("/api/quant/yhat-t", yhat_js)
+        self.assertIn("/api/quant/yhat-r", yhat_js)
         place = yhat_js.split("function placeVersionMenu", 1)[1].split(
             "function ", 1
         )[0]

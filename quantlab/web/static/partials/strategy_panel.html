@@ -4,11 +4,15 @@
     <h2>市场先验</h2>
     <p id="strategy-meta" class="dashboard-meta quant-meta" aria-live="polite">M prior · 舆情仅观察徽章 · 不静默写盘</p>
     <p class="dashboard-section-desc strategy-head-path">
-      <a class="strategy-hero-link" href="/quant">研究枢纽</a>
-      → M prior →
+      <a class="strategy-hero-link" href="#strategy-section-overview">概览</a>
+      →
+      <a class="strategy-hero-link" href="#strategy-market-context">M prior</a>
+      →
       <a class="strategy-hero-link" href="/replay">回测</a>
       ·
       <a class="strategy-hero-link" href="/follow">交易执行</a>
+      ·
+      <a class="strategy-hero-link" href="/quant">研究枢纽</a>
     </p>
   </div>
   <div class="dashboard-head-actions quant-head-actions strategy-head-actions">
@@ -18,6 +22,18 @@
 </div>
 
 <div class="quant-body strategy-page">
+  <section
+    class="dashboard-section quant-section strategy-section strategy-section-primary"
+    id="strategy-section-overview"
+    aria-labelledby="strategy-section-overview-title"
+  >
+    <header class="dashboard-section-head quant-section-head strategy-section-head">
+      <h3 id="strategy-section-overview-title" class="dashboard-section-title">概览</h3>
+      <p class="dashboard-section-desc quant-section-desc">盘前 M 环境 · 科技 / A50 / Regime / Prior · 不改 ŷ</p>
+    </header>
+    <div id="quant-macro-context-strip" class="quant-macro-context-strip" aria-live="polite"></div>
+  </section>
+
   <!-- 盘前 M prior（上）· Regime（下）：只读状态（配置仍写 signal_config.json） -->
   <section
     class="dashboard-section quant-section strategy-section strategy-section-primary"

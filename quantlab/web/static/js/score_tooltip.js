@@ -72,6 +72,48 @@ function signCls(v) {
   return n > 0 ? "pos" : "neg";
 }
 
+function armScoreSource(raw, key) {
+  const src = String((raw && raw[key]) || "").toLowerCase();
+  return src === "transformer" || src === "arm_t" || src === "arm_t_open";
+}
+
+function armHeadCompose(raw, head) {
+  const spec = {
+    oo: "open[T] → open[T+1]",
+    tc: "price(τ) → close[T] · 开盘序列",
+    oo_rank: "截面相对分 → 名次 · 1=最高 · 不进 fuse",
+    tc_rank: "截面相对分 → 名次 · 1=最高 · 不进 fuse",
+  }[head];
+  if (!spec) return "";
+  const card = raw && raw.arm_t && raw.arm_t[head];
+  const armed =
+    card ||
+    (head === "oo" && armScoreSource(raw, "y_oo_source")) ||
+    (head === "tc" && armScoreSource(raw, "y_τc_source")) ||
+    (head === "oo_rank" &&
+      (armScoreSource(raw, "y_oo_rank_source") || armScoreSource(raw, "y_oo_source"))) ||
+    (head === "tc_rank" &&
+      (armScoreSource(raw, "y_tc_rank_source") || armScoreSource(raw, "y_τc_source")));
+  if (!armed) return "";
+  const line = (k, v) =>
+    `<div class="score-layer-row"><span>${escapeText(k)}</span><span class="num">${escapeText(
+      v
+    )}</span></div>`;
+  const bits = [line("口径", spec)];
+  const suite = String((raw && raw.arm_t && raw.arm_t.suite) || "").toLowerCase();
+  if (suite === "research") bits.push(line("套", "研究"));
+  else if (suite === "live") bits.push(line("套", "执行"));
+  const label = card && String(card.label || "").trim();
+  const runId = card && String(card.run_id || "").trim();
+  if (label) bits.push(line("版本", label));
+  else if (runId) bits.push(line("版本", runId));
+  const ic = card && card.rank_ic;
+  if (!label && ic != null && Number.isFinite(Number(ic))) {
+    bits.push(line("RankIC", Number(ic).toFixed(3)));
+  }
+  return `<div class="score-layer-compose">${bits.join("")}</div>`;
+}
+
 function resolveYhat(raw) {
   if (
     raw &&
@@ -80,8 +122,13 @@ function resolveYhat(raw) {
   ) {
     return null;
   }
-  const candidates = [raw && raw.predicted_score, raw && raw.predicted_score_eod];
-  if (raw && raw.formula_terms && raw.formula_terms.total != null) {
+  const candidates = [raw && raw.y_oo, raw && raw.predicted_score, raw && raw.predicted_score_eod];
+  if (
+    raw &&
+    raw.formula_terms &&
+    raw.formula_terms.total != null &&
+    !armScoreSource(raw, "y_oo_source")
+  ) {
     candidates.unshift(raw.formula_terms.total);
   }
   for (const c of candidates) {
@@ -330,8 +377,10 @@ function formatEodAsOfHint(raw) {
   return anom ? `${base} · ${anom}` : base;
 }
 
-/** ŷ_oo tip：LightGBM pred_contrib（正式唯一后端）。 */
+/** ŷ_oo tip：Arm·T 启用权重，或套槽 LightGBM pred_contrib。 */
 function eodModelHint(raw) {
+  const src = String((raw && raw.y_oo_source) || "").toLowerCase();
+  if (src === "transformer" || src === "arm_t") return "Arm·T";
   const expl =
     (raw && (raw.formula_terms || raw.score_formula_terms)) || null;
   const be = String((expl && expl.backend) || "").toLowerCase();
@@ -458,6 +507,7 @@ function formatCompactEodTip(raw) {
       eodModelHint(raw)
     )}</div>` +
     gate +
+    armHeadCompose(raw, "oo") +
     `</div>`
   );
 }
@@ -522,6 +572,7 @@ function formatCompactTauTip(raw) {
     raw && (raw.formula_terms_tau || raw.score_formula_terms_tau);
   const totRaw = explTau && explTau.total != null ? Number(explTau.total) : NaN;
   const formulaMismatch =
+    !armScoreSource(raw, "y_τc_source") &&
     hasTerms &&
     fit != null &&
     Number.isFinite(totRaw) &&
@@ -533,12 +584,14 @@ function formatCompactTauTip(raw) {
           String(ySpec)
         )} · 组成合计 ${escapeText(`${fmtSigned(totRaw, 3)}%`)} 与表列不一致`
       : `ŷ_τc · τ=${escapeText(tau)} · ${escapeText(String(ySpec))} · ${
-          explTau &&
-          ["lightgbm", "lgb"].includes(
-            String(explTau.backend || "").toLowerCase()
-          )
-            ? "LightGBM · pred_contrib"
-            : "α+Σβ·z"
+          String((raw && raw.y_τc_source) || "").toLowerCase() === "transformer"
+            ? "Arm·T"
+            : explTau &&
+              ["lightgbm", "lgb"].includes(
+                String(explTau.backend || "").toLowerCase()
+              )
+              ? "LightGBM · pred_contrib"
+              : "α+Σβ·z"
         }`;
   return (
     `<div class="score-layer score-layer-eod">` +
@@ -547,6 +600,7 @@ function formatCompactTauTip(raw) {
     `<div class="score-hero-value ${signCls(fit)}">${escapeText(val)}</div>` +
     `</div>` +
     `<div class="score-hero-hint">${hint}</div>` +
+    armHeadCompose(raw, "tc") +
     `</div>`
   );
 }
@@ -695,8 +749,14 @@ function formatCompactRTip(raw) {
   }
   const explR = raw && (raw.formula_terms_r || raw.score_formula_terms_r);
   const explBe = String((explR && explR.backend) || "").toLowerCase();
+  const tauSrc = String((raw && raw.y_τc_source) || "").toLowerCase();
   const isLgb = ["lightgbm", "lgb"].includes(explBe) || hasTerms;
-  const modelBit = isLgb ? "LightGBM · pred_contrib" : "模型预估";
+  const modelBit =
+    tauSrc === "transformer" || tauSrc === "arm_t"
+      ? "Arm·T"
+      : isLgb
+        ? "LightGBM · pred_contrib"
+        : "模型预估";
   const hint = hasTerms
     ? `τ=${escapeText(tau)} · ${escapeText(String(ySpec))} · ${modelBit}`
     : `τ=${escapeText(tau)} · ${escapeText(String(ySpec))} · 与 ŷ_τc 同因子 · 模型预估`;
@@ -1000,6 +1060,30 @@ function formatCompactTWTip(raw) {
   );
 }
 
+/** 相对分：优先落盘 y_*_rank_score，缺则用组成表合计。 */
+function rankRelativeScore(raw, scoreKey, expl) {
+  const direct = raw && raw[scoreKey];
+  if (direct != null && direct !== "" && Number.isFinite(Number(direct))) {
+    return Number(direct);
+  }
+  const total = expl && expl.total;
+  if (total != null && total !== "" && Number.isFinite(Number(total))) {
+    return Number(total);
+  }
+  return null;
+}
+
+function rankScoreRowHtml(score) {
+  const txt = score == null ? "—" : fmtSigned(score, 3);
+  const cls = score == null ? "score-flat" : signCls(score);
+  return (
+    `<div class="score-layer-head">` +
+    `<div class="score-hero-label">预估分</div>` +
+    `<div class="score-hero-value ${cls}">${escapeText(txt)}</div>` +
+    `</div>`
+  );
+}
+
 /** 成交明细 oo_rank 列：截面名次 + 相对分 + 因子组成。 */
 function formatCompactOoRankTip(raw) {
   const ord =
@@ -1010,14 +1094,9 @@ function formatCompactOoRankTip(raw) {
     raw && raw.y_oo_rank_n != null && Number.isFinite(Number(raw.y_oo_rank_n))
       ? Math.round(Number(raw.y_oo_rank_n))
       : null;
-  const score =
-    raw &&
-    raw.y_oo_rank_score != null &&
-    Number.isFinite(Number(raw.y_oo_rank_score))
-      ? Number(raw.y_oo_rank_score)
-      : null;
   const expl =
     (raw && (raw.formula_terms_oo_rank || raw.score_formula_terms_oo_rank)) || null;
+  const score = rankRelativeScore(raw, "y_oo_rank_score", expl);
   const backend = String((expl && expl.backend) || "").toLowerCase();
   const tree =
     String((expl && expl.model_role) || "").toLowerCase() === "tree" ||
@@ -1028,21 +1107,25 @@ function formatCompactOoRankTip(raw) {
       : ord != null
         ? String(ord)
         : "—";
-  const scoreTxt = score == null ? "—" : fmtSigned(score, 3);
-  const backendHint = tree
-    ? "LambdaRank · pred_contrib · 下表合计=相对分"
-    : backend === "ridge"
-      ? "Ridge · α+Σβ·z · 下表合计=相对分"
-      : "已启用模型 · 下表合计=相对分";
+  const armRank =
+    armScoreSource(raw, "y_oo_rank_source") || armScoreSource(raw, "y_oo_source");
+  const backendHint = armRank
+    ? "Arm·T"
+    : tree
+      ? "LambdaRank · pred_contrib · 下表合计=相对分"
+      : backend === "ridge"
+        ? "Ridge · α+Σβ·z · 下表合计=相对分"
+        : "已启用模型 · 下表合计=相对分";
   return (
     `<div class="score-layer score-layer-eod">` +
-    `<div class="score-layer-head">` +
-    `<div class="score-hero-label">rank</div>` +
-    `<div class="score-hero-value score-flat">${escapeText(rankTxt)}</div>` +
+    rankScoreRowHtml(score) +
+    `<div class="score-layer-compose">` +
+    `<div class="score-layer-row"><span>名次</span><span class="num">${escapeText(
+      rankTxt
+    )}</span></div>` +
     `</div>` +
-    `<div class="score-hero-hint">ŷ_oo_rank · 1=最高 · 相对分 ${escapeText(
-      scoreTxt
-    )} · ${backendHint} · 不进 fuse；进合成 rank_score（买序/阈值）</div>` +
+    `<div class="score-hero-hint">ŷ_oo_rank · 模型预估分 · 1=最高 · ${backendHint} · 不进 fuse；买序看合成 rank_score；名次门槛看当天名次</div>` +
+    armHeadCompose(raw, "oo_rank") +
     `</div>`
   );
 }
@@ -1057,14 +1140,9 @@ function formatCompactTcRankTip(raw) {
     raw && raw.y_tc_rank_n != null && Number.isFinite(Number(raw.y_tc_rank_n))
       ? Math.round(Number(raw.y_tc_rank_n))
       : null;
-  const score =
-    raw &&
-    raw.y_tc_rank_score != null &&
-    Number.isFinite(Number(raw.y_tc_rank_score))
-      ? Number(raw.y_tc_rank_score)
-      : null;
   const expl =
     (raw && (raw.formula_terms_tc_rank || raw.score_formula_terms_tc_rank)) || null;
+  const score = rankRelativeScore(raw, "y_tc_rank_score", expl);
   const backend = String((expl && expl.backend) || "").toLowerCase();
   const tree =
     String((expl && expl.model_role) || "").toLowerCase() === "tree" ||
@@ -1075,21 +1153,25 @@ function formatCompactTcRankTip(raw) {
       : ord != null
         ? String(ord)
         : "—";
-  const scoreTxt = score == null ? "—" : fmtSigned(score, 3);
-  const backendHint = tree
-    ? "LambdaRank · pred_contrib · 下表合计=相对分"
-    : backend === "ridge"
-      ? "Ridge · α+Σβ·z · 下表合计=相对分"
-      : "已启用模型 · 下表合计=相对分";
+  const armRank =
+    armScoreSource(raw, "y_tc_rank_source") || armScoreSource(raw, "y_τc_source");
+  const backendHint = armRank
+    ? "Arm·T"
+    : tree
+      ? "LambdaRank · pred_contrib · 下表合计=相对分"
+      : backend === "ridge"
+        ? "Ridge · α+Σβ·z · 下表合计=相对分"
+        : "已启用模型 · 下表合计=相对分";
   return (
     `<div class="score-layer score-layer-eod">` +
-    `<div class="score-layer-head">` +
-    `<div class="score-hero-label">rank</div>` +
-    `<div class="score-hero-value score-flat">${escapeText(rankTxt)}</div>` +
+    rankScoreRowHtml(score) +
+    `<div class="score-layer-compose">` +
+    `<div class="score-layer-row"><span>名次</span><span class="num">${escapeText(
+      rankTxt
+    )}</span></div>` +
     `</div>` +
-    `<div class="score-hero-hint">ŷ_τc_rank · 1=最高 · 相对分 ${escapeText(
-      scoreTxt
-    )} · ${backendHint} · 不进 fuse；进合成 rank_score（买序/阈值）</div>` +
+    `<div class="score-hero-hint">ŷ_τc_rank · 模型预估分 · 1=最高 · ${backendHint} · 不进 fuse；买序看合成 rank_score；名次门槛看当天名次</div>` +
+    armHeadCompose(raw, "tc_rank") +
     `</div>`
   );
 }
@@ -1400,6 +1482,20 @@ function formulaExpl(raw, key) {
 export function formatFormulaTermsSection(raw, opts = {}) {
   const key = opts.key || "eod";
   if (key === "hl") return ""; // path-ridge / hl tip retired
+  if (key === "eod" && armScoreSource(raw, "y_oo_source")) return "";
+  if ((key === "tau" || key === "r") && armScoreSource(raw, "y_τc_source")) return "";
+  if (
+    (key === "oo_rank" || key === "rank") &&
+    (armScoreSource(raw, "y_oo_rank_source") || armScoreSource(raw, "y_oo_source"))
+  ) {
+    return "";
+  }
+  if (
+    key === "tc_rank" &&
+    (armScoreSource(raw, "y_tc_rank_source") || armScoreSource(raw, "y_τc_source"))
+  ) {
+    return "";
+  }
   const expl = formulaExpl(raw, key);
   const explBe = String((expl && expl.backend) || "").toLowerCase();
   if (!expl || typeof expl !== "object") return "";
@@ -2050,6 +2146,8 @@ export function formatTailAnomalySection(raw) {
 /** 仅系数/增益表（无分项拆解时回退）。opts.key=tau → ŷ_τc gain。 */
 export function formatFactorWeightsSection(raw, opts = {}) {
   const key = opts.key || "eod";
+  if (key === "eod" && armScoreSource(raw, "y_oo_source")) return "";
+  if (key === "tau" && armScoreSource(raw, "y_τc_source")) return "";
   if (key === "tau") {
     const expl = raw && (raw.formula_terms_tau || raw.score_formula_terms_tau);
     if (expl && Array.isArray(expl.terms) && expl.terms.length) return "";
@@ -2612,28 +2710,40 @@ export function createScoreTooltipController() {
     }
 
     if (tipMode === "tc_rank") {
-      const termsHtml = formatFormulaTermsSection(raw, { key: "tc_rank" });
+      const armRank =
+        armScoreSource(raw, "y_tc_rank_source") || armScoreSource(raw, "y_τc_source");
+      const termsHtml = armRank
+        ? ""
+        : formatFormulaTermsSection(raw, { key: "tc_rank" });
       const parts = [
         formatCompactTcRankTip(raw),
-        termsHtml ||
-          `<div class="score-formula-section">` +
-            `<div class="score-section-title">ŷ_τc_rank 组成</div>` +
-            `<div class="score-formula-caption">无因子拆解（旧回测未落盘）。重跑回测后悬停可见 LambdaRank pred_contrib。进合成 rank_score。</div>` +
-            `</div>`,
+        armRank
+          ? ""
+          : termsHtml ||
+            `<div class="score-formula-section">` +
+              `<div class="score-section-title">ŷ_τc_rank 组成</div>` +
+              `<div class="score-formula-caption">无因子拆解（旧回测未落盘）。重跑回测后悬停可见 LambdaRank pred_contrib。进合成 rank_score。</div>` +
+              `</div>`,
       ].filter(Boolean);
       showCompactScoreTip(cell, parts.join(""), { sticky });
       return;
     }
 
     if (tipMode === "oo_rank") {
-      const termsHtml = formatFormulaTermsSection(raw, { key: "oo_rank" });
+      const armRank =
+        armScoreSource(raw, "y_oo_rank_source") || armScoreSource(raw, "y_oo_source");
+      const termsHtml = armRank
+        ? ""
+        : formatFormulaTermsSection(raw, { key: "oo_rank" });
       const parts = [
         formatCompactOoRankTip(raw),
-        termsHtml ||
-          `<div class="score-formula-section">` +
-            `<div class="score-section-title">ŷ_oo_rank 组成</div>` +
-            `<div class="score-formula-caption">无因子拆解（旧回测未落盘）。重跑回测后悬停可见 LambdaRank pred_contrib。</div>` +
-            `</div>`,
+        armRank
+          ? ""
+          : termsHtml ||
+            `<div class="score-formula-section">` +
+              `<div class="score-section-title">ŷ_oo_rank 组成</div>` +
+              `<div class="score-formula-caption">无因子拆解（旧回测未落盘）。重跑回测后悬停可见 LambdaRank pred_contrib。</div>` +
+              `</div>`,
       ].filter(Boolean);
       showCompactScoreTip(cell, parts.join(""), { sticky });
       return;

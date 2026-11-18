@@ -1125,12 +1125,12 @@ body[data-page="replay"] #paper-path-matrix-form {
   --pm-pair-gap: 6px;
   --pm-box-pad-x: 8px;
   /*
-   * 14 个等宽输入铺满一行：权重 4 + 门槛 6（入场/强档×3）+ 其他 4。
+   * 12 个等宽输入铺满一行：权重 2 + 门槛 6（入场/强档×3）+ 其他 4。
    * 固定开销 = 栏内 padding/gap/边框/卡内 pair-gap
-   * （mode 4 格 116 + rank 2 卡 88 + other 4 格 116）。
+   * （mode 2 格 64 + rank 2 卡 88 + other 4 格 116）。
    */
-  --pm-slot: calc((100% - 320px) / 14);
-  --pm-mode-w: calc(4 * var(--pm-slot) + 116px);
+  --pm-slot: calc((100% - 268px) / 12);
+  --pm-mode-w: calc(2 * var(--pm-slot) + 64px);
   --pm-rank-w: calc(6 * var(--pm-slot) + 88px);
   --pm-other-w: calc(4 * var(--pm-slot) + 116px);
   width: 100%;
@@ -1222,7 +1222,7 @@ body[data-page="replay"] #paper-path-matrix-form .follow-path-matrix-box:not(.fo
   align-items: stretch;
 }
 
-/* 权重 4 格 / 门槛 2 卡 / 其他 5 格：等分，不折行 */
+/* 权重 2 格 / 门槛 2 卡 / 其他 4 格：等分，不折行 */
 body[data-page="replay"] #paper-path-matrix-form .follow-path-matrix-body--row2 {
   grid-template-columns: repeat(2, minmax(0, 1fr));
 }

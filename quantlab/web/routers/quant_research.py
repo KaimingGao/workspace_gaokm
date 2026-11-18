@@ -480,7 +480,7 @@ def quant_research_universe_predictability_tiers_run(
         300, ge=0, le=5000, description="B 档：接着取的数量（默认 300；其余为 C）"
     ),
 ) -> Dict[str, Any]:
-    """观察池分档：Holdout 前 60 日猜涨 lift（说涨精度 − 上涨日比例），落盘 last。
+    """股票分档：Holdout 前 60 日猜涨 lift（说涨精度 − 上涨日比例），落盘 last。
 
     表内四头 lift + Lift_Score；档标题 Holdout Lift_Score 均值与等权买持看 Holdout。
     holdout: 分档专用评测窗（默认 60），与 ŷ_oo 拟合卡 Holdout 独立；不参与定档训练。
@@ -549,7 +549,7 @@ def quant_research_universe_predictability_tiers_last(
                 "exists": False,
                 "path": predictability_tiers_last_path(),
                 "live": live,
-                "note": "尚无分档报告；请先点「观察池分档」",
+                "note": "尚无分档报告；请先点「股票分档」",
             }
         out = dict(last)
         # 旧报告可能缺 name：用观察池落盘名补全（不改磁盘）

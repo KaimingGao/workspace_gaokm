@@ -8,7 +8,6 @@ import {
   setUiBusy,
 } from "./shared.js";
 import { apiFetch } from "./api_client.js";
-import { loadAndPaintMacroStrip } from "./macro_context_ui.js";
 import { renderLineChart } from "./lw_charts.js";
 import { mountVirtualTable, colStyle } from "./virtual_table.js";
 import { createScoreTooltipController } from "./score_tooltip.js";
@@ -37,8 +36,6 @@ import { installExportInterpret } from "./quant/domain_export.js";
 import {
   loadAndRenderFactorIR,
   setProStatusChip,
-  syncOverviewTau,
-  syncOverviewTauOos,
   renderFactorSummaryCards,
 } from "./quant/factor_corr_ui.js";
 
@@ -105,6 +102,9 @@ const { installRollGateUi } = await import(
 );
 const { createFactorIcUi } = await import(
   `./quant/factor_ic_ui.js?v=${encodeURIComponent(_QV)}`
+);
+const { installHubArmT } = await import(
+  `./quant/hub_arm_t.js?v=${encodeURIComponent(_QV)}`
 );
 
 /** Quant research panel — shell + domain installs.
@@ -340,6 +340,25 @@ export function initQuant(ctx) {
     return document.querySelector(`.quant-suite-switch[data-suite-head="${head}"]`);
   }
 
+  function suiteFitSelect(head, role) {
+    const all = document.querySelectorAll(
+      `.quant-suite-fit-id[data-suite-fit-head="${head}"]`
+    );
+    if (!all.length) return null;
+    const want = role ? normalizeSuiteView(role) : "";
+    if (want) {
+      for (const el of all) {
+        if (el.getAttribute("data-suite-fit-role") === want) return el;
+      }
+    }
+    if (all.length === 1) return all[0];
+    const view = normalizeSuiteView(_suiteViewByHead[head] || "research");
+    for (const el of all) {
+      if ((el.getAttribute("data-suite-fit-role") || view) === view) return el;
+    }
+    return all[0];
+  }
+
   function rememberSuiteStamps(head, data, extra = {}) {
     if (!head || !_suiteStampByHead[head] || !data || typeof data !== "object") {
       return;
@@ -508,7 +527,7 @@ export function initQuant(ctx) {
         const head = el.getAttribute("data-suite-fit-head");
         const id = delBtn.getAttribute("data-id") || "";
         if (!head || !id || el.disabled || delBtn.disabled) return;
-        void deleteSuiteFitVersion(head, id);
+        void deleteSuiteFitVersion(head, id, el.getAttribute("data-suite-fit-role"));
         return;
       }
       const li =
@@ -738,20 +757,35 @@ export function initQuant(ctx) {
   }
 
   async function refreshSuiteFitSelect(head, opts = {}) {
-    const el = document.querySelector(
-      `.quant-suite-fit-id[data-suite-fit-head="${head}"]`
-    );
+    const marked = [
+      ...document.querySelectorAll(
+        `.quant-suite-fit-id[data-suite-fit-head="${head}"][data-suite-fit-role]`
+      ),
+    ];
+    if (marked.length && !opts.role) {
+      await Promise.all(
+        marked.map((el) =>
+          refreshSuiteFitSelect(head, {
+            ...opts,
+            role: el.getAttribute("data-suite-fit-role"),
+          })
+        )
+      );
+      return;
+    }
+    const el = suiteFitSelect(head, opts.role);
     if (!el || el.tagName !== "SELECT") return;
     ensureSuiteFitDropdown(el);
-    const v = normalizeSuiteView(_suiteViewByHead[head] || "research");
+    const v = normalizeSuiteView(opts.role || _suiteViewByHead[head] || "research");
     const roleChanged = !!(el.dataset.suiteRole && el.dataset.suiteRole !== v);
     const forceCurrent = opts.keepPrev === false;
     const keepPrev = forceCurrent ? false : !roleChanged;
     const cached = (_suiteVersionsByHead[head] || {})[v] || null;
     // 切套立刻换成目标套缓存（或空），避免仍显示另一套版本列表
     paintSuiteFitSelectPack(head, el, v, cached, { keepPrev });
-    const seq = (_suiteFitSelectSeqByHead[head] =
-      (_suiteFitSelectSeqByHead[head] || 0) + 1);
+    const seqKey = `${head}:${v}`;
+    const seq = (_suiteFitSelectSeqByHead[seqKey] =
+      (_suiteFitSelectSeqByHead[seqKey] || 0) + 1);
     let pack = cached;
     let fetched = null;
     try {
@@ -766,8 +800,13 @@ export function initQuant(ctx) {
     } catch (_) {
       /* keep cache */
     }
-    if (seq !== _suiteFitSelectSeqByHead[head]) return;
-    if (normalizeSuiteView(_suiteViewByHead[head] || "research") !== v) return;
+    if (seq !== _suiteFitSelectSeqByHead[`${head}:${v}`]) return;
+    if (
+      !opts.role &&
+      normalizeSuiteView(_suiteViewByHead[head] || "research") !== v
+    ) {
+      return;
+    }
     // 仅最新请求写缓存，避免慢响应把拟合后的新版本列表盖回旧快照
     if (fetched && _suiteVersionsByHead[head]) {
       _suiteVersionsByHead[head][v] = fetched;
@@ -778,12 +817,20 @@ export function initQuant(ctx) {
   }
 
   function syncSuiteFitEnableBtn(head) {
-    const el = document.querySelector(
-      `.quant-suite-fit-id[data-suite-fit-head="${head}"]`
-    );
-    const btn = document.querySelector(
-      `.quant-suite-fit-enable[data-suite-fit-enable="${head}"]`
-    );
+    const buttons = [
+      ...document.querySelectorAll(
+        `.quant-suite-fit-enable[data-suite-fit-enable="${head}"]`
+      ),
+    ];
+    if (!buttons.length) return;
+    for (const btn of buttons) {
+      syncOneSuiteFitEnableBtn(head, btn);
+    }
+  }
+
+  function syncOneSuiteFitEnableBtn(head, btn) {
+    const role = btn && btn.getAttribute("data-suite-fit-role");
+    const el = suiteFitSelect(head, role);
     const wrap = el && el.closest(".quant-suite-fit-pick");
     const ddBtn = el && el.closest(".quant-suite-fit-dd")
       ? el.closest(".quant-suite-fit-dd").querySelector(".quant-suite-fit-dd-btn")
@@ -802,8 +849,9 @@ export function initQuant(ctx) {
     }
     if (!btn) return;
     // 研究套启用 ↔ 研究拟合(primary)；执行套启用 ↔ 执行拟合(warn)
-    const liveOn =
-      normalizeSuiteView(_suiteViewByHead[head] || "research") === "live";
+    const liveOn = role
+      ? normalizeSuiteView(role) === "live"
+      : normalizeSuiteView(_suiteViewByHead[head] || "research") === "live";
     btn.classList.toggle("primary", !liveOn);
     btn.classList.toggle("warn", liveOn);
     const can = !!vid && vid !== cur && !_suiteFitSelectBusy;
@@ -855,12 +903,10 @@ export function initQuant(ctx) {
     };
   }
 
-  async function previewSuiteFitVersion(head, versionId) {
+  async function previewSuiteFitVersion(head, versionId, role) {
     if (!head || !_suitePreviewByHead.hasOwnProperty(head)) return;
-    const v = normalizeSuiteView(_suiteViewByHead[head] || "research");
-    const el = document.querySelector(
-      `.quant-suite-fit-id[data-suite-fit-head="${head}"]`
-    );
+    const v = normalizeSuiteView(role || _suiteViewByHead[head] || "research");
+    const el = suiteFitSelect(head, v);
     const vid = String(versionId || (el && el.value) || "");
     const cur = el && el.dataset.currentId ? String(el.dataset.currentId) : "";
     syncSuiteFitEnableBtn(head);
@@ -939,14 +985,12 @@ export function initQuant(ctx) {
     }
   }
 
-  async function deleteSuiteFitVersion(head, versionId) {
+  async function deleteSuiteFitVersion(head, versionId, role) {
     if (!head || !versionId || _suiteFitSelectBusy) return;
-    const el = document.querySelector(
-      `.quant-suite-fit-id[data-suite-fit-head="${head}"]`
-    );
+    const v0 = normalizeSuiteView(role || _suiteViewByHead[head] || "research");
+    const el = suiteFitSelect(head, v0);
     const cur = el && el.dataset.currentId ? String(el.dataset.currentId) : "";
     const vid = String(versionId);
-    const v0 = normalizeSuiteView(_suiteViewByHead[head] || "research");
     const nOpts = el
       ? [...el.options].filter((o) => o.value).length
       : 0;
@@ -973,7 +1017,7 @@ export function initQuant(ctx) {
     if (!window.confirm(`删除版本「${lab}」？仅移除版本库，当前槽不变。`)) {
       return;
     }
-    const v = normalizeSuiteView(_suiteViewByHead[head] || "research");
+    const v = v0;
     _suiteFitSelectBusy = true;
     try {
       const res = await fetch("/api/quant/model-versions/delete", {
@@ -1001,11 +1045,11 @@ export function initQuant(ctx) {
         el.value = cur;
       }
       if (_suiteVersionsByHead[head]) _suiteVersionsByHead[head][v] = null;
-      await refreshSuiteFitSelect(head);
+      await refreshSuiteFitSelect(head, { role: v });
       if (el && String(el.value || "") === cur) {
         await paintHeadSuiteCoef(head);
       } else if (el && el.value) {
-        await previewSuiteFitVersion(head, el.value);
+        await previewSuiteFitVersion(head, el.value, v);
       } else {
         await paintHeadSuiteCoef(head);
       }
@@ -1037,14 +1081,14 @@ export function initQuant(ctx) {
     }
   }
 
-  async function restoreSuiteFitVersion(head, versionId) {
+  async function restoreSuiteFitVersion(head, versionId, role) {
     if (!head || !versionId || _suiteFitSelectBusy) return;
-    const v = normalizeSuiteView(_suiteViewByHead[head] || "research");
+    const v = normalizeSuiteView(role || _suiteViewByHead[head] || "research");
     _suiteFitSelectBusy = true;
-    const el = document.querySelector(
-      `.quant-suite-fit-id[data-suite-fit-head="${head}"]`
-    );
+    const el = suiteFitSelect(head, v);
     const btn = document.querySelector(
+      `.quant-suite-fit-enable[data-suite-fit-enable="${head}"][data-suite-fit-role="${v}"]`
+    ) || document.querySelector(
       `.quant-suite-fit-enable[data-suite-fit-enable="${head}"]`
     );
     if (el) el.disabled = true;
@@ -1145,7 +1189,7 @@ export function initQuant(ctx) {
         if (!head) return;
         syncSuiteFitEnableBtn(head);
         // 选版本 → 只预览面板；启用才写槽
-        void previewSuiteFitVersion(head, el.value);
+        void previewSuiteFitVersion(head, el.value, el.getAttribute("data-suite-fit-role"));
       });
     });
     if (!document.documentElement.dataset.wiredSuiteFitMenus) {
@@ -1168,14 +1212,11 @@ export function initQuant(ctx) {
         btn.addEventListener("click", (e) => {
           e.preventDefault();
           const head = btn.getAttribute("data-suite-fit-enable");
-          const el = head
-            ? document.querySelector(
-                `.quant-suite-fit-id[data-suite-fit-head="${head}"]`
-              )
-            : null;
+          const role = btn.getAttribute("data-suite-fit-role");
+          const el = head ? suiteFitSelect(head, role) : null;
           const vid = el && el.value ? String(el.value) : "";
           if (!head || !vid) return;
-          void restoreSuiteFitVersion(head, vid);
+          void restoreSuiteFitVersion(head, vid, role);
         });
       });
   }
@@ -1225,7 +1266,24 @@ export function initQuant(ctx) {
       // oo_rank / tc_rank 共享忙锁：任一在跑则两头拟合/写入都禁，避免叠读日线
       const rankBusy =
         head === "oo_rank" || head === "tc_rank" ? anyRankFitBusy() : false;
-      if (fitBtn) {
+      const dualFit = !!(
+        fitBtn &&
+        promoBtn &&
+        (document.querySelector(
+          `.quant-suite-fit-id[data-suite-fit-head="${head}"][data-suite-fit-role="live"]`
+        ) ||
+          document.querySelector(
+            `.quant-page[data-quant-recipe="transformer"] [data-version-for="${head}"]`
+          ))
+      );
+      if (dualFit) {
+        for (const btn of [fitBtn, promoBtn]) {
+          btn.hidden = false;
+          btn.disabled = rankBusy;
+          btn.tabIndex = rankBusy ? -1 : 0;
+          btn.setAttribute("aria-hidden", "false");
+        }
+      } else if (fitBtn) {
         const showFit = !liveOn;
         fitBtn.hidden = !showFit;
         // 拟合进行中勿因切套重新启用（防双点叠跑）
@@ -1233,7 +1291,7 @@ export function initQuant(ctx) {
         fitBtn.tabIndex = showFit && !rankBusy ? 0 : -1;
         fitBtn.setAttribute("aria-hidden", showFit ? "false" : "true");
       }
-      if (promoBtn) {
+      if (!dualFit && promoBtn) {
         promoBtn.hidden = !liveOn;
         promoBtn.disabled = !liveOn || rankBusy;
         promoBtn.tabIndex = liveOn && !rankBusy ? 0 : -1;
@@ -1242,12 +1300,13 @@ export function initQuant(ctx) {
       const statusEl = document.getElementById(ui.headStatusId);
       const cardHead = statusEl && statusEl.closest(".quant-card-head--fit");
       if (cardHead) {
-        cardHead.classList.toggle("is-suite-live", liveOn);
-        cardHead.classList.toggle("is-suite-research", !liveOn);
-        // 执行套 CSS display:none 收起 Holdout；同步禁用以免仍可 Tab 聚焦
+        cardHead.classList.toggle("is-suite-live", liveOn && !dualFit);
+        cardHead.classList.toggle("is-suite-research", dualFit || !liveOn);
+        // 执行套 CSS display:none 收起 Holdout；双版本框时 Holdout 保持可配
         cardHead.querySelectorAll(".quant-fit-param--holdout input").forEach((inp) => {
-          inp.disabled = liveOn;
-          inp.setAttribute("aria-hidden", liveOn ? "true" : "false");
+          const lock = liveOn && !dualFit;
+          inp.disabled = lock;
+          inp.setAttribute("aria-hidden", lock ? "true" : "false");
         });
       }
     }
@@ -1652,16 +1711,32 @@ export function initQuant(ctx) {
   }
   bindSuiteToggles();
 
-  /** 概览四头矩阵 + 单头聚焦（对齐模型中心；研究|执行双套仍在各头卡内） */
+  /** 概览四头：同时只展开一头，点概览卡片切换。 */
   const DESK_HEADS = ["oo", "tau", "oo_rank", "tc_rank"];
-  const DESK_HEAD_GATE = {
-    oo: "研究|执行 · Holdout IC",
-    tau: "研究|执行 · Holdout IC",
-    oo_rank: "研究|执行 · Gate lift",
-    tc_rank: "研究|执行 · Gate lift",
+  const _armRecipe =
+    document.querySelector(".quant-page")?.getAttribute("data-quant-recipe") ===
+    "transformer";
+  const DESK_HEAD_GATE = _armRecipe
+    ? {
+        oo: "Rank IC —",
+        tau: "Rank IC —",
+        oo_rank: "Rank IC —",
+        tc_rank: "Rank IC —",
+      }
+    : {
+        oo: "研究|执行 · Holdout IC",
+        tau: "研究|执行 · Holdout IC",
+        oo_rank: "研究|执行 · Gate lift",
+        tc_rank: "研究|执行 · Gate lift",
+      };
+  const DESK_HASH = {
+    "#quant-section-factors": "oo",
+    "#quant-section-tau": "tau",
+    "#quant-section-oo-rank": "oo_rank",
+    "#quant-section-tc-rank": "tc_rank",
   };
-  let _deskActiveHead = "oo";
-  let _deskViewMode = "all";
+  let _deskActiveHead = DESK_HASH[location.hash] || "oo";
+  let _deskViewMode = "single";
 
   function deskSectionOf(head) {
     return document.querySelector(`[data-head-section="${head}"]`);
@@ -1693,7 +1768,7 @@ export function initQuant(ctx) {
         const focused = _deskViewMode === "single" && selected;
         card.classList.toggle("is-active", focused);
         card.setAttribute("aria-pressed", String(focused));
-        card.title = focused ? "再点一次展开全部四头" : "聚焦此头";
+        card.title = focused ? "当前头" : "查看此头";
       }
     });
     if (_deskViewMode === "all") {
@@ -1716,12 +1791,6 @@ export function initQuant(ctx) {
 
   function selectDeskHead(head, { scroll = true } = {}) {
     if (!DESK_HEADS.includes(head)) return;
-    // 单头下再点当前卡 → 回到四头全开
-    if (_deskViewMode === "single" && head === _deskActiveHead) {
-      _deskViewMode = "all";
-      applyDeskHeadView({ scroll: false });
-      return;
-    }
     _deskActiveHead = head;
     _deskViewMode = "single";
     applyDeskHeadView({ scroll });
@@ -1762,7 +1831,9 @@ export function initQuant(ctx) {
       const gate = document.querySelector(
         `[data-head-summary-gate="${head}"]`
       );
-      if (gate) gate.textContent = DESK_HEAD_GATE[head] || "研究|执行";
+      if (gate) {
+        gate.textContent = gate.dataset.armGate || DESK_HEAD_GATE[head] || "研究|执行";
+      }
     });
   }
 
@@ -1792,14 +1863,14 @@ export function initQuant(ctx) {
           };
           const head = map[href];
           if (!head) return;
-          _deskActiveHead = head;
-          applyDeskHeadView({ scroll: false });
+          selectDeskHead(head, { scroll: false });
         });
       });
     applyDeskHeadView({ scroll: false });
     syncDeskHeadMatrix();
   }
   bindDeskHeadMatrix();
+  installHubArmT();
 
   async function renderOoCoefTable(rm, opts = {}) {
     const host = document.getElementById("quant-oo-coef-table");
@@ -1893,17 +1964,6 @@ export function initQuant(ctx) {
     );
   }
 
-  /** 概览 ŷ_τc：与 ŷ_oo 同口径（日频截面 IC · 命中 · Rank）。 */
-  function syncOverviewTauFromOos(oos, extraSub) {
-    if (syncOverviewTauOos(oos)) return true;
-    const extra = extraSub != null && extraSub !== "" ? String(extraSub) : "";
-    if (extra) {
-      syncOverviewTau(extra, "ŷ_τc");
-      return true;
-    }
-    return false;
-  }
-
   function directChildByClass(el, cls) {
     if (!el) return null;
     for (const node of el.children) {
@@ -1961,8 +2021,15 @@ export function initQuant(ctx) {
    * busy / error / 尚无 meta 时仍显示 chip。
    * ŷ_oo / ŷ_τc / rank Gate KPI 均在因子表；卡头只留拟合时间与启用态。
    */
+  function armTOwnsSuiteStatus(el) {
+    if (!el || !suiteHeadFromStatusEl(el)) return false;
+    return !!document.querySelector('.quant-page[data-quant-recipe="transformer"]');
+  }
+
   function renderRemStatus(el, opts = {}) {
     if (!el) return;
+    // 四头运行条归 Arm·T，套槽状态不再盖成「仅研究」
+    if (armTOwnsSuiteStatus(el)) return;
     const {
       state = "idle",
       chip = "待命",
@@ -3666,7 +3733,7 @@ export function initQuant(ctx) {
     }
   })();
 
-  // 轻量预填 ŷ_τc KPI / 状态（不阻塞；概览用模型 OOS，不再被单日验收覆盖）
+  // 轻量预填 ŷ_τc 状态（不阻塞）
   void (async () => {
     try {
       const res = await fetch("/api/quant/tc-lgb/model");
@@ -3685,8 +3752,7 @@ export function initQuant(ctx) {
       }
       const oos = data.oos || {};
       const gate = data.promote_gate || null;
-      const painted = paintRidgeEnableStatus(sum, data);
-      const chip = painted.chip;
+      paintRidgeEnableStatus(sum, data);
       syncTauPersistBtn(gate, { hasReport: true });
       cacheHeadSuitePacks("tau", data);
       // 与 cacheHeadSuitePacks 同口径：Holdout=0 顶层不得灌进研究包
@@ -3719,20 +3785,6 @@ export function initQuant(ctx) {
         }
       }
       await paintHeadSuiteCoef("tau");
-      // 仅当概览仍空时写入（拟合/启用后再刷）
-      const card = document.querySelector(
-        '#quant-pro-overview-kpis .quant-pro-kpi-card[data-kpi="tau"]'
-      );
-      if (card && card.classList.contains("is-empty")) {
-        if (
-          !syncOverviewTauFromOos(
-            oos,
-            data.shadow ? "已拟合" : painted.chip
-          )
-        ) {
-          syncOverviewTau(chip, data.promoted_at || "ŷ_τc");
-        }
-      }
     } catch (_) {
       /* ignore */
     }
@@ -4006,12 +4058,6 @@ export function initQuant(ctx) {
       if (hasStrategy) {
         foreground.push(strategy.loadSignalConfigPanel().catch(() => {}));
         foreground.push(strategy.loadStrategyList().catch(() => {}));
-      }
-      const macroStrip = document.getElementById("quant-macro-context-strip");
-      if (macroStrip) {
-        foreground.push(
-          loadAndPaintMacroStrip(macroStrip, apiFetch, escapeHtml).catch(() => {})
-        );
       }
       // 前台只等名单/策略骨架，超时也放行，避免右侧一直「加载观察…」
       if (foreground.length) {
@@ -4506,7 +4552,6 @@ export function initQuant(ctx) {
       });
       _tauPromoteGate = gate;
       syncTauPersistBtn(gate, { hasReport: true });
-      syncOverviewTauFromOos(oos, painted.chip);
       cacheHeadSuitePacks("tau", data);
       if (data.return_model) {
         const holdN =

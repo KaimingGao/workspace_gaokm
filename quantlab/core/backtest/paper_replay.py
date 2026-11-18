@@ -103,8 +103,11 @@ from core.backtest.replay_scoring import (
     _window_for_code,
     maybe_backfill_open_tc_rank,
     mock_quote_from_bar,
+    pop_replay_arm_heads,
+    push_replay_arm_heads,
     refresh_tau_heads_after_prefix,
     rescore_replay_y_τc_at_clock,  # 门面 re-export（单测 / 冻结 API；见 pyproject F401）
+    stamp_replay_arm_day,
     stamp_tau_prefix_misses,
 )
 from core.backtest.replay_sim_rows import (
@@ -186,23 +189,23 @@ def backtest_paper_replay(
     y_τc_gt0: Optional[bool] = None,
     morph_gate_enabled: Optional[bool] = None,
     sentiment_gate_enabled: Optional[bool] = None,
-    oo_tc_score_min: Optional[float] = 0.3,
-    oo_tc_score_strong_min: Optional[float] = 0.3,
+    oo_rank_max: Optional[int] = 6,
+    oo_rank_strong_max: Optional[int] = 12,
     price_space_cfg: Optional[dict] = None,
     score_model_role: Optional[str] = None,
     score_backend: Optional[str] = None,
     tradable_codes: Optional[Collection[str]] = None,
     tradable_reject_reason: str = "可预测性分档外",
 ) -> Dict[str, Any]:
-    """策略调仓历史回测：ŷ_oo 09:30 开盘；ŷ_τc 随成交钟前缀重算（09:30=开盘 Z），按调仓钟 5m 价成交。
+    """策略调仓历史回测：四头用工厂已启用的 Arm·T 开盘权重；ŷ_τ30…90 仍走套槽。按调仓钟 5m 价成交。
 
     ``score_backend`` 恒为 ridge（影子树头已下线）；传入 tree 会被忽略。
     ŷ_oo_rank / ŷ_τc_rank 有模型时按当日截面编成 1..n 名次透传到成交行；
-    过入场后买序按 rank_score=w_oo_rank·y_oo_rank_score+w_τc_rank·y_tc_rank_score。
+    过入场后买序按 rank_score=0.6·y_oo_rank_score+0.4·y_tc_rank_score（固定，不进配置）。
     ``tradable_codes`` 给定时：主头与排序头截面 z 仍用整池；ŷ 与名次只写这份名单（分档内）。
     产品排序头拟合固定全池；旧落盘 ``train_universe`` / ``zscore_universe=tier_a`` 仅审计，打分不缩 z。
-    ``oo_tc_score_min`` 开则未过强档时另须合成 rank_score ≥ 阈值（不是 y_oo / y_τc；缺省 0.3；None=关）。
-    y_oo_fuse > fuse_strong 时改看 ``oo_tc_score_strong_min``（缺省 0.3；None=关）。
+    ``oo_rank_max`` 开则未过强档时另须 max(oo_rank, τc_rank) < N（缺省 6；None=关）。
+    y_oo_fuse > fuse_strong 时改看 ``oo_rank_strong_max``（缺省 12；None=关）。
     """
     from core.research.holdout import (
         current_scoring_model_role,
@@ -236,8 +239,8 @@ def backtest_paper_replay(
         clamp_fusion_weight,
         coerce_fuse_threshold,
         get_rank_lot_cfg,
-        oo_tc_score_min_from_cfg,
-        oo_tc_score_strong_min_from_cfg,
+        oo_rank_max_from_cfg,
+        oo_rank_strong_max_from_cfg,
         plan_rank_lot_day,
         rank_fusion_weights_from_cfg,
     )
@@ -264,40 +267,32 @@ def backtest_paper_replay(
 
     date_maps = {str(c): _bars_by_date(bars) for c, bars in stock_bars.items()}
 
-    # 先解析 ŷ 模型 → required_factor_keys / alpha_oo 抬窗，再铺日历垫特征窗
+    # 先解析 ŷ 模型 → required_factor_keys / alpha_oo 抬窗，再铺日历垫特征窗。
+    # 自算四头时改读工厂启用版本，不再加载套槽 LightGBM。
     global_model: Any = None
     tau_model_doc = None
+    arm_table = None
     required_factor_keys: List[str] = []
     if scores_by_date is None:
-        global_model = _load_replay_global_model()
-        required_factor_keys = _required_factor_keys_from_return_models(global_model)
         try:
-            from core.signal.factors.alpha_oo import bump_window_for_alpha_oo
+            from core.research.yhat_factory_backtest import score_enabled_replay_heads
 
-            min_history, max_window = bump_window_for_alpha_oo(
-                required_factor_keys,
-                min_history=int(min_history),
-                max_window=int(max_window),
-            )
+            arm_table = score_enabled_replay_heads(stock_bars)
         except Exception:  # noqa: BLE001
-            logger.debug("replay alpha_oo window bump failed", exc_info=True)
-        try:
-            from core.research.tc_model import load_tau_model
-
-            tau_model_doc = load_tau_model()
-        except Exception:  # noqa: BLE001
-            logger.debug("load_tau_model failed in paper_replay", exc_info=True)
+            logger.exception("replay arm-t table failed")
+            arm_table = {"heads": [], "runs": {}, "by_day": {}, "suite": ""}
 
     tc_rank_doc = None
-    try:
-        from core.research.holdout import current_scoring_model_role
-        from core.research.tc_rank import load_tc_rank_model
+    if scores_by_date is not None or arm_table is None:
+        try:
+            from core.research.holdout import current_scoring_model_role
+            from core.research.tc_rank import load_tc_rank_model
 
-        prefer_research = current_scoring_model_role() != "live"
-        # 与 oo_rank 同：所选槽缺失则不挂 τc_rank，不换另一槽。
-        tc_rank_doc = load_tc_rank_model(prefer_research=prefer_research)
-    except Exception:  # noqa: BLE001
-        logger.debug("load tc_rank model failed in paper_replay", exc_info=True)
+            prefer_research = current_scoring_model_role() != "live"
+            # 与 oo_rank 同：所选槽缺失则不挂 τc_rank，不换另一槽。
+            tc_rank_doc = load_tc_rank_model(prefer_research=prefer_research)
+        except Exception:  # noqa: BLE001
+            logger.debug("load tc_rank model failed in paper_replay", exc_info=True)
 
     dates, trade_start = _replay_calendar(
         stock_bars,
@@ -511,11 +506,9 @@ def backtest_paper_replay(
         ),
         # 规则栏已下掉舆情软先验；回测恒关
         "sentiment_gate_enabled": False,
-        "oo_tc_score_min": oo_tc_score_min_from_cfg(
-            {"oo_tc_score_min": oo_tc_score_min}
-        ),
-        "oo_tc_score_strong_min": oo_tc_score_strong_min_from_cfg(
-            {"oo_tc_score_strong_min": oo_tc_score_strong_min}
+        "oo_rank_max": oo_rank_max_from_cfg({"oo_rank_max": oo_rank_max}),
+        "oo_rank_strong_max": oo_rank_strong_max_from_cfg(
+            {"oo_rank_strong_max": oo_rank_strong_max}
         ),
         "lot_base_amount": lot_base_n,
         "lot_strong_amount": lot_strong_n,
@@ -539,8 +532,8 @@ def backtest_paper_replay(
     rl_cfg["y_oo_gt0"] = replay_lots["y_oo_gt0"]
     rl_cfg["morph_gate_enabled"] = bool(replay_lots["morph_gate_enabled"])
     rl_cfg["sentiment_gate_enabled"] = bool(replay_lots["sentiment_gate_enabled"])
-    rl_cfg["oo_tc_score_min"] = replay_lots.get("oo_tc_score_min")
-    rl_cfg["oo_tc_score_strong_min"] = replay_lots.get("oo_tc_score_strong_min")
+    rl_cfg["oo_rank_max"] = replay_lots.get("oo_rank_max")
+    rl_cfg["oo_rank_strong_max"] = replay_lots.get("oo_rank_strong_max")
     rl_cfg["score_backend"] = current_rebalance_score_backend()
     rl_cfg["holdings_mv_cap"] = 0.0
     rl_cfg["t0_sell_blocks"] = {}
@@ -684,40 +677,30 @@ def backtest_paper_replay(
                 except Exception:  # noqa: BLE001
                     logger.debug("replay score cache load day failed", exc_info=True)
                     scored = None
+            scored_fresh = False
             if scored is None:
-                scored = _score_open_day(
-                    stock_bars=stock_bars,
-                    dates=dates,
-                    date_maps=date_maps,
-                    day_i=i,
-                    max_window=max_window,
-                    horizon_days=max(1, int(yhat_horizon_days or 1)),
-                    cfg=cfg,
-                    global_model=global_model,
-                    tau_model_doc=tau_model_doc,
-                    tau_pool_day=tau_pool_by_date.get(day) or {},
-                    required_factor_keys=required_factor_keys or None,
-                    score_codes=tradable_codes,
-                )
-                if score_cache_key and day_inputs_index is not None:
-                    try:
-                        from core.backtest.replay_score_cache import save_day
-
-                        if not day_inputs_fp:
-                            day_inputs_fp = day_inputs_index.fingerprint(i)
-                        if save_day(
-                            score_cache_key,
-                            day,
-                            scored,
-                            inputs_fp=day_inputs_fp,
-                        ):
-                            score_cache_stats["writes"] = (
-                                int(score_cache_stats.get("writes") or 0) + 1
-                            )
-                    except Exception:  # noqa: BLE001
-                        logger.debug(
-                            "replay score cache save day failed", exc_info=True
-                        )
+                scored_fresh = True
+                arm_token = None
+                if arm_table is not None:
+                    arm_token = push_replay_arm_heads(arm_table.get("heads") or [])
+                try:
+                    scored = _score_open_day(
+                        stock_bars=stock_bars,
+                        dates=dates,
+                        date_maps=date_maps,
+                        day_i=i,
+                        max_window=max_window,
+                        horizon_days=max(1, int(yhat_horizon_days or 1)),
+                        cfg=cfg,
+                        global_model=global_model,
+                        tau_model_doc=tau_model_doc,
+                        tau_pool_day=tau_pool_by_date.get(day) or {},
+                        required_factor_keys=required_factor_keys or None,
+                        score_codes=tradable_codes,
+                    )
+                finally:
+                    if arm_token is not None:
+                        pop_replay_arm_heads(arm_token)
             have = {str(it.get("stock_code") or "") for it in scored}
             for h in paper.get("holdings") or []:
                 if not isinstance(h, dict):
@@ -728,7 +711,28 @@ def backtest_paper_replay(
                 # 当日未打上分不要沿用昨日 ŷ，否则明细预估值会冻住。
                 scored.append({"stock_code": code})
                 have.add(code)
-            if clock != "09:30":
+            if arm_table is not None:
+                stamp_replay_arm_day(scored, arm_table, day)
+            if scored_fresh and score_cache_key and day_inputs_index is not None:
+                try:
+                    from core.backtest.replay_score_cache import save_day
+
+                    if not day_inputs_fp:
+                        day_inputs_fp = day_inputs_index.fingerprint(i)
+                    if save_day(
+                        score_cache_key,
+                        day,
+                        scored,
+                        inputs_fp=day_inputs_fp,
+                    ):
+                        score_cache_stats["writes"] = (
+                            int(score_cache_stats.get("writes") or 0) + 1
+                        )
+                except Exception:  # noqa: BLE001
+                    logger.debug(
+                        "replay score cache save day failed", exc_info=True
+                    )
+            if arm_table is None and clock != "09:30":
                 # 晚钟：前缀 ŷ_τc + 重挂 τc_rank（z 缩可交易，避混合钟）
                 scored, n_pref = refresh_tau_heads_after_prefix(
                     scored,
@@ -856,39 +860,41 @@ def backtest_paper_replay(
                     morph_stamp_agg["bars_source"] = ms.get("bars_source")
             _apply_price_space_plan_skips(plan, mismatch_reason)
             # 全池批量打分跳过 LGB tip；成交/续持票懒补因子组成。
-            try:
-                from core.backtest.replay_batch_open import (
-                    merge_formula_tips_onto_legs,
-                    stamp_trade_formula_tips,
-                )
-
-                tip_codes = {
-                    str(leg.get("stock_code") or "").strip()
-                    for bucket in ("buys", "sells")
-                    for leg in (plan.get(bucket) or [])
-                    if isinstance(leg, dict)
-                    and str(leg.get("stock_code") or "").strip()
-                }
-                for h in paper.get("holdings") or []:
-                    if not isinstance(h, dict):
-                        continue
-                    code = str(h.get("stock_code") or "").strip()
-                    if code:
-                        tip_codes.add(code)
-                if tip_codes:
-                    stamp_trade_formula_tips(
-                        day,
-                        tip_codes,
-                        scored,
-                        date_maps=date_maps,
-                        dates=dates,
-                        day_i=i,
-                        tau_pool_day=tau_pool_by_date.get(day) or {},
+            # Arm·T 没有 pred_contrib。补挂会把套槽 LightGBM 合计写进 tip，和表列 y_oo 对不上。
+            if arm_table is None:
+                try:
+                    from core.backtest.replay_batch_open import (
+                        merge_formula_tips_onto_legs,
+                        stamp_trade_formula_tips,
                     )
-                    merge_formula_tips_onto_legs(plan.get("buys") or [], scored)
-                    merge_formula_tips_onto_legs(plan.get("sells") or [], scored)
-            except Exception:  # noqa: BLE001
-                logger.debug("replay stamp trade formula tips failed", exc_info=True)
+
+                    tip_codes = {
+                        str(leg.get("stock_code") or "").strip()
+                        for bucket in ("buys", "sells")
+                        for leg in (plan.get(bucket) or [])
+                        if isinstance(leg, dict)
+                        and str(leg.get("stock_code") or "").strip()
+                    }
+                    for h in paper.get("holdings") or []:
+                        if not isinstance(h, dict):
+                            continue
+                        code = str(h.get("stock_code") or "").strip()
+                        if code:
+                            tip_codes.add(code)
+                    if tip_codes:
+                        stamp_trade_formula_tips(
+                            day,
+                            tip_codes,
+                            scored,
+                            date_maps=date_maps,
+                            dates=dates,
+                            day_i=i,
+                            tau_pool_day=tau_pool_by_date.get(day) or {},
+                        )
+                        merge_formula_tips_onto_legs(plan.get("buys") or [], scored)
+                        merge_formula_tips_onto_legs(plan.get("sells") or [], scored)
+                except Exception:  # noqa: BLE001
+                    logger.debug("replay stamp trade formula tips failed", exc_info=True)
             for leg in plan.get("sells") or []:
                 if not isinstance(leg, dict):
                     continue
@@ -1216,8 +1222,8 @@ def backtest_paper_replay(
                 if bool(rl_cfg.get("morph_gate_enabled"))
                 else None
             ),
-            "oo_tc_score_min": rl_cfg.get("oo_tc_score_min"),
-            "oo_tc_score_strong_min": rl_cfg.get("oo_tc_score_strong_min"),
+            "oo_rank_max": rl_cfg.get("oo_rank_max"),
+            "oo_rank_strong_max": rl_cfg.get("oo_rank_strong_max"),
             "fusion_w_oo": w_oo,
             "fusion_w_oc": w_τc,
             "fusion_w_oo_rank": w_oo_rank,
@@ -1243,6 +1249,8 @@ def backtest_paper_replay(
             "session_overlay_n": n_overlay,
             "yhat_horizon_days": yhat_horizon_days,
             "scores_injected": scores_by_date is not None,
+            "arm_t_runs": (arm_table or {}).get("runs") or {},
+            "arm_t_suite": (arm_table or {}).get("suite") or "",
             "score_cache": score_cache_stats,
             "yhat_source": "research",
             "model_role": "research",

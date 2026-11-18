@@ -1,0 +1,960 @@
+/** 研究枢纽四头：Arm·T 配方拟合。训练走工厂，指标进运行台。不写研究套 / 执行套。 */
+
+import { apiFetch } from "../api_client.js";
+import { readWatchingPoolLimit } from "./params.js";
+
+const PREFIX_CLOCKS = (() => {
+  const out = [];
+  let total = 9 * 60 + 30;
+  while (total <= 11 * 60) {
+    const h = Math.floor(total / 60);
+    const m = total % 60;
+    out.push(`${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`);
+    total += 5;
+  }
+  return out;
+})();
+
+const STATUS_URL = "/api/quant/yhat-t/status";
+const FIT_URL = "/api/quant/yhat-t/fit";
+const VERSION_URL = "/api/quant/yhat-t/versions";
+
+const HEADS = [
+  {
+    ui: "oo",
+    api: "oo",
+    fitId: "quant-return-model-fit",
+    liveId: "quant-return-model-promote",
+    statusId: "quant-ols-summary",
+    holdoutId: "quant-holdout-days",
+    lookbackId: "quant-fit-lookback-oo",
+    lookback: 900,
+    loss: "smooth_l1",
+    fullAoo: true,
+  },
+  {
+    ui: "tau",
+    api: "tc",
+    fitId: "quant-tau-lgb-run",
+    liveId: "quant-tau-lgb-persist",
+    statusId: "quant-tau-summary",
+    holdoutId: "quant-holdout-days-tc",
+    lookbackId: "quant-fit-lookback-tc",
+    lookback: 900,
+    loss: "smooth_l1",
+    fullAtc: true,
+  },
+  {
+    ui: "oo_rank",
+    api: "oo_rank",
+    fitId: "quant-oo-rank-run",
+    liveId: "quant-oo-rank-persist",
+    statusId: "quant-oo-rank-summary",
+    holdoutId: "quant-holdout-days-oo_rank",
+    lookbackId: "quant-fit-lookback-oo_rank",
+    lookback: 700,
+    loss: "lambdarank",
+    fullAoo: true,
+  },
+  {
+    ui: "tc_rank",
+    api: "tc_rank",
+    fitId: "quant-tc-rank-run",
+    liveId: "quant-tc-rank-persist",
+    statusId: "quant-tc-rank-summary",
+    holdoutId: "quant-holdout-days-tc_rank",
+    lookbackId: "quant-fit-lookback-tc_rank",
+    lookback: 700,
+    loss: "lambdarank",
+    fullAtc: true,
+  },
+];
+
+const pending = new Set();
+const versionLists = new Map();
+const viewing = new Map();
+const chosen = new Map();
+const enabledIds = new Map();
+const liveSince = new Map();
+const liveLabel = new Map();
+let timer = 0;
+let clockTimer = 0;
+let versionMenusWired = false;
+
+function parseStamp(raw) {
+  const text = String(raw || "").trim();
+  if (!text) return NaN;
+  return new Date(text.includes("T") ? text : text.replace(" ", "T")).getTime();
+}
+
+function fmtDur(sec) {
+  const n = Number(sec);
+  if (!Number.isFinite(n) || n < 0) return "";
+  const total = Math.max(0, Math.round(n));
+  const s = total % 60;
+  const m = Math.floor(total / 60) % 60;
+  const h = Math.floor(total / 3600);
+  const secBit = `${String(s).padStart(2, "0")}s`;
+  if (h > 0) return `${h}h ${String(m).padStart(2, "0")}m ${secBit}`;
+  if (m > 0) return `${m}m ${secBit}`;
+  return secBit;
+}
+
+function elapsedClock(startedAt) {
+  const t0 = parseStamp(startedAt);
+  if (Number.isNaN(t0)) return "";
+  const sec = Math.max(0, Math.floor((Date.now() - t0) / 10000) * 10);
+  return fmtDur(sec) || "00s";
+}
+
+function spentDur(startedAt, finishedAt, fallbackSec) {
+  const t0 = parseStamp(startedAt);
+  const t1 = parseStamp(finishedAt);
+  if (!Number.isNaN(t0) && !Number.isNaN(t1) && t1 >= t0) {
+    return fmtDur(Math.floor((t1 - t0) / 1000));
+  }
+  return fmtDur(fallbackSec);
+}
+
+function rememberLiveStart(api, startedAt) {
+  if (startedAt) liveSince.set(api, String(startedAt));
+  else if (!liveSince.has(api)) liveSince.set(api, new Date().toISOString());
+  return liveSince.get(api) || "";
+}
+
+function tickHubClocks() {
+  for (const spec of HEADS) {
+    const state = sectionOf(spec.ui)?.querySelector(
+      "[data-recipe-replay-state][data-clock-from]"
+    );
+    if (!state) continue;
+    const text = elapsedClock(state.dataset.clockFrom);
+    const node = state.querySelector("[data-role='clock']");
+    if (node && text && node.textContent !== text) node.textContent = text;
+    const msg = document
+      .getElementById(spec.statusId)
+      ?.querySelector(".quant-rem-status-msg");
+    if (!msg || !text || !msg.textContent.startsWith("Arm·T 拟合")) continue;
+    const base = msg.textContent.replace(/ · \d[\dhm s]*$/, "");
+    const next = `${base} · ${text}`;
+    if (msg.textContent !== next) msg.textContent = next;
+  }
+}
+
+function syncHubClock() {
+  const any = document.querySelector("[data-recipe-replay-state][data-clock-from]");
+  if (!any) {
+    if (clockTimer) {
+      window.clearInterval(clockTimer);
+      clockTimer = 0;
+    }
+    return;
+  }
+  if (clockTimer) return;
+  clockTimer = window.setInterval(tickHubClocks, 10000);
+}
+
+function num(id, fallback) {
+  const n = Number(document.getElementById(id)?.value);
+  return Number.isFinite(n) ? n : fallback;
+}
+
+function fmt3(v) {
+  const n = Number(v);
+  return Number.isFinite(n) ? n.toFixed(3) : "—";
+}
+
+function fmtHit(v) {
+  const n = Number(v);
+  return Number.isFinite(n) ? `${(n * 100).toFixed(1)}%` : "—";
+}
+
+function sectionOf(ui) {
+  return document.querySelector(`[data-head-section="${ui}"]`);
+}
+
+function readPrefixHm() {
+  const el = document.getElementById("quant-fit-tau-end-tc");
+  const raw = Number(el?.value);
+  const idx = Math.max(
+    0,
+    Math.min(PREFIX_CLOCKS.length - 1, Math.round(Number.isFinite(raw) ? raw : 0))
+  );
+  return PREFIX_CLOCKS[idx] || "09:30";
+}
+
+function paintPrefixHm(hm) {
+  const clock = PREFIX_CLOCKS.includes(String(hm || "").slice(0, 5))
+    ? String(hm).slice(0, 5)
+    : "09:30";
+  const idx = String(Math.max(0, PREFIX_CLOCKS.indexOf(clock)));
+  for (const id of ["quant-fit-tau-end-tc", "quant-fit-tau-end-tc_rank"]) {
+    const el = document.getElementById(id);
+    if (!el) continue;
+    el.value = idx;
+    el.setAttribute("aria-valuenow", idx);
+    el.setAttribute("aria-valuetext", clock);
+    const out = document.getElementById(`${id}-val`);
+    if (out) out.textContent = clock;
+  }
+}
+
+function sectionNum(section, key, fallback) {
+  const el = section?.querySelector(`[data-param="${key}"]`);
+  const n = Number(el?.value);
+  return Number.isFinite(n) ? n : fallback;
+}
+
+function sectionRadio(section, key, fallback) {
+  const el = section?.querySelector(`[data-param-radio="${key}"]:checked`);
+  return el ? el.value : fallback;
+}
+
+function packOf(st) {
+  const arms = st?.arms_metrics;
+  if (arms && typeof arms === "object" && arms.T) return arms.T;
+  const last = st?.last;
+  const action = last?.action;
+  if (action !== "holdout_result" && action !== "holdout_failed") return null;
+  const metrics = last?.metrics;
+  if (!metrics || typeof metrics !== "object") return null;
+  if (metrics.arm === "T") return metrics;
+  if (metrics.arms && metrics.arms.T) return metrics.arms.T;
+  return null;
+}
+
+function paintMetrics(ui, pack) {
+  const section = sectionOf(ui);
+  const box = section?.querySelector(".quant-recipe-console .yhat-tf-arm-metrics");
+  if (!box) return;
+  const cells = box.querySelectorAll("strong");
+  const values = [
+    fmt3(pack?.cs_rank_ic),
+    fmt3(pack?.cs_icir),
+    fmtHit(pack?.sign_hit),
+    fmt3(pack?.cs_top_mean_y),
+  ];
+  cells.forEach((el, i) => {
+    const text = values[i] || "—";
+    el.textContent = text;
+    el.classList.toggle("is-empty", text === "—");
+  });
+  const gate = document.querySelector(`[data-head-summary-gate="${ui}"]`);
+  if (gate) {
+    const ic = fmt3(pack?.cs_rank_ic);
+    const text = ic === "—" ? "Rank IC —" : `Rank IC ${ic}`;
+    gate.dataset.armGate = text;
+    gate.textContent = text;
+  }
+}
+
+function paintCardMessage(spec, text) {
+  const root = document.getElementById(spec.statusId);
+  if (!root) return;
+  root.querySelectorAll(".quant-pro-status-chip").forEach((chip) => chip.remove());
+  let msg = root.querySelector(".quant-rem-status-msg");
+  if (!msg) {
+    msg = document.createElement("span");
+    msg.className = "quant-rem-status-msg";
+    root.appendChild(msg);
+  }
+  const next = text ? String(text) : "";
+  msg.textContent = next;
+  root.hidden = !next;
+}
+
+function recipeParams(spec, role) {
+  const section = sectionOf(spec.ui);
+  const params = {
+    pool_n: sectionNum(section, "pool_n", readWatchingPoolLimit()),
+    lookback: sectionNum(section, "lookback", spec.lookback),
+    holdout_trading_days: role === "live" ? 0 : sectionNum(section, "holdout_trading_days", 60),
+    d_model: sectionNum(section, "d_model", 64),
+    nlayers: sectionNum(section, "nlayers", 3),
+    nhead: 4,
+    dropout: 0.1,
+    batch_size: sectionNum(section, "batch_size", 32),
+    epochs: sectionNum(section, "epochs", 12),
+    lr: 0.001,
+    t_sample_pct: sectionNum(section, "t_sample_pct", 10),
+    arms: "T",
+    device: "cpu",
+    seq_feat_set: sectionRadio(section, "seq_feat_set", "seq16"),
+    seq_len: sectionNum(section, "seq_len", 20),
+    loss: spec.loss,
+  };
+  if (spec.fullAoo) {
+    params.full_aoo = sectionRadio(section, "full_aoo", "0") === "1";
+    params.factor_pack = params.full_aoo ? "aoo_full" : "aoo_core";
+  }
+  if (spec.fullAtc) {
+    params.full_atc = sectionRadio(section, "full_atc", "1") !== "0";
+    params.factor_pack = params.full_atc ? "atc_full" : "atc_core";
+    params.tau_end = readPrefixHm();
+  }
+  return params;
+}
+
+function roleChoice(api) {
+  let slot = chosen.get(api);
+  if (!slot) {
+    slot = { research: "", live: "" };
+    chosen.set(api, slot);
+  }
+  return slot;
+}
+
+function versionRoot(ui, role) {
+  return document.querySelector(
+    `[data-version-for="${ui}"][data-version-role="${role}"]`
+  );
+}
+
+function versionParts(label) {
+  const bits = String(label || "")
+    .split(" · ")
+    .map((bit) => bit.trim())
+    .filter(Boolean);
+  return { stamp: bits[0] || "—", meta: bits.slice(1) };
+}
+
+function versionChipTone(text, status) {
+  if (text === "失败" || status === "error") return "bad";
+  if (text === "未过闸" || text === "部分完成") return "warn";
+  if (text === "正式" || text === "过闸") return "ok";
+  return "";
+}
+
+function closeVersionMenus(except) {
+  document.querySelectorAll(".yhat-tf-version-menu").forEach((menu) => {
+    if (except && menu === except) return;
+    menu.hidden = true;
+    menu.parentElement
+      ?.querySelector(".yhat-tf-version-btn")
+      ?.setAttribute("aria-expanded", "false");
+  });
+}
+
+function versionTrail(id, enabledId, stamp) {
+  if (enabledId && id === enabledId) {
+    const mark = document.createElement("span");
+    mark.className = "yhat-tf-version-on";
+    mark.title = "已启用";
+    mark.setAttribute("aria-label", "已启用");
+    return mark;
+  }
+  const del = document.createElement("button");
+  del.type = "button";
+  del.className = "yhat-tf-version-del";
+  del.dataset.versionDelete = id;
+  del.textContent = "×";
+  del.title = "删除该版本";
+  del.setAttribute("aria-label", `删除 ${stamp}`);
+  return del;
+}
+
+function renderVersionMenu(menu, items, currentId, enabledId) {
+  const onId = String(enabledId || "");
+  menu.replaceChildren();
+  if (!items.length) {
+    const empty = document.createElement("div");
+    empty.className = "yhat-tf-version-empty";
+    empty.textContent = "尚无版本";
+    menu.append(empty);
+    return;
+  }
+  for (const it of items) {
+    const id = String(it?.id || "");
+    if (!id) continue;
+    const row = document.createElement("div");
+    row.className = "yhat-tf-version-item";
+    row.dataset.versionId = id;
+    row.setAttribute("role", "option");
+    const current = id === currentId;
+    row.setAttribute("aria-selected", current ? "true" : "false");
+    if (current) row.classList.add("is-current");
+    if (onId && id === onId) row.classList.add("is-enabled");
+    const parts = versionParts(it.label || id);
+    const stamp = document.createElement("span");
+    stamp.className = "yhat-tf-version-stamp";
+    stamp.textContent = parts.stamp;
+    const metric = document.createElement("span");
+    metric.className = "yhat-tf-version-metric";
+    const ic = parts.meta.find((bit) => bit.startsWith("RankIC")) || "";
+    metric.textContent = ic;
+    const chips = document.createElement("span");
+    chips.className = "yhat-tf-version-meta";
+    for (const bit of parts.meta) {
+      if (bit === ic) continue;
+      const chip = document.createElement("span");
+      chip.className = "yhat-tf-version-chip";
+      const tone = versionChipTone(bit, it.status);
+      if (tone) chip.classList.add(`is-${tone}`);
+      chip.textContent = bit;
+      chips.append(chip);
+    }
+    row.append(stamp, metric, chips, versionTrail(id, onId, parts.stamp));
+    menu.append(row);
+  }
+}
+
+function listsOf(api) {
+  const bag = versionLists.get(api);
+  if (bag && (Array.isArray(bag.research) || Array.isArray(bag.live))) return bag;
+  return { research: [], live: [] };
+}
+
+function findVersion(api, runId) {
+  const bag = listsOf(api);
+  for (const role of ["research", "live"]) {
+    const hit = (bag[role] || []).find((it) => String(it.id) === runId);
+    if (hit) return hit;
+  }
+  return null;
+}
+
+function suiteItems(items, role) {
+  return (items || []).filter((it) => {
+    const marked = String(it?.suite || "");
+    if (marked === "live" || marked === "research") return marked === role;
+    const holdout = Number(it?.holdout_trading_days);
+    if (role === "live") return holdout === 0;
+    return !Number.isFinite(holdout) || holdout !== 0;
+  });
+}
+
+function paintEnable(spec) {
+  const on = enabledIds.get(spec.api) || {};
+  const slot = roleChoice(spec.api);
+  for (const role of ["research", "live"]) {
+    const pick = versionRoot(spec.ui, role)?.closest(".quant-suite-fit-pick");
+    const btn = pick?.querySelector("[data-version-enable]");
+    if (!btn) continue;
+    const id = slot[role] || "";
+    const active = !!(id && on[role] === id);
+    if (!btn.dataset.idleTitle) btn.dataset.idleTitle = btn.title || "";
+    btn.textContent = "启用";
+    btn.classList.remove("is-on");
+    btn.disabled = !id || active || pending.has(spec.api);
+    btn.title = active ? "当前所选已是启用版本" : btn.dataset.idleTitle;
+  }
+}
+
+function fillVersion(spec) {
+  const bag = listsOf(spec.api);
+  const slot = roleChoice(spec.api);
+  for (const role of ["research", "live"]) {
+    const items = suiteItems(bag[role], role);
+    const root = versionRoot(spec.ui, role);
+    const btn = root?.querySelector(".yhat-tf-version-btn");
+    const menu = root?.querySelector(".yhat-tf-version-menu");
+    if (!root || !btn || !menu) continue;
+    const enabled = (enabledIds.get(spec.api) || {})[role] || "";
+    const key = `${enabled}\n${items.map((it) => `${it.id}\t${it.label || ""}`).join("\n")}`;
+    const want = slot[role] || "";
+    const has = !!(want && items.some((it) => String(it.id) === want));
+    const next = has ? want : String(items[0]?.id || "");
+    slot[role] = next;
+    const shown = items.find((it) => String(it.id) === next);
+    btn.textContent = shown ? String(shown.label || shown.id) : "尚无版本";
+    btn.title = shown?.model_id ? String(shown.model_id) : btn.textContent;
+    if (root.dataset.itemsKey === key && root.dataset.value === next) continue;
+    root.dataset.itemsKey = key;
+    root.dataset.value = next;
+    renderVersionMenu(menu, items, next, enabled);
+  }
+  paintEnable(spec);
+}
+
+async function loadVersions(spec, { replay = false } = {}) {
+  const head = encodeURIComponent(spec.api);
+  const [research, live] = await Promise.all([
+    apiFetch(`${VERSION_URL}?head=${head}&suite=research`),
+    apiFetch(`${VERSION_URL}?head=${head}&suite=live`),
+  ]);
+  if (!research.ok && !live.ok) return;
+  versionLists.set(spec.api, {
+    research: research.ok && Array.isArray(research.data?.items) ? research.data.items : [],
+    live: live.ok && Array.isArray(live.data?.items) ? live.data.items : [],
+  });
+  enabledIds.set(spec.api, {
+    research: research.ok ? String(research.data?.enabled_id || "") : "",
+    live: live.ok ? String(live.data?.enabled_id || "") : "",
+  });
+  fillVersion(spec);
+  if (!replay || pending.has(spec.api) || viewing.get(spec.api)) return;
+  const shown = versionRoot(spec.ui, "research")?.dataset.value || "";
+  if (shown) await openVersion(spec, shown, "research");
+}
+
+function metricsPack(metrics) {
+  if (!metrics || typeof metrics !== "object") return null;
+  if (metrics.cs_rank_ic != null) return metrics;
+  if (metrics.arms && metrics.arms.T) return metrics.arms.T;
+  if (metrics.T) return metrics.T;
+  return null;
+}
+
+function flagValue(value) {
+  if (value === true || value === 1 || value === "1") return "1";
+  if (value === false || value === 0 || value === "0") return "0";
+  return "";
+}
+
+function applyRecipeParams(spec, params) {
+  const section = sectionOf(spec.ui);
+  if (!section || !params || typeof params !== "object") return;
+  section.querySelectorAll("[data-param]").forEach((inp) => {
+    if (inp.disabled) return;
+    const key = inp.getAttribute("data-param");
+    if (!key || params[key] == null || params[key] === "") return;
+    inp.value = String(params[key]);
+  });
+  const pick = (key, value) => {
+    if (value == null || value === "") return;
+    const el = section.querySelector(
+      `[data-param-radio="${key}"][value="${value}"]`
+    );
+    if (el) el.checked = true;
+  };
+  pick("seq_feat_set", params.seq_feat_set);
+  if (params.full_aoo != null) pick("full_aoo", flagValue(params.full_aoo));
+  if (params.full_atc != null) pick("full_atc", flagValue(params.full_atc));
+  const prefix = params.tau_end || params.tau_end_hm;
+  if (spec.fullAtc && prefix) paintPrefixHm(prefix);
+}
+
+function replayChips(params) {
+  if (!params || typeof params !== "object") return [];
+  const dim = String(params.seq_feat_set || "").replace(/^seq/, "");
+  const pack = String(params.factor_pack || "");
+  const fac = pack
+    ? pack.includes("full")
+      ? "full"
+      : "core"
+    : params.full_atc != null
+      ? params.full_atc
+        ? "full"
+        : "core"
+      : params.full_aoo != null
+        ? params.full_aoo
+          ? "full"
+          : "core"
+        : "";
+  const sample = params.t_sample_pct;
+  return [
+    ["池子", params.pool_n],
+    ["训练窗", params.lookback],
+    ["Holdout", params.holdout_trading_days],
+    ["序列", dim ? `${dim}维` : ""],
+    ["T因子", fac],
+    ["batch", params.batch_size],
+    ["epochs", params.epochs],
+    ["T采样%", sample == null || sample === "" ? "" : String(Number(sample))],
+    ["d_model", params.d_model],
+    ["layers", params.nlayers],
+  ].filter(([, value]) => value != null && value !== "");
+}
+
+function replayStamp(raw) {
+  const match = String(raw || "").match(/^(\d{4}-\d{2}-\d{2})[T ](\d{2}:\d{2})/);
+  return match ? `${match[1]} ${match[2]}` : String(raw || "");
+}
+
+function replayLog(raw) {
+  return String(raw || "").trim();
+}
+
+function paintReplay(spec, doc) {
+  const box = sectionOf(spec.ui)?.querySelector(".quant-recipe-console");
+  if (!box) return;
+  const info = box.querySelector("[data-recipe-replay]");
+  const status = box.querySelector("[data-recipe-replay-status]");
+  const meta = box.querySelector("[data-recipe-replay-meta]");
+  const paramsEl = box.querySelector("[data-recipe-replay-params]");
+  const logEl = box.querySelector("[data-recipe-replay-log]");
+  if (info) info.hidden = false;
+  const failed = doc?.status === "error" || doc?.action === "holdout_failed";
+  if (status) status.textContent = failed ? "回看 · 拟合失败" : "回看 · 拟合完成";
+  liveSince.delete(spec.api);
+  paintArmState(box, failed ? "失败" : "完成", failed ? "fail" : "ok", {
+    dur: spentDur(
+      doc?.started_at,
+      doc?.finished_at,
+      metricsPack(doc?.metrics)?.elapsed_sec
+    ),
+  });
+  if (meta) {
+    meta.replaceChildren();
+    const stamp = replayStamp(doc?.finished_at);
+    for (const bit of [doc?.run_id, stamp].filter(Boolean)) {
+      const item = document.createElement("span");
+      item.textContent = String(bit);
+      meta.append(item);
+    }
+  }
+  if (paramsEl) {
+    paramsEl.replaceChildren();
+    for (const [name, value] of replayChips(doc?.fit_params)) {
+      const chip = document.createElement("span");
+      chip.className = "yhat-tf-fit-chip";
+      const label = document.createElement("span");
+      label.textContent = name;
+      const strong = document.createElement("strong");
+      strong.textContent = String(value);
+      chip.append(label, strong);
+      paramsEl.append(chip);
+    }
+  }
+  const text = replayLog(doc?.log_tail);
+  if (logEl) {
+    logEl.hidden = !text;
+    logEl.textContent = text;
+  }
+}
+
+function paintArmState(box, text, tone, extra = {}) {
+  const state = box?.querySelector("[data-recipe-replay-state]");
+  if (!state) return;
+  state.dataset.state = tone;
+  if (extra.clockFrom) state.dataset.clockFrom = extra.clockFrom;
+  else delete state.dataset.clockFrom;
+  let label = state.querySelector(":scope > span:not(.yhat-tf-arm-state-dur)");
+  if (!label) {
+    label = document.createElement("span");
+    state.appendChild(label);
+  }
+  label.textContent = text;
+  const shown = extra.clock || extra.dur || "";
+  let dur = state.querySelector(".yhat-tf-arm-state-dur");
+  if (!shown) {
+    dur?.remove();
+    syncHubClock();
+    return;
+  }
+  if (!dur) {
+    dur = document.createElement("span");
+    dur.className = "yhat-tf-arm-state-dur";
+    state.appendChild(dur);
+  }
+  dur.dataset.role = extra.clock ? "clock" : "dur";
+  if (dur.textContent !== shown) dur.textContent = shown;
+  syncHubClock();
+}
+
+function paintLive(spec, st, label) {
+  const box = sectionOf(spec.ui)?.querySelector(".quant-recipe-console");
+  if (!box) return;
+  const info = box.querySelector("[data-recipe-replay]");
+  if (info) info.hidden = true;
+  if (label) liveLabel.set(spec.api, label);
+  const shown = liveLabel.get(spec.api) || "拟合中";
+  const from = rememberLiveStart(spec.api, st?.job?.started_at);
+  const clock = elapsedClock(from);
+  paintArmState(box, shown, "busy", { clockFrom: from, clock });
+  paintCardMessage(spec, clock ? `Arm·T ${shown} · ${clock}` : `Arm·T ${shown}`);
+  paintMetrics(spec.ui, null);
+  const logEl = box.querySelector("[data-recipe-replay-log]");
+  const text = replayLog(st?.log_tail);
+  if (!logEl) return;
+  const stick = logEl.scrollHeight - logEl.scrollTop - logEl.clientHeight < 48;
+  logEl.hidden = !text;
+  if (logEl.textContent !== text) logEl.textContent = text;
+  if (text && stick) logEl.scrollTop = logEl.scrollHeight;
+}
+
+function clearReplay(spec) {
+  const box = sectionOf(spec.ui)?.querySelector(".quant-recipe-console");
+  const info = box?.querySelector("[data-recipe-replay]");
+  const logEl = box?.querySelector("[data-recipe-replay-log]");
+  if (info) info.hidden = true;
+  paintArmState(box, "待运行", "idle");
+  if (logEl) {
+    logEl.hidden = true;
+    logEl.textContent = "";
+  }
+}
+
+async function openVersion(spec, runId, role = "research") {
+  if (role === "research" || role === "live") roleChoice(spec.api)[role] = runId;
+  viewing.set(spec.api, runId);
+  fillVersion(spec);
+  const res = await apiFetch(
+    `${VERSION_URL}/preview?head=${encodeURIComponent(spec.api)}&run_id=${encodeURIComponent(runId)}`
+  );
+  if (!res.ok) {
+    paintCardMessage(spec, `Arm·T ${res.error || "版本预览失败"}`);
+    return;
+  }
+  applyRecipeParams(spec, res.data?.fit_params);
+  paintReplay(spec, res.data);
+  const pack = metricsPack(res.data?.metrics);
+  if (pack) paintMetrics(spec.ui, pack);
+  paintCardMessage(spec, "");
+}
+
+async function deleteVersion(spec, runId) {
+  const it = findVersion(spec.api, runId);
+  const label = String(it?.label || runId);
+  if (!window.confirm(`删除版本「${label}」？只去掉这条归档、日志和权重，当前拟合不动。`)) return;
+  const res = await apiFetch(
+    `${VERSION_URL}?head=${encodeURIComponent(spec.api)}&run_id=${encodeURIComponent(runId)}`,
+    { method: "DELETE" }
+  );
+  if (!res.ok) {
+    paintCardMessage(spec, `Arm·T ${res.error || "删除失败"}`);
+    return;
+  }
+  const slot = roleChoice(spec.api);
+  for (const role of ["research", "live"]) {
+    if (slot[role] === runId) slot[role] = "";
+  }
+  const wasViewing = viewing.get(spec.api) === runId;
+  if (wasViewing) {
+    viewing.delete(spec.api);
+    clearReplay(spec);
+  }
+  await loadVersions(spec, { replay: wasViewing });
+  await refresh();
+}
+
+async function enableVersion(spec, role) {
+  const runId = roleChoice(spec.api)[role] || "";
+  if (!runId || pending.has(spec.api)) return;
+  const res = await apiFetch(`${VERSION_URL}/enable`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ head: spec.api, run_id: runId, suite: role }),
+  });
+  if (!res.ok) {
+    paintCardMessage(spec, `Arm·T ${res.error || "启用失败"}`);
+    return;
+  }
+  const bag = enabledIds.get(spec.api) || { research: "", live: "" };
+  bag[role] = runId;
+  enabledIds.set(spec.api, bag);
+  paintEnable(spec);
+  fillVersion(spec);
+  paintCardMessage(
+    spec,
+    role === "live" ? "Arm·T 已启用为 live 版本" : "Arm·T 已启用为回测版本"
+  );
+}
+
+function wireEnable(spec) {
+  const section = sectionOf(spec.ui);
+  section?.querySelectorAll("[data-version-enable]").forEach((btn) => {
+    if (btn.dataset.wired === "1") return;
+    btn.dataset.wired = "1";
+    btn.addEventListener("click", (ev) => {
+      ev.preventDefault();
+      ev.stopPropagation();
+      void enableVersion(spec, btn.getAttribute("data-version-enable") || "research");
+    });
+  });
+}
+
+function wireVersion(spec) {
+  for (const role of ["research", "live"]) {
+    const root = versionRoot(spec.ui, role);
+    if (!root || root.dataset.wired === "1") continue;
+    root.dataset.wired = "1";
+    root.addEventListener("click", (ev) => {
+      const btn = root.querySelector(".yhat-tf-version-btn");
+      const menu = root.querySelector(".yhat-tf-version-menu");
+      const del = ev.target.closest?.("[data-version-delete]");
+      if (del) {
+        ev.preventDefault();
+        ev.stopPropagation();
+        void deleteVersion(spec, del.dataset.versionDelete || "");
+        return;
+      }
+      const picked = ev.target.closest?.("[data-version-id]");
+      if (picked && menu?.contains(picked)) {
+        ev.preventDefault();
+        closeVersionMenus();
+        void openVersion(spec, picked.dataset.versionId || "", role);
+        return;
+      }
+      if (!ev.target.closest?.(".yhat-tf-version-btn")) return;
+      ev.preventDefault();
+      ev.stopPropagation();
+      const open = menu?.hidden;
+      closeVersionMenus(open ? menu : null);
+      if (menu && btn && open) {
+        menu.hidden = false;
+        btn.setAttribute("aria-expanded", "true");
+      }
+    });
+  }
+}
+
+function wireVersionDismiss() {
+  if (versionMenusWired) return;
+  versionMenusWired = true;
+  document.addEventListener("click", (ev) => {
+    if (ev.target?.closest?.(".yhat-tf-version")) return;
+    closeVersionMenus();
+  });
+  document.addEventListener("keydown", (ev) => {
+    if (ev.key === "Escape") closeVersionMenus();
+  });
+}
+
+function applyHead(spec, st) {
+  const pack = packOf(st);
+  const busy = !!st?.fit_running || pending.has(spec.api);
+  for (const id of [spec.fitId, spec.liveId]) {
+    const btn = document.getElementById(id);
+    if (btn) btn.disabled = busy;
+  }
+  for (const role of ["research", "live"]) {
+    const versionBtn = versionRoot(spec.ui, role)?.querySelector(".yhat-tf-version-btn");
+    if (versionBtn) versionBtn.disabled = busy;
+  }
+  if (st?.fit_running || pending.has(spec.api)) {
+    viewing.delete(spec.api);
+    paintLive(spec, st?.fit_running ? st : null);
+    return;
+  }
+  liveSince.delete(spec.api);
+  liveLabel.delete(spec.api);
+  if (viewing.get(spec.api)) return;
+  clearReplay(spec);
+  paintMetrics(spec.ui, pack);
+  const dur = spentDur(st?.job?.started_at, st?.job?.finished_at, pack?.elapsed_sec);
+  const box = sectionOf(spec.ui)?.querySelector(".quant-recipe-console");
+  const failed =
+    st?.job?.status === "error" || st?.last?.action === "holdout_failed";
+  if (failed) {
+    const err = st?.job?.error || st?.last?.error || "拟合失败";
+    paintArmState(box, "失败", "fail", { dur });
+    paintCardMessage(spec, dur ? `Arm·T ${err} · ${dur}` : `Arm·T ${err}`);
+    return;
+  }
+  if (pack && pack.cs_rank_ic != null) {
+    paintArmState(box, "完成", "ok", { dur });
+    const spent = dur ? ` · ${dur}` : "";
+    paintCardMessage(
+      spec,
+      `Arm·T Rank IC ${fmt3(pack.cs_rank_ic)} · ICIR ${fmt3(pack.cs_icir)}${spent}`
+    );
+  }
+}
+
+async function refresh() {
+  const res = await apiFetch(STATUS_URL);
+  if (!res.ok) return false;
+  const byApi = new Map(
+    (res.data?.heads || []).map((st) => [st.head, st])
+  );
+  let running = false;
+  for (const spec of HEADS) {
+    const st = byApi.get(spec.api);
+    if (st?.fit_running) running = true;
+    if (st) applyHead(spec, st);
+    void loadVersions(spec, {
+      replay: !st?.fit_running && !pending.has(spec.api) && !viewing.get(spec.api),
+    });
+  }
+  schedule(running ? 2000 : 12000);
+  return true;
+}
+
+function schedule(ms) {
+  if (timer) window.clearTimeout(timer);
+  timer = window.setTimeout(() => {
+    if (document.hidden) {
+      schedule(ms);
+      return;
+    }
+    refresh().catch(() => schedule(12000));
+  }, ms);
+}
+
+async function startFit(spec, role) {
+  if (pending.has(spec.api)) return;
+  pending.add(spec.api);
+  viewing.delete(spec.api);
+  for (const id of [spec.fitId, spec.liveId]) {
+    const btn = document.getElementById(id);
+    if (btn) btn.disabled = true;
+  }
+  paintLive(spec, null, "拟合中");
+  try {
+    const res = await apiFetch(FIT_URL, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        head: spec.api,
+        params: recipeParams(spec, role),
+        note: role === "live" ? "hub arm-t live" : "hub arm-t research",
+      }),
+    });
+    if (!res.ok) throw new Error(res.error || "拟合启动失败");
+    await refresh();
+    schedule(2000);
+  } catch (err) {
+    const dur = elapsedClock(liveSince.get(spec.api));
+    liveSince.delete(spec.api);
+    liveLabel.delete(spec.api);
+    paintArmState(
+      sectionOf(spec.ui)?.querySelector(".quant-recipe-console"),
+      "失败",
+      "fail",
+      { dur }
+    );
+    paintCardMessage(
+      spec,
+      dur ? `Arm·T ${err?.message || err} · ${dur}` : `Arm·T ${err?.message || err}`
+    );
+    for (const id of [spec.fitId, spec.liveId]) {
+      const btn = document.getElementById(id);
+      if (btn) btn.disabled = false;
+    }
+  } finally {
+    pending.delete(spec.api);
+  }
+}
+
+export function installHubArmT() {
+  const page = document.querySelector(".quant-page");
+  if (!page || page.getAttribute("data-quant-recipe") !== "transformer") return;
+  if (page.dataset.hubArmT === "1") return;
+  page.dataset.hubArmT = "1";
+  for (const spec of HEADS) {
+    const fit = document.getElementById(spec.fitId);
+    if (fit) {
+      fit.addEventListener(
+        "click",
+        (e) => {
+          e.preventDefault();
+          e.stopImmediatePropagation();
+          void startFit(spec, "research");
+        },
+        true
+      );
+    }
+    const live = document.getElementById(spec.liveId);
+    if (live) {
+      live.addEventListener(
+        "click",
+        (e) => {
+          e.preventDefault();
+          e.stopImmediatePropagation();
+          void startFit(spec, "live");
+        },
+        true
+      );
+    }
+    wireVersion(spec);
+    wireEnable(spec);
+    const gate = document.querySelector(`[data-head-summary-gate="${spec.ui}"]`);
+    if (gate && !gate.dataset.armGate) {
+      gate.dataset.armGate = "Rank IC —";
+      gate.textContent = "Rank IC —";
+    }
+  }
+  wireVersionDismiss();
+  refresh().catch(() => schedule(12000));
+}

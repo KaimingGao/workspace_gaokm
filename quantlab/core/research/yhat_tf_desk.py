@@ -1,6 +1,7 @@
 """模型工厂 desk：四头槽位 IO + Holdout 任务（不写生产 score）。
 
-``factory=L`` → /yhat-l · Arm·L；``factory=T`` → /yhat-t · Arm·T。
+``factory=L`` → /yhat-l · Arm·L；``factory=T`` → /yhat-t · Arm·T；
+``factory=R`` → /yhat-r · Arm·R。
 HeadSpec 真源在 ``yhat_transformer.heads``；CLI 真源 ``build_holdout_cli``。
 """
 
@@ -21,6 +22,8 @@ from typing import Any, Dict, Iterator, List, Optional
 from core.paths import ROOT_DIR
 from core.paths import YHAT_L_DIR as _DEFAULT_YHAT_L_DIR
 from core.paths import YHAT_L_LAST_PATH as _DEFAULT_YHAT_L_LAST
+from core.paths import YHAT_R_DIR as _DEFAULT_YHAT_R_DIR
+from core.paths import YHAT_R_LAST_PATH as _DEFAULT_YHAT_R_LAST
 from core.paths import YHAT_T_DIR as _DEFAULT_YHAT_T_DIR
 from core.paths import YHAT_T_LAST_PATH as _DEFAULT_YHAT_T_LAST
 from core.research.yhat_transformer.heads import get_head, head_ids, iter_heads
@@ -30,6 +33,8 @@ logger = logging.getLogger(__name__)
 # 可被单测 patch；T 侧保留 YHAT_TF_* 别名
 YHAT_L_DIR = _DEFAULT_YHAT_L_DIR
 YHAT_L_LAST_PATH = _DEFAULT_YHAT_L_LAST
+YHAT_R_DIR = _DEFAULT_YHAT_R_DIR
+YHAT_R_LAST_PATH = _DEFAULT_YHAT_R_LAST
 YHAT_T_DIR = _DEFAULT_YHAT_T_DIR
 YHAT_T_LAST_PATH = _DEFAULT_YHAT_T_LAST
 YHAT_TF_DIR = YHAT_T_DIR
@@ -39,8 +44,11 @@ _FACTORY_CTX = threading.local()
 
 
 def loss_for_factory(spec: Any, factory: Optional[str] = None) -> str:
-    """Arm·T 用 HeadSpec。Arm·L 回归为 l2，排序为 lambdarank。"""
-    if normalize_factory(factory) != "L":
+    """Arm·T 用 HeadSpec。Arm·L 回归为 l2、排序为 lambdarank。Arm·R 为 ridge。"""
+    fac = normalize_factory(factory)
+    if fac == "R":
+        return "ridge"
+    if fac != "L":
         return str(spec.loss)
     if str(getattr(spec, "task_type", "") or "") == "rank":
         return "lambdarank"
@@ -52,6 +60,8 @@ def normalize_factory(factory: Optional[str] = None) -> str:
     s = str(raw or "T").strip().upper()
     if s in ("L", "ARM-L", "ARM_L", "ARM·L", "LGB", "LIGHTGBM"):
         return "L"
+    if s in ("R", "ARM-R", "ARM_R", "ARM·R", "RIDGE"):
+        return "R"
     if s in ("T", "ARM-T", "ARM_T", "ARM·T", "TF", "TRANSFORMER"):
         return "T"
     if s in ("LT", "L+T", "BOTH"):
@@ -60,15 +70,21 @@ def normalize_factory(factory: Optional[str] = None) -> str:
 
 
 def _store_dir(factory: Optional[str] = None) -> str:
-    """L → YHAT_L_DIR；T/默认 → YHAT_TF_DIR（可被 patch）。"""
-    if normalize_factory(factory) == "L":
+    """L → YHAT_L_DIR；R → YHAT_R_DIR；T/默认 → YHAT_TF_DIR（可被 patch）。"""
+    fac = normalize_factory(factory)
+    if fac == "L":
         return YHAT_L_DIR
+    if fac == "R":
+        return YHAT_R_DIR
     return YHAT_TF_DIR
 
 
 def _last_global_path(factory: Optional[str] = None) -> str:
-    if normalize_factory(factory) == "L":
+    fac = normalize_factory(factory)
+    if fac == "L":
         return YHAT_L_LAST_PATH
+    if fac == "R":
+        return YHAT_R_LAST_PATH
     return YHAT_TF_LAST_PATH
 
 
@@ -138,7 +154,17 @@ def _log_for_status(head: str, *, tail_lines: int = 200) -> str:
         return raw
     tail = lines[-int(tail_lines) :]
     blob = "\n".join(tail).lower()
-    markers = ("arml rankic", "l_lightgbm", "l_lambdarank", "arml 失败", "arml begin")
+    markers = (
+        "arml rankic",
+        "l_lightgbm",
+        "l_lambdarank",
+        "arml 失败",
+        "arml begin",
+        "armr rankic",
+        "r_ridge",
+        "armr 失败",
+        "armr begin",
+    )
     kept: List[str] = []
     if not any(m in blob for m in markers):
         for line in lines[: -int(tail_lines)]:
@@ -365,6 +391,8 @@ def _scheme_blob(factory: Optional[str] = None) -> Dict[str, Any]:
     for spec in iter_heads():
         if fac == "L":
             gate_label = "绝对指标 · Arm·L"
+        elif fac == "R":
+            gate_label = "绝对指标 · Arm·R"
         elif fac == "T":
             gate_label = "绝对指标 · Arm·T"
         else:
@@ -380,7 +408,7 @@ def _scheme_blob(factory: Optional[str] = None) -> Dict[str, Any]:
             "loss": loss_for_factory(spec, fac),
             "script": build_holdout_cli(spec.id, factory=fac),
             "task_type": spec.task_type,
-            "gate": None if fac in ("L", "T") else spec.gate,
+            "gate": None if fac in ("L", "T", "R") else spec.gate,
             "gate_label": gate_label,
             "factor_pack": spec.factor_pack,
             "target": spec.target_desc,
@@ -389,6 +417,9 @@ def _scheme_blob(factory: Optional[str] = None) -> Dict[str, Any]:
     if fac == "L":
         name = "模型中心 · Arm·L（LightGBM）"
         package = "yhat_l"
+    elif fac == "R":
+        name = "模型中心 · Arm·R（Ridge）"
+        package = "yhat_r"
     elif fac == "T":
         name = "模型中心 · Arm·T（Transformer）"
         package = "yhat_t"
@@ -398,6 +429,11 @@ def _scheme_blob(factory: Optional[str] = None) -> Dict[str, Any]:
     if fac == "L":
         arms = [
             {"id": "L", "title": "Arm·L", "desc": "LightGBM / LambdaRank · 全量因子"},
+        ]
+        gate = "单臂绝对指标；跨厂对照留给研究枢纽；不直连生产 score"
+    elif fac == "R":
+        arms = [
+            {"id": "R", "title": "Arm·R", "desc": "Ridge · 全量因子"},
         ]
         gate = "单臂绝对指标；跨厂对照留给研究枢纽；不直连生产 score"
     elif fac == "T":
@@ -468,7 +504,6 @@ _PROMOTE_PROTOCOL_KEYS = (
     "nhead",
     "mlp_hidden",
     "dropout",
-    "patience",
     "batch_size",
     "epochs",
     "lr",
@@ -611,7 +646,7 @@ def promote_eligibility(
         if isinstance(last.get("fit_params"), dict)
         else last.get("params")
     )
-    # 两侧都 normalize，避免旧盘缺 patience/dropout/lr 等键被误判成协议漂移
+    # 两侧都 normalize，避免旧盘缺 dropout/lr 等键被误判成协议漂移
     if isinstance(draft_params, dict):
         draft_params = _normalize_fit_params(h, draft_params)
     if isinstance(fit_params, dict):
@@ -655,7 +690,6 @@ def default_fit_params(head: str) -> Dict[str, Any]:
         "nhead": 4,
         # mlp_hidden 故意缺省：harden 按当前 d_model 对齐（避免改 d_model 仍锁旧 hidden）
         "dropout": 0.1,
-        "patience": 6,
         "batch_size": 32,
         "epochs": 12,
         "lr": 1e-3,
@@ -676,12 +710,13 @@ def default_fit_params(head: str) -> Dict[str, Any]:
     if spec.id == "oo_rank":
         # 排序头略缩 lookback 省内存；Holdout 天数与其它头统一 60
         base["lookback"] = 700
-    # Arm·L 窗长跟研究枢纽：拟合 Holdout 20；oo 600 / τc 120 / 排序 700。
-    # Arm·T 仍用上面的 900/60（观察池分档的 60 日不拿来当拟合默认）。
-    if normalize_factory() == "L":
-        base["arms"] = "L"
+    # Arm·L / Arm·R 窗长跟研究枢纽：拟合 Holdout 20；oo 600 / τc 120 / 排序 700。
+    # Arm·T 仍用上面的 900/60（股票分档的 60 日不拿来当拟合默认）。
+    fac_def = normalize_factory()
+    if fac_def in ("L", "R"):
+        base["arms"] = fac_def
         base["holdout_trading_days"] = 20
-        # Arm·L 始终全量 aoo；full_aoo 单选只服务 Arm·T 裁列。
+        # 因子臂始终全量 aoo；full_aoo 单选只服务 Arm·T 裁列。
         if spec.id in ("oo", "oo_rank"):
             base["full_aoo"] = True
             base["factor_pack"] = "aoo_full"
@@ -691,7 +726,24 @@ def default_fit_params(head: str) -> Dict[str, Any]:
             base["lookback"] = 120
         elif spec.id == "tc_rank":
             base["lookback"] = 700
-    elif normalize_factory() == "LT":
+        if fac_def == "R":
+            base["ridge_alpha"] = 1.0
+            for key in (
+                "d_model",
+                "nlayers",
+                "nhead",
+                "mlp_hidden",
+                "dropout",
+                "batch_size",
+                "epochs",
+                "lr",
+                "t_sample_pct",
+                "seq_feat_set",
+                "seq_len",
+                "device",
+            ):
+                base.pop(key, None)
+    elif fac_def == "LT":
         base["arms"] = "L,T"
     return base
 
@@ -708,7 +760,6 @@ _DESK_PARAM_KEYS = frozenset(
         "nhead",
         "mlp_hidden",
         "dropout",
-        "patience",
         "batch_size",
         "epochs",
         "lr",
@@ -722,6 +773,7 @@ _DESK_PARAM_KEYS = frozenset(
         "seq_len",
         "full_aoo",
         "full_atc",
+        "ridge_alpha",
     }
 )
 
@@ -776,17 +828,20 @@ def harden_fit_params(head: str, params: Dict[str, Any]) -> tuple[Dict[str, Any]
     _clamp("pool_n", 800, 50, 2000, label="池")
     out["watching_limit"] = int(out["pool_n"])
     _clamp("lookback", int(out.get("lookback") or 900), 60, 1200, label="lookback")
-    _clamp(
-        "holdout_trading_days",
-        int(out.get("holdout_trading_days") or 20),
-        5,
-        90,
-        label="Holdout",
-    )
+    # 0 = 执行套全样本，不抬到研究套下限 5。0 是假值，不能写进 or 默认。
+    raw_hold = out.get("holdout_trading_days", 20)
+    try:
+        hold_orig = int(raw_hold)
+    except (TypeError, ValueError):
+        hold_orig = 20
+    if hold_orig == 0:
+        out["holdout_trading_days"] = 0
+    else:
+        _clamp("holdout_trading_days", 20, 5, 90, label="Holdout")
     # d_model：不硬钳上限（曾把 256→128，表现为「点拟合就变回」）
     _floor_int("d_model", 64, 16, label="d_model")
     _clamp("nlayers", 3, 1, 6, label="nlayers")
-    # nhead / mlp / dropout / lr / patience：可配置；缺省用默认（不进页面）
+    # nhead / mlp / dropout / lr：可配置；缺省用默认（不进页面）
     _clamp("nhead", 4, 1, 8, label="nhead")
     d_model = int(out["d_model"])
     nhead = int(out["nhead"])
@@ -810,7 +865,7 @@ def harden_fit_params(head: str, params: Dict[str, Any]) -> tuple[Dict[str, Any]
     if abs(drop_orig - drop) > 1e-9 or drop_orig != drop_orig:
         warns.append(f"dropout: {raw_drop}→{drop:g}")
     out["dropout"] = float(f"{drop:.6g}")
-    _clamp("patience", 6, 1, 20, label="patience")
+    out.pop("patience", None)
     # 与 train._batches 地板 16 对齐（UI/CLI 写 8 会静默变成 16）
     _clamp("batch_size", 32, 16, 256, label="batch")
     _clamp("epochs", 12, 1, 40, label="epochs")
@@ -829,8 +884,6 @@ def harden_fit_params(head: str, params: Dict[str, Any]) -> tuple[Dict[str, Any]
     if abs(capped_pct - pct) > 1e-9:
         warns.append(f"t_sample_pct: {pct}→{capped_pct:g}")
     out["t_sample_pct"] = float(f"{capped_pct:.6g}")
-    if capped_pct >= 100.0 and int(out.get("d_model") or 0) >= 256:
-        warns.append("t_sample_pct=100 且 d_model≥256：Arm·T 易 OOM，建议降低采样%或 d_model")
 
     # τc*：只校 tau_end，不改用户的长窗 / Holdout
     if spec.id in ("tc", "tc_rank"):
@@ -891,13 +944,31 @@ def harden_fit_params(head: str, params: Dict[str, Any]) -> tuple[Dict[str, Any]
     fac_now = normalize_factory()
     if fac_now == "L":
         out["arms"] = "L"
+        out.pop("ridge_alpha", None)
         if spec.id in ("oo", "oo_rank"):
             # Arm·L 训练始终全量；勿把 Arm·T 的 core 选择写进 L。
             out["full_aoo"] = True
+    elif fac_now == "R":
+        out["arms"] = "R"
+        if spec.id in ("oo", "oo_rank"):
+            out["full_aoo"] = True
+        from core.research.factor_ols_fit import clamp_ridge_lambda
+
+        raw_alpha = out.get("ridge_alpha", 1.0)
+        lam = clamp_ridge_lambda(raw_alpha, 1.0)
+        try:
+            orig_alpha = float(raw_alpha)
+        except (TypeError, ValueError):
+            orig_alpha = 1.0
+        if orig_alpha != lam or orig_alpha != orig_alpha:
+            warns.append(f"ridge_alpha: {raw_alpha}→{lam:g}")
+        out["ridge_alpha"] = float(f"{lam:.6g}")
     elif fac_now == "LT":
         out["arms"] = "L,T"
+        out.pop("ridge_alpha", None)
     else:
         out["arms"] = "T"
+        out.pop("ridge_alpha", None)
     out.pop("seeds", None)
     device = str(out.get("device") or "cpu").strip().lower() or "cpu"
     if device not in ("cpu", "mps", "cuda"):
@@ -917,7 +988,44 @@ def harden_fit_params(head: str, params: Dict[str, Any]) -> tuple[Dict[str, Any]
         out["factor_pack"] = "aoo_full" if bool(out.get("full_aoo")) else "aoo_core"
     out["pool_n"] = int(out["pool_n"])
     out["watching_limit"] = int(out["pool_n"])
+    # 因子厂不训序列塔。默认里带上的 Transformer 字段不要写进 job，避免页上看成 Arm·T。
+    if normalize_factory() == "R":
+        for key in (
+            "d_model",
+            "nlayers",
+            "nhead",
+            "mlp_hidden",
+            "dropout",
+            "batch_size",
+            "epochs",
+            "lr",
+            "t_sample_pct",
+            "seq_feat_set",
+            "seq_len",
+            "device",
+        ):
+            out.pop(key, None)
     return out, warns
+
+
+_RETIRED_PARAM_WARNINGS = (
+    "t_sample_pct=100 且 d_model≥256：Arm·T 易 OOM，建议降低采样%或 d_model",
+)
+
+
+def without_retired_param_warnings(job: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
+    """已落盘的 OOM 提示不再下发。不改原对象，避免 status 回写 job。"""
+    if not isinstance(job, dict):
+        return job
+    warns = job.get("param_warnings")
+    if not isinstance(warns, list) or not warns:
+        return job
+    kept = [w for w in warns if str(w) not in _RETIRED_PARAM_WARNINGS]
+    if len(kept) == len(warns):
+        return job
+    out = dict(job)
+    out["param_warnings"] = kept
+    return out
 
 
 def _normalize_fit_params(head: str, params: Optional[Dict[str, Any]]) -> Dict[str, Any]:
@@ -1012,8 +1120,6 @@ def build_holdout_argv(
                 ),
                 "--dropout",
                 f"{float(p.get('dropout') if p.get('dropout') is not None else 0.1):.6g}",
-                "--patience",
-                str(int(p.get("patience") or 6)),
                 "--batch-size",
                 str(int(p["batch_size"])),
                 "--epochs",
@@ -1042,6 +1148,8 @@ def build_holdout_argv(
             argv.append("--atc-core")
     if spec.id in ("tc", "tc_rank"):
         argv.extend(["--tau-end", str(p.get("tau_end") or "09:30").strip()])
+    if fac == "R":
+        argv.extend(["--ridge-alpha", f"{float(p.get('ridge_alpha') or 1.0):.6g}"])
     return argv
 
 
@@ -1418,11 +1526,11 @@ def reap_orphaned_fit_jobs(
 
     不依赖页面轮询；与 ``adapters.market.ak_worker.reap_orphaned_pool_workers`` 同级。
     """
-    facs = factories or ["L", "T"]
+    facs = factories or ["L", "T", "R"]
     touched: List[Dict[str, Any]] = []
     for fac in facs:
         fac_n = normalize_factory(fac)
-        if fac_n not in ("L", "T"):
+        if fac_n not in ("L", "T", "R"):
             continue
         with factory_scope(fac_n):
             for hid in head_ids():
@@ -1463,6 +1571,7 @@ def start_holdout_fit(
     params: Optional[Dict[str, Any]] = None,
     *,
     factory: Optional[str] = None,
+    suite: Optional[str] = None,
 ) -> Dict[str, Any]:
     """后台启动 Holdout 拟合（不写生产 score；工作配置随意图隐式同步）。"""
     _ = factory  # 锁装饰器已 factory_scope
@@ -1482,6 +1591,12 @@ def start_holdout_fit(
         }
 
     _ensure_dir()
+    try:
+        from core.research.yhat_factory_weights import clear_pending_weights
+
+        clear_pending_weights(spec.id)
+    except Exception:
+        logger.exception("clear pending factory weights failed head=%s", spec.id)
     log_path = _log_path(spec.id)
     job_path = _job_path(spec.id)
 
@@ -1492,6 +1607,9 @@ def start_holdout_fit(
     argv = build_holdout_argv(spec.id, p)
     started_at = time.strftime("%Y-%m-%dT%H:%M:%S")
     run_id = f"{spec.id}-{started_at.replace(':', '').replace('-', '')}"
+    suite_role = str(suite or "").strip().lower()
+    if suite_role not in ("live", "research"):
+        suite_role = ""
     cmd = [sys.executable, "-u", *argv]
     # 先落 starting 占位，避免删 job→写 job 空窗内二次 /fit
     starting_job = {
@@ -1506,6 +1624,7 @@ def start_holdout_fit(
         "params": p,
         "param_warnings": clamp_warns,
         "started_at": started_at,
+        "suite": suite_role or None,
         "live_allowed": False,
     }
     _write_json(job_path, starting_job)
@@ -1521,6 +1640,7 @@ def start_holdout_fit(
     ):
         child_env[k] = "1"
     child_env["TORCH_NUM_THREADS"] = "4"
+    child_env["YHAT_FACTORY_RUN_ID"] = run_id
     # 用裸 fd 交接 stdout：避免 TextIOWrapper 在 with 退出时关 fd 导致子进程日志静默
     log_fd: Optional[int] = None
     try:
@@ -1596,6 +1716,7 @@ def start_holdout_fit(
             "param_warnings": clamp_warns,
             "started_at": started_at,
             "finished_at": finished,
+            "suite": suite_role or None,
             "error": err,
             "exit_hint": "early_exit",
             "exit_status": early_reap,
@@ -1642,6 +1763,7 @@ def start_holdout_fit(
         "params": p,
         "param_warnings": clamp_warns,
         "started_at": started_at,
+        "suite": suite_role or None,
         "live_allowed": False,
     }
     _write_json(_job_path(spec.id), job)
@@ -1772,6 +1894,7 @@ def _coerce_slot_params(
                 "loss",
                 "tau_end",
                 "t_sample_pct",
+                "ridge_alpha",
             )
         )
         dirty = (
@@ -1787,7 +1910,7 @@ def _coerce_slot_params(
     return out
 
 
-_ARM_SUMMARY_KEYS = {"L": "arm_L", "T": "arm_T"}
+_ARM_SUMMARY_KEYS = {"L": "arm_L", "T": "arm_T", "R": "arm_R"}
 
 
 def _summary_arms(last: Any) -> Dict[str, Dict[str, Any]]:
@@ -1848,11 +1971,114 @@ def _summary_arms(last: Any) -> Dict[str, Dict[str, Any]]:
     # 旧 last / experiment 丢失：用 ingest 已写入的 metrics.arms
     arms = (last.get("metrics") or {}).get("arms") if isinstance(last.get("metrics"), dict) else None
     if isinstance(arms, dict):
-        for tag in ("L", "T"):
+        for tag in ("L", "T", "R"):
             pack = _pack_from_row(arms.get(tag))
             if pack:
                 out[tag] = pack
     return out
+
+
+def _tail_file(path: str, *, lines: int = 200) -> str:
+    if not path or not os.path.isfile(path):
+        return ""
+    try:
+        with open(path, encoding="utf-8", errors="replace") as f:
+            text = f.read()
+    except OSError:
+        return ""
+    parts = text.splitlines()
+    if len(parts) <= int(lines):
+        return text
+    return "\n".join(parts[-int(lines) :])
+
+
+def _view_after_deleted_failure(
+    head: str,
+    job: Optional[Dict[str, Any]],
+    last: Optional[Dict[str, Any]],
+) -> Optional[tuple]:
+    """终态跑次已不在版本列表时，概览和拟合日志改看列表里还在的最新一条。
+
+    成功和失败都一样：删掉后不再用磁盘上的 last / job / fit.log。
+    返回 ``(job, last, log_tail)``。列表里还有版本则用最新一条；一条都不剩则三者为空。
+    返回 None：这次跑次还在列表里，或这头还没有版本索引（归档没写成，磁盘上的上次拟合仍要显示）。
+    不改磁盘上的 last / job。进行中的拟合不走这里。
+    """
+    from core.research.yhat_factory_versions import (
+        _archive_id,
+        _index_path,
+        _log_copy_path,
+        _read_index,
+        _read_json as _read_version,
+        _snap_path,
+    )
+
+    index_path = _index_path(head)
+    if not os.path.isfile(index_path):
+        return None
+    vid = _archive_id(
+        head,
+        job if isinstance(job, dict) else None,
+        last if isinstance(last, dict) else None,
+    )
+    items = _read_index(head)
+    if vid and any(str(it.get("id") or "") == vid for it in items):
+        return None
+    snap = None
+    for it in items:
+        doc = _read_version(_snap_path(head, str(it.get("id") or "")))
+        if isinstance(doc, dict):
+            snap = doc
+            break
+    if snap is None:
+        return None, None, ""
+    action = str(snap.get("action") or "")
+    if not action:
+        action = (
+            "holdout_failed" if str(snap.get("status") or "") == "error" else "holdout_result"
+        )
+    params = snap.get("fit_params") if isinstance(snap.get("fit_params"), dict) else None
+    finished = str(snap.get("finished_at") or snap.get("started_at") or "") or None
+    shown_last = _coerce_slot_params(
+        head,
+        {
+            "role": "yhat_tf_last",
+            "head": head,
+            "action": action,
+            "metrics": snap.get("metrics"),
+            "params": params,
+            "fit_params": params,
+            "message": snap.get("message") or "",
+            "updated_at": finished,
+            "cli": snap.get("cli"),
+            "hard_gate_vs_arm_L": snap.get("hard_gate_vs_arm_L"),
+            "gate": snap.get("gate"),
+            "parity": snap.get("parity"),
+            "eval_universe": snap.get("eval_universe"),
+            "live_allowed": False,
+        },
+        persist_path="",
+    )
+    status = str(snap.get("status") or "")
+    shown_job = {
+        "role": "yhat_tf_job",
+        "head": head,
+        "run_id": str(snap.get("source_run_id") or snap.get("run_id") or ""),
+        "status": "error" if status == "error" else "done",
+        "running": False,
+        "params": params,
+        "cli": snap.get("cli") or "",
+        "started_at": snap.get("started_at"),
+        "finished_at": snap.get("finished_at"),
+        "live_allowed": False,
+    }
+    if status == "error":
+        shown_job["error"] = str(snap.get("message") or "")
+    elif status == "partial":
+        shown_job["error"] = str(snap.get("message") or "")
+        shown_job["exit_hint"] = "partial"
+    log_tail = _tail_file(_log_copy_path(head, str(snap.get("run_id") or "")))
+    return shown_job, shown_last, log_tail
 
 
 def head_status(head: str) -> Dict[str, Any]:
@@ -1883,28 +2109,37 @@ def head_status(head: str) -> Dict[str, Any]:
         and job.get("running")
         and str(job.get("status") or "") in ("running", "starting")
     )
-    last_action = (last or {}).get("action") if isinstance(last, dict) else None
-    log_tail = (
-        _log_for_status(spec.id)
-        if (
-            running
-            or job
-            or last_action in ("holdout_result", "holdout_failed")
-        )
-        else ""
-    )
     elig = promote_eligibility(spec.id, last=last, draft=draft)
+    # 删掉的终态跑次不再当作上次拟合，日志也改看还在列表里的版本。晋级仍看磁盘上的 last。
+    view_job, view_last, view_log = job, last, None
+    if not running:
+        replaced = _view_after_deleted_failure(spec.id, job, last)
+        if replaced is not None:
+            view_job, view_last, view_log = replaced
+    if view_log is None:
+        view_action = (view_last or {}).get("action") if isinstance(view_last, dict) else None
+        log_tail = (
+            _log_for_status(spec.id)
+            if (
+                running
+                or view_job
+                or view_action in ("holdout_result", "holdout_failed")
+            )
+            else ""
+        )
+    else:
+        log_tail = view_log
     return {
         "head": spec.id,
         "label": spec.label,
         "scheme": scheme,
         "draft": draft,
         "research": research,
-        "last": last,
-        "job": job,
+        "last": view_last,
+        "job": without_retired_param_warnings(view_job) if isinstance(view_job, dict) else view_job,
         "fit_running": running,
         "log_tail": log_tail,
-        "arms_metrics": _summary_arms(last),
+        "arms_metrics": _summary_arms(view_last),
         "has_draft": draft is not None,
         "has_research": research is not None,
         "promotable": bool(elig.get("promotable")),
@@ -2155,13 +2390,13 @@ def _metrics_from_holdout_summary(summary: Dict[str, Any]) -> Dict[str, Any]:
         gates = {}
 
     arms: Dict[str, Any] = {}
-    for key, tag in (("arm_L", "L"), ("arm_T", "T")):
+    for key, tag in (("arm_L", "L"), ("arm_T", "T"), ("arm_R", "R")):
         sliced = _arm_metrics_slice((summary or {}).get(key) if isinstance(summary, dict) else None)
         if sliced:
             arms[tag] = sliced
     splits: Dict[str, Any] = {}
     if isinstance(summary, dict):
-        for sk, tag in (("split_L", "L"), ("split_T", "T")):
+        for sk, tag in (("split_L", "L"), ("split_T", "T"), ("split_R", "R")):
             sp = summary.get(sk)
             if not isinstance(sp, dict):
                 continue
@@ -2173,7 +2408,7 @@ def _metrics_from_holdout_summary(summary: Dict[str, Any]) -> Dict[str, Any]:
 
     # 顶层指标优先 Arm·T；Gate 始终取 hard_gate.T（勿绑在「当前顶层臂」上）
     out: Dict[str, Any] = {}
-    for key, tag in (("arm_T", "T"), ("arm_L", "L")):
+    for key, tag in (("arm_T", "T"), ("arm_L", "L"), ("arm_R", "R")):
         pack = (summary or {}).get(key) if isinstance(summary, dict) else None
         sliced = _arm_metrics_slice(pack)
         if not sliced:
@@ -2186,11 +2421,12 @@ def _metrics_from_holdout_summary(summary: Dict[str, Any]) -> Dict[str, Any]:
         out["gate_lift"] = g_t.get("lift")
     if g_t.get("pass") is not None:
         out["gate_pass"] = g_t.get("pass")
-    # 双臂皆败时仍回写 gate，避免 last 变成空 metrics / 丢掉硬门结论
+    # 双臂皆败时仍回写 gate，避免 last 变成空 metrics / 丢掉硬门结论。
+    # 单臂失败不要一律标成 T。
     if not out and not arms:
         if g_t.get("pass") is None and not splits:
             return {}
-        out = {"arm": "T"}
+        out = {"arm": _summary_arm_tag(summary, splits, arms)}
         if g_t.get("pass") is not None:
             out["gate_pass"] = g_t.get("pass")
         if g_t.get("lift") is not None:
@@ -2200,8 +2436,25 @@ def _metrics_from_holdout_summary(summary: Dict[str, Any]) -> Dict[str, Any]:
     if splits:
         out["splits"] = splits
     if "arm" not in out:
-        out["arm"] = "T" if "T" in arms else next(iter(arms), "T")
+        out["arm"] = _summary_arm_tag(summary, splits, arms)
     return out
+
+
+def _summary_arm_tag(
+    summary: Any,
+    splits: Dict[str, Any],
+    arms: Dict[str, Any],
+) -> str:
+    fac = str((summary or {}).get("factory") or "").strip().upper() if isinstance(summary, dict) else ""
+    if fac in ("L", "T", "R"):
+        return fac
+    if "T" in arms or "T" in splits:
+        return "T"
+    if arms:
+        return next(iter(arms))
+    if splits:
+        return next(iter(splits))
+    return "T"
 
 
 def _failed_arm_notes(summary: Dict[str, Any]) -> List[str]:
@@ -2209,7 +2462,7 @@ def _failed_arm_notes(summary: Dict[str, Any]) -> List[str]:
     notes: List[str] = []
     if not isinstance(summary, dict):
         return notes
-    for key in ("arm_L", "arm_T"):
+    for key in ("arm_L", "arm_T", "arm_R"):
         pack = summary.get(key)
         if not isinstance(pack, dict) or pack.get("success") is not False:
             continue

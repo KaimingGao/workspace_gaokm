@@ -533,7 +533,7 @@ def run_roll_gate(
     if not a_codes:
         out = {
             "success": False,
-            "error": "无 A 档股票：请先在研究枢纽跑观察池分档",
+            "error": "无 A 档股票：请先在研究枢纽跑股票分档",
         }
         _set_progress(status="failed", message=out["error"])
         return out

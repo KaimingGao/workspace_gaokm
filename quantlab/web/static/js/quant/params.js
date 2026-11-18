@@ -244,7 +244,7 @@ export function clampBarsWatchingLimit(v, fallback = BARS_WATCHING_LIMIT) {
   return clampWatchingPoolLimit(v, fallback);
 }
 
-/** 观察池只数：研究枢纽滑条配置；数据中心无滑条时用已 hydrate 的上限。 */
+/** 观察池只数：数据中心滑条；研究枢纽无滑条时用已 hydrate 的文件上限。 */
 export function readWatchingPoolLimit() {
   const el =
     (typeof document !== "undefined" &&
@@ -363,6 +363,12 @@ export function createResearchParams(opts = {}) {
     return n;
   }
 
+  function _armTFactoryHead(head) {
+    const page = document.querySelector('.quant-page[data-quant-recipe="transformer"]');
+    if (!page) return false;
+    return head === "oo" || head === "tc" || head === "oo_rank" || head === "tc_rank";
+  }
+
   function hydrateHoldoutTradingDays() {
     try {
       localStorage.removeItem("quant_holdout_trading_days");
@@ -370,6 +376,7 @@ export function createResearchParams(opts = {}) {
     for (const head of FIT_PARAM_HEADS) {
       const el = getHoldoutEl(head);
       if (!el) continue;
+      if (_armTFactoryHead(head)) continue;
       const key = _holdoutKey(head);
       try {
         const saved = localStorage.getItem(key);
@@ -412,6 +419,7 @@ export function createResearchParams(opts = {}) {
     for (const head of FIT_PARAM_HEADS) {
       const el = getFitLookbackEl(head);
       if (!el) continue;
+      if (_armTFactoryHead(head)) continue;
       const fallback = DEFAULT_FIT_LOOKBACK[head];
       const key = FIT_LOOKBACK_STORAGE_KEYS[head];
       try {

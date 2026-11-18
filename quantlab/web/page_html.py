@@ -35,6 +35,7 @@ _PAGE_TITLES = {
     "platform": "平台",
     "yhat_l": "模型中心 · Arm·L",
     "yhat_t": "模型中心 · Arm·T",
+    "yhat_r": "模型中心 · Arm·R",
 }
 
 _PANEL_CLASS = {
@@ -49,6 +50,7 @@ _PANEL_CLASS = {
     "platform": "quant-panel",
     "yhat_l": "quant-panel",
     "yhat_t": "quant-panel",
+    "yhat_r": "quant-panel",
 }
 
 @lru_cache(maxsize=16)
@@ -68,6 +70,7 @@ def _template(name: str) -> str:
 
 _YHAT_T_ONLY = re.compile(r"<!--yhat-only:T-->.*?<!--/yhat-only:T-->", re.DOTALL)
 _YHAT_L_ONLY = re.compile(r"<!--yhat-only:L-->.*?<!--/yhat-only:L-->", re.DOTALL)
+_YHAT_R_ONLY = re.compile(r"<!--yhat-only:R-->.*?<!--/yhat-only:R-->", re.DOTALL)
 
 
 # Arm·L 默认窗跟研究枢纽。共享模板里的 900/60 留给 Arm·T。
@@ -109,8 +112,9 @@ def _apply_l_hub_windows(html: str) -> str:
 
 
 def _yhat_factory_panel(factory: str) -> str:
-    """共享工厂模板；factory=L|T。L 页剥掉序列 / TF 超参 / 对侧臂。"""
-    fac = "L" if str(factory).upper() == "L" else "T"
+    """共享工厂模板；factory=L|T|R。因子臂剥掉序列 / TF 超参 / 对侧臂。"""
+    raw = str(factory).upper()
+    fac = raw if raw in ("L", "T", "R") else "T"
     if fac == "L":
         arms_rail = (
             '<span class="quant-path-step quant-pro-path-step is-active" data-state="busy" '
@@ -130,6 +134,29 @@ def _yhat_factory_panel(factory: str) -> str:
             "open[T]→open[T+1] · SmoothL1 · Scheme LT": "open[T]→open[T+1] · LightGBM",
             "price[τ]→close[T] · SmoothL1 · Scheme LT": "price[τ]→close[T] · LightGBM",
             "CS rank · LambdaRank · Gate=Δcs_rank_ic vs Arm·L": "CS rank · LambdaRank",
+            "Gate · Arm·L": "绝对指标",
+            "Gate · Δcs_rank_ic": "绝对指标",
+        }
+    elif fac == "R":
+        arms_rail = (
+            '<span class="quant-path-step quant-pro-path-step is-active" data-state="busy" '
+            'title="Ridge · 全量因子；排序头训练标签为日内稠密名次">'
+            '<span class="quant-pro-path-num">Arm·R</span> Ridge</span>'
+        )
+        fills = {
+            "{{FACTORY}}": "R",
+            "{{EYEBROW}}": "Ridge Factory",
+            "{{PAGE_H2}}": "模型中心 · Arm·R",
+            "{{HELP_BLURB}}": (
+                "本页只训 <strong>Arm·R（Ridge）</strong>。"
+                "四头各自拟合与评测：回归头拟合收益，排序头拟合日内稠密名次。"
+                "绝对指标，无页内硬闸；跨厂对照留给研究枢纽。不写 live。"
+            ),
+            "{{ARMS_TITLE}}": "本厂模型臂",
+            "{{ARMS_RAIL}}": arms_rail,
+            "open[T]→open[T+1] · SmoothL1 · Scheme LT": "open[T]→open[T+1] · Ridge",
+            "price[τ]→close[T] · SmoothL1 · Scheme LT": "price[τ]→close[T] · Ridge",
+            "CS rank · LambdaRank · Gate=Δcs_rank_ic vs Arm·L": "CS rank · Ridge",
             "Gate · Arm·L": "绝对指标",
             "Gate · Δcs_rank_ic": "绝对指标",
         }
@@ -156,9 +183,15 @@ def _yhat_factory_panel(factory: str) -> str:
         html = html.replace(k, v)
     if fac == "L":
         html = _YHAT_T_ONLY.sub("", html)
+        html = _YHAT_R_ONLY.sub("", html)
+        html = _apply_l_hub_windows(html)
+    elif fac == "R":
+        html = _YHAT_T_ONLY.sub("", html)
+        html = _YHAT_L_ONLY.sub("", html)
         html = _apply_l_hub_windows(html)
     else:
         html = _YHAT_L_ONLY.sub("", html)
+        html = _YHAT_R_ONLY.sub("", html)
     return html
 
 
@@ -167,6 +200,8 @@ def _panel(name: str) -> str:
         return _yhat_factory_panel("L")
     if name == "yhat_t":
         return _yhat_factory_panel("T")
+    if name == "yhat_r":
+        return _yhat_factory_panel("R")
     return _partial(f"{name}_panel.html")
 
 

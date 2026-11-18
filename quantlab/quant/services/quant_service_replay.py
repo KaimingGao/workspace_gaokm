@@ -81,8 +81,8 @@ class QuantReplayMixin:
         y_τc_gt0: Optional[bool] = None,
         morph_gate_enabled: Optional[bool] = None,
         sentiment_gate_enabled: Optional[bool] = None,
-        oo_tc_score_min: Optional[float] = None,
-        oo_tc_score_strong_min: Optional[float] = None,
+        oo_rank_max: Optional[int] = None,
+        oo_rank_strong_max: Optional[int] = None,
         initial_cash: Optional[float] = None,
         fill_clock: str = "09:30",
         lot_base_amount: Optional[float] = None,
@@ -161,7 +161,7 @@ class QuantReplayMixin:
             if not isinstance(tier_rep, dict) or not tier_rep.get("success"):
                 return {
                     "success": False,
-                    "error": "无枢纽分档报告；请先在研究枢纽跑「观察池分档」（60 日猜涨 lift 定档）",
+                    "error": "无枢纽分档报告；请先在研究枢纽跑「股票分档」（60 日猜涨 lift 定档）",
                     "universe": resolved,
                 }
             hold_n_req = (
@@ -179,7 +179,7 @@ class QuantReplayMixin:
                 return {
                     "success": False,
                     "error": gate.get("error")
-                    or "分档报告校验失败；请重跑「观察池分档」",
+                    or "分档报告校验失败；请重跑「股票分档」",
                     "universe": resolved,
                     "predictability_gate": gate,
                 }
@@ -499,8 +499,8 @@ class QuantReplayMixin:
                     y_oo_gt0=y_oo_gt0_b,
                     morph_gate_enabled=morph_gate_b,
                     sentiment_gate_enabled=sentiment_gate_b,
-                    oo_tc_score_min=oo_tc_score_min,
-                    oo_tc_score_strong_min=oo_tc_score_strong_min,
+                    oo_rank_max=oo_rank_max,
+                    oo_rank_strong_max=oo_rank_strong_max,
                     fill_clock=clock,
                     minute_bars_by_code=minute_bars,
                     lot_base_amount=lot_base_n,
@@ -563,8 +563,8 @@ class QuantReplayMixin:
             "y_oo_gt0": y_oo_gt0_b,
             "morph_gate_enabled": morph_gate_b,
             "sentiment_gate_enabled": sentiment_gate_b,
-            "oo_tc_score_min": oo_tc_score_min,
-            "oo_tc_score_strong_min": oo_tc_score_strong_min,
+            "oo_rank_max": oo_rank_max,
+            "oo_rank_strong_max": oo_rank_strong_max,
             "fill_clock": clock,
             "lot_base_amount": lot_base_n,
             "lot_strong_amount": lot_strong_n,
@@ -577,20 +577,19 @@ class QuantReplayMixin:
                 f"{lot_base_n:g}/{lot_strong_n:g}"
                 + " 元；"
                 f"w_oo={w_oo:g}；w_τc={w_τc:g}；"
-                f"w_oo_rank={w_oo_rank:g}；w_τc_rank={w_tc_rank:g}；"
                 f"门槛1/2 入场"
                 + "；"
                 f"宇宙=观察池 {universe_n} 只"
                 + ("；日分价闸开" if gate_on else "；日分价闸关")
                 + (
-                    f"；rank≥{float(oo_tc_score_min):g}（未过强档）"
-                    if oo_tc_score_min is not None
-                    else "；Rank 闸关"
+                    f"；名次<{int(oo_rank_max)}（未过强档）"
+                    if oo_rank_max is not None
+                    else "；名次闸关"
                 )
                 + (
-                    f"；强档 rank≥{float(oo_tc_score_strong_min):g}"
-                    if oo_tc_score_strong_min is not None
-                    else "；强档 Rank 闸关"
+                    f"；强档名次<{int(oo_rank_strong_max)}"
+                    if oo_rank_strong_max is not None
+                    else "；强档名次闸关"
                 )
                 + "；ŷ头=Ridge"
                 + f"，开加不按纸面 max_positions={max_positions} 截断）；"

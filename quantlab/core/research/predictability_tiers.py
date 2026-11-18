@@ -154,7 +154,7 @@ def validate_predictability_tiers_report(
     as_of_max_lag_days: int = DEFAULT_TIER_AS_OF_MAX_LAG_DAYS,
     require_pool_fp: bool = True,
 ) -> Dict[str, Any]:
-    """回测 / live 套用分档前的硬校验。失败须重跑「观察池分档」。
+    """回测 / live 套用分档前的硬校验。失败须重跑「股票分档」。
 
     协议 / 评测窗须显式且匹配；新鲜度只认评测末日（不用定档末日兜底）。
     ``require_pool_fp``：报告须有 ``pool_codes_fp``；若再传 ``pool_codes`` 则比对指纹。
@@ -164,7 +164,7 @@ def validate_predictability_tiers_report(
     if not isinstance(report, dict) or not report.get("success"):
         return {
             "ok": False,
-            "error": "无枢纽分档报告；请先在研究枢纽跑「观察池分档」",
+            "error": "无枢纽分档报告；请先在研究枢纽跑「股票分档」",
         }
     protocol = str(report.get("protocol") or "").strip()
     if protocol != PROTOCOL_HOLDOUT_OOS:
@@ -172,7 +172,7 @@ def validate_predictability_tiers_report(
             "ok": False,
             "error": (
                 f"分档报告协议缺失或过旧（{protocol or '空'}）；"
-                "请重跑「观察池分档」（60 日猜涨 lift 定档 + Holdout 评测）"
+                "请重跑「股票分档」（60 日猜涨 lift 定档 + Holdout 评测）"
             ),
             "protocol": protocol or None,
         }
@@ -182,7 +182,7 @@ def validate_predictability_tiers_report(
             "ok": False,
             "error": (
                 f"分档报告评测窗缺失或过旧（{title_win or '空'}）；"
-                "请重跑「观察池分档」"
+                "请重跑「股票分档」"
             ),
             "title_metric_window": title_win or None,
         }
@@ -191,7 +191,7 @@ def validate_predictability_tiers_report(
     if report.get("holdout_n") is not None and last_hold is None:
         return {
             "ok": False,
-            "error": "分档报告 holdout_n 无效；请重跑「观察池分档」",
+            "error": "分档报告 holdout_n 无效；请重跑「股票分档」",
             "holdout_n": report.get("holdout_n"),
         }
     req = _parse_holdout_n(holdout_n) if holdout_n is not None else None
@@ -207,7 +207,7 @@ def validate_predictability_tiers_report(
                 "ok": False,
                 "error": (
                     f"请求分档 Holdout={req} 但报告无 holdout_n；"
-                    "请先在研究枢纽重跑「观察池分档」。"
+                    "请先在研究枢纽重跑「股票分档」。"
                 ),
                 "holdout_n_req": req,
             }
@@ -216,7 +216,7 @@ def validate_predictability_tiers_report(
                 "ok": False,
                 "error": (
                     f"请求分档 Holdout={req} 与枢纽分档 Holdout={last_hold} 不一致；"
-                    "请先在研究枢纽用当前分档 Holdout 重跑「观察池分档」。"
+                    "请先在研究枢纽用当前分档 Holdout 重跑「股票分档」。"
                 ),
                 "holdout_n": last_hold,
                 "holdout_n_req": req,
@@ -230,7 +230,7 @@ def validate_predictability_tiers_report(
     if fresh_d is None:
         return {
             "ok": False,
-            "error": "分档报告无评测末日；请重跑「观察池分档」",
+            "error": "分档报告无评测末日；请重跑「股票分档」",
             "as_of_eval_last": fresh_s or None,
         }
     try:
@@ -242,7 +242,7 @@ def validate_predictability_tiers_report(
         return {
             "ok": False,
             "error": (
-                f"分档报告评测末日 {fresh_s} 晚于今天；请重跑「观察池分档」"
+                f"分档报告评测末日 {fresh_s} 晚于今天；请重跑「股票分档」"
             ),
             "as_of_eval_last": fresh_s,
             "as_of_lag_days": lag,
@@ -252,7 +252,7 @@ def validate_predictability_tiers_report(
             "ok": False,
             "error": (
                 f"分档报告评测末日 {fresh_s} 已滞后 {lag} 日"
-                f"（阈值 {max_lag}）；请重跑「观察池分档」"
+                f"（阈值 {max_lag}）；请重跑「股票分档」"
             ),
             "as_of_eval_last": fresh_s,
             "as_of_lag_days": lag,
@@ -263,7 +263,7 @@ def validate_predictability_tiers_report(
         if not fp_rep:
             return {
                 "ok": False,
-                "error": "分档报告无池指纹；请重跑「观察池分档」",
+                "error": "分档报告无池指纹；请重跑「股票分档」",
                 "pool_codes_fp": None,
             }
         if pool_codes is not None:
@@ -272,7 +272,7 @@ def validate_predictability_tiers_report(
                 return {
                     "ok": False,
                     "error": (
-                        "分档报告观察池与当前池不一致；请重跑「观察池分档」"
+                        "分档报告观察池与当前池不一致；请重跑「股票分档」"
                     ),
                     "pool_codes_fp": fp_rep,
                     "pool_codes_fp_now": fp_now,
@@ -591,7 +591,7 @@ def promote_predictability_tiers_to_live(
     if not isinstance(src, dict) or not src.get("success"):
         return {
             "ok": False,
-            "error": "无可用分档报告；请先跑「观察池分档」",
+            "error": "无可用分档报告；请先跑「股票分档」",
             "path": predictability_tiers_active_path(),
         }
     gate = validate_predictability_tiers_report(
@@ -602,7 +602,7 @@ def promote_predictability_tiers_to_live(
     if not gate.get("ok"):
         return {
             "ok": False,
-            "error": gate.get("error") or "分档报告校验失败；请重跑「观察池分档」",
+            "error": gate.get("error") or "分档报告校验失败；请重跑「股票分档」",
             "path": predictability_tiers_active_path(),
             "gate": gate,
         }
@@ -3108,7 +3108,7 @@ def summarize_tier_ew_hold(
 
     优先按 ``dates`` 走等权净值曲线（与 ``topk_benchmark._pool_ew_equity_curve`` 同构）；
     单票或曲线不足时退回各票窗内 close 首尾买持再等权平均。
-    字段名沿用 ``mean_realized_pct`` / ``n_realized``（n=参与票数），供观察池分档区 KPI。
+    字段名沿用 ``mean_realized_pct`` / ``n_realized``（n=参与票数），供股票分档区 KPI。
     """
     from core.backtest.topk_benchmark import (
         _close_by_date,
@@ -3342,7 +3342,7 @@ def _build_predictability_tiers_body(
     if head_n == HEAD_TAU:
         return {
             "success": False,
-            "error": "观察池分档仅支持 ŷ_oo（head=oo；60 日猜涨 lift 定档 + Holdout 评测）",
+            "error": "股票分档仅支持 ŷ_oo（head=oo；60 日猜涨 lift 定档 + Holdout 评测）",
             "protocol": PROTOCOL_HOLDOUT_OOS,
         }
 
@@ -3409,7 +3409,7 @@ def _emit_predictability_tiers(
     if not packed.get("ok"):
         return {
             "success": False,
-            "error": packed.get("error") or "观察池分档失败",
+            "error": packed.get("error") or "股票分档失败",
             "protocol": PROTOCOL_HOLDOUT_OOS,
             "holdout_split": packed.get("holdout_split"),
             "split_meta": packed.get("split_meta"),

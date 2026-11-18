@@ -2545,7 +2545,7 @@ def simulate_watching_matrix_preview(
             "dry_run": bool(dry_run),
             "matrix_mode": True,
             "error": fit_meta.get("gate_error")
-            or "分档报告校验失败；请重跑「观察池分档」",
+            or "分档报告校验失败；请重跑「股票分档」",
             "fit_tiers": fit_meta,
             "confirm_supported": True,
         }

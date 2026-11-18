@@ -720,7 +720,11 @@ function renderRebalanceReport(
       y_oc: r.y_oc,
       horizon_mode: r.horizon_mode || null,
       rem_y_spec: r.rem_y_spec || null,
+      y_oo_source: r.y_oo_source || null,
       y_τc_source: r["y_τc_source"] || null,
+      y_oo_rank_source: r.y_oo_rank_source || null,
+      y_tc_rank_source: r.y_tc_rank_source || null,
+      arm_t: r.arm_t || null,
       y_τc_ridge: r["y_τc_ridge"] != null ? r["y_τc_ridge"] : null,
       day_open: r.day_open != null ? r.day_open : r.open,
       open: r.open != null ? r.open : r.day_open,
@@ -908,6 +912,13 @@ function rebalanceActionView(r) {
   return { label: "—", tone: "is-none", title: "无动作" };
 }
 
+function rankScoreTitleBit(v) {
+  const n = Number(v);
+  if (!Number.isFinite(n)) return "";
+  const sign = n > 0 ? "+" : "";
+  return ` · 预估分 ${sign}${n.toFixed(3)}`;
+}
+
 function rankOrdinal(raw, nRaw) {
     const y = Number(raw);
     const n = Number(nRaw);
@@ -954,14 +965,16 @@ function rankOrdinal(raw, nRaw) {
         r.y_tc_rank != null ? r.y_tc_rank : r.predicted_score_tc_rank,
         r.y_tc_rank_n
       );
+      const ooScoreBit = rankScoreTitleBit(r.y_oo_rank_score);
+      const tcScoreBit = rankScoreTitleBit(r.y_tc_rank_score);
       const ooRankTitle =
         ooRank.text === "—"
-          ? "oo_rank — · 无已启用模型或未写入；不进 fuse；进合成 rank_score（买序/阈值）"
-          : `当日截面第 ${ooRank.text} 名 / ${ooRank.n} · 1=相对分最高 · 不进 fuse；进合成 rank_score（买序/阈值）`;
+          ? `oo_rank —${ooScoreBit} · 无已启用模型或未写入；不进 fuse；买序看合成 rank_score；名次门槛看当天名次`
+          : `当日截面第 ${ooRank.text} 名 / ${ooRank.n}${ooScoreBit} · 1=相对分最高 · 不进 fuse；买序看合成 rank_score；名次门槛看当天名次`;
       const tcRankTitle =
         tcRank.text === "—"
-          ? "τc_rank — · 无已启用模型或未写入 · 不进 fuse；进合成 rank_score（买序/阈值）"
-          : `当日截面第 ${tcRank.text} 名 / ${tcRank.n} · 1=相对分最高 · 不进 fuse；进合成 rank_score（买序/阈值）`;
+          ? `τc_rank —${tcScoreBit} · 无已启用模型或未写入 · 不进 fuse；买序看合成 rank_score；名次门槛看当天名次`
+          : `当日截面第 ${tcRank.text} 名 / ${tcRank.n}${tcScoreBit} · 1=相对分最高 · 不进 fuse；买序看合成 rank_score；名次门槛看当天名次`;
       const tipDetailJson = escapeText(
         JSON.stringify(tipDetailPayload(r))
       );
@@ -1117,12 +1130,12 @@ function rankOrdinal(raw, nRaw) {
     }</div>` +
     `<div class="rebalance-th num is-sortable${
       _rankSort.key === "oo_rank" ? " is-sorted" : ""
-    }" role="columnheader" tabindex="0" data-rank-sort="oo_rank" title="ŷ_oo_rank 当日观察池截面名次 · 1=相对分最高 · 点击排序 · 进合成 rank_score（买序/阈值）">oo_rank${
+    }" role="columnheader" tabindex="0" data-rank-sort="oo_rank" title="ŷ_oo_rank 当日观察池截面名次 · 1=相对分最高 · 点击排序 · 买序看合成 rank_score；名次门槛看当天名次">oo_rank${
       _rankSort.key === "oo_rank" ? (_rankSort.desc ? " ↓" : " ↑") : ""
     }</div>` +
     `<div class="rebalance-th num is-sortable${
       _rankSort.key === "tc_rank" ? " is-sorted" : ""
-    }" role="columnheader" tabindex="0" data-rank-sort="tc_rank" title="ŷ_τc_rank 当日截面名次 · 1=相对分最高 · 点击排序 · 不进 fuse；进合成 rank_score（买序/阈值）">τc_rank${
+    }" role="columnheader" tabindex="0" data-rank-sort="tc_rank" title="ŷ_τc_rank 当日截面名次 · 1=相对分最高 · 点击排序 · 不进 fuse；买序看合成 rank_score；名次门槛看当天名次">τc_rank${
       _rankSort.key === "tc_rank" ? (_rankSort.desc ? " ↓" : " ↑") : ""
     }</div>` +
     `</div>` +

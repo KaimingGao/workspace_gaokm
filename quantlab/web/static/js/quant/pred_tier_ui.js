@@ -1,6 +1,6 @@
 /**
  * 观察池可预测性分档（A/B/C），供观察台主表。
- * 读上次「观察池分档」影子报告，表内不重算。
+ * 读上次「股票分档」影子报告，表内不重算。
  */
 import { escapeHtml } from "../shared.js";
 
@@ -49,7 +49,7 @@ export function predTierBadgeHtml(code, esc) {
   const t = info ? String(info.tier || "").trim().toUpperCase() : "";
   if (t !== "A" && t !== "B" && t !== "C") {
     const why = _loaded
-      ? _note || "尚无分档。请在研究枢纽跑「观察池分档」"
+      ? _note || "尚无分档。请在研究枢纽跑「股票分档」"
       : "分档加载中";
     return `<span class="watching-tier-empty" title="${esc(why)}">—</span>`;
   }
@@ -155,9 +155,9 @@ function ingestPredTierReport(data) {
     _bCount = Math.max(0, Math.min(5000, Math.round(Number(thr.b_count))));
   }
   if (data && data.success === false) {
-    _note = String(data.note || "尚无分档报告；请先在研究枢纽跑「观察池分档」");
+    _note = String(data.note || "尚无分档报告；请先在研究枢纽跑「股票分档」");
   } else if (!rows.length) {
-    _note = "尚无分档报告；请先在研究枢纽跑「观察池分档」";
+    _note = "尚无分档报告；请先在研究枢纽跑「股票分档」";
   } else {
     _note = "";
   }

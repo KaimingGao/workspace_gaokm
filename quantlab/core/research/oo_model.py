@@ -142,11 +142,27 @@ def save_return_model_draft(
         payload["backends"] = dict(backends)
     if isinstance(research_ols, dict) and research_ols:
         payload["research_ols"] = dict(research_ols)
+    hold = None
+    if isinstance(oos, dict) and oos.get("holdout_trading_days") is not None:
+        hold = oos.get("holdout_trading_days")
+    elif isinstance(meta, dict) and meta.get("holdout_trading_days") is not None:
+        hold = meta.get("holdout_trading_days")
+    if hold is not None:
+        payload["holdout_trading_days"] = hold
+    try:
+        full_sample = hold is not None and int(hold) == 0
+    except (TypeError, ValueError):
+        full_sample = False
+    if full_sample:
+        payload["note"] = (
+            "执行草稿（ŷ_oo LightGBM；Holdout=0 全样本）；启用后写入执行套。"
+        )
     payload["saved_at"] = payload["fitted_at"]
     atomic_write_json(RETURN_SCORE_MODEL_DRAFT_PATH, payload)
     from core.research.model_versions import archive_fit_draft
 
-    archive_fit_draft("oo", payload, role="research")
+    # Holdout 进研究列表；Holdout=0 进执行列表。不要写死 research。
+    archive_fit_draft("oo", payload)
     n_feats = len((blob or {}).get("feature_names") or [])
     return {
         "success": True,

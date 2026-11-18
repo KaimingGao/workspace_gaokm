@@ -306,6 +306,13 @@ def archive_suite_version(
             )
             return None
     r = _role(role)
+    if r == MODEL_ROLE_RESEARCH and suite_doc_full_sample(doc):
+        logger.info(
+            "skip research archive full-sample head=%s holdout=%s",
+            h,
+            suite_doc_holdout_days(doc),
+        )
+        return None
     vid = version_id_for_doc(doc)
     if not vid:
         return None
@@ -330,20 +337,36 @@ def archive_suite_version(
     return vid
 
 
-def fit_archive_role(doc: Dict[str, Any]) -> str:
-    """Holdout 拟合进研究列表；Holdout=0 / 全样本部署进执行列表。"""
-    if doc.get("deploy_full_sample"):
-        return MODEL_ROLE_LIVE
+def suite_doc_holdout_days(doc: Optional[Dict[str, Any]]) -> Optional[int]:
+    """顶层或 ``oos`` 上的 Holdout 交易日。缺省或非整数为 ``None``。"""
+    if not isinstance(doc, dict):
+        return None
     hold = doc.get("holdout_trading_days")
     if hold is None:
         oos = doc.get("oos")
         if isinstance(oos, dict):
             hold = oos.get("holdout_trading_days")
     try:
-        if hold is not None and int(hold) == 0:
-            return MODEL_ROLE_LIVE
+        if hold is None:
+            return None
+        return int(hold)
     except (TypeError, ValueError):
-        pass
+        return None
+
+
+def suite_doc_full_sample(doc: Optional[Dict[str, Any]]) -> bool:
+    """Holdout=0 或全样本部署。这类包只属于执行列表。"""
+    if not isinstance(doc, dict):
+        return False
+    if doc.get("deploy_full_sample"):
+        return True
+    return suite_doc_holdout_days(doc) == 0
+
+
+def fit_archive_role(doc: Dict[str, Any]) -> str:
+    """Holdout 拟合进研究列表；Holdout=0 / 全样本部署进执行列表。"""
+    if suite_doc_full_sample(doc):
+        return MODEL_ROLE_LIVE
     return MODEL_ROLE_RESEARCH
 
 
@@ -377,6 +400,9 @@ def ensure_current_archived(head: str, role: str) -> Optional[str]:
         return None
     # 残缺槽不补归档
     if suite_doc_incomplete_reason(doc):
+        return None
+    # Holdout=0 不得补进研究列表（执行草稿曾被写死归档到这里）
+    if r == MODEL_ROLE_RESEARCH and suite_doc_full_sample(doc):
         return None
     vid = version_id_for_doc(doc)
     if not vid:
@@ -482,13 +508,54 @@ def purge_incomplete_versions(head: str, role: str) -> Dict[str, Any]:
     }
 
 
+def purge_full_sample_research_versions(head: str, role: str) -> Dict[str, Any]:
+    """研究列表去掉 Holdout=0 / 全样本包。
+
+    这些包属于执行列表。历史误归档不受「至少保留 1 个 / 当前槽不可删」保护。
+    """
+    h = normalize_suite_head(head)
+    r = _role(role)
+    if h not in SUITE_HEADS:
+        return {"success": False, "error": f"unknown head: {head!r}", "removed": []}
+    if r != MODEL_ROLE_RESEARCH:
+        return {"success": True, "head": h, "role": r, "removed": [], "kept": None}
+    removed: List[str] = []
+    kept: List[Dict[str, Any]] = []
+    d = versions_dir(h, r)
+    for it in _read_index(h, r):
+        vid = str(it.get("id") or "")
+        if not vid:
+            continue
+        doc = load_version_doc(h, r, vid)
+        if suite_doc_full_sample(doc if isinstance(doc, dict) else None):
+            path = os.path.join(d, f"{vid}.json")
+            try:
+                if os.path.isfile(path):
+                    os.remove(path)
+                removed.append(vid)
+            except OSError:
+                kept.append(it)
+            continue
+        kept.append(it)
+    if removed:
+        _write_index(h, r, kept)
+    return {
+        "success": True,
+        "head": h,
+        "role": r,
+        "removed": removed,
+        "kept": len(kept),
+    }
+
+
 def list_suite_versions(head: str, role: str) -> Dict[str, Any]:
     h = normalize_suite_head(head)
     r = _role(role)
     if h not in SUITE_HEADS:
         return {"success": False, "error": f"unknown head: {head!r}", "items": []}
-    # 列表前清掉历史残缺包，避免下拉再冒烟
+    # 列表前清掉历史残缺包，以及误进研究列表的 Holdout=0
     purged = purge_incomplete_versions(h, r)
+    purged_full = purge_full_sample_research_versions(h, r)
     current_id = ensure_current_archived(h, r)
     items = _read_index(h, r)
     slot = suite_slot_path(h, r)
@@ -506,6 +573,7 @@ def list_suite_versions(head: str, role: str) -> Dict[str, Any]:
         "slot_path": slot,
         "slot_incomplete": slot_incomplete,
         "purged_incomplete": purged.get("removed") or [],
+        "purged_full_sample": purged_full.get("removed") or [],
         "items": items,
     }
 

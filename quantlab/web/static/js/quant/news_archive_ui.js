@@ -1,6 +1,7 @@
 /** 数据中心 · 新闻舆情。与观察池徽章同一本地库；09:30 前只读展示。 */
 
 import { escapeHtml } from "../shared.js";
+import { setDataOverviewKpi } from "./factor_corr_ui.js";
 
 function slotClock(key, sessionDate) {
   const m = String(key || "").match(/^(\d{4}-\d{2}-\d{2})T(\d{2}:\d{2})/);
@@ -526,6 +527,36 @@ export function installNewsArchivePanel() {
     btn.disabled = running;
   }
 
+  function paintDataOverview(data) {
+    const src = data || {};
+    const last = src.last || {};
+    const portrait = src.portrait || {};
+    const labels = portrait.labels || {};
+    const titles = Number(portrait.n_titles || 0);
+    const nTime = Number(portrait.n_timestamp || 0);
+    const stopped = !!STOP_TEXT[String(last.stop_reason || "")];
+    const hasRun = !!last.ran_at;
+    const clockPct = titles ? `${Math.round((100 * nTime) / titles)}%` : "—";
+    setDataOverviewKpi(
+      "news",
+      titles ? String(titles) : hasRun ? hm(last.ran_at) || "—" : "—",
+      newsArchiveSummary(src),
+      !hasRun ? "is-empty" : stopped ? "is-mid" : "is-good",
+      {
+        clocked: {
+          v: clockPct,
+          title: titles ? `${nTime} / ${titles} 条带发布时间` : "",
+        },
+        each: {
+          v: titles ? String(Number(portrait.titles_median || 0)) : "—",
+          title: titles ? `中位 · 最多 ${Number(portrait.titles_max || 0)}` : "",
+        },
+        bull: { v: titles ? String(Number(labels.bullish || 0)) : "—" },
+        bear: { v: titles ? String(Number(labels.bearish || 0)) : "—" },
+      }
+    );
+  }
+
   function paint(data) {
     showError("");
     stockCatalog = Array.isArray(data && data.sample_stocks) ? data.sample_stocks : [];
@@ -537,6 +568,7 @@ export function installNewsArchivePanel() {
         newsArchivePortraitHtml(data && data.portrait, data) +
         newsArchiveSamplesHtml(data && data.samples, data);
     }
+    paintDataOverview(data);
     const codes = (data && data.failed_codes) || [];
     if (failed) {
       if (codes.length) {

@@ -2,8 +2,10 @@
   <div class="dashboard-head-text quant-head-text">
     <p class="dashboard-eyebrow">Data Desk</p>
     <h2>数据中心</h2>
-    <p class="dashboard-meta quant-meta" id="data-meta" aria-live="polite">写当前观察池 · 不改名单 · 不拟合</p>
+    <p class="dashboard-meta quant-meta" id="data-meta" aria-live="polite">概览定观察池 · 日K / 5m / 舆情只写这份名单 · 不拟合</p>
     <p class="dashboard-section-desc quant-head-path">
+      <a class="quant-hero-link" href="#data-section-overview">概览</a>
+      →
       <a class="quant-hero-link" href="#quant-section-bars">日线</a>
       →
       <a class="quant-hero-link" href="#quant-section-minute">分钟线</a>
@@ -11,23 +13,107 @@
       <a class="quant-hero-link" href="#quant-section-news">新闻舆情</a>
       →
       <a class="quant-hero-link" href="/quant">研究枢纽</a>
-      · 只写当前观察池 · 不改名单
+      · 观察池在概览 · 不拟合
     </p>
   </div>
   <div class="dashboard-head-actions quant-head-actions">
     <span class="quant-desk-badge" title="写日 K、5m 与新闻舆情，并物化 open / τ 特征">日K · 5m · 物化</span>
-    <span class="quant-desk-guard" title="观察台改名单；拟合在研究枢纽">不改名单 · 不拟合</span>
+    <span class="quant-desk-guard" title="观察池只数与重建对齐在概览；日线 / 分钟 / 舆情按钮不另改名单；拟合在研究枢纽">概览定池 · 不拟合</span>
   </div>
 </div>
 
 <div class="quant-body quant-page">
+
+  <section class="dashboard-section quant-section quant-overview-section" id="data-section-overview" aria-labelledby="data-section-overview-title">
+    <header class="dashboard-section-head quant-section-head">
+      <h3 id="data-section-overview-title" class="dashboard-section-title">概览</h3>
+      <p class="dashboard-section-desc quant-section-desc">观察池只数 · 日线覆盖 · 分钟 Ready · 新闻舆情 · <a class="quant-hero-link" href="/quant">拟合在研究枢纽</a></p>
+      <div class="quant-overview-pool-tools" role="group" aria-label="观察池只数">
+        <label
+          class="quant-watching-pool-slider"
+          title="数据中心观察池目标只数。200～1600，默认 300。缩小截名单并暂存；放大先恢复暂存，再从研究宇宙补齐。日 K、5m、舆情跟这份名单。"
+        >
+          <span class="quant-watching-pool-slider-lab">观察池</span>
+          <span class="quant-watching-pool-scale">
+            <span class="quant-watching-pool-bound" aria-hidden="true">200</span>
+            <input
+              id="quant-watching-max-size"
+              class="quant-watching-pool-range"
+              type="range"
+              min="200"
+              max="1600"
+              step="10"
+              value="300"
+              aria-label="观察池只数"
+              aria-valuemin="200"
+              aria-valuemax="1600"
+            />
+            <span class="quant-watching-pool-bound" aria-hidden="true">1600</span>
+          </span>
+          <span class="quant-watching-pool-readout">
+            <output id="quant-watching-pool-val" for="quant-watching-max-size">300</output>
+            <span class="quant-watching-pool-unit" aria-hidden="true">只</span>
+          </span>
+        </label>
+        <div class="quant-watching-pool-actions" role="group" aria-label="可交易宇宙">
+          <button
+            type="button"
+            id="quant-ru-rebuild-align"
+            class="dialog-btn primary"
+            title="① 按 tradable_universe_policy 重建研究池（日 K ∪ 现货严筛）② 把数据中心观察池裁成研究池子集。不暖仓；日 K / 5m 覆盖按裁完的池子重拉。分档 / ŷ 仍读这份名单。"
+          >
+            重建并对齐
+          </button>
+        </div>
+      </div>
+    </header>
+    <div class="dashboard-overview-band quant-pro-desk-top quant-overview-band">
+      <div class="dashboard-kpi-row quant-pro-overview-kpis quant-kpi-row" id="data-overview-kpis" aria-label="数据覆盖 KPI">
+        <div class="dashboard-kpi-row-body">
+          <a class="dashboard-kpi-card quant-pro-kpi-card quant-kpi-card is-empty" data-kpi="bars" href="#quant-section-bars" title="观察池日 K 末 bar 达到 as-of 的占比">
+            <div class="dashboard-kpi-label quant-pro-kpi-label quant-kpi-label">日线</div>
+            <div class="dashboard-kpi-value quant-pro-kpi-value quant-kpi-value">—</div>
+            <div class="dashboard-kpi-sub quant-pro-kpi-sub quant-kpi-sub">Coverage</div>
+            <div class="data-overview-facts" data-facts>
+              <span class="data-overview-fact" data-fact="asof"><em>更新至</em><strong>—</strong></span>
+              <span class="data-overview-fact" data-fact="fetched"><em>上次</em><strong>—</strong></span>
+              <span class="data-overview-fact" data-fact="stale"><em>Stale</em><strong>—</strong></span>
+              <span class="data-overview-fact" data-fact="missing"><em>Missing</em><strong>—</strong></span>
+            </div>
+          </a>
+          <a class="dashboard-kpi-card quant-pro-kpi-card quant-kpi-card is-empty" data-kpi="minute" href="#quant-section-minute" title="近 40 个交易日 5m 无缺的占比">
+            <div class="dashboard-kpi-label quant-pro-kpi-label quant-kpi-label">分钟</div>
+            <div class="dashboard-kpi-value quant-pro-kpi-value quant-kpi-value">—</div>
+            <div class="dashboard-kpi-sub quant-pro-kpi-sub quant-kpi-sub">Ready</div>
+            <div class="data-overview-facts" data-facts>
+              <span class="data-overview-fact" data-fact="asof"><em>更新至</em><strong>—</strong></span>
+              <span class="data-overview-fact" data-fact="span"><em>跨度</em><strong>—</strong></span>
+              <span class="data-overview-fact" data-fact="short"><em>Short</em><strong>—</strong></span>
+              <span class="data-overview-fact" data-fact="missing"><em>Missing</em><strong>—</strong></span>
+            </div>
+          </a>
+          <a class="dashboard-kpi-card quant-pro-kpi-card quant-kpi-card is-empty" data-kpi="news" href="#quant-section-news" title="本地新闻舆情库最近一次采集">
+            <div class="dashboard-kpi-label quant-pro-kpi-label quant-kpi-label">舆情</div>
+            <div class="dashboard-kpi-value quant-pro-kpi-value quant-kpi-value">—</div>
+            <div class="dashboard-kpi-sub quant-pro-kpi-sub quant-kpi-sub">最近采集</div>
+            <div class="data-overview-facts" data-facts>
+              <span class="data-overview-fact" data-fact="clocked"><em>有时点</em><strong>—</strong></span>
+              <span class="data-overview-fact" data-fact="each"><em>每只</em><strong>—</strong></span>
+              <span class="data-overview-fact" data-fact="bull"><em>多</em><strong>—</strong></span>
+              <span class="data-overview-fact" data-fact="bear"><em>空</em><strong>—</strong></span>
+            </div>
+          </a>
+        </div>
+      </div>
+    </div>
+  </section>
 
   <!-- 日线：L0 日 K 仓 + 物化 open L1/L2（两块） -->
   <section class="dashboard-section quant-section" id="quant-section-bars" aria-labelledby="quant-section-bars-title">
     <header class="dashboard-section-head quant-section-head">
       <h3 id="quant-section-bars-title" class="dashboard-section-title">日线</h3>
       <p class="dashboard-section-desc quant-section-desc" id="quant-section-bars-desc">
-        两块：日 K 仓（增量补齐 / 强更日 K）· 物化特征（L1/L2 · open）· 调度 bars_warmup · 观察台只改名单 · 下游 ŷ_oo
+        两块：日 K 仓（增量补齐 / 强更日 K）· 物化特征（L1/L2 · open）· 调度 bars_warmup · 本区不改名单 · 下游 ŷ_oo
       </p>
     </header>
     <div class="quant-bars-panels">
@@ -44,7 +130,7 @@
               <p>
                 写日 K：日常<strong>增量补齐（L0）</strong>（窗 1060 个交易日：末 bar 未齐只补新日期，已有日不动；本地太短或前复权重锚则整窗）·
                 全窗<strong>强更日 K（L0）</strong>（进程池整窗替换；仓损坏 / 复权混用时用）· 调度 <code>bars_warmup</code>。
-                写入后本区对比上一份仓的收盘和成交量。物化见下方板块。观察台只改名单。不写 5m、不算 ŷ。
+                写入后本区对比上一份仓的收盘和成交量。物化见下方板块。本按钮不改名单。不写 5m、不算 ŷ。
               </p>
             </div>
           </details>

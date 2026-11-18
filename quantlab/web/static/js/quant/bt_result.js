@@ -423,28 +423,16 @@ function _replayGateBits(data) {
   const enter = p.fuse_enter != null ? p.fuse_enter : req.fuse_enter;
   const enterPct = _fmtGatePct(enter);
   if (enterPct) bits.push(`fuse≥${enterPct}%`);
-  const scMin = p.oo_tc_score_min != null ? p.oo_tc_score_min : req.oo_tc_score_min;
+  const scMin = p.oo_rank_max != null ? p.oo_rank_max : req.oo_rank_max;
   if (scMin != null && Number.isFinite(Number(scMin))) {
-    bits.push(`rank≥${Number(scMin)}`);
+    bits.push(`名次<${Math.round(Number(scMin))}`);
   }
   const scStrong =
-    p.oo_tc_score_strong_min != null
-      ? p.oo_tc_score_strong_min
-      : req.oo_tc_score_strong_min;
+    p.oo_rank_strong_max != null
+      ? p.oo_rank_strong_max
+      : req.oo_rank_strong_max;
   if (scStrong != null && Number.isFinite(Number(scStrong))) {
-    bits.push(`强rank≥${Number(scStrong)}`);
-  }
-  const wOoRank =
-    p.fusion_w_oo_rank != null ? p.fusion_w_oo_rank : req.fusion_w_oo_rank;
-  const wTcRank =
-    p.fusion_w_tc_rank != null ? p.fusion_w_tc_rank : req.fusion_w_tc_rank;
-  if (
-    wOoRank != null &&
-    wTcRank != null &&
-    Number.isFinite(Number(wOoRank)) &&
-    Number.isFinite(Number(wTcRank))
-  ) {
-    bits.push(`w_rank=${Number(wOoRank).toFixed(2)}/${Number(wTcRank).toFixed(2)}`);
+    bits.push(`强名次<${Math.round(Number(scStrong))}`);
   }
   if (
     p.y_oo_gt0 === true ||

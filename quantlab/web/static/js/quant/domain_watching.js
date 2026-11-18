@@ -4,7 +4,6 @@ import { scoresPolicyLine } from "../data_policy.js";
 import { ensureWarehouseTopup } from "../data_warehouse_topup.js";
 import { BARS_WATCHING_LIMIT } from "./params.js";
 import { renderLineChart } from "../lw_charts.js";
-import { syncOverviewUniverse } from "./factor_corr_ui.js";
 import { fmtScore, fmtTableScore, scoreCls, resolveFuseScore, resolveEodScore } from "../paper/fmt.js";
 import { watchingNameFromEl, applyWatchingNameEl } from "./names.js";
 import { renderWatchingHoldings } from "./watching_holdings.js";
@@ -1353,14 +1352,6 @@ export function installWatching(q) {
       held: paperN,
       maxSize: uni.max_size,
     });
-    try {
-      syncOverviewUniverse(
-        wl.length,
-        paperN ? `纸面重叠 ${paperN}` : "观察池"
-      );
-    } catch (_) {
-      /* overview optional */
-    }
     await renderWatchingWatchTable(wl, names, paperCodes, uni.watchlist_scores || {});
     renderWatchingHoldingsView(
       uni.watchlist_holdings || {},

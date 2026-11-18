@@ -1,4 +1,4 @@
-"""SeqTransformer 训练 / 推理（Holdout 锁定，只用 train 内验证；四头共用）。"""
+"""Arm·T 训练 / 推理。不切验证集，跑满 epochs，Holdout 只做测试。"""
 
 from __future__ import annotations
 
@@ -65,10 +65,13 @@ def _clip_inplace_rows(
     row_ids: Sequence[int],
     *,
     seed: int,
-) -> None:
-    """按 train 行估计分位，原地 clip X/gap（勿再分配全量副本）。"""
+) -> Optional[Dict[str, Any]]:
+    """按 train 行估计分位，原地 clip X/gap（勿再分配全量副本）。
+
+    返回每维 1%/99% 上下界，供版本权重在新日期上按同一分位裁切。
+    """
     if not row_ids:
-        return
+        return None
     tr_np = np.asarray(row_ids, dtype=np.int64)
     if tr_np.size > 20000:
         rng_clip = np.random.RandomState(int(seed) + 7)
@@ -79,53 +82,15 @@ def _clip_inplace_rows(
     hi = np.nanpercentile(flat, 99.0, axis=0).astype(np.float32)
     np.clip(X, lo, hi, out=X)
     g_s = gap[tr_np]
-    np.clip(
-        gap,
-        float(np.nanpercentile(g_s, 1.0)),
-        float(np.nanpercentile(g_s, 99.0)),
-        out=gap,
-    )
-
-
-# 早停只用训练日历末尾这段；下限 10%，把其余样本留给训练。
-_VAL_DAY_FRAC = 0.1
-
-
-def split_train_val_indices(
-    dates: Sequence[str],
-    train_idx: Sequence[int],
-    *,
-    val_frac: float = _VAL_DAY_FRAC,
-) -> Tuple[List[int], List[int]]:
-    """按日历从训练集末尾切 val（不动 Holdout）。
-
-    ``val_frac`` 钳在 0.1–0.4，默认取下限。至少 2 个验证日，训练日至少留 3 天。
-    """
-    row_days = [str(dates[i])[:10] for i in train_idx]
-    uniq = sorted({d for d in row_days if d})
-    if len(uniq) < 8:
-        return list(train_idx), []
-    frac = min(0.4, max(0.1, float(val_frac if val_frac else _VAL_DAY_FRAC)))
-    n_val = max(2, int(round(len(uniq) * frac)))
-    n_val = min(n_val, len(uniq) - 3)
-    val_days = set(uniq[-n_val:])
-    tr: List[int] = []
-    va: List[int] = []
-    for i in train_idx:
-        d = str(dates[i])[:10]
-        (va if d in val_days else tr).append(int(i))
-    if len(tr) < 8:
-        return list(train_idx), []
-    return tr, va
-
-
-def _batches(n: int, batch_size: int, *, shuffle: bool, rng: np.random.RandomState):
-    idx = np.arange(n, dtype=np.int64)
-    if shuffle:
-        rng.shuffle(idx)
-    bs = max(16, int(batch_size or 128))
-    for start in range(0, n, bs):
-        yield idx[start : start + bs]
+    gap_lo = float(np.nanpercentile(g_s, 1.0))
+    gap_hi = float(np.nanpercentile(g_s, 99.0))
+    np.clip(gap, gap_lo, gap_hi, out=gap)
+    return {
+        "x_lo": [float(v) for v in lo.tolist()],
+        "x_hi": [float(v) for v in hi.tolist()],
+        "gap_lo": gap_lo,
+        "gap_hi": gap_hi,
+    }
 
 
 def _group_row_lists(
@@ -180,10 +145,92 @@ def _iter_group_batches(
 
 # 与 Arm·L ``LAMBDARANK_TRUNCATION_LEVEL`` 对齐：当前分数前 100 名。
 _LAMBDARANK_TRUNCATION = 100
+# 排序头保值：把 ŷ 拉向当日标签截面 z，避免 LambdaRank 零点乱漂。
+_RANK_VALUE_LOSS_WEIGHT = 0.3
+_RANK_VALUE_Z_CLIP = 3.0
+
+
+def _uniq_days(dates_batch: Sequence[str]) -> List[str]:
+    uniq: List[str] = []
+    seen = set()
+    for d in dates_batch:
+        ds = str(d)[:10]
+        if not ds or ds in seen:
+            continue
+        seen.add(ds)
+        uniq.append(ds)
+    return uniq
+
+
+def _day_row_index(dates_batch: Sequence[str], day: str):
+    torch = _require_torch()
+    mask = [i for i, x in enumerate(dates_batch) if str(x)[:10] == day]
+    return torch.as_tensor(mask, dtype=torch.long)
+
+
+def _demean_by_day(pred, dates_batch: Sequence[str]):
+    """按决策日减均值。序损失用，去掉全局平移自由度。"""
+    torch = _require_torch()
+    if pred.numel() <= 1:
+        return pred
+    uniq = _uniq_days(dates_batch)
+    if not uniq or len(uniq) == 1:
+        return pred - pred.mean()
+    out = pred.clone()
+    for day in uniq:
+        idx = _day_row_index(dates_batch, day).to(device=pred.device)
+        if int(idx.numel()) <= 0:
+            continue
+        chunk = pred.index_select(0, idx)
+        out.index_copy_(0, idx, chunk - chunk.mean())
+    return out
+
+
+def _section_z_by_day(values, dates_batch: Sequence[str], *, clip: float = _RANK_VALUE_Z_CLIP):
+    """当日截面 z（目标侧）。标准差过小或非有限 → 0。"""
+    torch = _require_torch()
+    out = torch.zeros_like(values)
+    if values.numel() <= 0:
+        return out
+    uniq = _uniq_days(dates_batch) or ["_"]
+    for day in uniq:
+        if day == "_":
+            idx = torch.arange(int(values.shape[0]), device=values.device, dtype=torch.long)
+        else:
+            idx = _day_row_index(dates_batch, day).to(device=values.device)
+        if int(idx.numel()) < 2:
+            continue
+        v = values.index_select(0, idx)
+        finite = torch.isfinite(v)
+        if int(finite.sum().item()) < 2:
+            continue
+        vv = v[finite]
+        mu = vv.mean()
+        sd = vv.std(unbiased=False)
+        if float(sd.detach()) <= 1e-12:
+            z = torch.zeros_like(vv)
+        else:
+            z = (vv - mu) / sd
+            cap = float(clip)
+            if cap > 0:
+                z = z.clamp(-cap, cap)
+        slot = torch.zeros_like(v)
+        slot = slot.masked_scatter(finite, z)
+        out.index_copy_(0, idx, slot)
+    return out
+
+
+def _rank_value_loss(pred, yb, dates_batch: Sequence[str]):
+    """保值：ŷ ↔ 当日标签截面 z（SmoothL1）。"""
+    torch = _require_torch()
+    if pred.numel() <= 0:
+        return pred.sum() * 0.0
+    target = _section_z_by_day(yb.detach(), dates_batch)
+    return torch.nn.functional.smooth_l1_loss(pred, target, beta=1.0)
 
 
 def _lambdarank_group_loss(pred, yb, *, truncation: int = _LAMBDARANK_TRUNCATION):
-    """一天一组的 LambdaRank 成对损失（对计入的对取平均）。
+    """一天一组的 LambdaRank 成对损失（返回整天归一化后的和）。
 
     标签是稠密名次 ``0..n-1``（收益高 = 名次高）。``w_ij`` 用当前分数的名次断开梯度，
     只沿 ``ŷ_i - ŷ_j`` 反传。一对里至少有一个落在当前前 ``truncation`` 名才计入；
@@ -192,6 +239,10 @@ def _lambdarank_group_loss(pred, yb, *, truncation: int = _LAMBDARANK_TRUNCATION
     鲁棒性对齐 LightGBM ``lambdarank_norm``（默认开）：权重再除以
     ``0.01+|分数差|``，分数已经拉开的对少推动；整天 λ 质量再乘
     ``log2(1+S)/S``。IDCG 只用前 ``truncation`` 名，尾部不稀释头部。
+
+    不再除以 pair 数。``S`` 已经随截面宽度涨，``log2(1+S)/S`` 把整天梯度压到
+    ``O(log S)``。A 股一日约 1500 只、截断 100 时 pair 约 1.5e5，再取平均会把
+    loss 打到 1e-5 以下、参数梯度打到 0。
     """
     torch = _require_torch()
     finite = torch.isfinite(pred) & torch.isfinite(yb)
@@ -233,40 +284,59 @@ def _lambdarank_group_loss(pred, yb, *, truncation: int = _LAMBDARANK_TRUNCATION
     mass = (weight * sig).masked_fill(~keep, 0.0).sum() * 2.0
     if float(mass.detach()) > 0.0:
         pair = pair * (torch.log2(1.0 + mass) / mass).detach()
-    n_pairs = float(k * (2 * n - k - 1) / 2)
-    return pair.sum() / max(n_pairs, 1.0)
+    return pair.sum()
 
 
-def _rank_batch_loss(pred, yb, dates_batch: Sequence[str]):
-    """多日拼 batch：按日期拆开，各日 LambdaRank 再取均值。"""
+def _rank_batch_loss(
+    pred,
+    yb,
+    dates_batch: Sequence[str],
+    *,
+    value_weight: Optional[float] = None,
+):
+    """排序头混合损失：日内减均值后的 LambdaRank（序）+ 标签日 z 回归（值）。
+
+    ``value_weight`` 缺省 ``_RANK_VALUE_LOSS_WEIGHT``；≤0 时只留序损失。
+    """
     torch = _require_torch()
     if pred.numel() <= 1:
         return pred.sum() * 0.0
-    uniq = []
-    seen = set()
-    for d in dates_batch:
-        ds = str(d)[:10]
-        if ds not in seen:
-            seen.add(ds)
-            uniq.append(ds)
-    if len(uniq) <= 1:
-        return _lambdarank_group_loss(pred, yb)
-    losses = []
-    for d in uniq:
-        mask = [i for i, x in enumerate(dates_batch) if str(x)[:10] == d]
-        if len(mask) < 2:
-            continue
-        idx = torch.as_tensor(mask, device=pred.device, dtype=torch.long)
-        losses.append(
-            _lambdarank_group_loss(pred.index_select(0, idx), yb.index_select(0, idx))
+    try:
+        w_val = (
+            float(_RANK_VALUE_LOSS_WEIGHT)
+            if value_weight is None
+            else float(value_weight)
         )
-    if not losses:
-        return pred.sum() * 0.0
-    return torch.stack(losses).mean()
+    except (TypeError, ValueError):
+        w_val = float(_RANK_VALUE_LOSS_WEIGHT)
+    if w_val != w_val or w_val in (float("inf"), float("-inf")):
+        w_val = float(_RANK_VALUE_LOSS_WEIGHT)
+    pred_c = _demean_by_day(pred, dates_batch)
+    uniq = _uniq_days(dates_batch)
+    if len(uniq) <= 1:
+        rank_loss = _lambdarank_group_loss(pred_c, yb)
+    else:
+        losses = []
+        for d in uniq:
+            idx = _day_row_index(dates_batch, d).to(device=pred.device)
+            if int(idx.numel()) < 2:
+                continue
+            losses.append(
+                _lambdarank_group_loss(
+                    pred_c.index_select(0, idx), yb.index_select(0, idx)
+                )
+            )
+        if not losses:
+            rank_loss = pred.sum() * 0.0
+        else:
+            rank_loss = torch.stack(losses).mean()
+    if w_val <= 0:
+        return rank_loss
+    return rank_loss + w_val * _rank_value_loss(pred, yb, dates_batch)
 
 
 def _resolve_loss(loss: Optional[str]):
-    """返回 (name, pointwise_fn_or_None)；排序头走 LambdaRank 成对路径。"""
+    """返回 (name, pointwise_fn_or_None)；排序头走 LambdaRank+日 z 混合路径。"""
     name = str(loss or "smooth_l1").strip().lower()
     if name == "lambdarank":
         return "lambdarank", None
@@ -366,235 +436,6 @@ def _subsample_whole_groups(
     return kept
 
 
-def _prepare_rank_indices(
-    dates: Sequence[str],
-    train_idx: Sequence[int],
-    *,
-    max_train_rows: Optional[int],
-    seed: int,
-    val_idx: Optional[Sequence[int]] = None,
-) -> Tuple[List[int], List[int]]:
-    """先按日历切验证日；只对 **train 日组** 做 ``max_train_rows`` 抽样，val 保持完整日。"""
-    if val_idx is None:
-        tr_full, va_full = split_train_val_indices(dates, list(train_idx))
-    else:
-        tr_full = list(train_idx)
-        va_full = list(val_idx)
-    cap = int(max_train_rows or 0)
-    tr = _subsample_whole_groups(
-        dates, tr_full, max_rows=cap, seed=seed, latest=False
-    )
-    va = list(va_full)
-    return tr, va
-
-
-def train_yhat_transformer(
-    panel: Any,
-    train_idx: Sequence[int],
-    *,
-    val_idx: Optional[Sequence[int]] = None,
-    d_model: int = 32,
-    nhead: int = 4,
-    nlayers: int = 2,
-    dropout: float = 0.1,
-    epochs: int = 30,
-    batch_size: int = 128,
-    lr: float = 1e-3,
-    weight_decay: float = 1e-4,
-    seed: int = 42,
-    device: Optional[str] = None,
-    patience: int = 6,
-    max_train_rows: Optional[int] = None,
-    loss: str = "smooth_l1",
-) -> Tuple[Any, Dict[str, Any]]:
-    """返回 ``(state_dict_cpu, report)``；模型权重在 CPU。
-
-    ``loss=lambdarank``：按决策日做 LambdaRank 成对损失；其余为点损失。
-    """
-    torch = _require_torch()
-    from core.research.yhat_transformer.model import (
-        SeqTransformer,
-        count_parameters,
-        pick_device,
-    )
-
-    _seed_all(int(seed))
-    dev = pick_device(device)
-    loss_name, loss_fn = _resolve_loss(loss)
-    grouped = loss_name == "lambdarank"
-    dates = [str(d)[:10] for d in panel.dates]
-    if grouped:
-        tr, va = _prepare_rank_indices(
-            dates,
-            train_idx,
-            max_train_rows=max_train_rows,
-            seed=seed,
-            val_idx=val_idx,
-        )
-    else:
-        # 先切验证日，再只抽训练日，避免抽样把日历末尾的验证日抽掉。
-        if val_idx is None:
-            tr_full, va = split_train_val_indices(panel.dates, list(train_idx))
-        else:
-            tr_full = list(train_idx)
-            va = list(val_idx)
-        tr = _maybe_subsample(tr_full, max_train_rows=max_train_rows, seed=seed)
-
-    X = _owned_f32(panel.X)
-    gap = _owned_f32(panel.gap)
-    y = _owned_f32(panel.y)
-    if tr:
-        _clip_inplace_rows(X, gap, tr, seed=int(seed))
-
-    d_in = int(X.shape[-1])
-    model = SeqTransformer(
-        d_in=d_in,
-        d_model=int(d_model),
-        nhead=int(nhead),
-        nlayers=int(nlayers),
-        dim_feedforward=max(64, int(d_model) * 2),
-        dropout=float(dropout),
-        use_gap=True,
-    ).to(dev)
-    opt = torch.optim.AdamW(
-        model.parameters(),
-        lr=float(lr),
-        weight_decay=float(weight_decay),
-    )
-    rng = np.random.RandomState(int(seed))
-
-    best_state = None
-    best_val = float("inf")
-    bad = 0
-    history: List[Dict[str, float]] = []
-
-    def _run_epoch(indices: Sequence[int], *, train: bool) -> float:
-        if not indices:
-            return float("nan")
-        if train:
-            model.train()
-        else:
-            model.eval()
-        total = 0.0
-        n_seen = 0
-        ctx = torch.enable_grad() if train else torch.no_grad()
-        with ctx:
-            if grouped:
-                groups = _group_row_lists(dates, indices, min_group=2)
-                if not groups:
-                    return float("nan")
-                row_iter = _iter_group_batches(
-                    groups, max_rows=batch_size, shuffle=train, rng=rng
-                )
-            else:
-                row_iter = (
-                    [indices[int(j)] for j in bi.tolist()]
-                    for bi in _batches(len(indices), batch_size, shuffle=train, rng=rng)
-                )
-            for rows in row_iter:
-                xb = torch.as_tensor(X[rows], device=dev)
-                gb = torch.as_tensor(gap[rows], device=dev)
-                yb = torch.as_tensor(y[rows], device=dev)
-                if train:
-                    opt.zero_grad(set_to_none=True)
-                pred = model(xb, gb)
-                if grouped:
-                    loss = _rank_batch_loss(
-                        pred, yb, [dates[int(r)] for r in rows]
-                    )
-                else:
-                    loss = loss_fn(pred, yb)  # type: ignore[misc]
-                if train:
-                    loss.backward()
-                    torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
-                    opt.step()
-                bs = int(yb.shape[0])
-                total += float(loss.detach().cpu()) * bs
-                n_seen += bs
-        return total / float(max(1, n_seen))
-
-    for ep in range(1, max(1, int(epochs)) + 1):
-        tr_loss = _run_epoch(tr, train=True)
-        va_loss = _run_epoch(va, train=False) if va else tr_loss
-        history.append({"epoch": float(ep), "train_loss": tr_loss, "val_loss": va_loss})
-        score = va_loss if math.isfinite(va_loss) else tr_loss
-        if score < best_val - 1e-5:
-            best_val = float(score)
-            bad = 0
-            best_state = {k: v.detach().cpu().clone() for k, v in model.state_dict().items()}
-        else:
-            bad += 1
-            if bad >= max(1, int(patience)):
-                break
-
-    if best_state is None:
-        best_state = {k: v.detach().cpu().clone() for k, v in model.state_dict().items()}
-
-    report = {
-        "success": True,
-        "device": str(dev),
-        "seed": int(seed),
-        "n_train": len(tr),
-        "n_val": len(va),
-        "n_params": count_parameters(model),
-        "best_val_loss": best_val if math.isfinite(best_val) else None,
-        "epochs_ran": len(history),
-        "history_tail": history[-8:],
-        "d_model": int(d_model),
-        "nlayers": int(nlayers),
-        "batch_size": int(batch_size),
-        "loss": loss_name,
-    }
-    return best_state, report
-
-
-def predict_yhat_transformer(
-    state_dict: Dict[str, Any],
-    panel: Any,
-    row_idx: Optional[Sequence[int]] = None,
-    *,
-    d_model: int = 32,
-    nhead: int = 4,
-    nlayers: int = 2,
-    device: Optional[str] = None,
-    batch_size: int = 256,
-) -> np.ndarray:
-    torch = _require_torch()
-    from core.research.yhat_transformer.model import SeqTransformer, pick_device
-
-    idx = list(range(panel.n)) if row_idx is None else [int(i) for i in row_idx]
-    if not idx:
-        return np.zeros((0,), dtype=np.float64)
-    X = np.asarray(panel.X[idx], dtype=np.float32)
-    gap = np.asarray(panel.gap[idx], dtype=np.float32)
-    d_in = int(X.shape[-1])
-    dev = pick_device(device)
-    model = SeqTransformer(
-        d_in=d_in,
-        d_model=int(d_model),
-        nhead=int(nhead),
-        nlayers=int(nlayers),
-        dim_feedforward=max(64, int(d_model) * 2),
-        dropout=0.0,
-        use_gap=True,
-    )
-    model.load_state_dict(state_dict)
-    model.to(dev)
-    model.eval()
-    outs: List[np.ndarray] = []
-    n = int(X.shape[0])
-    bs = max(32, int(batch_size or 256))
-    with torch.no_grad():
-        for start in range(0, n, bs):
-            sl = slice(start, start + bs)
-            xb = torch.as_tensor(X[sl], device=dev)
-            gb = torch.as_tensor(gap[sl], device=dev)
-            pred = model(xb, gb)
-            outs.append(pred.detach().cpu().numpy().astype(np.float64))
-    if not outs:
-        return np.zeros((0,), dtype=np.float64)
-    return np.concatenate(outs, axis=0)
-
 
 def train_seq_factor_transformer(
     seq_panel: Any,
@@ -611,7 +452,6 @@ def train_seq_factor_transformer(
     lr: float = 1e-3,
     seed: int = 42,
     device: Optional[str] = None,
-    patience: int = 6,
     max_train_rows: Optional[int] = None,
     loss: str = "smooth_l1",
     holdout_idx: Optional[Sequence[int]] = None,
@@ -620,7 +460,9 @@ def train_seq_factor_transformer(
 
     ``fac_X`` 须已由调用方做完与 Arm·L 对齐的 L2 立方截面 CS-z；
     此处不再做训练段列标准化。
-    ``holdout_idx`` 只在每个 epoch 结束后打指标，不参与早停，也不决定留下哪一版权重。
+    不切验证集，跑满 ``epochs``，保存最后一个 epoch 的权重。
+    ``holdout_idx`` 每个 epoch 结束后 ``no_grad`` 打指标，不反传，不选权重。
+    ``loss=lambdarank`` 时为混合损失：日内减均值 LambdaRank + 日 z 保值。
     """
     torch = _require_torch()
     from core.research.yhat_transformer.model import (
@@ -636,17 +478,18 @@ def train_seq_factor_transformer(
     dev = pick_device(device)
     loss_name, loss_fn = _resolve_loss(loss)
     grouped = loss_name == "lambdarank"
+    # 不切验证日。抽样只作用在训练日；Holdout 留在 holdout_idx。
     if grouped:
-        tr, va = _prepare_rank_indices(
+        tr = _subsample_whole_groups(
             seq_panel.dates,
-            train_idx,
-            max_train_rows=max_train_rows,
+            list(train_idx),
+            max_rows=max_train_rows,
             seed=seed,
         )
     else:
-        # 先切验证日，再只抽训练日（与排序头一致，验证日保持完整）。
-        tr_full, va = split_train_val_indices(seq_panel.dates, list(train_idx))
-        tr = _maybe_subsample(tr_full, max_train_rows=max_train_rows, seed=seed)
+        tr = _maybe_subsample(
+            list(train_idx), max_train_rows=max_train_rows, seed=seed
+        )
 
     # 先拆出独立缓冲，再清空面板大数组，避免 clip 时与面板双份并存
     Xseq = _owned_f32(seq_panel.X)
@@ -680,9 +523,10 @@ def train_seq_factor_transformer(
         raise ValueError(
             f"d_model={int(d_model)} 须能被 nhead={int(nhead)} 整除"
         )
+    seq_clip = None
     if tr:
         # 勿对 train×L 全量 reshape 再 percentile（80 万×20 会爆内存/换页假死）
-        _clip_inplace_rows(Xseq, gap, tr, seed=int(seed))
+        seq_clip = _clip_inplace_rows(Xseq, gap, tr, seed=int(seed))
     gc.collect()
 
     def _count_days(rows: Sequence[int]) -> int:
@@ -695,11 +539,9 @@ def train_seq_factor_transformer(
         return len(seen)
 
     n_tr_days = _count_days(tr)
-    n_va_days = _count_days(va)
     print(
         f"    transformer build d_model={d_model} layers={nlayers} "
-        f"n_train={len(tr)} n_val={len(va)} "
-        f"val_days={n_va_days}/{n_tr_days + n_va_days} "
+        f"n_train={len(tr)} train_days={n_tr_days} "
         f"batch={batch_size} device={dev} "
         f"Xseq={Xseq.nbytes/1e6:.0f}MB Xf={Xf.nbytes/1e6:.0f}MB",
         flush=True,
@@ -736,13 +578,9 @@ def train_seq_factor_transformer(
     base_lr = float(lr)
     opt = torch.optim.AdamW(model.parameters(), lr=base_lr, weight_decay=1e-4)
     rng = np.random.RandomState(int(seed))
-    best_state = None
-    best_val = float("inf")
-    bad = 0
     global_step = 0
     tr_arr = np.asarray(tr, dtype=np.int64)
-    # va / holdout 可能是 ndarray，不能写 `if x` / `x or []`
-    va_arr = np.asarray([] if va is None else va, dtype=np.int64)
+    # holdout 可能是 ndarray，不能写 `if x` / `x or []`
     ho_src = [] if holdout_idx is None else holdout_idx
     ho_arr = np.asarray(ho_src, dtype=np.int64)
     if ho_arr.size:
@@ -780,12 +618,12 @@ def train_seq_factor_transformer(
         f"    transformer fit start loss={loss_name} lr={base_lr:.2e} "
         f"sched=cosine warmup={warmup_steps} total_steps={total_steps} "
         f"threads={n_threads} batch={bs} steps/ep={steps_per_ep} log_every={log_every} "
-        f"epochs={epochs} patience={patience} "
-        f"n_tr={tr_arr.size} n_va={va_arr.size} "
-        f"val_days={n_va_days}/{n_tr_days + n_va_days}"
+        f"epochs={epochs} save=last "
+        f"n_tr={tr_arr.size} train_days={n_tr_days}"
         + (
             f" n_groups={len(tr_groups)} "
             f"group_med={sorted(len(g) for g in tr_groups)[len(tr_groups) // 2]}"
+            f" value_w={float(_RANK_VALUE_LOSS_WEIGHT):g}"
             if grouped and tr_groups
             else ""
         ),
@@ -810,12 +648,12 @@ def train_seq_factor_transformer(
     # warmup 约定 step≥1；若从 0 起则首步 lr=0，等于白跑一步
     _set_lr(1)
 
-    def _epoch(row_ids: np.ndarray, *, train: bool, ep: int) -> Tuple[float, float]:
-        """返回 (mean_loss, last_grad_norm)；val 时 grad_norm=nan。"""
+    def _epoch(row_ids: np.ndarray, *, ep: int) -> Tuple[float, float]:
+        """训练一个 epoch，返回 (mean_loss, last_grad_norm)。"""
         nonlocal global_step
         if row_ids.size <= 0:
             return float("nan"), float("nan")
-        model.train(train)
+        model.train(True)
         total = 0.0
         n_seen = 0
         last_gn = float("nan")
@@ -824,27 +662,24 @@ def train_seq_factor_transformer(
             if not groups:
                 return float("nan"), float("nan")
             batches = list(
-                _iter_group_batches(groups, max_rows=bs, shuffle=train, rng=rng)
+                _iter_group_batches(groups, max_rows=bs, shuffle=True, rng=rng)
             )
         else:
             order = row_ids.copy()
-            if train:
-                rng.shuffle(order)
+            rng.shuffle(order)
             batches = [
                 order[start : start + bs].tolist()
                 for start in range(0, int(order.size), bs)
             ]
         n_steps = max(1, len(batches))
         t0 = _time.time()
-        ctx = torch.enable_grad() if train else torch.no_grad()
-        with ctx:
+        with torch.enable_grad():
             for si, rows in enumerate(batches):
                 rows_np = np.asarray(rows, dtype=np.int64)
                 xs, gg, xf, yb = _batch_to_device(
                     Xseq, gap, Xf, y, rows=rows_np, device=dev
                 )
-                if train:
-                    opt.zero_grad(set_to_none=True)
+                opt.zero_grad(set_to_none=True)
                 pred = model(xs, gg, xf)
                 if grouped:
                     loss = _rank_batch_loss(
@@ -856,31 +691,30 @@ def train_seq_factor_transformer(
                 nbs = int(yb.shape[0])
                 total += loss_v * nbs
                 n_seen += nbs
-                if train:
-                    loss.backward()
-                    gn = torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
-                    try:
-                        last_gn = float(
-                            gn.detach().item() if hasattr(gn, "detach") else gn
-                        )
-                    except Exception:
-                        last_gn = float(gn) if gn == gn else float("nan")
-                    opt.step()
-                    global_step += 1
-                    _set_lr(global_step + 1)  # 下一步（仍按「即将执行的步号」）
-                    if (si + 1) % log_every == 0 or (si + 1) == n_steps:
-                        done = si + 1
-                        elapsed = _time.time() - t0
-                        speed = done / max(elapsed, 1e-6)
-                        eta = (n_steps - done) / max(speed, 1e-6)
-                        print(
-                            f"    transformer step={global_step} "
-                            f"ep={ep}/{epochs} [{done}/{n_steps}] "
-                            f"loss={loss_v:.4f} avg={total / max(n_seen, 1):.4f} "
-                            f"lr={_lr_now():.2e} grad={last_gn:.3f} "
-                            f"{speed:.1f}it/s eta={eta:.0f}s",
-                            flush=True,
-                        )
+                loss.backward()
+                gn = torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
+                try:
+                    last_gn = float(
+                        gn.detach().item() if hasattr(gn, "detach") else gn
+                    )
+                except Exception:
+                    last_gn = float(gn) if gn == gn else float("nan")
+                opt.step()
+                global_step += 1
+                _set_lr(global_step + 1)  # 下一步（仍按「即将执行的步号」）
+                if (si + 1) % log_every == 0 or (si + 1) == n_steps:
+                    done = si + 1
+                    elapsed = _time.time() - t0
+                    speed = done / max(elapsed, 1e-6)
+                    eta = (n_steps - done) / max(speed, 1e-6)
+                    print(
+                        f"    transformer step={global_step} "
+                        f"ep={ep}/{epochs} [{done}/{n_steps}] "
+                        f"loss={loss_v:.4f} avg={total / max(n_seen, 1):.4f} "
+                        f"lr={_lr_now():.2e} grad={last_gn:.3f} "
+                        f"{speed:.1f}it/s eta={eta:.0f}s",
+                        flush=True,
+                    )
                 del xs, gg, xf, yb, loss
         return total / float(max(1, n_seen)), last_gn
 
@@ -894,7 +728,7 @@ def train_seq_factor_transformer(
         return f"{x:.4f}"
 
     def _score_holdout() -> Optional[Dict[str, Any]]:
-        """当前权重在 Holdout 行上的截面指标。不写回 best，也不改 patience。"""
+        """当前权重在 Holdout 行上的截面指标。不反传，不改权重。"""
         if ho_arr.size <= 0:
             return None
         from core.research.yhat_transformer.metrics import daily_cs_ic_report, sign_hit
@@ -944,31 +778,14 @@ def train_seq_factor_transformer(
     t_fit0 = _time.time()
     for ep in range(1, max(1, int(epochs)) + 1):
         t_ep = _time.time()
-        tr_loss, grad_n = _epoch(tr_arr, train=True, ep=ep)
-        va_loss, _ = (
-            _epoch(va_arr, train=False, ep=ep)
-            if va_arr.size
-            else (tr_loss, float("nan"))
-        )
-        # 排序日组不足 2 只 → va_loss=nan；回退 train_loss，避免永不落盘 best
-        score = va_loss if math.isfinite(va_loss) else tr_loss
-        if math.isfinite(score) and score < best_val - 1e-5:
-            best_val = float(score)
-            bad = 0
-            best_state = {
-                k: v.detach().cpu().clone() for k, v in model.state_dict().items()
-            }
-            tag = "*best"
-        else:
-            bad += 1
-            tag = f"patience={bad}/{patience}"
+        tr_loss, grad_n = _epoch(tr_arr, ep=ep)
         ep_sec = _time.time() - t_ep
         print(
             f"    transformer ep={ep}/{epochs} done "
-            f"train_loss={tr_loss:.4f} val_loss={va_loss:.4f} best={best_val:.4f} "
+            f"train_loss={tr_loss:.4f} "
             f"lr={_lr_now():.2e} grad={grad_n:.3f} step={global_step} "
-            f"n_tr={tr_arr.size} n_va={va_arr.size} "
-            f"{ep_sec:.1f}s {tag}",
+            f"n_tr={tr_arr.size} "
+            f"{ep_sec:.1f}s",
             flush=True,
         )
         if ho_arr.size:
@@ -1013,21 +830,18 @@ def train_seq_factor_transformer(
                     f"n={ho_pack.get('n')}",
                     flush=True,
                 )
-        if bad >= max(1, int(patience)):
-            print(
-                f"    transformer early stop at ep={ep} step={global_step} "
-                f"best_val={best_val:.4f} elapsed={_time.time()-t_fit0:.0f}s",
-                flush=True,
-            )
-            break
-    if best_state is None:
-        best_state = {k: v.detach().cpu().clone() for k, v in model.state_dict().items()}
-    return best_state, {
+    last_state = {
+        k: v.detach().cpu().clone() for k, v in model.state_dict().items()
+    }
+    print(
+        f"    transformer fit done epochs={epochs} step={global_step} "
+        f"elapsed={_time.time()-t_fit0:.0f}s save=last",
+        flush=True,
+    )
+    return last_state, {
         "success": True,
         "n_train": len(tr),
-        "n_val": len(va),
         "n_params": count_parameters(model),
-        "best_val_loss": best_val if math.isfinite(best_val) else None,
         "seed": int(seed),
         "device": str(dev),
         "batch_size": int(batch_size),
@@ -1035,8 +849,12 @@ def train_seq_factor_transformer(
         "lr_sched": "cosine",
         "warmup_steps": int(warmup_steps),
         "loss": loss_name,
+        "rank_value_weight": (
+            float(_RANK_VALUE_LOSS_WEIGHT) if grouped else None
+        ),
         "global_step": int(global_step),
         "holdout_by_epoch": holdout_by_epoch,
+        "seq_clip": seq_clip,
         "Xf": Xf,
         "Xseq": Xseq,
         "gap": gap,
@@ -1096,9 +914,6 @@ def predict_seq_factor_transformer(
 
 
 __all__ = [
-    "split_train_val_indices",
-    "train_yhat_transformer",
-    "predict_yhat_transformer",
     "train_seq_factor_transformer",
     "predict_seq_factor_transformer",
 ]

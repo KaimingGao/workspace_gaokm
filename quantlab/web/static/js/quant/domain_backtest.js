@@ -408,7 +408,7 @@ export function installBacktest(q) {
       if (req.initial_cash != null) setName("pm_initial_cash", req.initial_cash);
       if (req.lot_base_amount != null) setName("pm_lot_base_amount", req.lot_base_amount);
       if (req.lot_strong_amount != null) setName("pm_lot_strong_amount", req.lot_strong_amount);
-      // 历史回测不再按拟合档过滤；只用观察池分档勾选
+      // 历史回测不再按拟合档过滤；只用股票分档勾选
       if (Array.isArray(req.predictability_tiers)) {
         const set = new Set(
           req.predictability_tiers.map((t) => String(t || "").toUpperCase())
@@ -446,10 +446,6 @@ export function installBacktest(q) {
     if (wOc != null) {
       setName("pm_fusion_w_nc", wOc);
     }
-    const wOoRank = clamp01(req.fusion_w_oo_rank);
-    const wTcRank = clamp01(req.fusion_w_tc_rank);
-    if (wOoRank != null) setName("pm_fusion_w_oo_rank", wOoRank);
-    if (wTcRank != null) setName("pm_fusion_w_tc_rank", wTcRank);
     const enterScore = req.fuse_enter;
     const strongScore =
       req.fuse_strong != null ? req.fuse_strong : enterScore;
@@ -472,28 +468,28 @@ export function installBacktest(q) {
       false,
     );
     setChk("pm_morph_gate", req.morph_gate_enabled, false);
-    const clampScore = (v, fb) => {
+    const clampRank = (v, fb) => {
       const n = Number(v);
       if (!Number.isFinite(n)) return fb;
-      return Math.max(-5, Math.min(5, Math.round(n * 10000) / 10000));
+      return Math.max(2, Math.min(5000, Math.round(n)));
     };
-    // rank 阈值：合成 rank_score（不是 y_oo / y_τc）；空=关
-    if (Object.prototype.hasOwnProperty.call(req, "oo_tc_score_min")) {
-      const sc = req.oo_tc_score_min;
-      if (sc == null || sc === "") setName("pm_oo_tc_score_min", "", { allowEmpty: true });
-      else setName("pm_oo_tc_score_min", clampScore(sc, 0.3));
+    // 名次门槛：max(oo_rank, τc_rank) < N；空=关
+    if (Object.prototype.hasOwnProperty.call(req, "oo_rank_max")) {
+      const sc = req.oo_rank_max;
+      if (sc == null || sc === "") setName("pm_oo_rank_max", "", { allowEmpty: true });
+      else setName("pm_oo_rank_max", clampRank(sc, 6));
     } else {
-      setName("pm_oo_tc_score_min", 0.3);
+      setName("pm_oo_rank_max", 6);
     }
-    if (Object.prototype.hasOwnProperty.call(req, "oo_tc_score_strong_min")) {
-      const sc = req.oo_tc_score_strong_min;
+    if (Object.prototype.hasOwnProperty.call(req, "oo_rank_strong_max")) {
+      const sc = req.oo_rank_strong_max;
       if (sc == null || sc === "") {
-        setName("pm_oo_tc_score_strong_min", "", { allowEmpty: true });
+        setName("pm_oo_rank_strong_max", "", { allowEmpty: true });
       } else {
-        setName("pm_oo_tc_score_strong_min", clampScore(sc, 0.3));
+        setName("pm_oo_rank_strong_max", clampRank(sc, 12));
       }
     } else {
-      setName("pm_oo_tc_score_strong_min", 0.3);
+      setName("pm_oo_rank_strong_max", 12);
     }
   }
 
@@ -803,16 +799,12 @@ export function installBacktest(q) {
         return {
           fusion_w_oo: lots.fusion_w_oo,
           fusion_w_oc: lots.fusion_w_oc,
-          fusion_w_oo_rank: lots.fusion_w_oo_rank,
-          fusion_w_tc_rank: lots.fusion_w_tc_rank,
         };
       }
     }
     return {
       fusion_w_oo: 0.6,
       fusion_w_oc: 0.4,
-      fusion_w_oo_rank: 0.6,
-      fusion_w_tc_rank: 0.4,
     };
   }
 
@@ -835,11 +827,11 @@ export function installBacktest(q) {
       const pack = collectPathMatrixForm(form);
       const lots = pack && pack.rebalance_timing && pack.rebalance_timing.rank_lots;
       if (lots) {
-        const clampSc = (v, fb) => {
+        const clampRk = (v, fb) => {
           if (v == null || v === "") return null;
           const n = Number(v);
           if (!Number.isFinite(n)) return fb;
-          return Math.max(-5, Math.min(5, Math.round(n * 10000) / 10000));
+          return Math.max(2, Math.min(5000, Math.round(n)));
         };
         const enter = lots.fuse_enter;
         const strong =
@@ -850,8 +842,8 @@ export function installBacktest(q) {
           y_oo_gt0: lots.y_oo_gt0 === true,
           morph_gate_enabled: lots.morph_gate_enabled === true,
           sentiment_gate_enabled: false,
-          oo_tc_score_min: clampSc(lots.oo_tc_score_min, 0.3),
-          oo_tc_score_strong_min: clampSc(lots.oo_tc_score_strong_min, 0.3),
+          oo_rank_max: clampRk(lots.oo_rank_max, 6),
+          oo_rank_strong_max: clampRk(lots.oo_rank_strong_max, 12),
         };
       }
     }
@@ -859,8 +851,8 @@ export function installBacktest(q) {
     return {
       fuse_enter: enter,
       fuse_strong: enter,
-      oo_tc_score_min: 0.3,
-      oo_tc_score_strong_min: 0.3,
+      oo_rank_max: 6,
+      oo_rank_strong_max: 12,
       morph_gate_enabled: false,
       sentiment_gate_enabled: false,
     };
@@ -1523,14 +1515,12 @@ export function installBacktest(q) {
         benchmark_code,
         fusion_w_oo,
         fusion_w_oc,
-        fusion_w_oo_rank,
-        fusion_w_tc_rank,
         fuse_enter,
         fuse_strong,
         y_oo_gt0,
         morph_gate_enabled,
-        oo_tc_score_min,
-        oo_tc_score_strong_min,
+        oo_rank_max,
+        oo_rank_strong_max,
         initial_cash,
         fill_clock,
         lot_base_amount,
@@ -1542,11 +1532,11 @@ export function installBacktest(q) {
       const enterThresh = fuse_enter;
       const strongThresh =
         fuse_strong != null ? fuse_strong : enterThresh;
-      const clampSc = (v, fb) => {
+      const clampRk = (v, fb) => {
         if (v == null || v === "") return null;
         const n = Number(v);
         if (!Number.isFinite(n)) return fb;
-        return Math.max(-5, Math.min(5, Math.round(n * 10000) / 10000));
+        return Math.max(2, Math.min(5000, Math.round(n)));
       };
       const ctx = portfolioRunContextLabel({
         lookback,
@@ -1571,15 +1561,13 @@ export function installBacktest(q) {
         benchmark_code,
         fusion_w_oo,
         fusion_w_oc,
-        fusion_w_oo_rank,
-        fusion_w_tc_rank,
         fuse_enter: enterThresh,
         fuse_strong: strongThresh,
         y_oo_gt0: y_oo_gt0 === true,
         morph_gate_enabled: morph_gate_enabled === true,
         sentiment_gate_enabled: false,
-        oo_tc_score_min: clampSc(oo_tc_score_min, 0.3),
-        oo_tc_score_strong_min: clampSc(oo_tc_score_strong_min, 0.3),
+        oo_rank_max: clampRk(oo_rank_max, 6),
+        oo_rank_strong_max: clampRk(oo_rank_strong_max, 12),
         initial_cash,
         fill_clock,
         lot_base_amount,

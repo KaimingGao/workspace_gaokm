@@ -366,34 +366,34 @@ export function fillPathMatrixForm(root, execution) {
     pm.fuse_strong != null ? pm.fuse_strong : enterScore;
   set("pm_fuse_enter", fuseScoreToPct(enterScore));
   set("pm_fuse_strong", fuseScoreToPct(strongScore));
-  // y_*>0：四头闸；旧 y_τc_gt0 并入
+  // y_*>0：只看 ŷ_oo / ŷ_τc；旧 y_τc_gt0 并入
   set(
     "pm_y_oo_gt0",
     coerceCfgBool(pm.y_oo_gt0, false) || coerceCfgBool(pm.y_τc_gt0, false),
   );
   set("pm_morph_gate", coerceCfgBool(pm.morph_gate_enabled, false));
-  const clampScore = (v, fb) => {
+  const clampRank = (v, fb) => {
     const n = Number(v);
     if (!Number.isFinite(n)) return fb;
-    return Math.max(-5, Math.min(5, Math.round(n * 10000) / 10000));
+    return Math.max(2, Math.min(5000, Math.round(n)));
   };
-  // rank 阈值：合成 rank_score（不是 y_oo / y_τc）；显式 null/空=关，须能回填空框
-  if (Object.prototype.hasOwnProperty.call(pm, "oo_tc_score_min")) {
-    const sc = pm.oo_tc_score_min;
-    if (sc == null || sc === "") set("pm_oo_tc_score_min", null, { allowEmpty: true });
-    else set("pm_oo_tc_score_min", clampScore(sc, 0.3));
+  // 名次门槛：显式 null/空=关，须能回填空框
+  if (Object.prototype.hasOwnProperty.call(pm, "oo_rank_max")) {
+    const sc = pm.oo_rank_max;
+    if (sc == null || sc === "") set("pm_oo_rank_max", null, { allowEmpty: true });
+    else set("pm_oo_rank_max", clampRank(sc, 6));
   } else {
-    set("pm_oo_tc_score_min", 0.3);
+    set("pm_oo_rank_max", 6);
   }
-  if (Object.prototype.hasOwnProperty.call(pm, "oo_tc_score_strong_min")) {
-    const sc = pm.oo_tc_score_strong_min;
+  if (Object.prototype.hasOwnProperty.call(pm, "oo_rank_strong_max")) {
+    const sc = pm.oo_rank_strong_max;
     if (sc == null || sc === "") {
-      set("pm_oo_tc_score_strong_min", null, { allowEmpty: true });
+      set("pm_oo_rank_strong_max", null, { allowEmpty: true });
     } else {
-      set("pm_oo_tc_score_strong_min", clampScore(sc, 0.3));
+      set("pm_oo_rank_strong_max", clampRank(sc, 12));
     }
   } else {
-    set("pm_oo_tc_score_strong_min", 0.3);
+    set("pm_oo_rank_strong_max", 12);
   }
   const clamp01 = (v, fb) => {
     const n = Number(v);
@@ -402,12 +402,6 @@ export function fillPathMatrixForm(root, execution) {
   };
   set("pm_fusion_w_oo", clamp01(pm.fusion_w_oo, 0.6));
   set("pm_fusion_w_nc", clamp01(pm.fusion_w_oc, 0.4));
-  const rk = _normWeightPair(
-    pm.fusion_w_oo_rank != null ? Number(pm.fusion_w_oo_rank) : 0.6,
-    pm.fusion_w_tc_rank != null ? Number(pm.fusion_w_tc_rank) : 0.4
-  );
-  set("pm_fusion_w_oo_rank", clamp01(rk.a, 0.6));
-  set("pm_fusion_w_tc_rank", clamp01(rk.b, 0.4));
   const clockEl = document.getElementById("quant-fill-clock");
   if (clockEl && pm.fill_clock) {
     const v = String(pm.fill_clock).replace("：", ":").trim().slice(0, 5);
@@ -477,14 +471,9 @@ export function collectPathMatrixForm(root) {
     wOo /= wSum;
     wOc /= wSum;
   }
-  let wOoRank = Math.max(0, Math.min(num("pm_fusion_w_oo_rank", 0.6), 1));
-  let wTcRank = Math.max(0, Math.min(num("pm_fusion_w_tc_rank", 0.4), 1));
-  const rkNorm = _normWeightPair(wOoRank, wTcRank);
-  wOoRank = rkNorm.a;
-  wTcRank = rkNorm.b;
   const yOoGt0 = chk("pm_y_oo_gt0", false);
   const morphGate = chk("pm_morph_gate", false);
-  const scoreOrNull = (name, fallback) => {
+  const rankOrNull = (name, fallback) => {
     const el = root.querySelector(`[name="${name}"]`);
     // 控件缺失时勿当成「空=关」，否则半截 DOM / 未挂载表单保存会误关闸
     if (!el) return fallback;
@@ -492,10 +481,10 @@ export function collectPathMatrixForm(root) {
     if (raw === "") return null;
     const n = Number(raw);
     if (!Number.isFinite(n)) return fallback;
-    return Math.max(-5, Math.min(5, Math.round(n * 10000) / 10000));
+    return Math.max(2, Math.min(5000, Math.round(n)));
   };
-  const ooTcScoreMin = scoreOrNull("pm_oo_tc_score_min", 0.3);
-  const ooTcScoreStrong = scoreOrNull("pm_oo_tc_score_strong_min", 0.3);
+  const ooRankMax = rankOrNull("pm_oo_rank_max", 6);
+  const ooRankStrong = rankOrNull("pm_oo_rank_strong_max", 12);
   let lotBase = clampLotAmount(num("pm_lot_base_amount", 10000), 10000);
   let lotStrong = clampLotAmount(num("pm_lot_strong_amount", lotBase), lotBase);
   if (lotStrong < lotBase) lotStrong = lotBase;
@@ -507,13 +496,11 @@ export function collectPathMatrixForm(root) {
         y_oo_gt0: yOoGt0,
         morph_gate_enabled: morphGate,
         sentiment_gate_enabled: false,
-        oo_tc_score_min: ooTcScoreMin,
-        oo_tc_score_strong_min: ooTcScoreStrong,
+        oo_rank_max: ooRankMax,
+        oo_rank_strong_max: ooRankStrong,
         holdings_mv_cap: Math.round(mvCap),
         fusion_w_oo: Math.round(wOo * 1000) / 1000,
         fusion_w_oc: Math.round(wOc * 1000) / 1000,
-        fusion_w_oo_rank: Math.round(wOoRank * 1000) / 1000,
-        fusion_w_tc_rank: Math.round(wTcRank * 1000) / 1000,
         lot_base_amount: lotBase,
         lot_strong_amount: lotStrong,
   };

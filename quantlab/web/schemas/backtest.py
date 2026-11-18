@@ -51,13 +51,13 @@ class PaperReplayBacktestRequest(BaseModel):
         default=None,
         ge=0.0,
         le=1.0,
-        description="rank_score 中 y_oo_rank_score 权重；默认 0.6；与 fusion_w_tc_rank 归一化",
+        description="已下线。读入忽略；买序 rank_score 固定 0.6/0.4。",
     )
     fusion_w_tc_rank: Optional[float] = Field(
         default=None,
         ge=0.0,
         le=1.0,
-        description="rank_score 中 y_tc_rank_score 权重；默认 0.4；与 fusion_w_oo_rank 归一化",
+        description="已下线。读入忽略；买序 rank_score 固定 0.6/0.4。",
     )
     fuse_enter: Optional[float] = Field(
         default=None,
@@ -94,17 +94,17 @@ class PaperReplayBacktestRequest(BaseModel):
             "缺数据不拦；已持仓不清仓。默认关。"
         ),
     )
-    oo_tc_score_min: Optional[float] = Field(
-        default=0.3,
-        ge=-5.0,
-        le=5.0,
-        description="入场 rank 阈值：须 rank_score=w_oo_rank·y_oo_rank_score+w_τc_rank·y_tc_rank_score ≥ 阈值；不是 y_oo / y_τc。UI 默认 0.3；None=关。两侧都缺不拦。过强档改看 oo_tc_score_strong_min。",
+    oo_rank_max: Optional[int] = Field(
+        default=6,
+        ge=2,
+        le=5000,
+        description="入场名次：max(oo_rank, τc_rank) 须 < N。默认 6；None=关。两头都缺不拦。过强档改看 oo_rank_strong_max。",
     )
-    oo_tc_score_strong_min: Optional[float] = Field(
-        default=0.3,
-        ge=-5.0,
-        le=5.0,
-        description="强档 rank 阈值：仍看合成 rank_score（不是 y_oo / y_τc）。默认 0.3；None=关。两侧都缺不拦。",
+    oo_rank_strong_max: Optional[int] = Field(
+        default=12,
+        ge=2,
+        le=5000,
+        description="强档名次：仍看 max(oo_rank, τc_rank) < N。默认 12；None=关。两头都缺不拦。",
     )
     initial_cash: float = Field(
         default=200_000.0,
@@ -131,7 +131,7 @@ class PaperReplayBacktestRequest(BaseModel):
     use_predictability_tiers: bool = Field(
         default=False,
         description=(
-            "复用研究枢纽「观察池分档」（须先跑分档）：截面 z 仍用整段观察池，"
+            "复用研究枢纽「股票分档」（须先跑分档）：截面 z 仍用整段观察池，"
             "ŷ 与名次只写允许档，档外不开仓。回测天数仍用 lookback（与 Holdout 独立）。"
             "桌面勾选同步到 live 调仓闸。"
         ),

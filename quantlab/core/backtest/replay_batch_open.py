@@ -115,6 +115,10 @@ def score_open_day_from_slice(
     tau_pool_day: Optional[Mapping[str, Any]] = None,
 ) -> Optional[List[dict]]:
     """切片已备好时写当日决策头。返回 None 表示走逐日旧路径。"""
+    from core.backtest.replay_scoring import replay_uses_arm_t
+
+    if replay_uses_arm_t():
+        return None
     holder = _HOLDER
     day_s = str(day or "")[:10]
     if holder is None or len(day_s) < 10:
@@ -218,6 +222,23 @@ _OO_RANK_FORMULA_KEYS = ("formula_terms_oo_rank", "score_formula_terms_oo_rank")
 _TC_RANK_FORMULA_KEYS = ("formula_terms_tc_rank", "score_formula_terms_tc_rank")
 
 
+def _row_is_arm_t(item: Optional[Mapping[str, Any]]) -> bool:
+    """工厂启用权重打出来的行。没有 LightGBM pred_contrib，不能再补套槽组成。"""
+    if not isinstance(item, Mapping):
+        return False
+    for key in (
+        "y_oo_source",
+        "y_τc_source",
+        "y_oo_rank_source",
+        "y_tc_rank_source",
+        "_score_source",
+    ):
+        src = str(item.get(key) or "").lower()
+        if src in ("transformer", "arm_t", "arm_t_open"):
+            return True
+    return False
+
+
 def _has_formula_terms(item: Optional[Mapping[str, Any]], keys: Sequence[str]) -> bool:
     if not isinstance(item, Mapping):
         return False
@@ -274,14 +295,16 @@ def stamp_trade_formula_tips(
         return 0
     if day_s not in holder.dates:
         return 0
-    if not _ensure_models(holder):
-        return 0
-
     by_code = {
         str(it.get("stock_code") or "").strip(): it
         for it in items
         if isinstance(it, dict) and str(it.get("stock_code") or "").strip()
     }
+    want = {c for c in want if c in by_code and not _row_is_arm_t(by_code[c])}
+    if not want:
+        return 0
+    if not _ensure_models(holder):
+        return 0
     need_oo = {c for c in want if c in by_code and not _has_formula_terms(by_code[c], _OO_FORMULA_KEYS)}
     need_tau = {
         c for c in want if c in by_code and not _has_formula_terms(by_code[c], _TAU_FORMULA_KEYS)

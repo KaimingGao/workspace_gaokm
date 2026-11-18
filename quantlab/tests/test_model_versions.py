@@ -490,6 +490,60 @@ class TestModelVersions(unittest.TestCase):
                 self.assertFalse(os.path.isfile(research))
                 self.assertIsNone(mv.list_suite_versions("tau", "research")["current_id"])
 
+    def test_research_list_drops_holdout_zero(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            live = os.path.join(tmp, "live")
+            os.makedirs(live, exist_ok=True)
+            with mock.patch("core.paths.LIVE_DIR", live), mock.patch(
+                "core.research.model_versions.LIVE_DIR", live
+            ), mock.patch(
+                "core.research.model_versions.MODEL_VERSIONS_DIR",
+                os.path.join(live, "model_versions"),
+            ):
+                from core.research import model_versions as mv
+
+                holdout = {
+                    "fitted_at": "2026-11-16T16:25:19Z",
+                    "holdout_trading_days": 60,
+                    "role": "research",
+                    "return_model": _complete_rm(1600, tag="h"),
+                }
+                full = {
+                    "fitted_at": "2026-11-16T20:16:07Z",
+                    "role": "draft",
+                    "oos": {"holdout_trading_days": 0, "n_test": 0},
+                    "return_model": _complete_rm(1600, tag="f"),
+                }
+                vid_h = mv.archive_suite_version("oo", "research", holdout)
+                self.assertTrue(vid_h)
+                # 绕过研究归档拒绝，模拟历史误写入
+                d = mv.versions_dir("oo", "research")
+                vid_f = mv.version_id_for_doc(full)
+                with open(os.path.join(d, f"{vid_f}.json"), "w", encoding="utf-8") as f:
+                    json.dump(full, f)
+                mv._write_index(
+                    "oo",
+                    "research",
+                    [
+                        mv._meta_from_doc(full, vid_f),
+                        mv._meta_from_doc(holdout, vid_h),
+                    ],
+                )
+                research_slot = os.path.join(live, "return_score_model_research.json")
+                with open(research_slot, "w", encoding="utf-8") as f:
+                    json.dump(holdout, f)
+                with mock.patch(
+                    "core.paths.RETURN_SCORE_MODEL_RESEARCH_PATH", research_slot
+                ):
+                    listed = mv.list_suite_versions("oo", "research")
+                ids = [it["id"] for it in listed["items"]]
+                self.assertEqual(ids, [vid_h])
+                self.assertIn(vid_f, listed["purged_full_sample"])
+                self.assertFalse(os.path.isfile(os.path.join(d, f"{vid_f}.json")))
+                self.assertIsNone(
+                    mv.archive_suite_version("oo", "research", full)
+                )
+
 
 if __name__ == "__main__":
     unittest.main()

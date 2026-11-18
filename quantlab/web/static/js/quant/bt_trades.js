@@ -339,7 +339,7 @@ export const BT_LEDGER_TRADE_COLS = [
     widthMin: "5.6rem",
     num: true,
     sortable: true,
-    title: "ŷ_oo_rank 当日观察池截面名次 · 1=相对分最高 · 悬停看因子组成 · 不进 fuse；进合成 rank_score（买序/阈值；默认阈 0.3；空=关；过强档改看强档阈）",
+    title: "ŷ_oo_rank 当日观察池截面名次 · 1=相对分最高 · 悬停看因子组成 · 不进 fuse；买序看合成 rank_score；名次门槛默认 <6；空=关；过强档改看 <12",
   },
   {
     id: "y_tc_rank",
@@ -348,7 +348,7 @@ export const BT_LEDGER_TRADE_COLS = [
     widthMin: "5.6rem",
     num: true,
     sortable: true,
-    title: "ŷ_τc_rank 当日截面名次 · 1=相对分最高 · 悬停看因子组成 · 不进 fuse；进合成 rank_score（买序/阈值；默认阈 0.3；空=关；过强档改看强档阈）",
+    title: "ŷ_τc_rank 当日截面名次 · 1=相对分最高 · 悬停看因子组成 · 不进 fuse；买序看合成 rank_score；名次门槛默认 <6；空=关；过强档改看 <12",
   },
 ];
 
@@ -438,12 +438,20 @@ function _numOrNull(v) {
   return Number.isFinite(n) ? n : null;
 }
 
+function _rankScoreTitleBit(score) {
+  const n = _numOrNull(score);
+  if (n == null) return "";
+  const sign = n > 0 ? "+" : "";
+  return ` · 预估分 ${sign}${n.toFixed(3)}`;
+}
+
 /** 成交明细 oo_rank：只认带 y_oo_rank_n 的 1..n 名次；旧相对分显示 —（避免 Math.round→0）。 */
-function _ooRankOrdinalDisplay(yRank, yRankN) {
+function _ooRankOrdinalDisplay(yRank, yRankN, yScore) {
+  const scoreBit = _rankScoreTitleBit(yScore);
   if (yRank == null) {
     return {
       text: "—",
-      tip: "oo_rank — · 无已启用模型或未写入；不进 fuse；进合成 rank_score（买序/阈值）",
+      tip: `oo_rank —${scoreBit} · 无已启用模型或未写入；不进 fuse；买序看合成 rank_score；名次门槛看当天名次`,
     };
   }
   const ord = Math.round(yRank);
@@ -452,21 +460,22 @@ function _ooRankOrdinalDisplay(yRank, yRankN) {
   if (n != null && isInt && ord >= 1 && ord <= n) {
     return {
       text: String(ord),
-      tip: `当日截面第 ${ord} 名 / ${n} · 1=相对分最高 · 不进 fuse；进合成 rank_score（买序/阈值）`,
+      tip: `当日截面第 ${ord} 名 / ${n}${scoreBit} · 1=相对分最高 · 不进 fuse；买序看合成 rank_score；名次门槛看当天名次`,
     };
   }
   return {
     text: "—",
-    tip: "旧回测为相对分或缺池大小，请重跑以生成 1..n 名次 · 不进 fuse；进合成 rank_score（买序/阈值）",
+    tip: `旧回测为相对分或缺池大小，请重跑以生成 1..n 名次${scoreBit} · 不进 fuse；买序看合成 rank_score；名次门槛看当天名次`,
   };
 }
 
 /** 成交明细 τc_rank：与 oo_rank 同为 1..n；相对分进合成 rank_score。 */
-function _tcRankOrdinalDisplay(yRank, yRankN) {
+function _tcRankOrdinalDisplay(yRank, yRankN, yScore) {
+  const scoreBit = _rankScoreTitleBit(yScore);
   if (yRank == null) {
     return {
       text: "—",
-      tip: "τc_rank — · 无已启用模型或未写入 · 不进 fuse；进合成 rank_score（买序/阈值）",
+      tip: `τc_rank —${scoreBit} · 无已启用模型或未写入 · 不进 fuse；买序看合成 rank_score；名次门槛看当天名次`,
     };
   }
   const ord = Math.round(yRank);
@@ -475,12 +484,12 @@ function _tcRankOrdinalDisplay(yRank, yRankN) {
   if (n != null && isInt && ord >= 1 && ord <= n) {
     return {
       text: String(ord),
-      tip: `当日截面第 ${ord} 名 / ${n} · 1=相对分最高 · 不进 fuse；进合成 rank_score（买序/阈值）`,
+      tip: `当日截面第 ${ord} 名 / ${n}${scoreBit} · 1=相对分最高 · 不进 fuse；买序看合成 rank_score；名次门槛看当天名次`,
     };
   }
   return {
     text: "—",
-    tip: "缺池大小，请重跑以生成 1..n 名次 · 不进 fuse；进合成 rank_score（买序/阈值）",
+    tip: `缺池大小，请重跑以生成 1..n 名次${scoreBit} · 不进 fuse；买序看合成 rank_score；名次门槛看当天名次`,
   };
 }
 
@@ -596,12 +605,14 @@ function buildLedgerTradeRow(r, i, deps) {
     r.y_oo_rank != null ? r.y_oo_rank : r.predicted_score_oo_rank
   );
   const yRankN = _numOrNull(r.y_oo_rank_n);
-  const yRankDisp = _ooRankOrdinalDisplay(yRank, yRankN);
+  const yRankScore = _numOrNull(r.y_oo_rank_score);
+  const yRankDisp = _ooRankOrdinalDisplay(yRank, yRankN, yRankScore);
   const yTcRank = _numOrNull(
     r.y_tc_rank != null ? r.y_tc_rank : r.predicted_score_tc_rank
   );
   const yTcRankN = _numOrNull(r.y_tc_rank_n);
-  const yTcRankDisp = _tcRankOrdinalDisplay(yTcRank, yTcRankN);
+  const yTcRankScore = _numOrNull(r.y_tc_rank_score);
+  const yTcRankDisp = _tcRankOrdinalDisplay(yTcRank, yTcRankN, yTcRankScore);
   const rCc = _numOrNull(r.realized_cc);
   const rOn = _numOrNull(r.realized_on);
   const rTau = _numOrNull(r.realized_tau);
@@ -1347,7 +1358,7 @@ export function btTradesCellHtml(col, d, deps) {
     return _stackScoreHtml(
       escapeHtml(d.y_oo_rankText || "—"),
       d.y_oo_rankTip ||
-        "ŷ_oo_rank 当日截面名次 · 悬停看因子组成 · 不进 fuse；进合成 rank_score（买序/阈值）",
+        "ŷ_oo_rank 当日截面名次 · 悬停看因子组成 · 不进 fuse；买序看合成 rank_score；名次门槛看当天名次",
       escapeHtml,
       "oo_rank",
       d.scoreDetail
@@ -1357,7 +1368,7 @@ export function btTradesCellHtml(col, d, deps) {
     return _stackScoreHtml(
       escapeHtml(d.y_tc_rankText || "—"),
       d.y_tc_rankTip ||
-        "ŷ_τc_rank 当日截面名次 · 悬停看因子组成 · 不进 fuse；进合成 rank_score（买序/阈值）",
+        "ŷ_τc_rank 当日截面名次 · 悬停看因子组成 · 不进 fuse；买序看合成 rank_score；名次门槛看当天名次",
       escapeHtml,
       "tc_rank",
       d.scoreDetail

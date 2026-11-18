@@ -128,12 +128,12 @@ export function holdingToRow(
   );
   const ooRankTitle =
     ooRank.text === "—"
-      ? "oo_rank — · 无已启用模型或未写入；不进 fuse；进合成 rank_score（买序/阈值）"
-      : `当日截面第 ${ooRank.text} 名 / ${Math.round(Number(h.y_oo_rank_n))} · 1=相对分最高 · 不进 fuse；进合成 rank_score（买序/阈值）`;
+      ? "oo_rank — · 无已启用模型或未写入；不进 fuse；买序看合成 rank_score；名次门槛看当天名次"
+      : `当日截面第 ${ooRank.text} 名 / ${Math.round(Number(h.y_oo_rank_n))} · 1=相对分最高 · 不进 fuse；买序看合成 rank_score；名次门槛看当天名次`;
   const tcRankTitle =
     tcRank.text === "—"
-      ? "τc_rank — · 无已启用模型或未写入 · 不进 fuse；进合成 rank_score（买序/阈值）"
-      : `当日截面第 ${tcRank.text} 名 / ${Math.round(Number(h.y_tc_rank_n))} · 1=相对分最高 · 不进 fuse；进合成 rank_score（买序/阈值）`;
+      ? "τc_rank — · 无已启用模型或未写入 · 不进 fuse；买序看合成 rank_score；名次门槛看当天名次"
+      : `当日截面第 ${tcRank.text} 名 / ${Math.round(Number(h.y_tc_rank_n))} · 1=相对分最高 · 不进 fuse；买序看合成 rank_score；名次门槛看当天名次`;
   const fmtSignedPct = (v) => {
     if (v == null || v === "") return "—";
     const n = Number(v);
@@ -298,7 +298,7 @@ const COLS = [
     headClass: "watching-col-y",
     cellClass: "watching-col-y",
     title:
-      "ŷ_oo_rank 当日观察池截面名次 · 1=相对分最高 · 悬停看因子组成 · 进合成 rank_score（买序/阈值）",
+      "ŷ_oo_rank 当日观察池截面名次 · 1=相对分最高 · 悬停看因子组成 · 买序看合成 rank_score；名次门槛看当天名次",
   },
   {
     id: "tc_rank",
@@ -310,7 +310,7 @@ const COLS = [
     headClass: "watching-col-y",
     cellClass: "watching-col-y",
     title:
-      "ŷ_τc_rank 当日截面名次 · 1=相对分最高 · 悬停看因子组成 · 不进 fuse；进合成 rank_score（买序/阈值）",
+      "ŷ_τc_rank 当日截面名次 · 1=相对分最高 · 悬停看因子组成 · 不进 fuse；买序看合成 rank_score；名次门槛看当天名次",
   },
   { id: "cost", label: "成本", width: 78, num: true, title: "持仓加权平均成本" },
   {

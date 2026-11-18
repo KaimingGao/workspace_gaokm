@@ -1,4 +1,4 @@
-import { setProStatusChip, syncOverviewBarsCoverage } from "./factor_corr_ui.js";
+import { overviewFetchedFact, overviewRangeFact, setDataOverviewKpi, setProStatusChip } from "./factor_corr_ui.js";
 import {
   paintClusterJobPanel,
   jobStatusBadge,
@@ -202,7 +202,7 @@ export function installBarsUi(q) {
   function applyJobSuccess(job, mode) {
     jobSuccess = { job: job || null };
     jobFailure = null;
-    // 完成计数不回放到卡头，也不再写进终态进度框；覆盖摘要与 KPI 已有。
+    // 完成计数留在进度框；卡头只回放覆盖摘要。
     const cover = lastCoverage && lastCoverage.success ? formatStatus(lastCoverage) : null;
     if (cover) {
       setDeskStatusTone([barsStrip, barsCard], null);
@@ -625,7 +625,20 @@ export function installBarsUi(q) {
     if (kpiStale) kpiStale.textContent = String(stale);
     if (kpiMissing) kpiMissing.textContent = String(missing);
 
-    setKpiCard("align", total <= 0 ? "is-empty" : data.coverage_ok ? "is-good" : "is-mid");
+    const coverState = total <= 0 ? "is-empty" : data.coverage_ok ? "is-good" : "is-mid";
+    setKpiCard("align", coverState);
+    setDataOverviewKpi(
+      "bars",
+      total > 0 ? `${pct}%` : "—",
+      total > 0 ? `${at} / ${total}` : "Coverage",
+      coverState,
+      {
+        asof: overviewRangeFact(data.last_bar_min, data.last_bar_max),
+        fetched: overviewFetchedFact(data.last_fetched_at),
+        stale: { v: String(stale), tone: stale > 0 ? "bad" : "" },
+        missing: { v: String(missing), tone: missing > 0 ? "bad" : "" },
+      }
+    );
     setKpiCard("expected", data.expected_latest_bar ? "is-mid" : "is-empty");
     setKpiCard("stale", stale > 0 ? "is-bad" : total > 0 ? "is-good" : "is-empty");
     setKpiCard("missing", missing > 0 ? "is-bad" : total > 0 ? "is-good" : "is-empty");
@@ -648,11 +661,6 @@ export function installBarsUi(q) {
     }
     renderContextStrip(data);
     renderKpis(data);
-    try {
-      syncOverviewBarsCoverage(data);
-    } catch (_) {
-      /* overview optional */
-    }
     renderCoverageBar(data);
     renderDistribution(data);
     renderBarsDiff(data.bars_diff);

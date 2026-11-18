@@ -167,7 +167,7 @@ def platform_page() -> HTMLResponse:
 
 @app.get("/data")
 def data_page() -> HTMLResponse:
-    """数据中心：写当前观察池的日 K / 5m 与新闻舆情，并物化特征。"""
+    """数据中心：概览定观察池只数并对齐；为这份名单写日 K / 5m 与新闻舆情，并物化特征。"""
     return HTMLResponse(
         render_tool_html("data"),
         headers={"Cache-Control": "no-store"},
@@ -250,6 +250,15 @@ def yhat_t_page() -> HTMLResponse:
     """模型中心 · Arm·T：四头 Transformer Holdout；仅 ⌘⇧K 入口；不写生产 score。"""
     return HTMLResponse(
         render_tool_html("yhat_t"),
+        headers={"Cache-Control": "no-store"},
+    )
+
+
+@app.get("/yhat-r")
+def yhat_r_page() -> HTMLResponse:
+    """模型中心 · Arm·R：四头 Ridge Holdout；仅 ⌘⇧K 入口；不写生产 score。"""
+    return HTMLResponse(
+        render_tool_html("yhat_r"),
         headers={"Cache-Control": "no-store"},
     )
 

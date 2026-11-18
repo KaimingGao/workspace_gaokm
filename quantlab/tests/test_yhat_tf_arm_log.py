@@ -39,6 +39,8 @@ class TestYhatTfArmLog(unittest.TestCase):
         self.assertIn(">Top10% y<", html)
         self.assertNotIn(">RankIC<", html)
         self.assertNotIn(">TopY<", html)
+        self.assertIn("function rawLogLines(raw)", src)
+        self.assertIn('tag === "T"\n        ? rawLogLines(st?.log_tail)', src)
 
     def test_probe_lines_are_not_terminal(self):
         probe = (

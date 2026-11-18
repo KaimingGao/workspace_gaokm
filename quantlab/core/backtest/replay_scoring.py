@@ -10,6 +10,7 @@
 from __future__ import annotations
 
 import logging
+from contextvars import ContextVar
 from typing import Any, Callable, Collection, Dict, List, Optional, Sequence, Tuple
 
 from core.backtest.replay_contrib import _fpx
@@ -17,6 +18,158 @@ from core.backtest.replay_fill import clamp_replay_fill_clock
 from core.backtest.replay_sim_rows import _merge_aux_yhat
 
 logger = logging.getLogger(__name__)
+
+# 历史回测四头改读工厂启用版本。None = 仍走套槽；空集 = 四头都不打分。
+_ARM_REPLAY_HEADS: ContextVar[Optional[frozenset]] = ContextVar(
+    "replay_arm_heads", default=None
+)
+
+_ARM_OWNED = ("oo", "tc", "oo_rank", "tc_rank")
+_ARM_CLEAR = {
+    "oo": (
+        "y_oo",
+        "predicted_score",
+        "predicted_score_oo",
+        "y_oo_source",
+        "formula_terms",
+        "score_formula_terms",
+        "factor_coefficients",
+    ),
+    "tc": (
+        "y_τc",
+        "predicted_score_τc",
+        "y_τc_source",
+        "formula_terms_tau",
+        "score_formula_terms_tau",
+        "formula_terms_r",
+        "score_formula_terms_r",
+        "factor_coefficients_tau",
+    ),
+    "oo_rank": (
+        "y_oo_rank",
+        "y_oo_rank_hat",
+        "y_oo_rank_score",
+        "predicted_score_oo_rank",
+        "y_oo_rank_n",
+        "y_oo_rank_source",
+        "formula_terms_oo_rank",
+        "score_formula_terms_oo_rank",
+    ),
+    "tc_rank": (
+        "y_tc_rank",
+        "y_tc_rank_hat",
+        "y_tc_rank_score",
+        "predicted_score_tc_rank",
+        "y_tc_rank_n",
+        "y_tc_rank_source",
+        "formula_terms_tc_rank",
+        "score_formula_terms_tc_rank",
+    ),
+}
+
+
+def replay_uses_arm_t() -> bool:
+    return _ARM_REPLAY_HEADS.get() is not None
+
+
+def push_replay_arm_heads(heads: Collection[str]) -> Any:
+    owned = frozenset(str(h) for h in heads if str(h) in _ARM_OWNED)
+    return _ARM_REPLAY_HEADS.set(owned)
+
+
+def pop_replay_arm_heads(token: Any) -> None:
+    _ARM_REPLAY_HEADS.reset(token)
+
+
+def _arm_tip(table: Mapping[str, Any], row: Mapping[str, Any]) -> Optional[Dict[str, Any]]:
+    """成交 tip 用的启用版本短卡。只挂当天打出来的头。"""
+    written = []
+    if row.get("y_oo") is not None:
+        written.append("oo")
+    if row.get("y_τc") is not None:
+        written.append("tc")
+    if row.get("y_oo_rank_score") is not None:
+        written.append("oo_rank")
+    if row.get("y_tc_rank_score") is not None:
+        written.append("tc_rank")
+    if not written:
+        return None
+    cards = table.get("cards") if isinstance(table.get("cards"), dict) else {}
+    suite = str(table.get("suite") or "")
+    out: Dict[str, Any] = {}
+    if suite:
+        out["suite"] = suite
+    for head in written:
+        card = cards.get(head)
+        if not isinstance(card, dict):
+            continue
+        slim: Dict[str, Any] = {}
+        label = str(card.get("label") or "").strip()
+        run_id = str(card.get("run_id") or "").strip()
+        if label:
+            slim["label"] = label
+        if run_id:
+            slim["run_id"] = run_id
+        ic = card.get("rank_ic")
+        if isinstance(ic, (int, float)) and ic == ic:
+            slim["rank_ic"] = round(float(ic), 3)
+        if slim:
+            out[head] = slim
+    return out or None
+
+
+def stamp_replay_arm_day(items: Sequence[dict], table: Mapping[str, Any], day: str) -> None:
+    """用工厂预估覆盖当日四头。四头都先清掉套槽分，再写入已启用且打出来的结果。"""
+    owned = set(_ARM_OWNED)
+    by_code = {}
+    raw_days = table.get("by_day") if isinstance(table.get("by_day"), dict) else {}
+    bucket = raw_days.get(str(day)[:10])
+    if isinstance(bucket, dict):
+        by_code = bucket
+    for it in items or []:
+        if not isinstance(it, dict):
+            continue
+        code = str(it.get("stock_code") or "").strip()
+        row = by_code.get(code) if isinstance(by_code.get(code), dict) else {}
+        for head in owned:
+            for key in _ARM_CLEAR[head]:
+                it.pop(key, None)
+        if row.get("y_oo") is not None:
+            val = row.get("y_oo")
+            it["y_oo"] = val
+            it["predicted_score"] = val
+            it["predicted_score_oo"] = val
+            it["y_oo_source"] = "transformer"
+        if row.get("y_oo_rank_score") is not None:
+            it["y_oo_rank_score"] = row.get("y_oo_rank_score")
+            it["y_oo_rank_source"] = "transformer"
+        if row.get("y_τc") is not None:
+            val = row.get("y_τc")
+            it["y_τc"] = val
+            it["predicted_score_τc"] = val
+            it["y_τc_source"] = "transformer"
+            it["_score_source"] = "arm_t_open"
+        if row.get("y_tc_rank_score") is not None:
+            it["y_tc_rank_score"] = row.get("y_tc_rank_score")
+            it["y_tc_rank_source"] = "transformer"
+        tip = _arm_tip(table, row)
+        if tip:
+            it["arm_t"] = tip
+    if "oo_rank" in set(table.get("heads") or []):
+        try:
+            from core.research.oo_rank_lambdarank import assign_oo_rank_day_ranks
+
+            assign_oo_rank_day_ranks(items)
+        except Exception:  # noqa: BLE001
+            logger.debug("arm-t oo_rank day ranks failed", exc_info=True)
+    if "tc_rank" in set(table.get("heads") or []):
+        try:
+            from core.research.tc_rank import _assign_tc_rank_day_ranks
+
+            _assign_tc_rank_day_ranks(items)
+        except Exception:  # noqa: BLE001
+            logger.debug("arm-t tc_rank day ranks failed", exc_info=True)
+
 
 def _window_for_code(
     code: str,
@@ -217,13 +370,14 @@ def _attach_open_yhat_heads(
     from core.signal.return_score import apply_predicted_scores
 
     items = list(entries)
-    if global_model is not None:
+    arm = replay_uses_arm_t()
+    if global_model is not None and not arm:
         items = apply_predicted_scores(
             items, global_model, write_rank_score=False, score_codes=score_codes
         )
 
-    rem_doc = tau_model_doc
-    if rem_doc is None:
+    rem_doc = None if arm else tau_model_doc
+    if rem_doc is None and not arm:
         try:
             from core.research.tc_model import load_tau_model
 
@@ -251,21 +405,22 @@ def _attach_open_yhat_heads(
     oo_rank_doc = None
     apply_oo_rank_scores = None
     prefer_research = True
-    try:
-        from core.research.holdout import current_scoring_model_role
-        from core.research.oo_rank_lambdarank import (
-            apply_oo_rank_scores as _apply_oo_rank,
-        )
-        from core.research.oo_rank_lambdarank import (
-            load_oo_rank_model,
-        )
+    if not arm:
+        try:
+            from core.research.holdout import current_scoring_model_role
+            from core.research.oo_rank_lambdarank import (
+                apply_oo_rank_scores as _apply_oo_rank,
+            )
+            from core.research.oo_rank_lambdarank import (
+                load_oo_rank_model,
+            )
 
-        apply_oo_rank_scores = _apply_oo_rank
-        prefer_research = current_scoring_model_role() != "live"
-        # 按回测「模型」槽严格加载；缺该槽则本头不挂分，不静默换另一槽。
-        oo_rank_doc = load_oo_rank_model(prefer_research=prefer_research)
-    except Exception:  # noqa: BLE001
-        logger.debug("oo_rank import failed", exc_info=True)
+            apply_oo_rank_scores = _apply_oo_rank
+            prefer_research = current_scoring_model_role() != "live"
+            # 按回测「模型」槽严格加载；缺该槽则本头不挂分，不静默换另一槽。
+            oo_rank_doc = load_oo_rank_model(prefer_research=prefer_research)
+        except Exception:  # noqa: BLE001
+            logger.debug("oo_rank import failed", exc_info=True)
 
     # ŷ_oo_rank：整日截面批打分后再编 1..n 名次；不改 y_oo_fuse；相对分进合成 rank_score
     if apply_oo_rank_scores is not None and oo_rank_doc is not None:
@@ -343,67 +498,78 @@ def _attach_open_yhat_heads(
                 )
             except Exception:  # noqa: BLE001
                 logger.debug("attach open y_hl failed for %s", code, exc_info=True)
-    try:
-        from core.research.batch_score import (  # noqa: I001
-            enabled as batch_score_enabled,
-            rescore_fitted_cross_section_batched,
-        )
-        from core.research.materialize.consumer import MaterializeRequired
-        from core.signal.cross_section_rescore import rescore_fitted_cross_section
-
-        day_key = ""
-        for it in items:
-            if isinstance(it, dict):
-                day_key = str(it.get("as_of") or it.get("date") or "")[:10]
-                if len(day_key) >= 10:
-                    break
-        # L2 目录键必须是完整观察池（与物化 / assess_coverage 同）；
-        # score_codes 可能是分档子集，不能拿去 universe_hash。
-        cube_codes = None
+    if arm:
         try:
-            from core.research.materialize.coverage import read_cube_codes
+            from core.signal.cross_section_rescore import _rescore_horizons
 
-            cube_codes = read_cube_codes() or None
+            _rescore_horizons(items, score_codes=score_codes)
         except Exception:  # noqa: BLE001
-            cube_codes = None
-        if not cube_codes:
-            cube_codes = [
-                str(it.get("stock_code") or "").strip()
-                for it in items
-                if isinstance(it, dict) and str(it.get("stock_code") or "").strip()
-            ] or None
-        if batch_score_enabled():
-            rescore_fitted_cross_section_batched(
-                items,
-                score_codes=score_codes,
-                date=day_key or None,
-                clock="open",
-                persist_cube=True,
-                universe_codes=cube_codes,
-            )
-        else:
-            rescore_fitted_cross_section(items, score_codes=score_codes)
-    except MaterializeRequired:
-        raise
-    except Exception as exc:  # noqa: BLE001
-        # 截面 τ 单票路径已跳过 raw 预测；此处失败则 ŷ_τc 会空/错，禁止静默继续
-        logger.exception("replay cross-section rescore failed")
-        raise RuntimeError(
-            f"replay 截面 rescore 失败（禁止 raw×β 落盘）: {exc}"
-        ) from exc
-    # ŷ_τc_rank：须在 features_tau 挂好之后；与 oo_rank 同槽，一并进开盘缓存。
-    try:
-        from core.research.tc_rank import apply_tc_rank_scores, load_tc_rank_model
+            logger.debug("arm-t replay horizon rescore failed", exc_info=True)
+    else:
+        from core.research.materialize.consumer import MaterializeRequired
 
-        tc_rank_doc = load_tc_rank_model(prefer_research=prefer_research)
-        if tc_rank_doc is not None:
-            apply_tc_rank_scores(
-                [it for it in items if isinstance(it, dict)],
-                model_doc=tc_rank_doc,
-                score_codes=score_codes,
+        try:
+            from core.research.batch_score import (  # noqa: I001
+                enabled as batch_score_enabled,
+                rescore_fitted_cross_section_batched,
             )
-    except Exception:  # noqa: BLE001
-        logger.debug("attach y_tc_rank day batch failed", exc_info=True)
+            from core.signal.cross_section_rescore import rescore_fitted_cross_section
+
+            day_key = ""
+            for it in items:
+                if isinstance(it, dict):
+                    day_key = str(it.get("as_of") or it.get("date") or "")[:10]
+                    if len(day_key) >= 10:
+                        break
+            # L2 目录键必须是完整观察池（与物化 / assess_coverage 同）；
+            # score_codes 可能是分档子集，不能拿去 universe_hash。
+            cube_codes = None
+            try:
+                from core.research.materialize.coverage import read_cube_codes
+
+                cube_codes = read_cube_codes() or None
+            except Exception:  # noqa: BLE001
+                cube_codes = None
+            if not cube_codes:
+                cube_codes = [
+                    str(it.get("stock_code") or "").strip()
+                    for it in items
+                    if isinstance(it, dict) and str(it.get("stock_code") or "").strip()
+                ] or None
+            if batch_score_enabled():
+                rescore_fitted_cross_section_batched(
+                    items,
+                    score_codes=score_codes,
+                    date=day_key or None,
+                    clock="open",
+                    persist_cube=True,
+                    universe_codes=cube_codes,
+                )
+            else:
+                rescore_fitted_cross_section(items, score_codes=score_codes)
+        except MaterializeRequired:
+            raise
+        except Exception as exc:  # noqa: BLE001
+            # 截面 τ 单票路径已跳过 raw 预测；此处失败则 ŷ_τc 会空/错，禁止静默继续
+            logger.exception("replay cross-section rescore failed")
+            raise RuntimeError(
+                f"replay 截面 rescore 失败（禁止 raw×β 落盘）: {exc}"
+            ) from exc
+    # ŷ_τc_rank：须在 features_tau 挂好之后；与 oo_rank 同槽，一并进开盘缓存。
+    # Arm·T 回测的名次在 stamp_replay_arm_day 里从启用权重写出。
+    if not arm:
+        try:
+            from core.research.tc_rank import apply_tc_rank_scores, load_tc_rank_model
+
+            tc_rank_doc = load_tc_rank_model(prefer_research=prefer_research)
+            if tc_rank_doc is not None:
+                apply_tc_rank_scores(
+                    [it for it in items if isinstance(it, dict)],
+                    model_doc=tc_rank_doc,
+                    score_codes=score_codes,
+                )
+        except Exception:  # noqa: BLE001
+            logger.debug("attach y_tc_rank day batch failed", exc_info=True)
 
     try:
         from core.signal.cross_section_rescore import drop_unscored_heads

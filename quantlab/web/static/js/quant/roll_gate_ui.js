@@ -508,7 +508,7 @@ export function installRollGateUi(q) {
     const folds = Array.isArray(doc?.folds) ? doc.folds : [];
     if (!folds.length) {
       foldHost.innerHTML =
-        '<p class="quant-empty muted">尚未跑折。点「运行」启动 A 档 walk-forward（LB500 · HO10×3；须先有观察池分档）。</p>';
+        '<p class="quant-empty muted">尚未跑折。点「运行」启动 A 档 walk-forward（LB500 · HO10×3；须先有股票分档）。</p>';
       return;
     }
     const rows = folds

@@ -132,8 +132,8 @@ def _portfolio_backtest_kwargs(body: PaperReplayBacktestRequest) -> Dict[str, An
         "y_oo_gt0": bool(body.y_oo_gt0) or bool(body.y_τc_gt0),
         "morph_gate_enabled": bool(body.morph_gate_enabled),
         "sentiment_gate_enabled": False,
-        "oo_tc_score_min": body.oo_tc_score_min,
-        "oo_tc_score_strong_min": body.oo_tc_score_strong_min,
+        "oo_rank_max": body.oo_rank_max,
+        "oo_rank_strong_max": body.oo_rank_strong_max,
         # 旧高阈 / 绝对名次闸已从 schema 删除；Pydantic 默认忽略 extras。y_τc_gt0 仅上方并入。
         "initial_cash": body.initial_cash,
         "fill_clock": body.fill_clock,

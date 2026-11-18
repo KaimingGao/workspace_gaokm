@@ -493,6 +493,25 @@ class ReplayBatchOpenTests(unittest.TestCase):
         items = [{"stock_code": "A", "y_oo": 0.1}]
         self.assertEqual(stamp_trade_formula_tips("2026-10-29", {"A"}, items), 0)
 
+    def test_stamp_trade_formula_tips_skips_arm_t_rows(self) -> None:
+        from core.backtest import replay_batch_open as mod
+
+        clear_open_slice()
+        mod._HOLDER = mod._OpenSlice(["A"], ["2026-10-29"], {}, {})
+        try:
+            items = [
+                {
+                    "stock_code": "A",
+                    "y_oo": 0.2,
+                    "y_oo_source": "transformer",
+                }
+            ]
+            n = stamp_trade_formula_tips("2026-10-29", {"A"}, items)
+            self.assertEqual(n, 0)
+            self.assertNotIn("formula_terms", items[0])
+        finally:
+            clear_open_slice()
+
 
 if __name__ == "__main__":
     unittest.main()

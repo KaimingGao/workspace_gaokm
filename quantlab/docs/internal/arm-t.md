@@ -3,7 +3,7 @@
 研究轨 **Scheme LT**（LightGBM vs Transformer）的右臂：双支路晚融合（序列 Transformer ∥ 因子 MLP）。对照左臂 **Arm·L**（现网 LightGBM · 全量）。`live_allowed=False`，不写生产 score。
 
 UI 入口：`/yhat-t`（**Transformer 工厂**；旧 `/yhat-tf` 重定向）。契约见 [quant-ui.md · 模型中心](../quant-ui.md#yhat-t--yhat-l-模型中心双工厂)。  
-长期拆分（工厂拟合 vs 枢纽注册 live/回测）见 **[model-factory-hub.md](model-factory-hub.md)**。跑次版本在 `live/yhat_t/versions/{head}/`（Arm·L 为 `yhat_l`）；选中只回看参数、指标和日志。删除只去掉该条归档和日志副本，不改当前拟合，不写 live。
+长期拆分（工厂拟合 vs 枢纽注册 live/回测）见 **[model-factory-hub.md](model-factory-hub.md)**。跑次版本在 `live/yhat_t/versions/{head}/`（Arm·L 为 `yhat_l`）；选中只回看参数、指标和日志。删除只去掉该条归档和日志副本，不改磁盘上的当前拟合，不写 live。若删掉的是概览正在指示的那次失败，概览不再显示这次失败；列表里还有版本时，改看剩下的最新一条。
 
 ---
 
@@ -81,7 +81,7 @@ x_fac (B, d_factor) ── LayerNorm ── Linear ── GELU ── Dropout �
                                     cat ── LayerNorm ── Linear ── ŷ (B,)
 ```
 
-标量头没有激活。回归头外面用 SmoothL1，排序头外面用 LambdaRank 成对损失，网络本身不包 softmax / sigmoid。
+标量头没有激活。回归头外面用 SmoothL1；排序头外面用 LambdaRank（日内减均值）+ 日 z 保值，网络本身不包 softmax / sigmoid。
 
 ### 3.1 序列支路
 
@@ -127,7 +127,7 @@ x_fac (B, d_factor) ── LayerNorm ── Linear ── GELU ── Dropout �
 | `dropout` | 0.1 | 编码器与因子支 Dropout 共用 |
 | 融合维 `head_in` | `d_model + 1 + fh` | 默认 129 |
 
-权重只活在当次训练的 `state_dict` 里，预测后不落盘。回放因此没有逐因子表，只能展示这条网络的结构、训练设置和 Arm·T 自己的 OOS。
+模型中心拉起的成功拟合，在 Holdout 预测之后把 CPU `state_dict` 和序列 clip 写入 `{版本号}.weights/`（`state.pt` + `meta.json`）。直接跑脚本、没有 `YHAT_FACTORY_RUN_ID` 时不写。页面回看仍只有结构、训练设置和 OOS，没有逐因子表。加载用 `load_factory_weights`。本页不写研究套 / 执行套。
 
 ---
 
@@ -200,14 +200,14 @@ seq16 在经典 8 维价量摘要上追加影线 / 位置 / 量变 / 缺口回�
 | 项 | 行为 |
 |--|--|
 | **seed** | 固定 **42** |
-| **epochs** | 默认 **12**；patience **6** |
-| **早停** | 按 **val_loss**；`holdout_idx` **只打指标，不参与选权** |
+| **epochs** | 默认 **12**；跑满，不提前停 |
+| **保存** | 最后一个 epoch 的权重 |
+| **eval** | 每个 epoch 结束后用 Holdout 做一次 `no_grad` 测试（Rank IC / hit / Top10% y；排序头另打 NDCG@100）。不反传，不选权重，不改学习率日程 |
 | **optimizer** | AdamW，`lr=1e-3`，`weight_decay=1e-4` |
 | **LR** | cosine + warmup；`TRANSFORMER_WARMUP_STEPS` 默认 100；`min_ratio=0.01` |
 | **grad clip** | 1.0 |
 | **batch** | 默认 32；地板 `max(16, batch_size)` |
-| **val** | 训练日历末 **10%** 日（`val_frac` 钳在 0.1–0.4，默认取下限；至少 2 日，训练日至少留 3 天）。点损失与 LambdaRank 都先切验证日，再只抽训练日。`transformer build` 打 `n_val` 与 `val_days` |
-| **subsample** | `t_sample_frac` 默认 **0.1**；≥1 → 不截断。点损失行级；排序头 **整日组**，一组放不进剩余名额即停 |
+| **subsample** | `t_sample_frac` 默认 **0.1**；≥1 → 不截断。点损失行级；排序头 **整日组**，一组放不进剩余名额即停。抽样只作用在训练日，Holdout 不进训练 |
 | **序列预处理** | train 行 1%/99% 分位 clip（最多 2 万行估分位） |
 | **线程** | `TORCH_NUM_THREADS` 默认 **4**；interop=1；BLAS/OMP 仍为 1 |
 | **取数** | numpy 切片再 `as_tensor`（避免大张量高级索引 OpenMP SIGSEGV） |
@@ -217,9 +217,11 @@ seq16 在经典 8 维价量摘要上追加影线 / 位置 / 量变 / 缺口回�
 | task | loss | 说明 |
 |--|--|--|
 | regression（oo / tc） | `smooth_l1`（β=1） | |
-| rank（oo_rank / tc_rank） | LambdaRank | 稠密名次 `0..n-1`；成对 logistic × \|ΔNDCG\|；当前分数前 100 名；对取平均；`lambdarank_norm` |
+| rank（oo_rank / tc_rank） | LambdaRank + 日 z 保值 | 序：日内减均值后的 LambdaRank；值：`λ=0.3`·SmoothL1(ŷ, 当日标签截面 z±3) |
 
-标签与 Arm·L 相同：收益越高名次越大，`label_gain` 就是名次本身。权重按当前排序计算后断开梯度，只沿分数差反传。`truncation=100` 与 `LAMBDARANK_TRUNCATION_LEVEL` 相同，IDCG 也只累加这前 100 名。鲁棒性和 LightGBM 默认的 `lambdarank_norm` 对齐：权重再除以 `0.01+|分数差|`，整天 λ 质量乘 `log2(1+S)/S`。因子支路仍裁 ±`LAMBDARANK_Z_CLIP`。早停看验证日上的这个成对损失。Holdout 每个 epoch 另打 NDCG@100，不参与选权重。
+标签与 Arm·L 相同：收益越高名次越大，`label_gain` 就是名次本身。权重按当前排序计算后断开梯度，只沿分数差反传。`truncation=100` 与 `LAMBDARANK_TRUNCATION_LEVEL` 相同，IDCG 也只累加这前 100 名。鲁棒性和 LightGBM 默认的 `lambdarank_norm` 对齐：权重再除以 `0.01+|分数差|`，整天 λ 质量乘 `log2(1+S)/S`。因子支路仍裁 ±`LAMBDARANK_Z_CLIP`。
+
+排序头额外加保值项：把 ŷ 拉向当日标签截面 z，钉住可与 `y_*>0` / rank 阈值比较的零点；LambdaRank 仍在日内减均值后的分数上算，避免与保值梯度抢平移自由度。混合损失只在训练日反传。Holdout 每个 epoch 另打 NDCG@100，只记日志。
 
 ---
 
@@ -278,7 +280,7 @@ Holdout 始终写 `hard_gate_vs_arm_L.T`；L 或 T 失败也写 `pass=false` + r
 | seq_len / seq_feat_set | 20 / seq16 |
 | d_model / nhead / nlayers | **64 / 4 / 3** |
 | mlp_hidden | = d_model |
-| dropout / patience / epochs | 0.1 / 6 / 12 |
+| dropout / epochs | 0.1 / 12 |
 | batch_size / lr | **32** / **1e-3** |
 | t_sample_pct | **10**（frac 0.1） |
 | device | cpu |
@@ -316,7 +318,6 @@ PYTHONUNBUFFERED=1 .venv/bin/python scripts/run_yhat_transformer_holdout.py --he
 
 - Arm·T：**numpy batch**；序列面板磁盘缓存；冷启动最多 4 进程建面板
 - CS-z 前释放 `fac.X`；训练前清空 seq 大数组，避免双份常驻
-- `t_sample_pct=100` 且 `d_model≥256` → OOM 告警
 - 8GB 建议：`d_model≤64`，下调 lookback / 池 / 采样%
 - 按日志阶段定位崩溃：model build / buffers / fit start / step（见 desk `_arm_t_log_has`）
 
@@ -331,6 +332,7 @@ PYTHONUNBUFFERED=1 .venv/bin/python scripts/run_yhat_transformer_holdout.py --he
 5. Holdout 上的 epoch 指标 **不选权重**
 6. 不做多 seed / 多臂组合搜索（固定 L+T、seed=42）
 7. τc 仅开盘锚；不做其它 τ 网格
+8. 不设研究套 / 执行套，不做例行调度，不接入历史回测页。配方进入例行回测或 live，由研究枢纽执行。离线收益在本页底部按四头版本跑，成交固定 09:30（见 [model-factory-hub.md](model-factory-hub.md) §3.4）
 
 ---
 
@@ -344,3 +346,12 @@ PYTHONUNBUFFERED=1 .venv/bin/python scripts/run_yhat_transformer_holdout.py --he
 | 2026-11-15 | 对齐后只切早于 open 立方起点的前缀；起点之后缺立方仍失败 |
 | 2026-11-15 | 立方起点改为第一份能读出 μ/σ 的文件；开头坏文件跳过，日期全部早于起点则清空面板 |
 | 2026-11-16 | 排序头改为 LambdaRank 成对损失：前 100、对取平均、`lambdarank_norm`、IDCG 只看前 100；Holdout 另打 NDCG@100 |
+| 2026-11-16 | 写明现行权重不落盘；配方执行（研究套 / 执行套）归研究枢纽 |
+| 2026-11-16 | 离线历史回测按版本号加载本页制品并预估，不写入套槽 |
+| 2026-11-16 | 模型中心拉起的成功拟合按版本号保存 `state.pt` 与序列 clip |
+| 2026-11-17 | 排序头混合损失：LambdaRank（日内减均值）+ `λ=0.3` 日 z 保值；权重 meta 记 `rank_value_weight` |
+| 2026-11-17 | 去掉验证集与早停：跑满 epochs，保存最后一版权重；每个 epoch 用 Holdout 做一次测试。`patience` 不再传入 |
+| 2026-11-17 | 研究枢纽四头复用本页拟合卡。参数只读来自配方。见 [model-factory-hub.md](model-factory-hub.md) §4.3 |
+| 2026-11-17 | 枢纽四头拟合改为调用本工厂训练；权重仍在工厂版本，不写研究套 / 执行套 |
+| 2026-11-18 | 已从版本列表删掉的失败不再出现在概览；有剩余版本时改看最新一条 |
+| 2026-11-18 | 删掉的成功跑次同样退出概览和拟合日志；日志改看列表里还在的最新一条 |

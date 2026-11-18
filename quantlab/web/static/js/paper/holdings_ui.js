@@ -251,12 +251,12 @@ export function buildPaperHoldingsTableHtml({
       );
       const ooRankTitle =
         ooRank.text === "—"
-          ? "oo_rank — · 无已启用模型或未写入；不进 fuse；进合成 rank_score（买序/阈值）"
-          : `当日截面第 ${ooRank.text} 名 / ${Math.round(Number(h.y_oo_rank_n))} · 1=相对分最高 · 不进 fuse；进合成 rank_score（买序/阈值）`;
+          ? "oo_rank — · 无已启用模型或未写入；不进 fuse；买序看合成 rank_score；名次门槛看当天名次"
+          : `当日截面第 ${ooRank.text} 名 / ${Math.round(Number(h.y_oo_rank_n))} · 1=相对分最高 · 不进 fuse；买序看合成 rank_score；名次门槛看当天名次`;
       const tcRankTitle =
         tcRank.text === "—"
-          ? "τc_rank — · 无已启用模型或未写入 · 不进 fuse；进合成 rank_score（买序/阈值）"
-          : `当日截面第 ${tcRank.text} 名 / ${Math.round(Number(h.y_tc_rank_n))} · 1=相对分最高 · 不进 fuse；进合成 rank_score（买序/阈值）`;
+          ? "τc_rank — · 无已启用模型或未写入 · 不进 fuse；买序看合成 rank_score；名次门槛看当天名次"
+          : `当日截面第 ${tcRank.text} 名 / ${Math.round(Number(h.y_tc_rank_n))} · 1=相对分最高 · 不进 fuse；买序看合成 rank_score；名次门槛看当天名次`;
       const origin = String(h.origin || "");
       const originLabel = h.origin_label || "—";
       const originTitle = ORIGIN_HINT[origin] || "早期记录未标出处";

@@ -207,8 +207,8 @@ class TestPlanRankLotDay(unittest.TestCase):
             cfg=_cfg(
                 fuse_enter=0.01,
                 cash_floor=0.0,
-                oo_tc_score_min=None,
-                oo_tc_score_strong_min=None,
+                oo_rank_max=None,
+                oo_rank_strong_max=None,
             ),
         )
         codes = [t["stock_code"] for t in out["buys"]]
@@ -408,6 +408,31 @@ class TestPlanRankLotDay(unittest.TestCase):
         self.assertEqual(slim[0]["key"], "f29")
         self.assertEqual(out["formula_terms_oo_rank"]["backend"], "ridge")
 
+    def test_debug_scores_keeps_arm_source_when_tips_off(self):
+        from core.paper.rebalance.rank_lots import _debug_scores
+
+        out = _debug_scores(
+            {
+                "stock_code": "600000",
+                "y_oo": -0.038,
+                "y_oo_source": "transformer",
+                "y_τc_source": "transformer",
+                "arm_t": {"suite": "research", "oo": {"label": "11-17 02:23"}},
+                "formula_terms": {
+                    "total": 9.0,
+                    "terms": [{"key": "momentum", "contrib": 9.0}],
+                },
+            },
+            None,
+            None,
+            include_tips=False,
+        )
+        self.assertEqual(out.get("y_oo"), -0.038)
+        self.assertEqual(out.get("y_oo_source"), "transformer")
+        self.assertEqual(out.get("y_τc_source"), "transformer")
+        self.assertEqual(out.get("arm_t", {}).get("suite"), "research")
+        self.assertNotIn("formula_terms", out)
+
     def test_tip_explain_fields_keeps_tree_source(self):
         from core.paper.rebalance.rank_lots import tip_explain_fields
 
@@ -421,6 +446,20 @@ class TestPlanRankLotDay(unittest.TestCase):
         self.assertEqual(out.get("y_oo_source"), "tree")
         self.assertEqual(out.get("y_τc_source"), "tree")
         self.assertEqual(out["score_formula_terms"]["total"], 1.2)
+
+    def test_tip_explain_fields_keeps_arm_card(self):
+        from core.paper.rebalance.rank_lots import tip_explain_fields
+
+        card = {"suite": "research", "oo_rank": {"label": "11-17"}}
+        out = tip_explain_fields(
+            {
+                "y_oo_rank_source": "transformer",
+                "y_tc_rank_source": "transformer",
+                "arm_t": card,
+            }
+        )
+        self.assertEqual(out.get("y_oo_rank_source"), "transformer")
+        self.assertEqual(out.get("arm_t"), card)
 
     def test_tip_explain_fields_keeps_tau_open_z(self):
         from core.paper.rebalance.rank_lots import tip_explain_fields
@@ -1653,8 +1692,7 @@ class TestEnterGates(unittest.TestCase):
             self._cfg(y_oo_gt0=True),
             rs=0.02,
         )
-        self.assertIsNotNone(skip_rank)
-        self.assertIn("y_oo_rank", skip_rank or "")
+        self.assertIsNone(skip_rank)
         self.assertIsNone(
             rank_lot_enter_skip_reason(
                 self._item(
@@ -1713,12 +1751,31 @@ class TestEnterGates(unittest.TestCase):
             )
         )
 
-    def test_oo_tc_score_min_blocks_when_below(self):
+    def test_oo_rank_max_blocks_when_not_inside(self):
         from core.paper.rebalance.rank_lots import rank_lot_enter_skip_reason
 
-        cfg = self._cfg(oo_tc_score_min=0.3, fuse_strong=0.05)
+        cfg = self._cfg(oo_rank_max=6, fuse_strong=0.05)
         skip = rank_lot_enter_skip_reason(
-            self._item(y_oo_rank_score=0.2, y_tc_rank_score=0.4),
+            self._item(y_oo_rank=6, y_tc_rank=3),
+            cfg,
+            rs=0.02,
+        )
+        self.assertIsNotNone(skip)
+        self.assertIn("须<6", skip or "")
+        self.assertIsNone(
+            rank_lot_enter_skip_reason(
+                self._item(y_oo_rank=5, y_tc_rank=3),
+                cfg,
+                rs=0.02,
+            )
+        )
+
+    def test_oo_rank_max_uses_worse_head(self):
+        from core.paper.rebalance.rank_lots import rank_lot_enter_skip_reason
+
+        cfg = self._cfg(oo_rank_max=6, fuse_strong=0.05)
+        skip = rank_lot_enter_skip_reason(
+            self._item(y_oo_rank=8, y_tc_rank=2),
             cfg,
             rs=0.02,
         )
@@ -1726,127 +1783,105 @@ class TestEnterGates(unittest.TestCase):
         self.assertIn("oo_rank", skip or "")
         self.assertIsNone(
             rank_lot_enter_skip_reason(
-                self._item(y_oo_rank_score=0.31, y_tc_rank_score=0.4),
+                self._item(y_oo_rank=5, y_tc_rank=2),
                 cfg,
                 rs=0.02,
             )
         )
-
-    def test_oo_tc_score_uses_combined_rank_score(self):
-        from core.paper.rebalance.rank_lots import rank_lot_enter_skip_reason
-
-        cfg = self._cfg(oo_tc_score_min=0.3, fuse_strong=0.05)
-        # 0.6*0.2 + 0.4*0.2 = 0.2 < 0.3 → 拦
-        skip = rank_lot_enter_skip_reason(
-            self._item(y_oo_rank_score=0.2, y_tc_rank_score=0.2),
-            cfg,
-            rs=0.02,
-        )
-        self.assertIsNotNone(skip)
-        self.assertIn("rank_score", skip or "")
-        # 0.6*0.5 + 0.4*0.1 = 0.34 ≥ 0.3 → 放行（合成分，不再要求两头均过）
+        # 只来一头：看这一头
         self.assertIsNone(
             rank_lot_enter_skip_reason(
-                self._item(y_oo_rank_score=0.5, y_tc_rank_score=0.1),
+                self._item(y_oo_rank=5),
                 cfg,
                 rs=0.02,
             )
         )
-        # 两侧都高
-        self.assertIsNone(
+        self.assertIsNotNone(
             rank_lot_enter_skip_reason(
-                self._item(y_oo_rank_score=0.5, y_tc_rank_score=0.4),
+                self._item(y_tc_rank=6),
                 cfg,
                 rs=0.02,
             )
         )
-        # 仅一侧有分：用该头，0.5 ≥ 0.3 → 放行
-        self.assertIsNone(
-            rank_lot_enter_skip_reason(
-                self._item(y_oo_rank_score=0.5),
-                cfg,
-                rs=0.02,
-            )
-        )
-        # 权重可调：全押 τc 时低 oo 高 τc 过线
+        # 买序权重不改名次门槛
         cfg_tc = self._cfg(
-            oo_tc_score_min=0.3,
+            oo_rank_max=6,
             fuse_strong=0.05,
             fusion_w_oo_rank=0.0,
             fusion_w_tc_rank=1.0,
         )
-        self.assertIsNone(
+        self.assertIsNotNone(
             rank_lot_enter_skip_reason(
-                self._item(y_oo_rank_score=0.0, y_tc_rank_score=0.4),
+                self._item(y_oo_rank=8, y_tc_rank=1, y_tc_rank_score=0.9),
                 cfg_tc,
                 rs=0.02,
             )
         )
 
-    def test_oo_tc_score_both_missing_does_not_block(self):
+    def test_oo_rank_both_missing_does_not_block(self):
         from core.paper.rebalance.rank_lots import rank_lot_enter_skip_reason
 
         self.assertIsNone(
             rank_lot_enter_skip_reason(
                 self._item(),
-                self._cfg(oo_tc_score_min=0.3, fuse_strong=0.05),
+                self._cfg(oo_rank_max=6, fuse_strong=0.05),
                 rs=0.02,
             )
         )
 
-    def test_oo_tc_score_null_disables_gate(self):
+    def test_oo_rank_null_disables_gate(self):
         from core.paper.rebalance.rank_lots import rank_lot_enter_skip_reason
 
-        cfg = self._cfg(oo_tc_score_min=None, fuse_strong=0.05)
+        cfg = self._cfg(oo_rank_max=None, fuse_strong=0.05)
         self.assertIsNone(
             rank_lot_enter_skip_reason(
-                self._item(y_oo_rank_score=0.01, y_tc_rank_score=0.01),
+                self._item(y_oo_rank=40, y_tc_rank=40),
                 cfg,
                 rs=0.02,
             )
         )
 
-    def test_oo_tc_score_blank_strings_disable_gate(self):
+    def test_oo_rank_blank_strings_disable_gate(self):
         from core.paper.rebalance.rank_lots import (
-            oo_tc_score_min_from_cfg,
+            oo_rank_max_from_cfg,
             rank_lot_enter_skip_reason,
         )
 
         for raw in ("", "  ", "null", "None", "NaN", "undefined"):
             self.assertIsNone(
-                oo_tc_score_min_from_cfg({"oo_tc_score_min": raw}),
+                oo_rank_max_from_cfg({"oo_rank_max": raw}),
                 msg=repr(raw),
             )
             self.assertIsNone(
                 rank_lot_enter_skip_reason(
-                    self._item(y_oo_rank_score=0.01, y_tc_rank_score=0.01),
-                    self._cfg(oo_tc_score_min=raw, fuse_strong=0.05),
+                    self._item(y_oo_rank=40, y_tc_rank=40),
+                    self._cfg(oo_rank_max=raw, fuse_strong=0.05),
                     rs=0.02,
                 ),
                 msg=repr(raw),
             )
 
-    def test_oo_tc_score_skip_ignores_nonfinite_thr(self):
-        from core.paper.rebalance.rank_lots import _oo_tc_score_skip
+    def test_oo_rank_skip_ignores_nonfinite_thr(self):
+        from core.paper.rebalance.rank_lots import _rank_pos_skip
 
-        item = self._item(y_oo_rank_score=0.01, y_tc_rank_score=0.01)
-        self.assertIsNone(_oo_tc_score_skip(item, float("nan")))
-        self.assertIsNone(_oo_tc_score_skip(item, float("inf")))
+        item = self._item(y_oo_rank=40, y_tc_rank=40)
+        self.assertIsNone(_rank_pos_skip(item, None))
+        self.assertIsNone(_rank_pos_skip(item, float("nan")))
 
     def test_high_gate_retired_no_longer_rescues(self):
         """旧高阈键已退役：fuse_high 不能再救 rank 门槛。"""
         from core.paper.rebalance.rank_lots import rank_lot_enter_skip_reason
 
         item = self._item(
-            y_oo_rank_score=0.1,
-            y_tc_rank_score=0.1,
+            y_oo_rank=8,
+            y_tc_rank=8,
             predicted_score=1.0,
         )
         cfg = self._cfg(
             fuse_enter=0.002,
             fuse_strong=0.003,
-            oo_tc_score_min=0.3,
-            oo_tc_score_strong_min=0.3,
+            oo_rank_max=6,
+            oo_rank_strong_max=6,
             fuse_high=0.01,
             oo_tc_score_high_min=0.05,
             lot_high_amount=100000,
@@ -1899,31 +1934,31 @@ class TestEnterGates(unittest.TestCase):
     def test_fuse_strong_uses_strong_score_gate(self):
         from core.paper.rebalance.rank_lots import rank_lot_enter_skip_reason
 
-        item = self._item(y_oo_rank_score=0.2, y_tc_rank_score=0.2)
+        item = self._item(y_oo_rank=8, y_tc_rank=8)
         cfg = self._cfg(
-            oo_tc_score_min=0.3,
-            oo_tc_score_strong_min=0.15,
+            oo_rank_max=6,
+            oo_rank_strong_max=12,
             fuse_strong=0.01,
         )
-        # 过强档：改看 0.15 → 放行
+        # 过强档：改看 <12 → 放行
         self.assertIsNone(rank_lot_enter_skip_reason(item, cfg, rs=0.02))
-        # 显式关掉强档 rank 阈值
-        open_cfg = dict(cfg, oo_tc_score_strong_min=None)
+        # 显式关掉强档名次
+        open_cfg = dict(cfg, oo_rank_strong_max=None)
         self.assertIsNone(
             rank_lot_enter_skip_reason(
-                self._item(y_oo_rank_score=0.01, y_tc_rank_score=0.01),
+                self._item(y_oo_rank=40, y_tc_rank=40),
                 open_cfg,
                 rs=0.02,
             )
         )
-        # 等于强档仍看入场 rank 阈值（须 > fuse_strong）
+        # 等于强档仍看入场名次（须 > fuse_strong）
         skip_eq = rank_lot_enter_skip_reason(item, cfg, rs=0.01)
         self.assertIsNotNone(skip_eq)
-        self.assertIn("oo_rank", skip_eq or "")
+        self.assertIn("须<6", skip_eq or "")
         # 未过强档仍拦；y_oo>0 不因强档放行
         skip_base = rank_lot_enter_skip_reason(
-            self._item(predicted_score=-0.05, y_oo_rank_score=0.5, y_tc_rank_score=0.5),
-            self._cfg(oo_tc_score_min=0.3, fuse_strong=0.01, y_oo_gt0=True),
+            self._item(predicted_score=-0.05, y_oo_rank=1, y_tc_rank=1),
+            self._cfg(oo_rank_max=6, fuse_strong=0.01, y_oo_gt0=True),
             rs=0.02,
         )
         self.assertIsNotNone(skip_base)
@@ -1985,8 +2020,8 @@ class TestPathMatrix(unittest.TestCase):
         from core.paper.rebalance.path_matrix import get_path_matrix_cfg
 
         cfg = get_path_matrix_cfg({"rank_lots": {}})
-        self.assertAlmostEqual(float(cfg["fusion_w_oo_rank"]), 0.6)
-        self.assertAlmostEqual(float(cfg["fusion_w_tc_rank"]), 0.4)
+        self.assertNotIn("fusion_w_oo_rank", cfg)
+        self.assertNotIn("fusion_w_tc_rank", cfg)
         self.assertNotIn("fuse_high", cfg)
         self.assertNotIn("lot_high_amount", cfg)
         self.assertNotIn("oo_tc_score_high_min", cfg)
@@ -2033,13 +2068,13 @@ class TestPathMatrix(unittest.TestCase):
         self.assertNotIn("y_hl_gt0", lots)
         self.assertFalse(lots.get("y_oo_gt0"))
         self.assertNotIn("y_τc_gt0", lots)
-        self.assertAlmostEqual(float(lots.get("oo_tc_score_min")), 0.3)
-        self.assertAlmostEqual(float(lots.get("oo_tc_score_strong_min")), 0.3)
+        self.assertEqual(int(lots.get("oo_rank_max")), 6)
+        self.assertEqual(int(lots.get("oo_rank_strong_max")), 12)
+        self.assertNotIn("oo_tc_score_min", lots)
+        self.assertNotIn("oo_tc_score_strong_min", lots)
         self.assertNotIn("oo_tc_score_high_min", lots)
-        self.assertAlmostEqual(float(lots.get("fusion_w_oo_rank")), 0.6)
-        self.assertAlmostEqual(float(lots.get("fusion_w_tc_rank")), 0.4)
-        self.assertNotIn("oo_rank_max", lots)
-        self.assertNotIn("oo_rank_strong_max", lots)
+        self.assertNotIn("fusion_w_oo_rank", lots)
+        self.assertNotIn("fusion_w_tc_rank", lots)
         self.assertNotIn("oo_rank_high_max", lots)
         self.assertNotIn("oo_rank_top_frac", lots)
         self.assertEqual(lots.get("fill_clock"), "09:30")
@@ -2055,10 +2090,10 @@ class TestPathMatrix(unittest.TestCase):
         self.assertEqual(int(pm.get("lot_strong_amount") or 0), 20000)
         self.assertNotIn("lot_high_amount", pm)
         self.assertNotIn("fuse_high", pm)
-        self.assertAlmostEqual(float(pm.get("oo_tc_score_min")), 0.3)
-        self.assertAlmostEqual(float(pm.get("fusion_w_oo_rank")), 0.6)
-        self.assertNotIn("oo_rank_max", pm)
-        self.assertNotIn("oo_rank_strong_max", pm)
+        self.assertEqual(int(pm.get("oo_rank_max")), 6)
+        self.assertEqual(int(pm.get("oo_rank_strong_max")), 12)
+        self.assertNotIn("fusion_w_oo_rank", pm)
+        self.assertNotIn("oo_tc_score_min", pm)
         self.assertNotIn("oo_rank_high_max", pm)
         self.assertNotIn("oo_rank_top_frac", pm)
         self.assertFalse(pm.get("sentiment_gate_enabled"))
@@ -2085,8 +2120,8 @@ class TestPathMatrix(unittest.TestCase):
         ok, norm, errs = validate_execution_patch(patch)
         self.assertTrue(ok, errs)
         saved = (norm.get("rebalance_timing") or {}).get("rank_lots") or {}
-        self.assertAlmostEqual(float(saved.get("fusion_w_oo_rank") or 0), 0.7)
-        self.assertAlmostEqual(float(saved.get("fusion_w_tc_rank") or 0), 0.3)
+        self.assertNotIn("fusion_w_oo_rank", saved)
+        self.assertNotIn("fusion_w_tc_rank", saved)
         self.assertNotIn("fuse_high", saved)
         self.assertNotIn("oo_tc_score_high_min", saved)
         self.assertNotIn("lot_high_amount", saved)
@@ -2108,43 +2143,43 @@ class TestPathMatrix(unittest.TestCase):
         applied = apply_execution_patch_to_paper(paper, patch)
         self.assertTrue(applied.get("ok"), applied)
         lots = paper["rules"]["execution"]["rebalance_timing"]["rank_lots"]
-        self.assertAlmostEqual(float(lots.get("fusion_w_oo_rank") or 0), 0.7)
-        self.assertAlmostEqual(float(lots.get("fusion_w_tc_rank") or 0), 0.3)
+        self.assertNotIn("fusion_w_oo_rank", lots)
+        self.assertNotIn("fusion_w_tc_rank", lots)
         self.assertNotIn("fuse_high", lots)
         self.assertNotIn("oo_tc_score_high_min", lots)
         self.assertNotIn("lot_high_amount", lots)
 
-    def test_save_rules_persists_oo_tc_score_min(self):
+    def test_save_rules_persists_oo_rank_max(self):
         from core.execution import apply_execution_patch_to_paper, validate_execution_patch
 
         ok, norm, errs = validate_execution_patch(
-            {"rebalance_timing": {"rank_lots": {"oo_tc_score_min": 0.35}}}
+            {"rebalance_timing": {"rank_lots": {"oo_rank_max": 8}}}
         )
         self.assertTrue(ok, errs)
         saved = (norm.get("rebalance_timing") or {}).get("rank_lots") or {}
-        self.assertAlmostEqual(float(saved.get("oo_tc_score_min") or 0), 0.35)
-        self.assertNotIn("oo_rank_max", saved)
+        self.assertEqual(int(saved.get("oo_rank_max") or 0), 8)
+        self.assertNotIn("oo_tc_score_min", saved)
         self.assertNotIn("oo_rank_top_frac", saved)
 
         paper = {"rules": {}}
         applied = apply_execution_patch_to_paper(
             paper,
-            {"rebalance_timing": {"rank_lots": {"oo_tc_score_min": 0.35}}},
+            {"rebalance_timing": {"rank_lots": {"oo_rank_max": 8}}},
         )
         self.assertTrue(applied.get("ok"), applied)
         lots = paper["rules"]["execution"]["rebalance_timing"]["rank_lots"]
-        self.assertAlmostEqual(float(lots.get("oo_tc_score_min") or 0), 0.35)
-        self.assertNotIn("oo_rank_max", lots)
+        self.assertEqual(int(lots.get("oo_rank_max") or 0), 8)
+        self.assertNotIn("oo_tc_score_min", lots)
 
         cleared = apply_execution_patch_to_paper(
             paper,
-            {"rebalance_timing": {"rank_lots": {"oo_tc_score_min": None}}},
+            {"rebalance_timing": {"rank_lots": {"oo_rank_max": None}}},
         )
         self.assertTrue(cleared.get("ok"), cleared)
         lots2 = paper["rules"]["execution"]["rebalance_timing"]["rank_lots"]
-        self.assertIsNone(lots2.get("oo_tc_score_min"))
+        self.assertIsNone(lots2.get("oo_rank_max"))
 
-        # 显式 null=关须能盖过默认 0.3，否则 UI 保存关闸后回读又变回 0.3
+        # 显式 null=关须能盖过默认 6，否则 UI 保存关闸后回读又变回 6
         from core.execution import resolve_effective_execution
 
         bundle = resolve_effective_execution(
@@ -2153,8 +2188,8 @@ class TestPathMatrix(unittest.TestCase):
             channel="paper",
         )
         eff = ((bundle.get("rebalance_timing") or {}).get("rank_lots") or {})
-        self.assertIsNone(eff.get("oo_tc_score_min"))
-        self.assertIn("oo_tc_score_min", eff)
+        self.assertIsNone(eff.get("oo_rank_max"))
+        self.assertIn("oo_rank_max", eff)
 
     def test_save_rules_strips_retired_high_gate_keys(self):
         """旧高阈键保存后须从生效配置剔除。"""
@@ -2192,7 +2227,7 @@ class TestPathMatrix(unittest.TestCase):
         self.assertNotIn("fuse_high", saved)
         self.assertNotIn("oo_tc_score_high_min", saved)
         self.assertNotIn("lot_high_amount", saved)
-        self.assertAlmostEqual(float(saved.get("fusion_w_oo_rank") or 0), 0.55)
+        self.assertNotIn("fusion_w_oo_rank", saved)
 
         paper = {"rules": {}}
         applied = apply_execution_patch_to_paper(
@@ -2212,7 +2247,7 @@ class TestPathMatrix(unittest.TestCase):
         lots = paper["rules"]["execution"]["rebalance_timing"]["rank_lots"]
         self.assertNotIn("fuse_high", lots)
         self.assertNotIn("oo_tc_score_high_min", lots)
-        self.assertAlmostEqual(float(lots.get("fusion_w_oo_rank") or 0), 0.55)
+        self.assertNotIn("fusion_w_oo_rank", lots)
 
     def test_resolve_prefers_rank_lots_null_over_path_matrix(self):
         """rank_lots 显式 null 须盖过 path_matrix 残留默认/旧值。"""
@@ -2223,8 +2258,8 @@ class TestPathMatrix(unittest.TestCase):
             "rules": {
                 "execution": {
                     "rebalance_timing": {
-                        "path_matrix": {"oo_tc_score_min": 0.3},
-                        "rank_lots": {"oo_tc_score_min": None},
+                        "path_matrix": {"oo_rank_max": 6},
+                        "rank_lots": {"oo_rank_max": None},
                     }
                 }
             },
@@ -2237,13 +2272,14 @@ class TestPathMatrix(unittest.TestCase):
         timing = bundle.get("rebalance_timing") or {}
         rl = timing.get("rank_lots") or {}
         pm = timing.get("path_matrix") or {}
-        self.assertIsNone(rl.get("oo_tc_score_min"))
-        self.assertIsNone(pm.get("oo_tc_score_min"))
+        self.assertIsNone(rl.get("oo_rank_max"))
+        self.assertIsNone(pm.get("oo_rank_max"))
         self.assertEqual(rl, pm)
-        self.assertNotIn("oo_rank_max", rl)
+        self.assertIn("oo_rank_max", rl)
+        self.assertNotIn("oo_tc_score_min", rl)
 
-    def test_save_rules_drops_retired_abs_rank_keys(self):
-        """旧绝对名次闸键不再落盘（即便补丁仍带）。"""
+    def test_save_rules_keeps_rank_max_and_drops_score_gate(self):
+        """名次门槛落盘；旧分数闸与 top_frac 丢掉。"""
         from core.execution import apply_execution_patch_to_paper, validate_execution_patch
 
         ok, norm, errs = validate_execution_patch(
@@ -2260,7 +2296,8 @@ class TestPathMatrix(unittest.TestCase):
         self.assertTrue(ok, errs)
         saved = (norm.get("rebalance_timing") or {}).get("rank_lots") or {}
         self.assertNotIn("oo_rank_top_frac", saved)
-        self.assertNotIn("oo_rank_max", saved)
+        self.assertNotIn("oo_tc_score_min", saved)
+        self.assertEqual(int(saved.get("oo_rank_max") or 0), 10)
 
         paper = {
             "rules": {
@@ -2281,8 +2318,8 @@ class TestPathMatrix(unittest.TestCase):
         )
         self.assertTrue(applied.get("ok"), applied)
         lots = paper["rules"]["execution"]["rebalance_timing"]["rank_lots"]
-        self.assertAlmostEqual(float(lots.get("oo_tc_score_min") or 0), 0.35)
-        self.assertNotIn("oo_rank_max", lots)
+        self.assertNotIn("oo_tc_score_min", lots)
+        self.assertEqual(int(lots.get("oo_rank_max") or 0), 6)
         self.assertNotIn("oo_rank_high_max", lots)
         self.assertNotIn("oo_rank_top_frac", lots)
 

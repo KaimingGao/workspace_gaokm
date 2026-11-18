@@ -1,6 +1,6 @@
 """模型工厂跑次版本：Arm·L / Arm·T 各自归档，不接 suite ``model_versions``。
 
-选中历史版只回看参数、指标和日志。删除只去掉该条归档和日志副本。不写 live，也不改当前拟合。
+选中历史版只回看参数、指标和日志。删除去掉该条归档、日志副本和权重目录。不写 live，也不改磁盘上的 last / job。已从列表删掉的终态跑次不再当作上次拟合，拟合日志改看列表里还在的最新一条。
 """
 
 from __future__ import annotations
@@ -46,6 +46,10 @@ def _log_copy_path(head: str, version_id: str) -> str:
     return os.path.join(_versions_root(head), f"{version_id}.log")
 
 
+def _weights_dir(head: str, version_id: str) -> str:
+    return os.path.join(_versions_root(head), f"{version_id}.weights")
+
+
 def _check_version_id(version_id: Any) -> Optional[str]:
     vid = str(version_id or "").strip()
     if not vid or not _VID.fullmatch(vid) or ".." in vid:
@@ -85,16 +89,40 @@ def _read_index(head: str) -> List[Dict[str, Any]]:
     return out
 
 
-def _write_index(head: str, factory: str, items: List[Dict[str, Any]]) -> None:
-    atomic_write_json(
-        _index_path(head),
-        {
-            "version": 1,
-            "factory": factory,
-            "head": head,
-            "items": items,
-        },
-    )
+def _enabled_map(head: str) -> Dict[str, str]:
+    raw = (_read_json(_index_path(head)) or {}).get("enabled")
+    if not isinstance(raw, dict):
+        return {}
+    out: Dict[str, str] = {}
+    for role in ("research", "live"):
+        vid = _check_version_id(raw.get(role))
+        if vid:
+            out[role] = vid
+    return out
+
+
+def _write_index(
+    head: str,
+    factory: str,
+    items: List[Dict[str, Any]],
+    enabled: Optional[Dict[str, str]] = None,
+) -> None:
+    current = _enabled_map(head) if enabled is None else dict(enabled)
+    ids = {str(it.get("id") or "") for it in items}
+    kept = {
+        role: vid
+        for role, vid in current.items()
+        if role in ("research", "live") and vid in ids
+    }
+    payload: Dict[str, Any] = {
+        "version": 1,
+        "factory": factory,
+        "head": head,
+        "items": items,
+    }
+    if kept:
+        payload["enabled"] = kept
+    atomic_write_json(_index_path(head), payload)
 
 
 def _as_bool(value: Any, *, default: bool) -> bool:
@@ -133,7 +161,8 @@ def _metrics(last: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
 
 
 def _factor_tag(head: str, params: Optional[Dict[str, Any]]) -> Optional[str]:
-    if _factory() == "L" or not isinstance(params, dict):
+    # L / R 固定全量，版本条不再标 core/full。
+    if _factory() in ("L", "R") or not isinstance(params, dict):
         return None
     if head in ("tc", "tc_rank"):
         return "atc_full" if _as_bool(params.get("full_atc", True), default=True) else "atc_core"
@@ -141,6 +170,8 @@ def _factor_tag(head: str, params: Optional[Dict[str, Any]]) -> Optional[str]:
 
 
 def _sample_pct(params: Optional[Dict[str, Any]]) -> Optional[float]:
+    if _factory() == "R":
+        return None
     if not isinstance(params, dict) or "t_sample_pct" not in params:
         return None
     try:
@@ -150,6 +181,28 @@ def _sample_pct(params: Optional[Dict[str, Any]]) -> Optional[float]:
     if pct != pct:
         return None
     return pct
+
+
+def _marked_suite(raw: Any) -> str:
+    role = str(raw or "").strip().lower()
+    return role if role in ("live", "research") else ""
+
+
+def _suite_of_item(item: Dict[str, Any]) -> str:
+    """执行套以拟合时的套别为准。没标套别时，Holdout 0 仍只算执行套。"""
+    marked = _marked_suite(item.get("suite"))
+    if marked:
+        return marked
+    return "live" if item.get("holdout_trading_days") == 0 else "research"
+
+
+def _holdout_days(params: Optional[Dict[str, Any]]) -> Optional[int]:
+    if not isinstance(params, dict) or "holdout_trading_days" not in params:
+        return None
+    try:
+        return int(params.get("holdout_trading_days"))
+    except (TypeError, ValueError):
+        return None
 
 
 def _rank_ic(metrics: Optional[Dict[str, Any]]) -> Optional[float]:
@@ -236,6 +289,13 @@ def _label(
         loss = _loss_label(params)
         if loss:
             bits.append(loss)
+    elif _factory() == "R":
+        try:
+            alpha = float((params or {}).get("ridge_alpha"))
+        except (TypeError, ValueError):
+            alpha = None
+        if alpha is not None and alpha == alpha:
+            bits.append(f"λ{alpha:g}")
     else:
         pct = badges.get("sample_pct")
         if isinstance(pct, (int, float)):
@@ -327,7 +387,7 @@ def archive_factory_run(
     desk = _desk()
     h = desk._validate_head(head)
     fac = _factory()
-    if fac not in ("L", "T"):
+    if fac not in ("L", "T", "R"):
         fac = "T"
     st = str(status or "").strip().lower()
     if st not in ("done", "partial", "error"):
@@ -347,11 +407,29 @@ def archive_factory_run(
     action = str(last_d.get("action") or "")
     if not action:
         action = "holdout_result" if st == "done" else "holdout_failed"
-    backend = "lgb" if fac == "L" else "transformer"
+    backend = {"L": "lgb", "R": "ridge"}.get(fac, "transformer")
     try:
         pid = int(job_d.get("pid") or 0)
     except (TypeError, ValueError):
         pid = 0
+    from core.research.yhat_factory_weights import (
+        discard_pending_weights,
+        publish_pending_weights,
+        remove_version_weights,
+    )
+
+    weights_ref = None
+    if st in ("done", "partial"):
+        weights_ref = publish_pending_weights(
+            h,
+            vid,
+            run_id=str(job_d.get("run_id") or ""),
+            pid=pid,
+        )
+    else:
+        discard_pending_weights(h)
+    if not weights_ref:
+        remove_version_weights(h, vid)
     doc: Dict[str, Any] = {
         "role": "yhat_factory_run",
         "model_id": f"{backend}:{h}:{vid}",
@@ -372,9 +450,21 @@ def archive_factory_run(
         "param_warnings": list(job_d.get("param_warnings") or []),
         "exit_hint": str(job_d.get("exit_hint") or "") or None,
         "badges": badges,
+        "weights_ref": weights_ref,
         "live_allowed": False,
         **eval_fields,
     }
+    holdout_days = _holdout_days(params)
+    marked = _marked_suite(job_d.get("suite"))
+    if not marked:
+        marked = "live" if holdout_days == 0 else "research"
+    if marked == "live":
+        holdout_days = 0
+        if isinstance(params, dict):
+            params = dict(params)
+            params["holdout_trading_days"] = 0
+            doc["fit_params"] = params
+    doc["suite"] = marked
     atomic_write_json(_snap_path(h, vid), doc)
     log_src = desk._log_path(h)
     _copy_log_tail(log_src, _log_copy_path(h, vid))
@@ -387,7 +477,11 @@ def archive_factory_run(
         "action": action,
         "label": _label(started_at=started_at or finished_at, status=st, badges=badges, params=params),
         "badges": badges,
+        "weights_ref": weights_ref,
+        "suite": marked,
     }
+    if holdout_days is not None:
+        item["holdout_trading_days"] = holdout_days
     items = [it for it in _read_index(h) if str(it.get("id") or "") != vid]
     items.insert(0, item)
     drop = items[int(keep) :]
@@ -396,6 +490,9 @@ def archive_factory_run(
         oid = _check_version_id(old.get("id"))
         if not oid:
             continue
+        from core.research.yhat_factory_weights import remove_version_weights
+
+        remove_version_weights(h, oid)
         for path in (_snap_path(h, oid), _log_copy_path(h, oid)):
             try:
                 if os.path.isfile(path):
@@ -406,7 +503,57 @@ def archive_factory_run(
     return vid
 
 
-def list_factory_versions(head: str, *, factory: Optional[str] = None) -> Dict[str, Any]:
+def _stamp_weights_ref(head: str, items: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """列表项带上权重目录是否还在。旧索引没有该字段时按磁盘补。"""
+    from core.research.yhat_factory_weights import version_weights_dir
+
+    out: List[Dict[str, Any]] = []
+    for it in items:
+        row = dict(it)
+        vid = str(row.get("id") or "")
+        path = version_weights_dir(head, vid) if vid else ""
+        has = bool(path) and os.path.isfile(os.path.join(path, "meta.json"))
+        row["weights_ref"] = f"{vid}.weights" if has else None
+        out.append(row)
+    return out
+
+
+def _with_holdout(head: str, items: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """旧索引没有 Holdout 时从归档参数补上。0 只属于执行套。"""
+    out: List[Dict[str, Any]] = []
+    for it in items:
+        row = dict(it)
+        doc = None
+        if "holdout_trading_days" not in row or not _marked_suite(row.get("suite")):
+            doc = _read_json(_snap_path(head, str(row.get("id") or "")))
+        if isinstance(doc, dict):
+            if "holdout_trading_days" not in row:
+                days = _holdout_days(doc.get("fit_params") if isinstance(doc.get("fit_params"), dict) else None)
+                if days is not None:
+                    row["holdout_trading_days"] = days
+            if not _marked_suite(row.get("suite")):
+                marked = _marked_suite(doc.get("suite"))
+                if marked:
+                    row["suite"] = marked
+        out.append(row)
+    return out
+
+
+def _filter_suite(items: List[Dict[str, Any]], suite: Optional[str]) -> List[Dict[str, Any]]:
+    role = str(suite or "").strip().lower()
+    if role == "live":
+        return [it for it in items if _suite_of_item(it) == "live"]
+    if role == "research":
+        return [it for it in items if _suite_of_item(it) != "live"]
+    return items
+
+
+def list_factory_versions(
+    head: str,
+    *,
+    factory: Optional[str] = None,
+    suite: Optional[str] = None,
+) -> Dict[str, Any]:
     desk = _desk()
     fac = desk.normalize_factory(factory)
     with desk.factory_scope(fac):
@@ -414,12 +561,74 @@ def list_factory_versions(head: str, *, factory: Optional[str] = None) -> Dict[s
             h = desk._validate_head(head)
         except ValueError as exc:
             return {"success": False, "ok": False, "error": str(exc), "items": []}
+        items = _filter_suite(_with_holdout(h, _stamp_weights_ref(h, _read_index(h))), suite)
+        role = str(suite or "").strip().lower()
+        enabled_id = _enabled_map(h).get(role, "")
+        if enabled_id and not any(str(it.get("id") or "") == enabled_id for it in items):
+            enabled_id = ""
         return {
             "success": True,
             "ok": True,
             "factory": _factory(),
             "head": h,
-            "items": _read_index(h),
+            "suite": str(suite or ""),
+            "enabled_id": enabled_id,
+            "items": items,
+        }
+
+
+def enable_factory_version(
+    head: str,
+    version_id: str,
+    *,
+    suite: str,
+    factory: Optional[str] = None,
+) -> Dict[str, Any]:
+    """把一条跑次定为该套的当前版本。研究套给回测，执行套只收 Holdout = 0、给 live。"""
+    desk = _desk()
+    role = str(suite or "").strip().lower()
+    if role not in ("research", "live"):
+        return {"success": False, "ok": False, "error": "suite 须为 research 或 live"}
+    vid = _check_version_id(version_id)
+    if not vid:
+        return {"success": False, "ok": False, "error": "invalid run_id"}
+    fac = desk.normalize_factory(factory)
+    with desk.factory_scope(fac):
+        try:
+            h = desk._validate_head(head)
+        except ValueError as exc:
+            return {"success": False, "ok": False, "error": str(exc)}
+        items = _read_index(h)
+        rows = _with_holdout(h, items)
+        hit = next((it for it in rows if str(it.get("id") or "") == vid), None)
+        if hit is None:
+            return {"success": False, "ok": False, "error": "版本不存在", "run_id": vid}
+        marked = _suite_of_item(hit)
+        if role == "live" and marked != "live":
+            return {
+                "success": False,
+                "ok": False,
+                "error": "执行套只启用拟合执行产出的版本",
+                "run_id": vid,
+            }
+        if role == "research" and marked == "live":
+            return {
+                "success": False,
+                "ok": False,
+                "error": "拟合执行的版本只属于执行套",
+                "run_id": vid,
+            }
+        enabled = _enabled_map(h)
+        enabled[role] = vid
+        _write_index(h, _factory(), items, enabled=enabled)
+        return {
+            "success": True,
+            "ok": True,
+            "factory": _factory(),
+            "head": h,
+            "suite": role,
+            "run_id": vid,
+            "enabled_id": vid,
         }
 
 
@@ -450,7 +659,7 @@ def preview_factory_version(
                     log_tail = f.read()
             except OSError:
                 log_tail = ""
-        out = dict(doc)
+        out = _desk().without_retired_param_warnings(dict(doc)) or dict(doc)
         out["log_tail"] = log_tail
         out["success"] = True
         out["ok"] = True
@@ -463,7 +672,10 @@ def delete_factory_version(
     *,
     factory: Optional[str] = None,
 ) -> Dict[str, Any]:
-    """去掉一条跑次归档。不改 last / draft / 正在写的 fit.log。"""
+    """去掉一条跑次归档。不改 last / draft / 正在写的 fit.log。
+
+    概览和拟合日志不把已删掉的终态跑次再当成上次拟合；那一步在读状态时做，不写回这里。
+    """
     desk = _desk()
     vid = _check_version_id(version_id)
     if not vid:
@@ -481,6 +693,9 @@ def delete_factory_version(
         known = any(str(it.get("id") or "") == vid for it in items)
         if not known and not os.path.isfile(snap):
             return {"success": False, "ok": False, "error": "版本不存在", "run_id": vid}
+        from core.research.yhat_factory_weights import remove_version_weights
+
+        remove_version_weights(h, vid)
         for path in (snap, log_path):
             try:
                 if os.path.isfile(path):

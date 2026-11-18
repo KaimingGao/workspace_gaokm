@@ -158,11 +158,9 @@ DEFAULT_REBALANCE_TIMING: Dict[str, Any] = {
         "holdings_mv_cap": 150000.0,
         "fusion_w_oo": 0.6,
         "fusion_w_oc": 0.4,
-        "fusion_w_oo_rank": 0.6,
-        "fusion_w_tc_rank": 0.4,
         "y_oo_gt0": False,
-        "oo_tc_score_min": 0.3,
-        "oo_tc_score_strong_min": 0.3,
+        "oo_rank_max": 6,
+        "oo_rank_strong_max": 12,
         "fill_clock": "09:30",
         "live_fill_clock": "09:30",
         "lot_base_amount": 10000.0,
@@ -211,18 +209,22 @@ def _merge_dict(base: dict, overlay: Optional[dict]) -> dict:
     return out
 
 
-# rank 阈值（合成 rank_score；不是 y_oo / y_τc）。显式 null=关，须能盖掉默认 0.3。
+# 名次门槛。显式 null=关，须能盖掉默认 6 / 12。
 _RANK_SCORE_GATE_KEYS = (
-    "oo_tc_score_min",
-    "oo_tc_score_strong_min",
+    "oo_rank_max",
+    "oo_rank_strong_max",
 )
 
 
 _RETIRED_ABS_RANK_KEYS = (
-    "oo_rank_max",
-    "oo_rank_strong_max",
     "oo_rank_high_max",
     "oo_rank_top_frac",
+    "oo_tc_score_min",
+    "oo_tc_score_strong_min",
+    "fusion_w_oo_rank",
+    "fusion_w_tc_rank",
+    "w_oo_rank",
+    "w_tc_rank",
 )
 
 # 旧高阈旁路（已退役）
@@ -252,7 +254,7 @@ _RETIRED_ENTER_KEYS = (
 
 
 def _apply_explicit_rank_score_nulls(timing: dict, overlay: Optional[dict]) -> dict:
-    """``_merge_dict`` 会跳过 None；rank 阈值显式 null 须写回，否则 UI 保存关闸又变回 0.3。"""
+    """``_merge_dict`` 会跳过 None；名次门槛显式 null 须写回，否则 UI 保存关闸又变回 6 / 12。"""
     if not isinstance(timing, dict) or not isinstance(overlay, dict):
         return timing
     # path_matrix 旧镜像可能脏；以 rank_lots 为准
@@ -278,7 +280,7 @@ def _apply_explicit_rank_score_nulls(timing: dict, overlay: Optional[dict]) -> d
 
 
 def _sync_rank_lots_mirrors(timing: dict) -> dict:
-    """rank_lots / path_matrix 镜像对齐，并剔除已退役绝对名次闸键。"""
+    """rank_lots / path_matrix 镜像对齐，并剔除已退役的分数闸与高阈键。"""
     if not isinstance(timing, dict):
         return timing
     rl = timing.get("rank_lots")
@@ -898,13 +900,11 @@ def validate_execution_patch(raw: Any) -> Tuple[bool, Dict[str, Any], List[str]]
                     ),
                     "fusion_w_oo": float(pm.get("fusion_w_oo") or 0.6),
                     "fusion_w_oc": float(pm.get("fusion_w_oc") or 0.4),
-                    "fusion_w_oo_rank": float(pm.get("fusion_w_oo_rank") or 0.6),
-                    "fusion_w_tc_rank": float(pm.get("fusion_w_tc_rank") or 0.4),
-                    # get_path_matrix_cfg 已 coerce：y_*>0（四头）；旧 y_τc_gt0 已并入
+                    # get_path_matrix_cfg 已 coerce：y_*>0 只看 ŷ_oo / ŷ_τc
                     "y_oo_gt0": bool(pm.get("y_oo_gt0")),
-                    # rank 阈值：合成 rank_score（不是 y_oo / y_τc）；缺键默认 0.3；显式 null=关。
-                    "oo_tc_score_min": pm.get("oo_tc_score_min"),
-                    "oo_tc_score_strong_min": pm.get("oo_tc_score_strong_min"),
+                    # 名次门槛：缺键默认 6 / 12；显式 null=关。
+                    "oo_rank_max": pm.get("oo_rank_max"),
+                    "oo_rank_strong_max": pm.get("oo_rank_strong_max"),
                     "fill_clock": str(pm.get("fill_clock") or "09:30"),
                     "live_fill_clock": str(pm.get("live_fill_clock") or "09:30"),
                     "score_backend": str(pm.get("score_backend") or "ridge"),
@@ -921,11 +921,11 @@ def validate_execution_patch(raw: Any) -> Tuple[bool, Dict[str, Any], List[str]]
                 lots["mode"] = "rank_lots"
                 if "enabled" in pm_in:
                     lots["enabled"] = full["enabled"]
-                if "oo_tc_score_min" in pm_in:
-                    lots["oo_tc_score_min"] = full.get("oo_tc_score_min")
-                if "oo_tc_score_strong_min" in pm_in:
-                    lots["oo_tc_score_strong_min"] = full.get("oo_tc_score_strong_min")
-                # 旧绝对名次闸 / 旧 ŷ 入场键 / 高阈旁路已退役：补丁里若仍带则丢弃，不落盘
+                if "oo_rank_max" in pm_in:
+                    lots["oo_rank_max"] = full.get("oo_rank_max")
+                if "oo_rank_strong_max" in pm_in:
+                    lots["oo_rank_strong_max"] = full.get("oo_rank_strong_max")
+                # 旧分数闸 / 旧 ŷ 入场键 / 高阈旁路已退役：补丁里若仍带则丢弃，不落盘
                 for _dead in (
                     *_RETIRED_ABS_RANK_KEYS,
                     *_RETIRED_ENTER_KEYS,

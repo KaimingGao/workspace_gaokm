@@ -1,4 +1,4 @@
-/** 盘前 macro 上下文 · 共享渲染（Dashboard / 研究枢纽）。 */
+/** 盘前 macro 上下文 · 市场先验概览。 */
 
 import { renderCompactSparkline } from "./lw_charts.js";
 
@@ -245,7 +245,7 @@ function countActivePriors(flags) {
   ].filter(Boolean).length;
 }
 
-/** 研究枢纽 / Dashboard 用的紧凑 macro 条 HTML。 */
+/** 市场先验概览：科技 / A50 / Regime / Prior + 近 30 日走势。 */
 export function renderMacroContextStrip(ctx, escapeHtml) {
   const esc = escapeHtml || ((s) => String(s));
   if (!ctx || ctx.ok === false) {

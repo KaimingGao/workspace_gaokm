@@ -12,6 +12,7 @@ from core.research.yhat_factory_versions import (
     KEEP,
     archive_factory_run,
     delete_factory_version,
+    enable_factory_version,
     list_factory_versions,
     preview_factory_version,
 )
@@ -59,6 +60,64 @@ def _last(**extra):
 
 
 class TestYhatFactoryVersions(unittest.TestCase):
+    def test_holdout_zero_is_live_only(self):
+        with tempfile.TemporaryDirectory() as td:
+            last_path = os.path.join(td, "last_status.json")
+            with mock.patch("core.research.yhat_tf_desk.YHAT_TF_DIR", td), mock.patch(
+                "core.research.yhat_tf_desk.YHAT_TF_LAST_PATH", last_path
+            ):
+                with factory_scope("T"):
+                    archive_factory_run(
+                        "oo", job=_job("oo-research"), last=_last(), status="done"
+                    )
+                    live_job = _job("oo-live")
+                    live_job["params"] = dict(live_job["params"], holdout_trading_days=0)
+                    archive_factory_run("oo", job=live_job, last=_last(), status="done")
+                research = list_factory_versions("oo", factory="T", suite="research")
+                live = list_factory_versions("oo", factory="T", suite="live")
+                both = list_factory_versions("oo", factory="T")
+                denied = enable_factory_version(
+                    "oo", "oo-research-p7", suite="live", factory="T"
+                )
+                turned = enable_factory_version(
+                    "oo", "oo-research-p7", suite="research", factory="T"
+                )
+                research_on = list_factory_versions("oo", factory="T", suite="research")
+                live_on = list_factory_versions("oo", factory="T", suite="live")
+        self.assertEqual([it["id"] for it in research["items"]], ["oo-research-p7"])
+        self.assertEqual(research["items"][0]["holdout_trading_days"], 60)
+        self.assertEqual([it["id"] for it in live["items"]], ["oo-live-p7"])
+        self.assertEqual(live["items"][0]["holdout_trading_days"], 0)
+        self.assertEqual({it["id"] for it in both["items"]}, {"oo-research-p7", "oo-live-p7"})
+        self.assertFalse(denied["success"])
+        self.assertTrue(turned["success"])
+        self.assertEqual(research_on["enabled_id"], "oo-research-p7")
+        self.assertEqual(live_on["enabled_id"], "")
+
+    def test_live_suite_stays_out_of_research_list(self):
+        with tempfile.TemporaryDirectory() as td:
+            last_path = os.path.join(td, "last_status.json")
+            with mock.patch("core.research.yhat_tf_desk.YHAT_TF_DIR", td), mock.patch(
+                "core.research.yhat_tf_desk.YHAT_TF_LAST_PATH", last_path
+            ):
+                with factory_scope("T"):
+                    archive_factory_run(
+                        "oo",
+                        job=_job("oo-exec", suite="live"),
+                        last=_last(),
+                        status="done",
+                    )
+                research = list_factory_versions("oo", factory="T", suite="research")
+                live = list_factory_versions("oo", factory="T", suite="live")
+                denied = enable_factory_version(
+                    "oo", "oo-exec-p7", suite="research", factory="T"
+                )
+        self.assertEqual(research["items"], [])
+        self.assertEqual([it["id"] for it in live["items"]], ["oo-exec-p7"])
+        self.assertEqual(live["items"][0]["suite"], "live")
+        self.assertEqual(live["items"][0]["holdout_trading_days"], 0)
+        self.assertFalse(denied["success"])
+
     def test_archive_list_preview_and_same_id_overwrites(self):
         with tempfile.TemporaryDirectory() as td:
             last_path = os.path.join(td, "last_status.json")
@@ -308,6 +367,153 @@ class TestYhatFactoryVersions(unittest.TestCase):
                 preview = preview_factory_version("oo", out["version_id"], factory="T")
                 self.assertEqual(preview["status"], "error")
                 self.assertIn("boom", preview["message"])
+
+    def test_deleted_failure_is_not_shown_as_last_fit(self):
+        with tempfile.TemporaryDirectory() as td:
+            last_path = os.path.join(td, "last_status.json")
+            with mock.patch("core.research.yhat_tf_desk.YHAT_TF_DIR", td), mock.patch(
+                "core.research.yhat_tf_desk.YHAT_TF_LAST_PATH", last_path
+            ):
+                from core.research.yhat_tf_desk import head_status, mark_fit_failed
+
+                kept = _last()
+                kept["metrics"] = {
+                    "cs_rank_ic": 0.11,
+                    "arm": "T",
+                    "arms": {"T": {"success": True, "cs_rank_ic": 0.11}},
+                }
+                with factory_scope("T"):
+                    archive_factory_run(
+                        "oo",
+                        job=_job("oo-keep", pid=1),
+                        last=kept,
+                        status="done",
+                    )
+                    with open(os.path.join(td, "oo_job.json"), "w", encoding="utf-8") as f:
+                        json.dump(_job("oo-fail", pid=0), f)
+                    failed = mark_fit_failed("oo", "拟合进程被终止", factory="T")
+                self.assertEqual(failed.get("version_id"), "oo-fail-p0")
+                while_listed = head_status("oo")
+                self.assertEqual(while_listed["last"]["action"], "holdout_failed")
+                self.assertEqual(while_listed["job"]["status"], "error")
+
+                # 删掉的是另一条成功版：这次失败还在列表里，概览仍是失败
+                other = archive_factory_run(
+                    "oo",
+                    job=_job("oo-other", pid=2),
+                    last=_last(),
+                    status="done",
+                )
+                # archive 插到列表头，但上次拟合仍是失败跑次
+                delete_factory_version("oo", other, factory="T")
+                still_failed = head_status("oo")
+                self.assertEqual(still_failed["last"]["action"], "holdout_failed")
+
+                delete_factory_version("oo", "oo-fail-p0", factory="T")
+                shown = head_status("oo")
+                self.assertEqual(shown["last"]["action"], "holdout_result")
+                self.assertEqual(shown["job"]["status"], "done")
+                self.assertEqual(shown["last"]["metrics"]["cs_rank_ic"], 0.11)
+                self.assertNotEqual(shown["job"]["status"], "error")
+                with open(os.path.join(td, "oo_last.json"), encoding="utf-8") as f:
+                    self.assertEqual(json.load(f)["action"], "holdout_failed")
+                with open(os.path.join(td, "oo_job.json"), encoding="utf-8") as f:
+                    self.assertEqual(json.load(f)["status"], "error")
+
+                delete_factory_version("oo", "oo-keep-p1", factory="T")
+                empty = head_status("oo")
+                self.assertIsNone(empty["last"])
+                self.assertIsNone(empty["job"])
+
+    def test_deleted_success_log_follows_remaining_version(self):
+        with tempfile.TemporaryDirectory() as td:
+            last_path = os.path.join(td, "last_status.json")
+            with mock.patch("core.research.yhat_tf_desk.YHAT_TF_DIR", td), mock.patch(
+                "core.research.yhat_tf_desk.YHAT_TF_LAST_PATH", last_path
+            ):
+                from core.research.yhat_tf_desk import head_status
+
+                kept = _last()
+                kept["metrics"] = {
+                    "cs_rank_ic": 0.11,
+                    "arm": "T",
+                    "arms": {"T": {"success": True, "cs_rank_ic": 0.11}},
+                }
+                log_path = os.path.join(td, "oo_fit.log")
+                with factory_scope("T"):
+                    with open(log_path, "w", encoding="utf-8") as f:
+                        f.write("==== fit start kept run=oo-keep ====\n")
+                    archive_factory_run(
+                        "oo",
+                        job=_job("oo-keep", pid=1),
+                        last=kept,
+                        status="done",
+                    )
+                    with open(log_path, "w", encoding="utf-8") as f:
+                        f.write(
+                            "==== fit start 2026-11-17T23:36:55 head=oo run=oo-gone ====\n"
+                        )
+                    gone = _job("oo-gone", pid=9, status="done", running=False)
+                    gone_last = _last()
+                    gone_last["metrics"] = {
+                        "cs_rank_ic": 0.99,
+                        "arm": "T",
+                        "arms": {"T": {"success": True, "cs_rank_ic": 0.99}},
+                    }
+                    with open(os.path.join(td, "oo_job.json"), "w", encoding="utf-8") as f:
+                        json.dump(gone, f)
+                    with open(os.path.join(td, "oo_last.json"), "w", encoding="utf-8") as f:
+                        json.dump(gone_last, f)
+                    archive_factory_run("oo", job=gone, last=gone_last, status="done")
+                    delete_factory_version("oo", "oo-gone-p9", factory="T")
+                shown = head_status("oo")
+                self.assertEqual(shown["last"]["action"], "holdout_result")
+                self.assertEqual(shown["last"]["metrics"]["cs_rank_ic"], 0.11)
+                self.assertIn("oo-keep", shown["log_tail"])
+                self.assertNotIn("oo-gone", shown["log_tail"])
+                with open(os.path.join(td, "oo_job.json"), encoding="utf-8") as f:
+                    self.assertEqual(json.load(f)["run_id"], "oo-gone")
+                with open(log_path, encoding="utf-8") as f:
+                    self.assertIn("oo-gone", f.read())
+
+                delete_factory_version("oo", "oo-keep-p1", factory="T")
+                empty = head_status("oo")
+                self.assertIsNone(empty["last"])
+                self.assertEqual(empty["log_tail"], "")
+
+    def test_failure_without_version_index_stays_visible(self):
+        with tempfile.TemporaryDirectory() as td:
+            with mock.patch("core.research.yhat_tf_desk.YHAT_TF_DIR", td), mock.patch(
+                "core.research.yhat_tf_desk.YHAT_TF_LAST_PATH",
+                os.path.join(td, "last_status.json"),
+            ):
+                from core.research.yhat_tf_desk import head_status
+
+                with open(os.path.join(td, "oo_job.json"), "w", encoding="utf-8") as f:
+                    json.dump(
+                        {
+                            "head": "oo",
+                            "run_id": "oo-unlisted",
+                            "pid": 0,
+                            "status": "error",
+                            "running": False,
+                            "error": "启动即崩",
+                        },
+                        f,
+                    )
+                with open(os.path.join(td, "oo_last.json"), "w", encoding="utf-8") as f:
+                    json.dump(
+                        {
+                            "head": "oo",
+                            "action": "holdout_failed",
+                            "metrics": None,
+                            "message": "启动即崩",
+                        },
+                        f,
+                    )
+                shown = head_status("oo")
+                self.assertEqual(shown["last"]["action"], "holdout_failed")
+                self.assertEqual(shown["job"]["status"], "error")
 
 
 if __name__ == "__main__":

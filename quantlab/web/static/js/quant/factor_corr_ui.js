@@ -56,157 +56,54 @@ export function setProStatusChip(idOrEl, state, text) {
   if (text != null) el.textContent = text;
 }
 
-/** 更新顶部全景 KPI 的单张卡片
- * @param {string} key
- * @param {string|null|undefined} valueText
- * @param {string|null|undefined} subText
- * @param {string} [state] is-good | is-bad | is-mid | is-empty | ''
- * @param {{ signed?: boolean }} [opts] signed=true → A 股红涨绿跌（IC 等）
- */
-function setProOverviewKpi(key, valueText, subText, state, opts = {}) {
-  const host = document.getElementById("quant-pro-overview-kpis");
+function overviewDay(raw) {
+  const s = String(raw || "").trim().slice(0, 10);
+  return /^\d{4}-\d{2}-\d{2}$/.test(s) ? s : "";
+}
+
+/** 概览「更新至」：末 bar 同一天显示月-日，拉开则显示区间。 */
+export function overviewRangeFact(minRaw, maxRaw) {
+  const lo = overviewDay(minRaw);
+  const hi = overviewDay(maxRaw);
+  if (lo && hi && lo !== hi) {
+    return { v: `${lo.slice(5)}→${hi.slice(5)}`, title: `${lo} → ${hi}` };
+  }
+  if (hi) return { v: hi.slice(5), title: hi };
+  return { v: "—" };
+}
+
+/** 概览「上次」：仓写入时间，缩成月-日 时:分。 */
+export function overviewFetchedFact(raw) {
+  const s = String(raw || "").trim();
+  const m = s.match(/(\d{4})-(\d{2})-(\d{2})[ T](\d{2}:\d{2})/);
+  if (!m) return { v: "—" };
+  return { v: `${m[2]}-${m[3]} ${m[4]}`, title: `${m[1]}-${m[2]}-${m[3]} ${m[4]}` };
+}
+
+/** 数据中心概览：日线 / 分钟 / 舆情。facts 按 data-fact 填副指标。 */
+export function setDataOverviewKpi(key, valueText, subText, state, facts) {
+  const host = document.getElementById("data-overview-kpis");
   if (!host) return;
   const card = host.querySelector(`.quant-pro-kpi-card[data-kpi="${key}"]`);
   if (!card) return;
   card.classList.remove("is-good", "is-bad", "is-mid", "is-empty");
   if (state) card.classList.add(state);
   else if (valueText != null && valueText !== "—") card.classList.add("is-mid");
-  // eod 固定是 IC；其它卡仅在显式 signed 时走涨跌色
-  card.classList.toggle("is-signed", !!opts.signed || key === "eod");
   const valEl = card.querySelector(".quant-pro-kpi-value");
   const subEl = card.querySelector(".quant-pro-kpi-sub");
   if (valEl) valEl.textContent = valueText ?? "—";
   if (subEl && subText != null) subEl.textContent = subText;
-}
-
-const overviewPack = {
-  watchingN: null,
-  watchingHint: null,
-  barsPct: null,
-};
-
-function paintOverviewWatching() {
-  const n = overviewPack.watchingN;
-  if (n == null || !Number.isFinite(Number(n))) return;
-  const pct = overviewPack.barsPct;
-  const hint = overviewPack.watchingHint;
-  let sub = "观察池";
-  if (pct != null && Number.isFinite(Number(pct))) {
-    sub = `日线 ${Number(pct).toFixed(0)}%`;
-  } else if (hint) {
-    sub = hint;
+  if (!facts) return;
+  for (const [factKey, fact] of Object.entries(facts)) {
+    const el = card.querySelector(`[data-fact="${factKey}"]`);
+    if (!el || !fact) continue;
+    el.classList.remove("is-bad", "is-good", "is-mid");
+    if (fact.tone) el.classList.add(`is-${fact.tone}`);
+    const strong = el.querySelector("strong");
+    if (strong) strong.textContent = fact.v ?? "—";
+    if (fact.title) el.title = fact.title;
   }
-  setProOverviewKpi(
-    "watching",
-    `${Number(n)} 只`,
-    sub,
-    Number(n) > 0 ? "is-mid" : "is-empty"
-  );
 }
-
-/** 观察池只数 → 概览 KPI（进页拉 watching 时） */
-export function syncOverviewUniverse(n, subText) {
-  const count = Number(n);
-  if (!Number.isFinite(count) || count < 0) return;
-  overviewPack.watchingN = count;
-  if (subText != null) overviewPack.watchingHint = String(subText);
-  paintOverviewWatching();
-}
-
-/** 日线 as-of 覆盖 → 观察池副文案 */
-export function syncOverviewBarsCoverage(data) {
-  if (!data || data.success === false) return;
-  const pct = Number(data.coverage_pct);
-  if (Number.isFinite(pct)) overviewPack.barsPct = pct;
-  // API 字段仍叫 universe_count，语义是观察池只数
-  const n = Number(data.universe_count);
-  if (Number.isFinite(n) && overviewPack.watchingN == null) {
-    overviewPack.watchingN = n;
-  }
-  paintOverviewWatching();
-}
-
-/** 分钟 Ready → 概览 */
-export function syncOverviewMinute(data) {
-  if (!data || data.success === false) {
-    setProOverviewKpi("minute", "—", "Ready% · Short", "is-empty");
-    return;
-  }
-  const total = Number(data.universe_count) || 0;
-  const ok = Number(data.cached_ok) || 0;
-  const short = Number(data.short) || 0;
-  const missing = Number(data.missing) || 0;
-  const pct = total > 0 ? Math.round((1000 * ok) / total) / 10 : 0;
-  let st = "is-empty";
-  if (total > 0) {
-    st = data.coverage_ok ? "is-good" : missing > 0 ? "is-bad" : "is-mid";
-  }
-  const subBits = [];
-  if (short > 0) subBits.push(`Short ${short}`);
-  if (missing > 0) subBits.push(`Missing ${missing}`);
-  setProOverviewKpi(
-    "minute",
-    total > 0 ? `${pct}%` : "—",
-    subBits.join(" · ") || (total > 0 ? "全员 Ready" : "Ready% · Short"),
-    st
-  );
-}
-
-/**
- * Holdout OOS → 概览 IC 卡（ŷ_oo / ŷ_τc 同口径）。
- * 主值优先日频截面 IC（对齐 Qlib）；副文案：日频截面|拼样本 · 命中 · Rank。
- */
-function syncOverviewIcHead(kpiKey, oos, emptySub = "日频截面 IC") {
-  if (!oos || typeof oos !== "object") {
-    setProOverviewKpi(kpiKey, "—", emptySub, "is-empty");
-    return false;
-  }
-  const cs = Number(oos.cs_ic);
-  const chrono = Number(oos.ic);
-  const useCs = Number.isFinite(cs);
-  const ic = useCs ? cs : chrono;
-  if (!Number.isFinite(ic)) {
-    setProOverviewKpi(kpiKey, "—", emptySub, "is-empty");
-    return false;
-  }
-  // A 股：正 IC 红、负 IC 绿（不走质量色 ok/danger）
-  const st = ic > 0 ? "is-good" : ic < 0 ? "is-bad" : "is-mid";
-  const parts = [useCs ? "日频截面" : "拼样本"];
-  const hitRaw =
-    oos.sign_hit != null ? Number(oos.sign_hit) : Number(oos.sign_hit_rate);
-  if (Number.isFinite(hitRaw)) {
-    const pct = hitRaw <= 1.0001 ? hitRaw * 100 : hitRaw;
-    parts.push(`命中 ${pct.toFixed(0)}%`);
-  }
-  if (useCs && Number.isFinite(Number(oos.cs_rank_ic))) {
-    parts.push(`Rank ${Number(oos.cs_rank_ic).toFixed(2)}`);
-  }
-  setProOverviewKpi(kpiKey, `IC ${ic.toFixed(2)}`, parts.join(" · "), st, {
-    signed: true,
-  });
-  return true;
-}
-
-/** 全局 ŷ_oo Holdout OOS → 概览。 */
-export function syncOverviewOo(oos) {
-  syncOverviewIcHead("eod", oos);
-}
-
-/** 全局 ŷ_τc Holdout OOS → 概览（与 ŷ_oo 同口径）。 */
-export function syncOverviewTauOos(oos) {
-  return syncOverviewIcHead("tau", oos);
-}
-
-/** ŷ_τc 概览：无 OOS 时的文案占位（启用态 / 缺失）。有 OOS 用 syncOverviewTauOos。 */
-export function syncOverviewTau(value, subText) {
-  setProOverviewKpi(
-    "tau",
-    value != null ? String(value) : "—",
-    subText != null ? String(subText) : "ŷ_τc",
-    "is-mid"
-  );
-}
-
 
 /** 从 IC/分组结果渲染因子摘要卡网格 */
 export function renderFactorSummaryCards(data, metaByName) {

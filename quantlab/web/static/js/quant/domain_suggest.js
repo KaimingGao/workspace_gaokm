@@ -1,4 +1,3 @@
-import { syncOverviewOo } from "./factor_corr_ui.js";
 import { researchGridHtml, metricCell } from "./research_grid.js";
 import { fmtPct, metricClass } from "./bt_result.js";
 import { formatApiDetail } from "../shared.js";
@@ -415,7 +414,6 @@ export function installSuggest(q) {
             if (resultEl) resultEl.innerHTML = "";
           };
     state.lastReturnModelFit = data;
-    syncOverviewOo(data.oos || {});
     /* 与 ŷ_τc 一致：成功路径只刷系数表，不另挂 fingerprint 摘要块 */
     clearResult();
     const lgbRm =
@@ -512,7 +510,6 @@ export function installSuggest(q) {
       }
       const draft = data.draft || {};
       const oos = _ooOosFromStatus(data);
-      syncOverviewOo(oos);
       const researchOn = !!(data.research && data.research.exists);
       _setOoPromoteEnabled(researchOn);
       const lastFit = state.lastReturnModelFit || {};

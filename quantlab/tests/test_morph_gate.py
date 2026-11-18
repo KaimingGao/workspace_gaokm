@@ -436,6 +436,61 @@ class MorphGateUnitTests(unittest.TestCase):
         ]
         self.assertTrue(morph_skips, msg=f"skips={out.get('skips')}")
 
+    def test_caller_bars_stamp_past_the_old_800_cap(self):
+        from core.paper.rebalance.rank_lots import plan_rank_lot_day
+
+        as_of = "2024-04-25"
+        bars_by = {}
+        scored = []
+        opens = {}
+        prices = {}
+        last = "000801"
+        for i in range(1, 802):
+            code = f"{i:06d}"
+            prev = 10.0
+            bars_by[code] = [
+                {"date": "2024-04-23", "open": prev, "close": prev},
+                {"date": "2024-04-24", "open": prev, "close": prev},
+            ]
+            open_t = prev * (0.90 if code == last else 1.01)
+            opens[code] = open_t
+            prices[code] = open_t
+            scored.append(
+                {
+                    "stock_code": code,
+                    "predicted_score": 2.0,
+                    "y_τc": 1.0,
+                    "y_oo_rank_score": 0.9,
+                    "y_tc_rank_score": 0.9,
+                }
+            )
+        out = plan_rank_lot_day(
+            scored=scored,
+            holdings=[],
+            cash=200_000.0,
+            prices=prices,
+            opens=opens,
+            cfg={
+                "fuse_enter": 0.0,
+                "fuse_strong": 0.0,
+                "morph_gate_enabled": True,
+                "lot_base_amount": 10_000,
+                "lot_strong_amount": 10_000,
+                "top_k": 5,
+            },
+            as_of=as_of,
+            bars_by_code=bars_by,
+        )
+        stamped = next(row for row in scored if row["stock_code"] == last)
+        self.assertIsNotNone(stamped.get("morph_a1"))
+        self.assertLess(float(stamped["morph_a1"]), -0.08)
+        reasons = [
+            str(row.get("reason") or "")
+            for row in (out.get("skips") or [])
+            if str(row.get("stock_code") or "") == last
+        ]
+        self.assertTrue(any("形态闸" in text for text in reasons), msg=reasons)
+
     def test_metrics_unsorted_bars_and_yyyymmdd_as_of(self):
         from core.paper.rebalance.morph_gate import metrics_from_bars
 

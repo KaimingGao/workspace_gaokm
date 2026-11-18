@@ -3,7 +3,7 @@
 Follow / 历史回测 / 自动调仓都走 ``rank_lots``。
 y_oo_fuse 是某一 τ 的 fuse：w_oo·((ŷ_oo+1)/(1+rot)−1) + w_τc·ŷ_τc。
 rot = price(τ)/open[T]−1。τ = 开盘时 rot = 0，即 w_oo·ŷ_oo + w_τc·ŷ_τc。
-rank_score = w_oo_rank·y_oo_rank_score + w_τc_rank·y_tc_rank_score（默认 0.6/0.4）。
+rank_score = 0.6·y_oo_rank_score + 0.4·y_tc_rank_score（固定，不进配置）。
 ŷ_trade / ŷ_nowcast / y_tau 已下线（τ 头只写 y_τc）。
 
 配置键优先 ``rebalance_timing.rank_lots``，仍认旧键 ``path_matrix``。
@@ -30,15 +30,12 @@ DEFAULT_PATH_MATRIX: Dict[str, Any] = {
     "holdings_mv_cap": 150_000.0,
     "fusion_w_oo": 0.6,
     "fusion_w_oc": 0.4,
-    "fusion_w_oo_rank": 0.6,
-    "fusion_w_tc_rank": 0.4,
     "residual_w_oc": 0.5,
-    # y_*>0：四头 oo/τc/oo_rank/τc_rank；旧 y_τc_gt0 读盘并入后丢弃
+    # y_*>0：只看 ŷ_oo / ŷ_τc；旧 y_τc_gt0 读盘并入后丢弃
     "y_oo_gt0": False,
-    # rank 阈值：合成 rank_score ≥ 阈值（不是 y_oo / y_τc）；缺键=0.3；显式 null=关
-    "oo_tc_score_min": 0.3,
-    # 强档 rank 阈值（仍看合成 rank_score）；缺键=0.3；显式 null=关
-    "oo_tc_score_strong_min": 0.3,
+    # 名次门槛：max(oo_rank, τc_rank) < N。缺键=6 / 12；显式 null=关
+    "oo_rank_max": 6,
+    "oo_rank_strong_max": 12,
     # 历史回测成交钟（/replay）；不驱动 live 自动调仓。
     "fill_clock": "09:30",
     # Live 自动调仓 / 手动预演窗口起点；止于 10:00。与回测 fill_clock 分立。
@@ -175,39 +172,27 @@ def get_path_matrix_cfg(
         out.pop(_dead, None)
     try:
         from core.paper.rebalance.rank_lots import (
-            oo_tc_score_min_from_cfg,
-            oo_tc_score_strong_min_from_cfg,
-            rank_fusion_weights_from_cfg,
+            oo_rank_max_from_cfg,
+            oo_rank_strong_max_from_cfg,
         )
 
-        # 关闸须能清掉已存值：优先读 raw（含 null）
-        if isinstance(raw, dict) and "oo_tc_score_min" in raw:
-            out["oo_tc_score_min"] = oo_tc_score_min_from_cfg(raw)
+        # 关闸须能清掉已存值：优先读 raw（含 null）。旧 oo_tc_score_* 不当名次。
+        if isinstance(raw, dict) and "oo_rank_max" in raw:
+            out["oo_rank_max"] = oo_rank_max_from_cfg(raw)
         else:
-            out["oo_tc_score_min"] = oo_tc_score_min_from_cfg(out)
-        if isinstance(raw, dict) and "oo_tc_score_strong_min" in raw:
-            out["oo_tc_score_strong_min"] = oo_tc_score_strong_min_from_cfg(raw)
+            out["oo_rank_max"] = oo_rank_max_from_cfg(out)
+        if isinstance(raw, dict) and "oo_rank_strong_max" in raw:
+            out["oo_rank_strong_max"] = oo_rank_strong_max_from_cfg(raw)
         else:
-            out["oo_tc_score_strong_min"] = oo_tc_score_strong_min_from_cfg(out)
-        w_oo_rank, w_tc_rank = rank_fusion_weights_from_cfg(
-            raw if isinstance(raw, dict) else out
-        )
-        out["fusion_w_oo_rank"] = float(w_oo_rank)
-        out["fusion_w_tc_rank"] = float(w_tc_rank)
+            out["oo_rank_strong_max"] = oo_rank_strong_max_from_cfg(out)
     except Exception:  # noqa: BLE001
-        logger.debug("oo_tc_score / rank weight coerce failed", exc_info=True)
-        out["oo_tc_score_min"] = 0.3
-        out["oo_tc_score_strong_min"] = 0.3
-        out["fusion_w_oo_rank"] = 0.6
-        out["fusion_w_tc_rank"] = 0.4
+        logger.debug("oo_rank_max coerce failed", exc_info=True)
+        out["oo_rank_max"] = 6
+        out["oo_rank_strong_max"] = 12
 
-    # 旧绝对名次闸已退役：读盘丢掉，勿再进生效配置
-    for _dead_rank in (
-        "oo_rank_max",
-        "oo_rank_strong_max",
-        "oo_rank_high_max",
-        "oo_rank_top_frac",
-    ):
+    for _dead_score in ("oo_tc_score_min", "oo_tc_score_strong_min"):
+        out.pop(_dead_score, None)
+    for _dead_rank in ("oo_rank_high_max", "oo_rank_top_frac"):
         out.pop(_dead_rank, None)
 
     enter = _pick_fuse_threshold(raw, out, "fuse_enter", 0.001)
@@ -224,8 +209,6 @@ def get_path_matrix_cfg(
         ("holdings_mv_cap", 150_000.0, 0.0, 1.0e8),
         ("fusion_w_oo", 0.6, 0.0, 1.0),
         ("fusion_w_oc", 0.4, 0.0, 1.0),
-        ("fusion_w_oo_rank", 0.6, 0.0, 1.0),
-        ("fusion_w_tc_rank", 0.4, 0.0, 1.0),
         ("residual_w_oc", 0.5, 0.0, 1.0),
     ):
         try:
@@ -234,13 +217,11 @@ def get_path_matrix_cfg(
             out[key] = float(default)
     w_oo, w_τc = fusion_weights_from_cfg(out)
     out["fusion_w_oo"], out["fusion_w_oc"] = w_oo, w_τc
-    try:
-        from core.paper.rebalance.rank_lots import rank_fusion_weights_from_cfg
-
-        w_oo_rank, w_tc_rank = rank_fusion_weights_from_cfg(out)
-        out["fusion_w_oo_rank"], out["fusion_w_tc_rank"] = w_oo_rank, w_tc_rank
-    except Exception:  # noqa: BLE001
-        logger.debug("normalize rank fusion weights failed", exc_info=True)
+    # w_oo_rank / w_τc_rank 已下线：买序固定 0.6/0.4，不进配置
+    out.pop("fusion_w_oo_rank", None)
+    out.pop("fusion_w_tc_rank", None)
+    out.pop("w_oo_rank", None)
+    out.pop("w_tc_rank", None)
     out["cash_floor"] = 0.0
     try:
         from core.backtest.paper_replay import (

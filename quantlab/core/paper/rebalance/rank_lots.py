@@ -8,17 +8,17 @@
     = w_oo·((ŷ_oo+1)/(1+rot)−1) + w_τc·ŷ_τc
     rot = price(τ)/open[T]−1（该 τ 相对开盘的涨跌）；基准 τ→open[T+1]
     τ = 开盘时 rot = 0，简化为 w_oo·ŷ_oo + w_τc·ŷ_τc
-  - rank_score = w_oo_rank·y_oo_rank_score + w_τc_rank·y_tc_rank_score
-    （默认 w 0.6/0.4，归一化；读相对分，不是绝对名次）
+  - rank_score = 0.6·y_oo_rank_score + 0.4·y_tc_rank_score
+    （固定，不进配置；只用于买序，不用于名次门槛）
   - 过入场（y_oo_fuse>fuse_enter）→ 按 rank_score 降序开仓或加仓；
-    缺 rank_score 回退 y_oo_fuse 降序；可选 y_*>0（四头均 >0；缺分不拦；与 rank 阈值无关）
+    缺 rank_score 回退 y_oo_fuse 降序；可选 y_*>0（只看 ŷ_oo / ŷ_τc；缺分不拦）
   - 可选形态硬闸（默认关，门槛写死）：高波弱开（vol_p≥0.9 且 a1<0）、
     异常低开（a1≤−8%）、或开盘已到板块涨停价 → 禁止新开/加仓（已持仓不清仓）
   - 舆情标签始终读本地新闻库并写入明细；规则栏已下掉软先验闸（配置恒关），不改 fuse/rank 阈值
   - 已持仓且未过入场、缺 y_oo_fuse、或 hard_reject → 清仓（T+1 可卖部分；形态闸不清仓）
     缺分不能假装过门槛续持；无「持」动作
   - y_oo_fuse > fuse_strong → lot_strong_amount，否则 lot_base_amount（缺省 2 万 / 1 万）
-    同一比较：过强档改看 oo_tc_score_strong_min（rank 阈值，默认 0.3；None=关），不再用入场 oo_tc_score_min
+    同一比较：名次门槛看 max(oo_rank, τc_rank) < N。入场默认 <6，过强档改看 <12（None=关）
     股数 = 金额/价 向下取整到一手；不够一手则跳过
   - 单票持仓市值上限 = 强档 × 120%；买后将超过则跳过（防单票过重）
   - 不留现金地板：现金不够该手则缩到整百（最少一手）；仍买不起才跳过。
@@ -48,6 +48,9 @@ LOT_MIN = 100
 STOCK_MV_CAP_MULT = 1.2
 DEFAULT_FUSION_W_OO_RANK = 0.6
 DEFAULT_FUSION_W_TC_RANK = 0.4
+# 名次门槛：两头都有名次时取较差的一头，须严格小于 N。缺键=6 / 12；显式 null=关。
+DEFAULT_OO_RANK_MAX = 6
+DEFAULT_OO_RANK_STRONG_MAX = 12
 
 
 def _display_name(code: str, *cands: Any) -> str:
@@ -116,19 +119,10 @@ def clamp_fusion_weight(raw: Any, default: float = 0.5) -> float:
     return max(0.0, min(1.0, float(v)))
 
 
-def rank_fusion_weights_from_cfg(cfg: Optional[dict]) -> Tuple[float, float]:
-    """rank_score 权 (w_oo_rank, w_τc_rank)。键名 fusion_w_oo_rank / fusion_w_tc_rank。"""
-    d = cfg if isinstance(cfg, dict) else {}
-    w_oo = clamp_fusion_weight(
-        d.get("fusion_w_oo_rank"), DEFAULT_FUSION_W_OO_RANK
-    )
-    w_tc = clamp_fusion_weight(
-        d.get("fusion_w_tc_rank"), DEFAULT_FUSION_W_TC_RANK
-    )
-    s = w_oo + w_tc
-    if s <= 1e-12:
-        return float(DEFAULT_FUSION_W_OO_RANK), float(DEFAULT_FUSION_W_TC_RANK)
-    return w_oo / s, w_tc / s
+def rank_fusion_weights_from_cfg(cfg: Optional[dict] = None) -> Tuple[float, float]:
+    """买序 rank_score 固定 0.6/0.4。配置里的 w_oo_rank / w_τc_rank 已下线，读盘忽略。"""
+    del cfg
+    return float(DEFAULT_FUSION_W_OO_RANK), float(DEFAULT_FUSION_W_TC_RANK)
 
 
 def _pos_enter_skip(val: Optional[float], enabled: bool, label: str) -> Optional[str]:
@@ -143,7 +137,7 @@ def _pos_enter_skip(val: Optional[float], enabled: bool, label: str) -> Optional
 
 
 def _y_star_gt0_flag(cfg: Optional[dict]) -> bool:
-    """y_*>0 闸：四头 oo / τc / oo_rank / τc_rank 均须 >0。
+    """y_*>0 闸：只看 ŷ_oo / ŷ_τc。rank 原始分不进这道闸。
 
     配置键 ``y_oo_gt0``；旧 ``y_τc_gt0`` 读盘并入后丢弃。缺键为关。
     """
@@ -176,15 +170,12 @@ def _y_star_gt0_skip_reason(
     y_τc: Optional[float],
     enabled: bool,
 ) -> Optional[str]:
-    """y_*>0：四头（ŷ_oo / ŷ_τc / y_oo_rank_score / y_tc_rank_score）均须 >0。缺分不拦。"""
+    """y_*>0：只看 ŷ_oo / ŷ_τc，均须 >0。缺分不拦。rank 原始分不进这道闸。"""
     if not enabled:
         return None
-    oo_rank, tc_rank = _rank_score_from_item(item)
     for skip in (
         _pos_enter_skip(y_oo, True, "y_oo"),
         _pos_enter_skip(y_τc, True, "y_τc"),
-        _pos_enter_skip(oo_rank, True, "y_oo_rank"),
-        _pos_enter_skip(tc_rank, True, "y_τc_rank"),
     ):
         if skip is not None:
             return skip
@@ -487,9 +478,80 @@ def _oo_tc_score_skip(
     return None
 
 
+def _rank_pos(raw: Any) -> Optional[int]:
+    """当天名次 1..n。小于 1 或非整数的原始分不当名次。"""
+    v = _f(raw)
+    if v is None or v < 1:
+        return None
+    n = int(round(v))
+    if n < 1 or abs(float(v) - float(n)) > 1e-6:
+        return None
+    return n
+
+
+def _coerce_oo_rank_max(raw: Any, *, default: Optional[int]) -> Optional[int]:
+    """名次上限。空 / null = 关。非法回退 default。合法范围 2..5000。"""
+    if raw is None:
+        return None
+    if isinstance(raw, str):
+        s = raw.strip().lower()
+        if s in ("", "null", "none", "nan", "undefined"):
+            return None
+    try:
+        n = int(round(float(raw)))
+    except (TypeError, ValueError):
+        return default
+    if n != n:
+        return default
+    return max(2, min(5000, n))
+
+
+def oo_rank_max_from_cfg(cfg: Optional[dict]) -> Optional[int]:
+    """入场名次：max(oo_rank, τc_rank) 须 < 该值。缺键=6；显式 null=关。"""
+    d = cfg if isinstance(cfg, dict) else {}
+    if "oo_rank_max" not in d:
+        return DEFAULT_OO_RANK_MAX
+    return _coerce_oo_rank_max(d.get("oo_rank_max"), default=DEFAULT_OO_RANK_MAX)
+
+
+def oo_rank_strong_max_from_cfg(cfg: Optional[dict]) -> Optional[int]:
+    """强档名次（更松）。缺键=12；显式 null=关。"""
+    d = cfg if isinstance(cfg, dict) else {}
+    if "oo_rank_strong_max" not in d:
+        return DEFAULT_OO_RANK_STRONG_MAX
+    return _coerce_oo_rank_max(
+        d.get("oo_rank_strong_max"), default=DEFAULT_OO_RANK_STRONG_MAX
+    )
+
+
+def _rank_pos_skip(item: Optional[dict], limit: Optional[int]) -> Optional[str]:
+    """两头名次都在时取较差的一头，须严格小于 limit。都缺不拦；只来一头则看这一头。"""
+    if limit is None:
+        return None
+    try:
+        lim = int(limit)
+    except (TypeError, ValueError):
+        return None
+    if lim < 2:
+        return None
+    oo = _rank_pos(_oo_rank_from_item(item)[0])
+    tc = _rank_pos(_tc_rank_from_item(item)[0])
+    present = [n for n in (oo, tc) if n is not None]
+    if not present:
+        return None
+    if max(present) < lim:
+        return None
+    parts: List[str] = []
+    if oo is not None:
+        parts.append(f"oo_rank {oo}")
+    if tc is not None:
+        parts.append(f"τc_rank {tc}")
+    return f"{' / '.join(parts)} 须<{lim}"
+
+
 def _oo_rank_enter_skip(item: Optional[dict], cfg: Optional[dict]) -> Optional[str]:
-    """入场 rank 阈值：``oo_tc_score_min``（合成 rank_score，默认 0.3）。"""
-    return _oo_tc_score_skip(item, oo_tc_score_min_from_cfg(cfg), cfg)
+    """入场名次门槛：``oo_rank_max``（默认 6；None=关）。"""
+    return _rank_pos_skip(item, oo_rank_max_from_cfg(cfg))
 
 
 def _corridor_enter_skip_reason(
@@ -536,9 +598,7 @@ def _corridor_enter_skip_reason(
             if morph_skip is not None:
                 return morph_skip
     if _fuse_strong_met(rs, cfg_d):
-        return _oo_tc_score_skip(
-            item, oo_tc_score_strong_min_from_cfg(cfg_d), cfg_d
-        )
+        return _rank_pos_skip(item, oo_rank_strong_max_from_cfg(cfg_d))
     return _oo_rank_enter_skip(item, cfg_d)
 
 
@@ -549,12 +609,11 @@ def rank_lot_enter_skip_reason(
     rs: Optional[float],
     apply_morph_gate: bool = True,
 ) -> Optional[str]:
-    """入场：y_oo_fuse ≥ fuse_enter；可选 y_*>0（四头均 >0）。
+    """入场：y_oo_fuse ≥ fuse_enter；可选 y_*>0（只看 ŷ_oo / ŷ_τc）。
 
-    ``y_oo_gt0`` 开则 ŷ_oo / ŷ_τc / y_oo_rank_score / y_tc_rank_score 均须 >0
-    （与 rank 阈值无关）。缺分不拦。旧 ``y_τc_gt0`` 读盘并入。
-    未过强档时可选 ``oo_tc_score_min``（须合成 rank_score ≥ 阈值，默认 0.3；不是 y_oo / y_τc）。
-    y_oo_fuse > fuse_strong 时改看 ``oo_tc_score_strong_min``（缺键默认 0.3；None=关）。
+    ``y_oo_gt0`` 开则 ŷ_oo / ŷ_τc 均须 >0。缺分不拦。rank 原始分不进这道闸。
+    未过强档时可选 ``oo_rank_max``（max(oo_rank, τc_rank) < N，默认 6）。
+    y_oo_fuse > fuse_strong 时改看 ``oo_rank_strong_max``（缺键默认 12；None=关）。
     ``apply_morph_gate=False``：已持仓清仓判定用——形态闸只拦新开/加，不清仓。
     """
     return _corridor_enter_skip_reason(
@@ -589,6 +648,12 @@ def _display_enter_skip_reason(
             return f"fuse={raw_pct:.3f}%<{th_pct:g}% 未过入场"
         # 原始过线、先验后不过：表里仍写原始 fuse，不写假不等式。
         return f"fuse={raw_pct:.3f}% 未过入场"
+    if "须<" in text:
+        # 判定用了舆情缩放后的名次；原因写缩放前的原始名次。
+        _rank, _n, label = _entry_rank_from_item(item)
+        if label:
+            return f"{label} 未过入场"
+        return text
     if "oo_rank" in text or "τc_rank" in text or "rank_score" in text:
         score = combined_rank_score(item, cfg_d)
         oo, tc = _rank_score_from_item(item)
@@ -775,8 +840,8 @@ def get_rank_lot_cfg(
         "y_oo_gt0": bool(y_star),
         "morph_gate_enabled": bool(pm.get("morph_gate_enabled")),
         "sentiment_gate_enabled": False,
-        "oo_tc_score_min": oo_tc_score_min_from_cfg(pm),
-        "oo_tc_score_strong_min": oo_tc_score_strong_min_from_cfg(pm),
+        "oo_rank_max": oo_rank_max_from_cfg(pm),
+        "oo_rank_strong_max": oo_rank_strong_max_from_cfg(pm),
         "fill_clock": str(pm.get("fill_clock") or "09:30"),
         "live_fill_clock": str(pm.get("live_fill_clock") or "09:30"),
         "score_backend": str(pm.get("score_backend") or "ridge"),
@@ -1104,6 +1169,9 @@ _TIP_EXPLAIN_KEYS = (
     "fusion_w_oc",
     "y_oo_source",
     "y_τc_source",
+    "y_oo_rank_source",
+    "y_tc_rank_source",
+    "arm_t",
     "score_model_role",
     "eod_feature_as_of",
     "lake_score_day",
@@ -1189,8 +1257,30 @@ def _slim_tip_formula(
     return out
 
 
+_SCORE_SOURCE_KEYS = (
+    "y_oo_source",
+    "y_τc_source",
+    "y_oo_rank_source",
+    "y_tc_rank_source",
+    "_score_source",
+    "arm_t",
+)
+
+
+def _score_source_fields(item: Optional[dict]) -> Dict[str, Any]:
+    """模型来源是短字符串。跳过腿不挂因子表，仍要带出来源，tip 才不会写成套槽 LightGBM。"""
+    if not isinstance(item, dict):
+        return {}
+    out: Dict[str, Any] = {}
+    for key in _SCORE_SOURCE_KEYS:
+        val = item.get(key)
+        if val is not None:
+            out[key] = val
+    return out
+
+
 def tip_explain_fields(item: Optional[dict]) -> Dict[str, Any]:
-    """成交/续持行 tip 组成；缺键不写。回测跳过腿不挂（见 ``_merge_aux_yhat(include_tips=False)``）。"""
+    """成交/续持行 tip 组成；缺键不写。回测跳过腿不挂因子表（见 ``include_tips=False``）。"""
     if not isinstance(item, dict):
         return {}
     out: Dict[str, Any] = {}
@@ -1254,6 +1344,7 @@ def _debug_scores(
     if y_τc is not None:
         out["predicted_score_tau"] = y_τc
     out.update(aux_yhat_fields(item))
+    out.update(_score_source_fields(item))
     if include_tips:
         out.update(tip_explain_fields(item))
     out.update({k: v for k, v in extra.items() if v is not None})
@@ -1404,6 +1495,35 @@ def _price_tau_of(
     return None
 
 
+def _stamp_cross_section_ranks(scored: Sequence[dict]) -> None:
+    """相对分还没编成 1..n 时，按当日截面写成名次。已经是整数名次的行不动。"""
+    rows = [it for it in (scored or []) if isinstance(it, dict)]
+    if not rows:
+        return
+    need_oo = any(
+        it.get("y_oo_rank_score") is not None and _rank_pos(it.get("y_oo_rank")) is None
+        for it in rows
+    )
+    need_tc = any(
+        it.get("y_tc_rank_score") is not None and _rank_pos(it.get("y_tc_rank")) is None
+        for it in rows
+    )
+    if need_oo:
+        try:
+            from core.research.oo_rank_lambdarank import assign_oo_rank_day_ranks
+
+            assign_oo_rank_day_ranks(rows)
+        except Exception:  # noqa: BLE001
+            logger.debug("stamp oo day ranks failed", exc_info=True)
+    if need_tc:
+        try:
+            from core.research.tc_rank import _assign_tc_rank_day_ranks
+
+            _assign_tc_rank_day_ranks(rows)
+        except Exception:  # noqa: BLE001
+            logger.debug("stamp tc day ranks failed", exc_info=True)
+
+
 def plan_rank_lot_day(
     *,
     scored: Sequence[dict],
@@ -1437,7 +1557,10 @@ def plan_rank_lot_day(
     ``sentiment_clock`` 给定时决策钟固定为该时刻（回测与 live 手动执行固定 09:30）。
     ``sentiment_align="publish"`` 时只卡标题发布时间；缺省仍要求该钟前已入库。
     ``sentiment_gate_enabled`` 规则栏已下掉：读盘恒关，只写标签不调 fuse/rank。
+
+    进闸前把当日截面编成 1..n（1=该头相对分最高），名次门槛读这个整数。
     """
+    _stamp_cross_section_ranks(scored)
     fuse_enter = _cfg_fuse_threshold(cfg, "fuse_enter", DEFAULT_FUSE_ENTER)
     fuse_strong = _cfg_fuse_threshold(cfg, "fuse_strong", DEFAULT_FUSE_STRONG)
     enter_cfg = cfg
@@ -1510,8 +1633,9 @@ def plan_rank_lot_day(
             bars_src = "none"
             bars_by: Dict[str, Sequence[Mapping[str, Any]]] = {}
             if isinstance(bars_by_code, Mapping) and bars_by_code:
-                # 回测：只用调用方 bars，避免 cache 尾 80 根导致深历史 as_of 滤空
-                for code in list(item_by.keys())[:800]:
+                # 回测：只用调用方 bars，避免 cache 尾 80 根导致深历史 as_of 滤空。
+                # 日线已在内存，不按 800 截断，否则全池后半段形态闸失效。
+                for code in item_by:
                     rows = bars_by_code.get(code)
                     if rows is None:
                         # 键偶发非 str
@@ -2199,8 +2323,8 @@ def plan_rank_lot_day(
         "fuse_enter": fuse_enter,
         "fuse_strong": fuse_strong,
         "y_oo_gt0": bool(y_oo_gt0),
-        "oo_tc_score_min": oo_tc_score_min_from_cfg(cfg),
-        "oo_tc_score_strong_min": oo_tc_score_strong_min_from_cfg(cfg),
+        "oo_rank_max": oo_rank_max_from_cfg(cfg),
+        "oo_rank_strong_max": oo_rank_strong_max_from_cfg(cfg),
         "cash_floor": cash_floor,
         "spend_floor": spend_floor,
         "min_cash_pct": min_cash_pct,
@@ -2235,8 +2359,8 @@ __all__ = [
     "DEFAULT_FUSE_STRONG",
     "DEFAULT_FUSION_W_OO_RANK",
     "DEFAULT_FUSION_W_TC_RANK",
-    "DEFAULT_OO_TC_SCORE_MIN",
-    "DEFAULT_OO_TC_SCORE_STRONG_MIN",
+    "DEFAULT_OO_RANK_MAX",
+    "DEFAULT_OO_RANK_STRONG_MAX",
     "LOT_AMOUNT_BASE",
     "LOT_AMOUNT_MAX",
     "LOT_AMOUNT_MIN",
@@ -2258,8 +2382,8 @@ __all__ = [
     "rank_fusion_weights_from_cfg",
     "stock_mv_cap_from_strong",
     "rank_lot_enter_skip_reason",
-    "oo_tc_score_min_from_cfg",
-    "oo_tc_score_strong_min_from_cfg",
+    "oo_rank_max_from_cfg",
+    "oo_rank_strong_max_from_cfg",
     "y_oo_fuse_pct_of",
     "y_tau_of",
 ]

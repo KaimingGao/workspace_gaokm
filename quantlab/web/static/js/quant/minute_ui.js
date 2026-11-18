@@ -1,4 +1,4 @@
-import { setProStatusChip, syncOverviewMinute } from "./factor_corr_ui.js";
+import { overviewFetchedFact, overviewRangeFact, setDataOverviewKpi, setProStatusChip } from "./factor_corr_ui.js";
 import {
   paintClusterJobPanel,
   jobStatusBadge,
@@ -182,6 +182,40 @@ export function installMinuteUi(q) {
     delete progressEl.dataset.tone;
   }
 
+  /** 没有进行中的补齐任务时，用覆盖结果把状态框展开。 */
+  function paintIdleCoveragePanel(data) {
+    if (!progressEl || jobFailure || jobSuccess || inflight) return;
+    if (!data || !data.success) return;
+    const total = Number(data.universe_count) || 0;
+    const ok = Number(data.cached_ok) || 0;
+    const shortN = Number(data.short) || 0;
+    const missingN = Number(data.missing) || 0;
+    const pct = total > 0 ? Math.round((1000 * ok) / total) / 10 : 0;
+    const asof = overviewRangeFact(data.last_bar_min, data.last_bar_max);
+    const fetched = overviewFetchedFact(data.last_fetched_at);
+    const facts = [];
+    if (total > 0) facts.push(`Ready <strong>${ok}/${total}</strong>`);
+    if (asof.v && asof.v !== "—") facts.push(`更新至 <strong>${esc(asof.v)}</strong>`);
+    if (fetched.v && fetched.v !== "—") facts.push(`上次 <strong>${esc(fetched.v)}</strong>`);
+    facts.push(`Short <strong>${shortN}</strong>`);
+    facts.push(`Missing <strong>${missingN}</strong>`);
+    const width = Math.max(0, Math.min(100, pct));
+    progressEl.hidden = false;
+    progressEl.classList.add("is-active", "is-done");
+    progressEl.classList.remove("is-warn");
+    progressEl.dataset.tone = "primary";
+    progressEl.innerHTML =
+      `<div class="quant-bars-progress-head">` +
+      `<span class="quant-bars-progress-phase">${data.coverage_ok ? "已齐" : "未齐"}</span>` +
+      `<span class="quant-bars-progress-pct">${total > 0 ? `${pct}%` : "—"}</span>` +
+      `</div>` +
+      `<div class="quant-bars-progress-track" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${Math.round(width)}">` +
+      `<div class="quant-bars-progress-fill" style="width:${width.toFixed(1)}%"></div>` +
+      `</div>` +
+      `<div class="quant-bars-progress-facts">${facts.map((f) => `<span>${f}</span>`).join("")}</div>` +
+      `<p class="quant-bars-progress-hint">增量补齐（L0）· 今日已拉且齐窗跳过 · 缺尾补拉</p>`;
+  }
+
   function paintProgressFailed(job, errText) {
     setDeskStatusTone([minuteStrip, minuteCard], "primary");
     paintClusterJobPanel(progressEl, {
@@ -223,7 +257,7 @@ export function installMinuteUi(q) {
   function applyJobSuccess(job, mode) {
     jobSuccess = { job: job || null };
     jobFailure = null;
-    // 完成计数不回放到卡头，也不再写进终态进度框；覆盖摘要与 KPI 已有。
+    // 完成计数留在进度框；卡头只回放覆盖摘要。
     const cover = lastCoverage && lastCoverage.success ? formatStatus(lastCoverage) : null;
     if (cover) {
       setDeskStatusTone([minuteStrip, minuteCard], null);
@@ -329,17 +363,10 @@ export function installMinuteUi(q) {
     const ok = data.cached_ok ?? 0;
     const short = data.short ?? 0;
     const missing = data.missing ?? 0;
-    const med = data.minute_span_days_med ?? 0;
     const pct = total > 0 ? Math.round((1000 * ok) / total) / 10 : 0;
-    const parts = [
-      `Ready ${pct}% (${ok}/${total})`,
-      ...l0CoverageFacts(data, { showTarget: true }),
-      `span med ${med}d`,
-    ];
-    if (short > 0) parts.push(`Short ${short}`);
-    if (missing > 0) parts.push(`Missing ${missing}`);
     let state = "ok";
     let chipText = "READY";
+    let msg = total > 0 ? `Ready ${pct}% (${ok}/${total})` : "观察池为空";
     if (total <= 0) {
       state = "warn";
       chipText = "EMPTY";
@@ -347,7 +374,7 @@ export function installMinuteUi(q) {
       state = "warn";
       chipText = short || missing ? "GAP" : "PENDING";
     }
-    return { state, chip: chipText, msg: parts.join(" · "), pct, total, ok, short, missing, med };
+    return { state, chip: chipText, msg };
   }
 
   function renderBarRows(host, rows, { emptyText = "—", head = null } = {}) {
@@ -575,7 +602,24 @@ export function installMinuteUi(q) {
     if (kpiShort) kpiShort.textContent = String(short);
     if (kpiMissing) kpiMissing.textContent = String(missing);
 
-    setKpiCard("ok", total <= 0 ? "is-empty" : data.coverage_ok ? "is-good" : "is-mid");
+    const readyState = total <= 0 ? "is-empty" : data.coverage_ok ? "is-good" : "is-mid";
+    setKpiCard("ok", readyState);
+    const spanTitle =
+      data.minute_span_days_min && data.minute_span_days_max
+        ? `${data.minute_span_days_min}→${data.minute_span_days_max} 个交易日`
+        : "";
+    setDataOverviewKpi(
+      "minute",
+      total > 0 ? `${pct}%` : "—",
+      total > 0 ? `${ok} / ${total}` : "Ready",
+      readyState,
+      {
+        asof: overviewRangeFact(data.last_bar_min, data.last_bar_max),
+        span: { v: med > 0 ? `${med}d` : "—", title: spanTitle },
+        short: { v: String(short), tone: short > 0 ? "bad" : "" },
+        missing: { v: String(missing), tone: missing > 0 ? "bad" : "" },
+      }
+    );
     setKpiCard("span", med >= minSpan ? "is-good" : med > 0 ? "is-mid" : "is-empty");
     setKpiCard("short", short > 0 ? "is-bad" : total > 0 ? "is-good" : "is-empty");
     setKpiCard("missing", missing > 0 ? "is-bad" : total > 0 ? "is-good" : "is-empty");
@@ -599,11 +643,6 @@ export function installMinuteUi(q) {
     }
     renderContextStrip(data);
     renderKpis(data);
-    try {
-      syncOverviewMinute(data);
-    } catch (_) {
-      /* overview optional */
-    }
     renderCoverageBar(data);
     renderLabelPortrait(data);
   }
@@ -669,6 +708,7 @@ export function installMinuteUi(q) {
       jobSt !== "running"
     ) {
       setMinuteBusy(false);
+      paintIdleCoveragePanel(data);
     }
     apiFetch(`${base}&include_label_portrait=1`)
       .then(({ ok: pok, data: pdata }) => {

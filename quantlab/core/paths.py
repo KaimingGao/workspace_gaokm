@@ -110,11 +110,13 @@ OO_RANK_JOB_PATH = os.path.join(JOBS_DIR, "oo_rank.json")
 TC_RANK_JOB_PATH = os.path.join(JOBS_DIR, "tc_rank.json")
 ROLL_GATE_JOB_PATH = os.path.join(JOBS_DIR, "roll_gate.json")
 # 模型工厂（⌘⇧K）：按臂分目录；不写 live score
-# L = LightGBM 工厂 /yhat-l；T = Transformer 工厂 /yhat-t（旧 yhat_tf 别名落 T）
+# L = LightGBM /yhat-l；T = Transformer /yhat-t；R = Ridge /yhat-r（旧 yhat_tf 别名落 T）
 YHAT_L_DIR = os.path.join(LIVE_DIR, "yhat_l")
 YHAT_T_DIR = os.path.join(LIVE_DIR, "yhat_t")
+YHAT_R_DIR = os.path.join(LIVE_DIR, "yhat_r")
 YHAT_TF_DIR = YHAT_T_DIR  # 兼容旧导入名 → Arm·T
 YHAT_L_LAST_PATH = os.path.join(YHAT_L_DIR, "last_status.json")
 YHAT_T_LAST_PATH = os.path.join(YHAT_T_DIR, "last_status.json")
+YHAT_R_LAST_PATH = os.path.join(YHAT_R_DIR, "last_status.json")
 YHAT_TF_LAST_PATH = YHAT_T_LAST_PATH
 

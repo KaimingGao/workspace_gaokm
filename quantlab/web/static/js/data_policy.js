@@ -88,7 +88,7 @@ export function minuteHubFoot() {
 
 /** 数据中心日线区补充 */
 export function dayBarsHubFoot() {
-  return "下游：ŷ_oo / 分组 OLS · ≠ 5m；日常增量补齐（L0） · 仓坏用强更日 K（L0）；观察台只改名单";
+  return "下游：ŷ_oo / 分组 OLS · ≠ 5m；日常增量补齐（L0） · 仓坏用强更日 K（L0）；本区不改名单";
 }
 
 /** 观察台页头路径说明 */
