@@ -1942,7 +1942,7 @@ def main() -> int:
     )
     p.add_argument("--dropout", type=float, default=0.1)
     p.add_argument("--epochs", type=int, default=12)
-    p.add_argument("--batch-size", type=int, default=32)
+    p.add_argument("--batch-size", type=int, default=32, help="Arm·T 训练 batch，范围 16–1024")
     p.add_argument("--lr", type=float, default=1e-3, help="Arm·T 学习率")
     p.add_argument("--device", default="cpu")
     p.add_argument(

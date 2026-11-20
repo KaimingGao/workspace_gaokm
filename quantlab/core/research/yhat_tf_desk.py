@@ -868,8 +868,8 @@ def harden_fit_params(head: str, params: Dict[str, Any]) -> tuple[Dict[str, Any]
         warns.append(f"dropout: {raw_drop}→{drop:g}")
     out["dropout"] = float(f"{drop:.6g}")
     out.pop("patience", None)
-    # 与 train._batches 地板 16 对齐（UI/CLI 写 8 会静默变成 16）
-    _clamp("batch_size", 32, 16, 256, label="batch")
+    # 与训练入口对齐：低于 16 抬到 16，高于 1024 收到 1024。
+    _clamp("batch_size", 32, 16, 1024, label="batch")
     _clamp("epochs", 12, 1, 40, label="epochs")
     out["lr"] = _as_bounded_float(out.get("lr"), 1e-3, 1e-5, 1e-1)
     # Arm·T subsample %：(0,100]；默认 10；100=不截断。旧键 max_train_rows 丢弃。

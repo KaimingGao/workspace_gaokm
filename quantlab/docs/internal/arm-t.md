@@ -208,7 +208,7 @@ seq16 在经典 8 维价量摘要上追加影线 / 位置 / 量变 / 缺口回�
 | **optimizer** | AdamW，`lr=1e-3`，`weight_decay=1e-4` |
 | **LR** | cosine + warmup；`TRANSFORMER_WARMUP_STEPS` 默认 100；`min_ratio=0.01` |
 | **grad clip** | 1.0 |
-| **batch** | 默认 32；地板 `max(16, batch_size)` |
+| **batch** | 默认 32；范围 16–1024 |
 | **subsample** | `t_sample_frac` 默认 **0.1**；≥1 → 不截断。点损失行级；排序头 **整日组**，一组放不进剩余名额即停。抽样只作用在训练日，Holdout 不进训练 |
 | **序列预处理** | train 行 1%/99% 分位 clip（最多 2 万行估分位） |
 | **线程** | `TORCH_NUM_THREADS` 默认 **4**；interop=1；BLAS/OMP 仍为 1 |
@@ -291,7 +291,7 @@ Holdout 始终写 `hard_gate_vs_arm_L.T`；L 或 T 失败也写 `pass=false` + r
 | seed | **42** |
 | full_aoo / full_atc | False / True |
 
-边界：`d_model≥16`；`nlayers 1–6`；`batch 16–256`；`epochs 1–40`；`t_sample_pct (0.1,100]`；`d_model % nhead == 0`。
+边界：`d_model≥16`；`nlayers 1–6`；`batch 16–1024`；`epochs 1–40`；`t_sample_pct (0.1,100]`；`d_model % nhead == 0`。
 
 ---
 
@@ -362,3 +362,4 @@ PYTHONUNBUFFERED=1 .venv/bin/python scripts/run_yhat_transformer_holdout.py --he
 | 2026-11-19 | oo 因子面板不再覆盖已有 open 立方；缺 τc 列按缺列补日线物化 |
 | 2026-11-19 | 本页离线回测下线，同臂与跨厂都在 `/yhat-bt` |
 | 2026-11-19 | 工厂排序头 truncation 改为 30；Arm·L 树改为 120 棵、深度 5、叶子 32、subsample 0.85、colsample 0.9、L2=1。Holdout 改打 NDCG@30 |
+| 2026-11-20 | 训练 batch 上限改为 1024。页面、`harden_fit_params` 和训练入口同一边界 |

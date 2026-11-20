@@ -1457,10 +1457,15 @@ class TestYhatTfDesk(unittest.TestCase):
                     save_fit_draft,
                 )
 
-                # batch 地板 16；factor_pack 跟 T 列宽；模型超参进 CLI
+                # batch 范围 16–1024；factor_pack 跟 T 列宽；模型超参进 CLI
                 p8, warns = harden_fit_params("oo", {"batch_size": 8, "full_aoo": False})
                 self.assertEqual(p8["batch_size"], 16)
                 self.assertTrue(any("batch" in w for w in warns))
+                p_hi, warns_hi = harden_fit_params(
+                    "oo", {"batch_size": 2048, "full_aoo": False}
+                )
+                self.assertEqual(p_hi["batch_size"], 1024)
+                self.assertTrue(any("batch" in w for w in warns_hi))
                 self.assertEqual(p8["factor_pack"], "aoo_core")
                 # 显式配置保留；无 mlp_hidden 时默认对齐 d_model
                 p_full, _ = harden_fit_params(

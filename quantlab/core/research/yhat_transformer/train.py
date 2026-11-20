@@ -592,7 +592,7 @@ def train_seq_factor_transformer(
     ho_arr = np.asarray(ho_src, dtype=np.int64)
     if ho_arr.size:
         ho_arr = ho_arr[(ho_arr >= 0) & (ho_arr < int(y.shape[0]))]
-    bs = max(16, int(batch_size or 128))
+    bs = max(16, min(1024, int(batch_size or 128)))
     tr_groups = (
         _group_row_lists(day_s, tr_arr.tolist(), min_group=2) if grouped else []
     )
@@ -885,6 +885,7 @@ def predict_seq_factor_transformer(
     device: Optional[str] = None,
     batch_size: int = 256,
 ) -> np.ndarray:
+    """按块前向。``batch_size`` 是推理分块，默认 256，不超过训练 batch 上限 1024。"""
     torch = _require_torch()
     from core.research.yhat_transformer.model import SeqFactorTransformer, pick_device
 
@@ -908,7 +909,7 @@ def predict_seq_factor_transformer(
     gap_np = np.ascontiguousarray(np.asarray(gap, dtype=np.float32))
     Xf_np = np.ascontiguousarray(np.asarray(Xf, dtype=np.float32))
     outs: List[np.ndarray] = []
-    bs = max(32, int(batch_size))
+    bs = max(32, min(1024, int(batch_size)))
     order = np.asarray(idx, dtype=np.int64)
     with torch.no_grad():
         for start in range(0, int(order.size), bs):
