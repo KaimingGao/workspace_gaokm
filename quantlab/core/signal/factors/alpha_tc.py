@@ -217,7 +217,7 @@ def is_alpha_tc_core_raw_key(name: str) -> bool:
 def select_atc_core_names(names: Sequence[str]) -> List[str]:
     """只留 atc_core：GAP+YK+LAG，丢掉滚动/前缀，以及与 core 双计的开盘锚。
 
-    非 raw 且不在双计名单里的列保留（开盘面板上是 ``tau_lag1`` / ``tau_ma5``）。
+    非 raw 且不在双计名单里的列保留（开盘面板上是隔夜锚和 ``tau_lag1`` / ``tau_ma5``）。
     """
     out: List[str] = []
     seen = set()
@@ -233,6 +233,64 @@ def select_atc_core_names(names: Sequence[str]) -> List[str]:
         seen.add(k)
         out.append(k)
     return out
+
+
+_OPEN_TAU_EXCLUDED: Optional[frozenset] = None
+
+
+def open_tau_excluded_names() -> frozenset:
+    """开盘模型不入模的分钟列。``Z_TC_FIT_FEATURES`` 仍保留，盘中钟继续用。
+
+    15 个 ``z_τc_*`` 分钟键，加上 14 个 ``raw_atc_*`` 前缀键。
+    09:30 这些列是常数：分钟路径没挂上，前缀走 ``_prefix_neutral``。
+    """
+    global _OPEN_TAU_EXCLUDED
+    if _OPEN_TAU_EXCLUDED is None:
+        from core.signal.factors.z_tc import Z_TC_MINUTE_KEYS
+
+        _OPEN_TAU_EXCLUDED = frozenset(Z_TC_MINUTE_KEYS) | frozenset(
+            f"{ALPHA_TC_RAW_PREFIX}{k}" for k in _PREFIX_KEYS
+        )
+    return _OPEN_TAU_EXCLUDED
+
+
+def open_tau_neutral_value(name: str) -> Optional[float]:
+    """旧开盘权重仍点名这些列时，填回训练时的常数。不是这类列则返回 None。"""
+    key = str(name or "")
+    if key not in open_tau_excluded_names():
+        return None
+    if is_alpha_tc_raw_key(key):
+        bare = key[len(ALPHA_TC_RAW_PREFIX) :]
+        return float(_prefix_neutral("open").get(bare, 0.0))
+    return 0.0
+
+
+def filter_open_tau_names(names: Sequence[str]) -> List[str]:
+    """开盘面板列序：去掉分钟常数，其余列保持原顺序。"""
+    drop = open_tau_excluded_names()
+    out: List[str] = []
+    seen = set()
+    for n in names or []:
+        k = str(n or "").strip()
+        if not k or k in drop or k in seen:
+            continue
+        seen.add(k)
+        out.append(k)
+    return out
+
+
+def open_atc_full_names() -> List[str]:
+    """裁分钟列之前的开盘 atc_full 列序：``Z_TC_FIT_FEATURES`` 再接全部 ``raw_atc_*``。"""
+    from core.signal.factors.z_tc import Z_TC_FIT_FEATURES
+
+    names = [str(n) for n in Z_TC_FIT_FEATURES]
+    seen = set(names)
+    for key in ALPHA_TC_FIELD_NAMES:
+        col = f"{ALPHA_TC_RAW_PREFIX}{key}"
+        if col not in seen:
+            seen.add(col)
+            names.append(col)
+    return names
 
 
 def bump_window_for_alpha_tc(

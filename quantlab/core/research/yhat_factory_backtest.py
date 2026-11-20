@@ -26,7 +26,7 @@ logger = logging.getLogger(__name__)
 HEADS: Tuple[str, ...] = ("oo", "tc", "oo_rank", "tc_rank")
 FILL_CLOCK = "09:30"
 START_CASH = 200_000.0
-_ARCH = ("d_model", "nhead", "nlayers", "factor_hidden", "d_seq_in")
+_NET = ("d_model", "nhead", "nlayers", "factor_hidden")
 _QUANTLAB = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
 _MIX = "BT"
 _ARM_ALIASES = {
@@ -106,6 +106,12 @@ def _norm_token(value: Any) -> str:
         return str(value).strip()
 
 
+def _resolved_seq_feat(raw: Any) -> str:
+    from core.research.yhat_transformer.seq_dataset import resolve_seq_feat_set
+
+    return resolve_seq_feat_set(None if raw in (None, "") else raw)
+
+
 def _fit_param(spec: Mapping[str, Any], *keys: str) -> Any:
     params = spec.get("fit_params") if isinstance(spec.get("fit_params"), dict) else {}
     for key in keys:
@@ -123,6 +129,10 @@ def _agree(specs: Sequence[Mapping[str, Any]], key: str, label: str) -> None:
         if value is None:
             missing = True
             continue
+        if key == "seq_feat_set":
+            from core.research.yhat_transformer.seq_dataset import resolve_seq_feat_set
+
+            value = resolve_seq_feat_set(value)
         present.append(value)
     if not present:
         return
@@ -193,8 +203,10 @@ def _combo_console(spec: Mapping[str, Any]) -> str:
         one = specs.get(head) if isinstance(specs.get(head), Mapping) else {}
         mark = _version_stamp(one, vid)
         names.append(" ".join(bit for bit in (head, arm, mark) if bit))
-    blend = "当日名次" if str(spec.get("rank_blend") or "") == "day_rank" else "原始分"
-    return "组合 " + " · ".join(names) + f" · 买序 {blend}"
+    text = "组合 " + " · ".join(names)
+    if str(spec.get("rank_blend") or "") == "day_rank":
+        text += " · 买序 当日名次"
+    return text
 
 
 def _console_num(raw: Any, *, digits: Optional[int] = None, scale: float = 1.0, suffix: str = "") -> str:
@@ -279,19 +291,7 @@ def check_suite(specs: Sequence[Mapping[str, Any]]) -> Dict[str, Any]:
     ):
         _agree(ordered, key, label)
     if backend == "transformer":
-        for key in _ARCH:
-            vals = []
-            blank = False
-            for spec in ordered:
-                meta = spec.get("meta") if isinstance(spec.get("meta"), dict) else {}
-                if meta.get(key) in (None, ""):
-                    blank = True
-                    continue
-                vals.append(meta.get(key))
-            if not vals:
-                continue
-            if blank or len({_norm_token(v) for v in vals}) != 1:
-                raise ValueError("四头网络结构不一致")
+        _agree_arch(ordered, message="四头网络结构不一致")
     starts: List[str] = []
     ends: List[str] = []
     for spec in ordered:
@@ -315,7 +315,7 @@ def check_suite(specs: Sequence[Mapping[str, Any]]) -> Dict[str, Any]:
         "pool_n": _fit_param(ordered[0], "pool_n", "watching_limit"),
         "lookback": lookback if lookback is not None else params.get("lookback"),
         "seq_len": params.get("seq_len"),
-        "seq_feat_set": params.get("seq_feat_set"),
+        "seq_feat_set": _resolved_seq_feat(params.get("seq_feat_set")),
     }
 
 
@@ -339,28 +339,64 @@ def _transformer_heads(specs: Sequence[Mapping[str, Any]]) -> List[Mapping[str, 
     return [spec for spec in specs if str(spec.get("backend") or "") == "transformer"]
 
 
-def _agree_arch(specs: Sequence[Mapping[str, Any]]) -> None:
+def _meta_agrees(specs: Sequence[Mapping[str, Any]], key: str) -> bool:
+    vals = []
+    blank = False
+    for spec in specs:
+        meta = spec.get("meta") if isinstance(spec.get("meta"), dict) else {}
+        if meta.get(key) in (None, ""):
+            blank = True
+            continue
+        vals.append(meta.get(key))
+    if not vals:
+        return True
+    if blank or len({_norm_token(v) for v in vals}) != 1:
+        return False
+    return True
+
+
+def _agree_seq_width(specs: Sequence[Mapping[str, Any]], message: str) -> None:
+    """旧价量序列共用一块面板，序列宽必须相同。
+
+    seq_core / seq_full 的宽跟因子族走：oo 与 τc 可以不同，同一族的两头必须相同。
+    """
+    from core.research.yhat_transformer.seq_dataset import is_factor_seq
+
+    feat = "seq_core"
+    for spec in specs:
+        raw = _fit_param(spec, "seq_feat_set")
+        if raw is not None:
+            feat = _resolved_seq_feat(raw)
+            break
+    if is_factor_seq(feat):
+        groups: Dict[str, List[Mapping[str, Any]]] = {}
+        for spec in specs:
+            groups.setdefault(_head_family(str(spec.get("head") or "")), []).append(spec)
+        chunks = list(groups.values())
+    else:
+        chunks = [list(specs)]
+    for chunk in chunks:
+        if len(chunk) >= 2 and not _meta_agrees(chunk, "d_seq_in"):
+            raise ValueError(message)
+
+
+def _agree_arch(specs: Sequence[Mapping[str, Any]], *, message: str) -> None:
+    """d_model / nhead / nlayers / factor_hidden 在 Transformer 头之间相同。
+
+    序列输入宽另看 ``_agree_seq_width``。
+    """
     if len(specs) < 2:
         return
-    for key in _ARCH:
-        vals = []
-        blank = False
-        for spec in specs:
-            meta = spec.get("meta") if isinstance(spec.get("meta"), dict) else {}
-            if meta.get(key) in (None, ""):
-                blank = True
-                continue
-            vals.append(meta.get(key))
-        if not vals:
-            continue
-        if blank or len({_norm_token(v) for v in vals}) != 1:
-            raise ValueError("Transformer 头的网络结构不一致")
+    for key in _NET:
+        if not _meta_agrees(specs, key):
+            raise ValueError(message)
+    _agree_seq_width(specs, message)
 
 
 def check_mix(specs: Sequence[Mapping[str, Any]]) -> Dict[str, Any]:
     """四头可以来自不同工厂。因子族成对，core / full 可以不同。
 
-    序列长度、采样比例和网络结构只在选中的 Transformer 头之间要求一致。
+    序列长度、采样比例和 d_model / nhead / nlayers / factor_hidden 只在选中的 Transformer 头之间要求一致。seq_core / seq_full 的序列宽按因子族比较，oo 与 τc 可以不同。
     两条排序头后端相同时买序用原始分；不同时用当日名次。
     """
     by_head = {str(s.get("head") or ""): s for s in specs}
@@ -391,7 +427,7 @@ def check_mix(specs: Sequence[Mapping[str, Any]]) -> Dict[str, Any]:
             ("seq_feat_set", "序列特征集"),
         ):
             _agree(tf, key, label)
-        _agree_arch(tf)
+        _agree_arch(tf, message="Transformer 头的网络结构不一致")
     starts: List[str] = []
     ends: List[str] = []
     for spec in ordered:
@@ -427,7 +463,7 @@ def check_mix(specs: Sequence[Mapping[str, Any]]) -> Dict[str, Any]:
         "specs": {h: by_head[h] for h in HEADS},
         "lookback": lookback,
         "seq_len": seq_params.get("seq_len") if tf else None,
-        "seq_feat_set": seq_params.get("seq_feat_set") if tf else None,
+        "seq_feat_set": _resolved_seq_feat(seq_params.get("seq_feat_set")) if tf else None,
     }
 
 
@@ -746,12 +782,50 @@ def _fill_line(cells: Sequence[Any]) -> str:
     return " · ".join(_fill_cell(cell) for cell in cells)
 
 
-def _emit_fill(row: Mapping[str, Any], next_open: Optional[float], *, legend: Dict[str, bool]) -> None:
-    """一笔一行，列序固定。fuse 只打预估；y_oo / y_τc 仍是预估(真实)。"""
-    if not legend.get("on"):
-        print("成交明细 · fuse=预估 · y_oo/y_τc=预估(真实)", flush=True)
-        print(_fill_line(_FILL_HEAD), flush=True)
-        legend["on"] = True
+def _fmt_book_yuan(value: Any) -> str:
+    """日总结现金/净值：千分位，两位小数。"""
+    v = _finite(value)
+    if v is None:
+        return "—"
+    return f"{v:,.2f}"
+
+
+def _holding_count(paper: Mapping[str, Any]) -> int:
+    n = 0
+    for row in paper.get("holdings") or []:
+        if not isinstance(row, dict):
+            continue
+        try:
+            shares = float(row.get("shares") or 0)
+        except (TypeError, ValueError):
+            shares = 0.0
+        if shares > 0:
+            n += 1
+    return n
+
+
+def _day_summary_lines(date: str, book: Mapping[str, Any]) -> List[str]:
+    """一日收口。现金是调仓后，净值=现金+收盘市值。笔数不另起行。"""
+    return [
+        date,
+        (
+            f"现金 {_fmt_book_yuan(book.get('cash'))} · "
+            f"持仓 {int(book.get('n_hold') or 0)} · "
+            f"净值 {_fmt_book_yuan(book.get('equity'))}"
+        ),
+    ]
+
+
+def _ensure_fill_legend(legend: Dict[str, Any]) -> None:
+    if legend.get("on"):
+        return
+    print("成交明细 · fuse=预估 · y_oo/y_τc=预估(真实)", flush=True)
+    print(_fill_line(_FILL_HEAD), flush=True)
+    legend["on"] = True
+
+
+def _print_fill_line(row: Mapping[str, Any], next_open: Optional[float]) -> None:
+    """一笔一行。fuse 只打预估；y_oo / y_τc 仍是预估(真实)。"""
     oo_real = _chg_pct(next_open, row.get("basis"))
     print(
         _fill_line(
@@ -773,6 +847,51 @@ def _emit_fill(row: Mapping[str, Any], next_open: Optional[float], *, legend: Di
         ),
         flush=True,
     )
+
+
+def _flush_day_books(
+    day_books: Dict[str, Dict[str, Any]],
+    pending: List[dict],
+    prices: Mapping[str, float],
+    legend: Dict[str, Any],
+    *,
+    current: Optional[str],
+    final: bool,
+) -> None:
+    """按日打出成交总结和明细。当天还没走完不打；缺次日开盘的日子先压住，避免日后插到前面。"""
+    ready: Dict[str, List[Tuple[dict, Optional[float]]]] = {}
+    blocked = set()
+    for row in pending:
+        date = str(row.get("date") or "")
+        nxt = _finite(row.get("next_open"))
+        if nxt is None and not final:
+            nxt = _finite(prices.get(str(row.get("code") or "")))
+            if nxt is None:
+                blocked.add(date)
+                continue
+            row["next_open"] = nxt
+        ready.setdefault(date, []).append((row, nxt))
+    released: List[str] = []
+    for date, book in day_books.items():
+        if book.get("flushed"):
+            continue
+        if not final and (not current or date >= current):
+            break
+        if date in blocked or not book.get("snap"):
+            break
+        released.append(date)
+    if not released:
+        return
+    released_set = set(released)
+    _ensure_fill_legend(legend)
+    for date in released:
+        book = day_books[date]
+        for line in _day_summary_lines(date, book):
+            print(line, flush=True)
+        for row, nxt in ready.get(date, []):
+            _print_fill_line(row, nxt)
+        book["flushed"] = True
+    pending[:] = [row for row in pending if str(row.get("date") or "") not in released_set]
 
 
 def _max_drawdown_pct(equities: Sequence[float]) -> float:
@@ -861,7 +980,8 @@ def simulate_scored_days(
     print(f"开始调仓 {total} 日 本金 {float(start_cash):.0f}", flush=True)
     opens_by_date: Dict[str, Dict[str, float]] = {}
     pending_fills: List[dict] = []
-    fill_legend = {"on": False}
+    day_books: Dict[str, Dict[str, Any]] = {}
+    fill_legend: Dict[str, Any] = {"on": False}
     legs: List[Dict[str, Any]] = []
     equities: List[float] = [float(start_cash)]
     for i, day in enumerate(days):
@@ -906,14 +1026,14 @@ def simulate_scored_days(
         n_buys += day_buys
         n_sells += day_sells
         opens_by_date[date] = dict(prices)
-        still_fills: List[dict] = []
-        for row in pending_fills:
-            nxt = prices.get(str(row.get("code") or ""))
-            if nxt is None:
-                still_fills.append(row)
-            else:
-                _emit_fill(row, nxt, legend=fill_legend)
-        pending_fills = still_fills
+        _flush_day_books(
+            day_books,
+            pending_fills,
+            prices,
+            fill_legend,
+            current=date,
+            final=False,
+        )
         traded_codes = set()
         plan_legs = [leg for leg in list(plan.get("sells") or []) + list(plan.get("buys") or []) if isinstance(leg, dict)]
         for trade in list(applied.get("sell_trades") or []) + list(applied.get("buy_trades") or []):
@@ -964,14 +1084,25 @@ def simulate_scored_days(
                     "status": "held",
                 }
             )
-        equities.append(_mark_equity(paper, marks))
+        book = day_books.setdefault(date, {})
+        book["cash"] = float(paper.get("cash") or 0)
+        book["n_hold"] = _holding_count(paper)
+        book["equity"] = _mark_equity(paper, marks)
+        book["snap"] = True
+        equities.append(float(book["equity"]))
         if i == 0 or i + 1 == total or (i + 1) % 10 == 0:
             print(
                 f"调仓 {date} {i + 1}/{total} 买 {day_buys} 卖 {day_sells}",
                 flush=True,
             )
-    for row in pending_fills:
-        _emit_fill(row, None, legend=fill_legend)
+    _flush_day_books(
+        day_books,
+        pending_fills,
+        {},
+        fill_legend,
+        current=None,
+        final=True,
+    )
     end_equity = _mark_equity(paper, marks)
     end_shares = 0.0
     for row in paper.get("holdings") or []:
@@ -1142,14 +1273,100 @@ def apply_seq_clip(X: np.ndarray, gap: np.ndarray, clip: Optional[Mapping[str, A
     np.clip(gap, gap_lo, gap_hi, out=gap)
 
 
+def _open_legacy_fill(name: str) -> Optional[float]:
+    """旧开盘权重点名已裁列时的填值。τc 分钟列用中性值，oo 常数包分用 50。"""
+    from core.signal.factors.alpha_oo import open_oo_neutral_value
+    from core.signal.factors.alpha_tc import open_tau_neutral_value
+
+    fill = open_tau_neutral_value(name)
+    if fill is not None:
+        return fill
+    return open_oo_neutral_value(name)
+
+
 def take_factor_columns(X: np.ndarray, names: Sequence[str], want: Sequence[str]) -> np.ndarray:
-    have = [str(n) for n in names]
-    idx: List[int] = []
-    for name in want:
-        if name not in have:
-            raise ValueError(f"因子列缺失 {name}")
-        idx.append(have.index(str(name)))
-    return np.ascontiguousarray(X[:, idx], dtype=np.float64)
+    """按权重列序取列。开盘已裁掉的常数列，用训练时的值补回。"""
+    have = {str(n): i for i, n in enumerate(names)}
+    src = np.asarray(X)
+    out = np.empty((int(src.shape[0]), len(list(want))), dtype=np.float64)
+    for j, name in enumerate(want):
+        key = str(name)
+        i = have.get(key)
+        if i is None:
+            fill = _open_legacy_fill(key)
+            if fill is None:
+                raise ValueError(f"因子列缺失 {key}")
+            out[:, j] = float(fill)
+            continue
+        out[:, j] = src[:, i]
+    return np.ascontiguousarray(out, dtype=np.float64)
+
+
+def _legacy_seq_names(want_n: int) -> Optional[List[str]]:
+    """旧开盘序列列序。对得上列宽才返回。"""
+    from core.signal.factors.alpha_oo import apply_aoo_core_policy, open_aoo_full_names
+    from core.signal.factors.alpha_tc import open_atc_full_names, select_atc_core_names
+
+    tc_full = open_atc_full_names()
+    tc_core = select_atc_core_names(tc_full)
+    oo_full = open_aoo_full_names(drop_open_const=False)
+    oo_core = apply_aoo_core_policy(oo_full)
+    if want_n == len(tc_full):
+        return tc_full
+    if want_n == len(tc_core):
+        return tc_core
+    if want_n == len(oo_full):
+        return oo_full
+    if want_n == len(oo_core):
+        return oo_core
+    return None
+
+
+def align_seq_open_width(seq: Any, d_seq_in: int) -> Any:
+    """旧开盘序列仍含已裁常数列时，按原列序补回。
+
+    τc 分钟列补中性值，oo 的 ``alpha_th`` / 尾盘 / 资金流补 50。
+    列序对不上时原样返回，交给后面的列宽校验。
+    """
+    try:
+        X = np.asarray(seq.X)
+        width = int(X.shape[-1])
+    except Exception:  # noqa: BLE001
+        return seq
+    want_n = int(d_seq_in or 0)
+    if want_n <= 0 or width == want_n or X.ndim != 3:
+        return seq
+    from core.research.yhat_transformer.seq_dataset import SeqPanel
+
+    want = _legacy_seq_names(want_n)
+    if not want:
+        return seq
+    have = [str(n) for n in (getattr(seq, "feature_names", ()) or ())]
+    if len(have) != width:
+        return seq
+    index = {n: i for i, n in enumerate(have)}
+    want_set = set(want)
+    if any(n not in want_set for n in have):
+        return seq
+    missing = [n for n in want if n not in index]
+    if not missing or any(_open_legacy_fill(n) is None for n in missing):
+        return seq
+    out = np.empty((X.shape[0], X.shape[1], len(want)), dtype=np.float32)
+    for j, name in enumerate(want):
+        i = index.get(name)
+        if i is None:
+            out[:, :, j] = np.float32(_open_legacy_fill(name))
+        else:
+            out[:, :, j] = X[:, :, i]
+    return SeqPanel(
+        X=out,
+        gap=np.asarray(seq.gap),
+        y=np.asarray(seq.y),
+        dates=list(seq.dates),
+        codes=list(seq.codes),
+        seq_len=int(getattr(seq, "seq_len", 0) or X.shape[1]),
+        feature_names=tuple(want),
+    )
 
 
 def _bar_day(row: Mapping[str, Any]) -> str:
@@ -1212,6 +1429,47 @@ def _zscore(
     if fill_missing:
         out = np.where(np.isfinite(out), out, 0.0)
     return out.astype(np.float32, copy=False)
+
+
+def _head_family(head: str) -> str:
+    return "tc" if str(head).startswith("tc") else "oo"
+
+
+def _factor_seq_panel(
+    stock_bars: Mapping[str, Sequence[dict]],
+    head: str,
+    feat_set: str,
+    seq_len: int,
+    full: Any,
+) -> Any:
+    """core / full 序列：决策日前 L 日的因子列，宽与这一头的因子档相同。"""
+    from core.research.yhat_transformer.factor_panel import (
+        sequence_from_factor_panel,
+        slice_arm_t_panel,
+    )
+    from core.research.yhat_transformer.seq_dataset import resolve_seq_feat_set
+
+    family = _head_family(head)
+    src = full
+    if resolve_seq_feat_set(feat_set) == "seq_core":
+        src = slice_arm_t_panel(
+            full,
+            family,
+            aoo_core_only=family == "oo",
+            atc_core_only=family == "tc",
+        )
+    return sequence_from_factor_panel(src, stock_bars, seq_len=int(seq_len))
+
+
+def _full_factor_panel(stock_bars: Mapping[str, Sequence[dict]], head: str):
+    from core.research.yhat_transformer.factor_panel import build_factor_panel
+
+    return build_factor_panel(
+        stock_bars,
+        head=_head_family(head),
+        horizon_days=1,
+        progress_every=0,
+    )
 
 
 def _factor_panel(stock_bars: Mapping[str, Sequence[dict]], head: str, pack: str):
@@ -1343,6 +1601,8 @@ def _scores_for_head(
         return {}
     names = [str(n) for n in panel.feature_names]
     X_all = take_factor_columns(np.asarray(panel.X), names, want)
+    if seq is not None:
+        seq = align_seq_open_width(seq, int(meta.get("d_seq_in") or 0))
     backend = str(bundle.get("backend") or meta.get("backend") or "")
     # ŷ_oo：缺测不加项。ŷ_τc：任一入模列缺测则整行不算。排序头仍把缺测填 0。
     missing = str(meta.get("missing") or "")
@@ -1460,7 +1720,7 @@ def score_open_window(
         seq_len = int(suite.get("seq_len") or 20)
     except (TypeError, ValueError):
         seq_len = 20
-    feat_set = str(suite.get("seq_feat_set") or "seq16")
+    feat_set = _resolved_seq_feat(suite.get("seq_feat_set"))
     codes = _watching_pool_codes()
     if not codes:
         raise ValueError("观察池为空，无法预估")
@@ -1473,8 +1733,12 @@ def score_open_window(
     head_backends = {
         head: _spec_backend(specs.get(head) or {}, backend) for head in HEADS
     }
+    from core.research.yhat_transformer.seq_dataset import is_factor_seq
+
+    factor_seq = is_factor_seq(feat_set)
     seq = None
-    if any(b == "transformer" for b in head_backends.values()):
+    full_by_family: Dict[str, Any] = {}
+    if any(b == "transformer" for b in head_backends.values()) and not factor_seq:
         from core.research.yhat_transformer.seq_dataset import build_seq_panel
 
         seq = build_seq_panel(
@@ -1486,7 +1750,7 @@ def score_open_window(
         )
         if int(getattr(seq, "n", 0) or 0) <= 0:
             raise ValueError("序列面板为空")
-    panels: Dict[Tuple[str, bool], Any] = {}
+    panels: Dict[Tuple[str, bool, str], Any] = {}
     scores: Dict[str, Dict[Tuple[str, str], float]] = {}
     for head in HEADS:
         spec = specs.get(head) or {}
@@ -1494,17 +1758,47 @@ def score_open_window(
         pack = str(meta.get("factor_pack") or "")
         head_backend = head_backends[head]
         aligned = head_backend == "transformer"
-        key = (pack or head, aligned)
+        key = (pack or head, aligned, feat_set if factor_seq else "")
         if key not in panels:
-            panel = _factor_panel(stock_bars, head, pack)
-            if aligned:
-                from core.research.yhat_transformer.factor_panel import align_seq_and_factor
+            if aligned and factor_seq:
+                family = _head_family(head)
+                if family not in full_by_family:
+                    full_by_family[family] = _full_factor_panel(stock_bars, head)
+                full = full_by_family[family]
+                panel = full
+                if str(pack).endswith("_core"):
+                    from core.research.yhat_transformer.factor_panel import (
+                        slice_arm_t_panel,
+                    )
 
-                seq_a, fac_a = align_seq_and_factor(seq, panel)
+                    panel = slice_arm_t_panel(
+                        full,
+                        family,
+                        aoo_core_only=family == "oo",
+                        atc_core_only=family == "tc",
+                    )
+                seq_h = _factor_seq_panel(stock_bars, head, feat_set, seq_len, full)
+                if int(getattr(seq_h, "n", 0) or 0) <= 0:
+                    raise ValueError("序列面板为空")
+                from core.research.yhat_transformer.factor_panel import (
+                    align_seq_and_factor,
+                )
+
+                seq_a, fac_a = align_seq_and_factor(seq_h, panel)
                 seq_a, fac_a = _drop_aligned_rows_without_cube(seq_a, fac_a)
                 panels[key] = (fac_a, seq_a)
             else:
-                panels[key] = (panel, None)
+                panel = _factor_panel(stock_bars, head, pack)
+                if aligned:
+                    from core.research.yhat_transformer.factor_panel import (
+                        align_seq_and_factor,
+                    )
+
+                    seq_a, fac_a = align_seq_and_factor(seq, panel)
+                    seq_a, fac_a = _drop_aligned_rows_without_cube(seq_a, fac_a)
+                    panels[key] = (fac_a, seq_a)
+                else:
+                    panels[key] = (panel, None)
         fac_a, seq_a = panels[key]
         bundle = {
             "head": head,
@@ -1668,14 +1962,18 @@ def score_enabled_replay_heads(
     except ValueError:
         lookback = 120
     seq_len = max(_fit_int(s.get("fit_params"), "seq_len", 20) for s in specs)
-    feat_set = "seq16"
+    feat_set = "seq_core"
     for spec in specs:
         raw = str((spec.get("fit_params") or {}).get("seq_feat_set") or "").strip()
         if raw:
-            feat_set = raw
+            feat_set = _resolved_seq_feat(raw)
             break
+    from core.research.yhat_transformer.seq_dataset import is_factor_seq
+
+    factor_seq = is_factor_seq(feat_set)
     seq = None
-    if any(str(s.get("backend") or "") == "transformer" for s in specs):
+    full_by_family: Dict[str, Any] = {}
+    if any(str(s.get("backend") or "") == "transformer" for s in specs) and not factor_seq:
         from core.research.yhat_transformer.seq_dataset import build_seq_panel
 
         seq = build_seq_panel(
@@ -1692,19 +1990,52 @@ def score_enabled_replay_heads(
         try:
             meta = spec.get("meta") if isinstance(spec.get("meta"), dict) else {}
             pack = str(meta.get("factor_pack") or "")
-            key = pack or head
+            transformer = str(spec.get("backend") or "") == "transformer"
+            key = (
+                f"{pack or head}|{feat_set}|{_head_family(head)}"
+                if transformer and factor_seq
+                else (pack or head)
+            )
             if key not in panels:
-                panel = _factor_panel(stock_bars, head, pack)
-                if seq is not None and str(spec.get("backend") or "") == "transformer":
+                if transformer and factor_seq:
+                    family = _head_family(head)
+                    if family not in full_by_family:
+                        full_by_family[family] = _full_factor_panel(stock_bars, head)
+                    full = full_by_family[family]
+                    panel = full
+                    if str(pack).endswith("_core"):
+                        from core.research.yhat_transformer.factor_panel import (
+                            slice_arm_t_panel,
+                        )
+
+                        panel = slice_arm_t_panel(
+                            full,
+                            family,
+                            aoo_core_only=family == "oo",
+                            atc_core_only=family == "tc",
+                        )
+                    seq_h = _factor_seq_panel(
+                        stock_bars, head, feat_set, seq_len, full
+                    )
                     from core.research.yhat_transformer.factor_panel import (
                         align_seq_and_factor,
                     )
 
-                    seq_a, fac_a = align_seq_and_factor(seq, panel)
+                    seq_a, fac_a = align_seq_and_factor(seq_h, panel)
                     seq_a, fac_a = _drop_aligned_rows_without_cube(seq_a, fac_a)
                     panels[key] = (fac_a, seq_a)
                 else:
-                    panels[key] = (panel, None)
+                    panel = _factor_panel(stock_bars, head, pack)
+                    if seq is not None and transformer:
+                        from core.research.yhat_transformer.factor_panel import (
+                            align_seq_and_factor,
+                        )
+
+                        seq_a, fac_a = align_seq_and_factor(seq, panel)
+                        seq_a, fac_a = _drop_aligned_rows_without_cube(seq_a, fac_a)
+                        panels[key] = (fac_a, seq_a)
+                    else:
+                        panels[key] = (panel, None)
             fac_a, seq_a = panels[key]
             dates = [str(d)[:10] for d in fac_a.dates]
             if not dates:

@@ -699,7 +699,7 @@ def default_fit_params(head: str) -> Dict[str, Any]:
         "device": "cpu",
         "factor_pack": spec.factor_pack,
         "loss": loss_for_factory(spec),
-        "seq_feat_set": "seq16",
+        "seq_feat_set": "seq_core",
         "seq_len": 20,
         "full_aoo": False,
     }
@@ -898,23 +898,12 @@ def harden_fit_params(head: str, params: Dict[str, Any]) -> tuple[Dict[str, Any]
     else:
         out.pop("tau_end", None)
 
-    raw_sfs = str(out.get("seq_feat_set") or "seq16").strip().lower()
-    sfs_alias = {
-        "8": "seq8",
-        "base": "seq8",
-        "seq8": "seq8",
-        "16": "seq16",
-        "seq16": "seq16",
-        "32": "seq32",
-        "seq32": "seq32",
-        "64": "seq64",
-        "seq64": "seq64",
-    }
-    if raw_sfs not in sfs_alias:
-        warns.append(f"seq_feat_set: {out.get('seq_feat_set')}→seq16")
-        sfs = "seq16"
-    else:
-        sfs = sfs_alias[raw_sfs]
+    from core.research.yhat_transformer.seq_dataset import resolve_seq_feat_set
+
+    raw_sfs = str(out.get("seq_feat_set") or "").strip()
+    sfs = resolve_seq_feat_set(raw_sfs or None)
+    if raw_sfs and raw_sfs != sfs:
+        warns.append(f"seq_feat_set: {raw_sfs}→{sfs}")
     out["seq_feat_set"] = sfs
     _clamp("seq_len", int(out.get("seq_len") or 20), 5, 60, label="seq_len")
 
@@ -1169,7 +1158,7 @@ def build_holdout_argv(
                 "--device",
                 str(p.get("device") or "cpu").strip(),
                 "--seq-feat-set",
-                str(p.get("seq_feat_set") or "seq16").strip() or "seq16",
+                str(p.get("seq_feat_set") or "seq_core").strip() or "seq_core",
                 "--seq-len",
                 str(int(p.get("seq_len") or 20)),
             ]

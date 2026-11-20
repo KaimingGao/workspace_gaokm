@@ -110,6 +110,31 @@ class TestHeadSpec(unittest.TestCase):
         with self.assertRaises(ValueError):
             slice_arm_t_panel(short, "tc", atc_core_only=True)
 
+    def test_open_tau_drops_minute_columns(self):
+        from core.signal.factors.alpha_tc import (
+            filter_open_tau_names,
+            open_atc_full_names,
+            open_tau_excluded_names,
+            select_atc_core_names,
+        )
+        from core.signal.factors.z_tc import Z_TC_FIT_FEATURES, Z_TC_MINUTE_KEYS
+
+        full = open_atc_full_names()
+        opened = filter_open_tau_names(full)
+        self.assertEqual(len(full), 247)
+        self.assertEqual(len(opened), 218)
+        self.assertEqual(len(select_atc_core_names(full)), 76)
+        self.assertEqual(len(select_atc_core_names(opened)), 61)
+        self.assertEqual(len(open_tau_excluded_names()), 29)
+        for key in Z_TC_MINUTE_KEYS:
+            self.assertIn(key, Z_TC_FIT_FEATURES)
+            self.assertNotIn(key, opened)
+        self.assertIn("z_τc_gap_pct", opened)
+        self.assertIn("z_τc_tau_lag1", opened)
+        self.assertIn("z_τc_tau_ma5", opened)
+        self.assertNotIn("raw_atc_LOC_HL", opened)
+        self.assertIn("raw_atc_GAP", opened)
+
     def test_tc_open_seq_label(self):
         from core.research.yhat_transformer.seq_dataset import build_seq_panel
 
@@ -492,6 +517,43 @@ class TestYhatSeqPanel(unittest.TestCase):
         # 各档样本量应一致（滚动不足时降级，不因 F 变大丢样本）
         self.assertEqual(x16.shape[0], x32.shape[0])
         self.assertEqual(x32.shape[0], x64.shape[0])
+        from core.research.yhat_transformer.seq_dataset import resolve_seq_feat_set
+
+        self.assertEqual(resolve_seq_feat_set("seq16"), "seq16")
+        self.assertEqual(resolve_seq_feat_set("seq64"), "seq64")
+        self.assertEqual(resolve_seq_feat_set("core"), "seq_core")
+        self.assertEqual(resolve_seq_feat_set("full"), "seq_full")
+        self.assertEqual(resolve_seq_feat_set("seq8"), "seq8")
+        self.assertEqual(resolve_seq_feat_set("seq32"), "seq32")
+        with self.assertRaises(ValueError):
+            samples_from_bars("000001", bars, seq_len=8, feat_set="seq_core")
+
+    def test_factor_seq_window_matches_factor_width(self):
+        from core.research.yhat_transformer.factor_panel import (
+            FactorPanel,
+            sequence_from_factor_panel,
+        )
+
+        bars = _synth_bars(12, seed=1)
+        dates = [b["date"] for b in bars]
+        width = 3
+        raw = np.arange(len(dates) * width, dtype=np.float32).reshape(len(dates), width)
+        raw[2, 1] = np.nan
+        fac = FactorPanel(
+            X=raw,
+            y=np.arange(len(dates), dtype=np.float32),
+            dates=list(dates),
+            codes=["000001"] * len(dates),
+            feature_names=["c0", "c1", "c2"],
+        )
+        seq = sequence_from_factor_panel(fac, {"000001": bars}, seq_len=5)
+        self.assertEqual(seq.X.shape, (len(dates) - 5, 5, width))
+        self.assertEqual(seq.feature_names, ("c0", "c1", "c2"))
+        self.assertEqual(seq.dates[0], dates[5])
+        expected = raw[:5].copy()
+        expected[2, 1] = 0.0
+        np.testing.assert_allclose(seq.X[0], expected)
+        self.assertFalse(np.allclose(seq.X[0, -1], raw[5]))
 
     def test_window_equals_vector_at(self):
         """窗口行必须等于当日 _vector_at，不能因为只算一次而改值。"""
@@ -706,6 +768,8 @@ class TestYhatModelSmoke(unittest.TestCase):
         )
 
         self.assertEqual(_resolve_loss("lambdarank")[0], "lambdarank")
+        self.assertEqual(_resolve_loss("mse")[0], "smooth_l1")
+        self.assertEqual(_resolve_loss("huber")[0], "smooth_l1")
         y = torch.tensor([0.0, 1.0, 3.0, 8.0])
         aligned = torch.tensor([0.0, 1.0, 2.0, 3.0], requires_grad=True)
         flipped = torch.tensor([3.0, 2.0, 1.0, 0.0], requires_grad=True)
@@ -758,35 +822,61 @@ class TestYhatModelSmoke(unittest.TestCase):
         if float(y[worst]) > float(y.median()):
             self.assertLess(float(pred.grad[worst]), 0.0)
 
-    def test_rank_hybrid_value_loss_pins_zero_point(self):
-        """保值项把整段下沉的 logit 往日 z 拉；序损失仍对平移不敏感。"""
+    def test_regression_loss_penalizes_false_opens(self):
+        """预测为正、实现为负的样本比全样本 SmoothL1 多计一次。"""
         import torch
 
         from core.research.yhat_transformer.train import (
-            _RANK_VALUE_LOSS_WEIGHT,
-            _rank_batch_loss,
-            _section_z_by_day,
+            _regression_batch_loss,
+            _resolve_loss,
         )
+
+        _, loss_fn = _resolve_loss("smooth_l1")
+        y = torch.tensor([-0.8, 0.5, 0.4, -0.3])
+        pred = torch.tensor([0.4, 0.3, -0.2, -0.5], requires_grad=True)
+        plain = loss_fn(pred, y)
+        mixed = _regression_batch_loss(pred, y, loss_fn)
+        self.assertGreater(float(mixed.detach()), float(plain.detach()))
+        mixed.backward()
+
+        pred_plain = pred.detach().clone().requires_grad_(True)
+        loss_fn(pred_plain, y).backward()
+        # 预测高于实现，梯度为正。下降步减去它，误开闸的分数被多压一次。
+        self.assertGreater(float(pred.grad[0]), float(pred_plain.grad[0]))
+        self.assertGreater(float(pred.grad[0]), 0.0)
+        self.assertTrue(
+            torch.allclose(pred.grad[1:], pred_plain.grad[1:], atol=1e-6)
+        )
+
+        y_ok = torch.tensor([0.2, 0.5, -0.4, -0.3])
+        pred_ok = torch.tensor([0.4, 0.3, -0.2, -0.5])
+        self.assertTrue(
+            torch.allclose(
+                _regression_batch_loss(pred_ok, y_ok, loss_fn),
+                loss_fn(pred_ok, y_ok),
+            )
+        )
+        y_edge = torch.tensor([0.0, -0.5])
+        pred_edge = torch.tensor([0.4, 0.0])
+        self.assertTrue(
+            torch.allclose(
+                _regression_batch_loss(pred_edge, y_edge, loss_fn),
+                loss_fn(pred_edge, y_edge),
+            )
+        )
+
+    def test_rank_loss_is_order_only(self):
+        """排序损失只看序。整段平移不改变损失。"""
+        import torch
+
+        from core.research.yhat_transformer.train import _rank_batch_loss
 
         dates = ["2024-01-02"] * 4
         y = torch.tensor([0.0, 1.0, 2.0, 3.0])
-        target = _section_z_by_day(y, dates)
-        self.assertAlmostEqual(float(target.mean()), 0.0, places=5)
-        self.assertGreater(float(target[-1]), float(target[0]))
-
-        aligned = torch.tensor([0.0, 1.0, 2.0, 3.0], requires_grad=True)
-        sunk = torch.tensor([-5.0, -4.0, -3.0, -2.0], requires_grad=True)
-        loss_aligned = _rank_batch_loss(aligned, y, dates)
-        loss_sunk = _rank_batch_loss(sunk, y, dates)
-        self.assertGreater(float(loss_sunk.detach()), float(loss_aligned.detach()))
-        loss_sunk.backward()
-        # 整段偏负时，保值项应对所有名字给出负梯度方向的反力（抬高分数）。
-        self.assertTrue(torch.all(sunk.grad < 0))
-
-        order_only = _rank_batch_loss(sunk.detach(), y, dates, value_weight=0.0)
-        shifted = _rank_batch_loss(sunk.detach() + 7.0, y, dates, value_weight=0.0)
+        sunk = torch.tensor([-5.0, -4.0, -3.0, -2.0])
+        order_only = _rank_batch_loss(sunk, y, dates)
+        shifted = _rank_batch_loss(sunk + 7.0, y, dates)
         self.assertTrue(torch.allclose(order_only, shifted, atol=1e-5))
-        self.assertGreater(float(_RANK_VALUE_LOSS_WEIGHT), 0.0)
 
     def test_mean_daily_ndcg_perfect_order(self):
         from core.research.yhat_transformer.metrics import mean_daily_ndcg

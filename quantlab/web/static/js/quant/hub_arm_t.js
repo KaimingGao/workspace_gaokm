@@ -269,29 +269,32 @@ function packOf(st, tag) {
   return null;
 }
 
+function paintGate(ui, text) {
+  const gate = document.querySelector(`[data-head-summary-gate="${ui}"]`);
+  if (!gate) return;
+  gate.dataset.armGate = text;
+  gate.textContent = text;
+}
+
 function paintMetrics(ui, pack) {
   const section = sectionOf(ui);
   const box = section?.querySelector(".quant-recipe-console .yhat-tf-arm-metrics");
-  if (!box) return;
-  const cells = box.querySelectorAll("strong");
-  const values = [
-    fmt3(pack?.cs_rank_ic),
-    fmt3(pack?.cs_icir),
-    fmtHit(pack?.sign_hit),
-    fmt3(pack?.cs_top_mean_y),
-  ];
-  cells.forEach((el, i) => {
-    const text = values[i] || "—";
-    el.textContent = text;
-    el.classList.toggle("is-empty", text === "—");
-  });
-  const gate = document.querySelector(`[data-head-summary-gate="${ui}"]`);
-  if (gate) {
-    const ic = fmt3(pack?.cs_rank_ic);
-    const text = ic === "—" ? "Rank IC —" : `Rank IC ${ic}`;
-    gate.dataset.armGate = text;
-    gate.textContent = text;
+  if (box) {
+    const cells = box.querySelectorAll("strong");
+    const values = [
+      fmt3(pack?.cs_rank_ic),
+      fmt3(pack?.cs_icir),
+      fmtHit(pack?.sign_hit),
+      fmt3(pack?.cs_top_mean_y),
+    ];
+    cells.forEach((el, i) => {
+      const text = values[i] || "—";
+      el.textContent = text;
+      el.classList.toggle("is-empty", text === "—");
+    });
   }
+  const ic = fmt3(pack?.cs_rank_ic);
+  paintGate(ui, ic === "—" ? "Rank IC —" : `Rank IC ${ic}`);
 }
 
 function paintCardMessage(spec, text) {
@@ -329,7 +332,7 @@ function recipeParams(spec, role) {
     params.lr = 0.001;
     params.t_sample_pct = sectionNum(section, "t_sample_pct", 10);
     params.device = "cpu";
-    params.seq_feat_set = sectionRadio(section, "seq_feat_set", "seq16");
+    params.seq_feat_set = sectionRadio(section, "seq_feat_set", "seq_core");
     params.seq_len = sectionNum(section, "seq_len", 20);
     params.loss = spec.loss;
     if (spec.fullAoo) {
@@ -550,6 +553,13 @@ function metricsPack(metrics, tag) {
   return null;
 }
 
+function seqFeatValue(raw) {
+  const s = String(raw || "").trim().toLowerCase();
+  if (s === "full" || s === "seq_full") return "seq_full";
+  if (s === "core" || s === "seq_core") return "seq_core";
+  return "";
+}
+
 function flagValue(value) {
   if (value === true || value === 1 || value === "1") return "1";
   if (value === false || value === 0 || value === "0") return "0";
@@ -572,7 +582,7 @@ function applyRecipeParams(spec, params) {
     );
     if (el) el.checked = true;
   };
-  pick("seq_feat_set", params.seq_feat_set);
+  pick("seq_feat_set", seqFeatValue(params.seq_feat_set));
   if (params.full_aoo != null) pick("full_aoo", flagValue(params.full_aoo));
   if (params.full_atc != null) pick("full_atc", flagValue(params.full_atc));
   const pool = String(params.feature_set || "");
@@ -601,7 +611,24 @@ function replayChips(params) {
       ["λ", tag === "R" ? params.ridge_alpha : ""],
     ].filter(([, value]) => value != null && value !== "");
   }
-  const dim = String(params.seq_feat_set || "").replace(/^seq/, "");
+  const seqKey = String(params.seq_feat_set || "").trim().toLowerCase();
+  const seqTable = String(params.factor_pack || "").includes("atc")
+    ? { core: "core · 61", full: "full · 218" }
+    : { core: "core · 65", full: "full · 222" };
+  const dim =
+    seqKey === "seq_full" || seqKey === "full"
+      ? seqTable.full
+      : seqKey === "seq8" || seqKey === "8"
+        ? "8维"
+        : seqKey === "seq16" || seqKey === "16"
+          ? "16维"
+          : seqKey === "seq32" || seqKey === "32"
+            ? "32维"
+            : seqKey === "seq64" || seqKey === "64"
+              ? "64维"
+              : seqKey
+                ? seqTable.core
+                : "";
   const pack = String(params.factor_pack || "");
   const fac = pack
     ? pack.includes("full")
@@ -621,7 +648,7 @@ function replayChips(params) {
     ["池子", params.pool_n],
     ["训练窗", params.lookback],
     ["Holdout", params.holdout_trading_days],
-    ["序列", dim ? `${dim}维` : ""],
+    ["序列", dim],
     ["T因子", fac],
     ["batch", params.batch_size],
     ["epochs", params.epochs],
@@ -882,8 +909,13 @@ function wireVersionDismiss() {
 function applyHead(spec, st) {
   const pack = packOf(st, arm(spec));
   const busy = !!st?.fit_running || pending.has(spec.api);
+  // 拟合中只锁版本和拟合按钮。概览臂下拉仍可换，换臂不中断已经拉起的这一次。
   const armPick = document.querySelector(`[data-hub-arm-select="${spec.ui}"]`);
-  if (armPick) armPick.disabled = busy;
+  if (armPick) {
+    armPick.disabled = false;
+    if (busy) armPick.title = "正在拟合，换臂不中断这一次";
+    else armPick.removeAttribute("title");
+  }
   for (const id of [spec.fitId, spec.liveId]) {
     const btn = document.getElementById(id);
     if (btn) btn.disabled = busy;
@@ -895,6 +927,7 @@ function applyHead(spec, st) {
   if (st?.fit_running || pending.has(spec.api)) {
     viewing.delete(spec.api);
     paintLive(spec, st?.fit_running ? st : null);
+    paintGate(spec.ui, "拟合中");
     return;
   }
   liveSince.delete(spec.api);

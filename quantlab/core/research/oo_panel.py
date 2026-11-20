@@ -46,7 +46,9 @@ def _research_sub_scores(
                 fundamentals=fundamentals,
                 money_flow=None,
             )
-            row[key] = float(score)
+            # 缺数据的占位 50 不进面板。否则财务、尾盘、包分会整列变成常数。
+            omit = isinstance(fac_meta, dict) and bool(fac_meta.get("omit_sub_score"))
+            row[key] = None if omit else float(score)
             # 暴露原始信号值，前缀 raw_<factor>_ 避免键冲突
             # alpha_oo 开锚列用 raw_aoo_*（与 ALPHA_OO_RAW_PREFIX 一致）
             if isinstance(fac_meta, dict):

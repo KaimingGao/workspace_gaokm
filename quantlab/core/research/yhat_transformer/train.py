@@ -143,11 +143,8 @@ def _iter_group_batches(
         yield bucket
 
 
-# 当前分数前 30 名，与 Arm·L truncation 相同。
+# 当前分数前 30 名，与 Arm·L truncation 相同。沪深300 上即 Top10%。
 _LAMBDARANK_TRUNCATION = 30
-# 排序头保值：把 ŷ 拉向当日标签截面 z，避免 LambdaRank 零点乱漂。
-_RANK_VALUE_LOSS_WEIGHT = 0.3
-_RANK_VALUE_Z_CLIP = 3.0
 
 
 def _uniq_days(dates_batch: Sequence[str]) -> List[str]:
@@ -184,49 +181,6 @@ def _demean_by_day(pred, dates_batch: Sequence[str]):
         chunk = pred.index_select(0, idx)
         out.index_copy_(0, idx, chunk - chunk.mean())
     return out
-
-
-def _section_z_by_day(values, dates_batch: Sequence[str], *, clip: float = _RANK_VALUE_Z_CLIP):
-    """当日截面 z（目标侧）。标准差过小或非有限 → 0。"""
-    torch = _require_torch()
-    out = torch.zeros_like(values)
-    if values.numel() <= 0:
-        return out
-    uniq = _uniq_days(dates_batch) or ["_"]
-    for day in uniq:
-        if day == "_":
-            idx = torch.arange(int(values.shape[0]), device=values.device, dtype=torch.long)
-        else:
-            idx = _day_row_index(dates_batch, day).to(device=values.device)
-        if int(idx.numel()) < 2:
-            continue
-        v = values.index_select(0, idx)
-        finite = torch.isfinite(v)
-        if int(finite.sum().item()) < 2:
-            continue
-        vv = v[finite]
-        mu = vv.mean()
-        sd = vv.std(unbiased=False)
-        if float(sd.detach()) <= 1e-12:
-            z = torch.zeros_like(vv)
-        else:
-            z = (vv - mu) / sd
-            cap = float(clip)
-            if cap > 0:
-                z = z.clamp(-cap, cap)
-        slot = torch.zeros_like(v)
-        slot = slot.masked_scatter(finite, z)
-        out.index_copy_(0, idx, slot)
-    return out
-
-
-def _rank_value_loss(pred, yb, dates_batch: Sequence[str]):
-    """保值：ŷ ↔ 当日标签截面 z（SmoothL1）。"""
-    torch = _require_torch()
-    if pred.numel() <= 0:
-        return pred.sum() * 0.0
-    target = _section_z_by_day(yb.detach(), dates_batch)
-    return torch.nn.functional.smooth_l1_loss(pred, target, beta=1.0)
 
 
 def _lambdarank_group_loss(pred, yb, *, truncation: int = _LAMBDARANK_TRUNCATION):
@@ -287,30 +241,25 @@ def _lambdarank_group_loss(pred, yb, *, truncation: int = _LAMBDARANK_TRUNCATION
     return pair.sum()
 
 
-def _rank_batch_loss(
-    pred,
-    yb,
-    dates_batch: Sequence[str],
-    *,
-    value_weight: Optional[float] = None,
-):
-    """排序头混合损失：日内减均值后的 LambdaRank（序）+ 标签日 z 回归（值）。
+def _regression_batch_loss(pred, yb, loss_fn):
+    """回归头损失：全样本点损失，再加一次预测为正、实现为负的样本。
 
-    ``value_weight`` 缺省 ``_RANK_VALUE_LOSS_WEIGHT``；≤0 时只留序损失。
+    预测和标签都是百分点。第二项的门槛是 0，只压这一头自己开错的闸。
     """
+    if pred.numel() <= 0:
+        return pred.sum() * 0.0
+    base = loss_fn(pred, yb)
+    mask = (pred.detach() > 0) & (yb < 0)
+    if int(mask.sum().detach().item()) <= 0:
+        return base
+    return base + loss_fn(pred[mask], yb[mask])
+
+
+def _rank_batch_loss(pred, yb, dates_batch: Sequence[str]):
+    """排序头损失：日内减均值后的 LambdaRank。只比较名次，不拟合分数数值。"""
     torch = _require_torch()
     if pred.numel() <= 1:
         return pred.sum() * 0.0
-    try:
-        w_val = (
-            float(_RANK_VALUE_LOSS_WEIGHT)
-            if value_weight is None
-            else float(value_weight)
-        )
-    except (TypeError, ValueError):
-        w_val = float(_RANK_VALUE_LOSS_WEIGHT)
-    if w_val != w_val or w_val in (float("inf"), float("-inf")):
-        w_val = float(_RANK_VALUE_LOSS_WEIGHT)
     pred_c = _demean_by_day(pred, dates_batch)
     uniq = _uniq_days(dates_batch)
     if len(uniq) <= 1:
@@ -327,24 +276,20 @@ def _rank_batch_loss(
                 )
             )
         if not losses:
-            rank_loss = pred.sum() * 0.0
-        else:
-            rank_loss = torch.stack(losses).mean()
-    if w_val <= 0:
-        return rank_loss
-    return rank_loss + w_val * _rank_value_loss(pred, yb, dates_batch)
+            return pred.sum() * 0.0
+        return torch.stack(losses).mean()
+    return rank_loss
 
 
 def _resolve_loss(loss: Optional[str]):
-    """返回 (name, pointwise_fn_or_None)；排序头走 LambdaRank+日 z 混合路径。"""
+    """返回 (name, pointwise_fn_or_None)。
+
+    排序头走 LambdaRank。其余名字，包括旧的 mse / huber，都是 SmoothL1（β=1）。
+    """
     name = str(loss or "smooth_l1").strip().lower()
     if name == "lambdarank":
         return "lambdarank", None
     torch = _require_torch()
-    if name in ("smooth_l1", "huber", "regression"):
-        return "smooth_l1", torch.nn.SmoothL1Loss(beta=1.0)
-    if name in ("mse", "l2"):
-        return "mse", torch.nn.MSELoss()
     return "smooth_l1", torch.nn.SmoothL1Loss(beta=1.0)
 
 
@@ -463,7 +408,8 @@ def train_seq_factor_transformer(
     此处不再做训练段列标准化。
     不切验证集，跑满 ``epochs``，保存最后一个 epoch 的权重。
     ``holdout_idx`` 每个 epoch 结束后 ``no_grad`` 打指标，不反传，不选权重。
-    ``loss=lambdarank`` 时为混合损失：日内减均值 LambdaRank + 日 z 保值。
+    ``loss=lambdarank`` 时只做日内减均值后的 LambdaRank。
+    回归头是全样本点损失，再加一次预测为正且实现为负的点损失。
     """
     torch = _require_torch()
     from core.research.yhat_transformer.model import (
@@ -627,10 +573,10 @@ def train_seq_factor_transformer(
         f"threads={n_threads} batch={bs} steps/ep={steps_per_ep} log_every={log_every} "
         f"epochs={epochs} save=last "
         f"n_tr={tr_arr.size} train_days={n_tr_days}"
+        + ("" if grouped else " false_open=1")
         + (
             f" n_groups={len(tr_groups)} "
             f"group_med={sorted(len(g) for g in tr_groups)[len(tr_groups) // 2]}"
-            f" value_w={float(_RANK_VALUE_LOSS_WEIGHT):g}"
             if grouped and tr_groups
             else ""
         ),
@@ -693,7 +639,7 @@ def train_seq_factor_transformer(
                         pred, yb, [day_s[int(r)] for r in rows]
                     )
                 else:
-                    loss = loss_fn(pred, yb)  # type: ignore[misc]
+                    loss = _regression_batch_loss(pred, yb, loss_fn)
                 loss_v = float(loss.detach().item())
                 nbs = int(yb.shape[0])
                 total += loss_v * nbs
@@ -856,9 +802,7 @@ def train_seq_factor_transformer(
         "lr_sched": "cosine",
         "warmup_steps": int(warmup_steps),
         "loss": loss_name,
-        "rank_value_weight": (
-            float(_RANK_VALUE_LOSS_WEIGHT) if grouped else None
-        ),
+        "regression_false_open": (not grouped),
         "lambdarank_truncation": int(_LAMBDARANK_TRUNCATION) if grouped else None,
         "global_step": int(global_step),
         "holdout_by_epoch": holdout_by_epoch,

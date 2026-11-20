@@ -22,10 +22,10 @@ _POOL_BATCH = 24
 
 from core.research.factor_ols_fit import _qr_solve_np, clamp_ridge_lambda
 from core.signal.factors.alpha_oo import (
-    Z_OO_DROP_WHEN_AOO_CORE,
     alpha_oo_core_raw_names,
-    is_alpha_oo_raw_key,
     is_alpha_oo_core_raw_key,
+    is_alpha_oo_raw_key,
+    open_aoo_z_names,
 )
 
 
@@ -48,20 +48,23 @@ def alpha_oo_raw_names(*, aoo_core_only: bool = False) -> List[str]:
 
 
 def _registered_ridge_names(*, drop_aoo_overlap: bool = False) -> List[str]:
-    """入模列：注册日线 → ``z_oo_*``；不含 alpha_oo/alpha_tc 包。"""
-    from core.signal.factors.z_oo import Z_OO_SKIP_PACKS, to_z_oo_key, z_oo_legacy_keys
+    """入模列：注册日线 → ``z_oo_*``；不含 alpha_oo/alpha_tc 包。
 
-    out: List[str] = []
-    seen = set()
-    for name in z_oo_legacy_keys():
-        if drop_aoo_overlap and name in Z_OO_DROP_WHEN_AOO_CORE:
-            continue
-        k = to_z_oo_key(name)
-        if not k or k in Z_OO_SKIP_PACKS or k in seen:
-            continue
-        seen.add(k)
-        out.append(k)
-    return out
+    开盘面板再丢掉 ``alpha_th`` / ``tail_anomaly`` / ``money_flow``。
+    """
+    if not drop_aoo_overlap:
+        from core.signal.factors.z_oo import Z_OO_SKIP_PACKS, to_z_oo_key, z_oo_legacy_keys
+
+        out: List[str] = []
+        seen = set()
+        for name in z_oo_legacy_keys():
+            k = to_z_oo_key(name)
+            if not k or k in Z_OO_SKIP_PACKS or k in seen:
+                continue
+            seen.add(k)
+            out.append(k)
+        return out
+    return open_aoo_z_names(drop_open_const=True)
 
 
 class OoPanelMatrix:
@@ -201,7 +204,7 @@ def _fill_stock(
         list(bars),
         horizon_days=horizon_days,
         stock_code=code,
-        pit_fundamentals=False,
+        pit_fundamentals=True,
         keep_dates=keep_dates,
     )
     panel.add_stock_rows(xs, ys, dates)
@@ -236,6 +239,7 @@ def _oo_stock_job(
             bars_fp=bars_fingerprint(bars_l),
             horizon=horizon_i,
             aoo_core_only=int(core),
+            aoo_open="drop_const",
         )
         try:
             from core.research.lake_bridge import FAMILY_OO, load_training_matrix
@@ -277,6 +281,7 @@ def _oo_stock_job(
                 bars_fp=bars_fp,
                 horizon=horizon_i,
                 aoo_core_only=int(core),
+                aoo_open="drop_const",
             )
 
         try:
@@ -813,6 +818,7 @@ def _assemble_oo_released(
             bars_fp=bars_fingerprint(bars_l),
             horizon=horizon_i,
             aoo_core_only=int(core),
+            aoo_open="drop_const",
         )
         hit = meta_covers_bars(FAMILY_OO, str(code), fp, bars_l)
         if hit is not None:

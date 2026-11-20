@@ -113,7 +113,7 @@
     <header class="dashboard-section-head quant-section-head">
       <h3 id="quant-section-bars-title" class="dashboard-section-title">日线</h3>
       <p class="dashboard-section-desc quant-section-desc" id="quant-section-bars-desc">
-        两块：日 K 仓（增量补齐 / 强更日 K）· 物化特征（L1/L2 · open）· 调度 bars_warmup · 本区不改名单 · 下游 ŷ_oo
+        两块：日 K 仓（增量补齐 / 强更日 K）· 物化特征（L1/L2 · open）· 调度 bars_warmup · 本区不改名单 · 下游 Arm·L/R/T 四头
       </p>
     </header>
     <div class="quant-bars-panels">
@@ -239,8 +239,8 @@
             <summary class="quant-pro-help-summary"><span class="quant-pro-help-icon" aria-hidden="true">?</span> 说明</summary>
             <div class="quant-help-body quant-pro-help-body">
               <p>
-                日 K 齐后写 <strong>open L1</strong>（oo / tc）与 <strong>open DayCube（L2）</strong>，供 ŷ_oo / 调仓消费。
-                不改日 K、不算 ŷ；τ 网格与按钟 Cube 见「分钟线」物化。消费开关打开时缺覆盖会提示先跑本按钮。
+                日 K 齐后写 <strong>open L1</strong> 与 <strong>open DayCube（L2）</strong>。oo <strong>222</strong> 列给 ŷ_oo / ŷ_oo_rank，开盘 τc <strong>218</strong> 列给 ŷ_τc / ŷ_τc_rank。Arm·L / Arm·R / Arm·T 的回归头和排序头读这套。
+                不改日 K、不算 ŷ；分钟网格见「分钟线」物化。消费开关打开时缺覆盖会提示先跑本按钮。
               </p>
             </div>
           </details>
@@ -261,7 +261,7 @@
     <header class="dashboard-section-head quant-section-head">
       <h3 id="quant-section-minute-title" class="dashboard-section-title">分钟线</h3>
       <p class="dashboard-section-desc quant-section-desc" id="quant-section-minute-desc">
-        两块：5m 仓（增量补齐 / 强更 5m）· 物化特征（L1/L2 · τ 网格）· 调度 minute_warmup · 下游 ŷ_τc / 调仓 / 做T
+        两块：5m 仓（增量补齐 / 强更 5m）· 物化特征（L1/L2 · τ 网格）· 调度 minute_warmup · 下游 ŷ_τ* / 做 T
       </p>
     </header>
     <div class="quant-bars-panels">
@@ -366,8 +366,8 @@
             <summary class="quant-pro-help-summary"><span class="quant-pro-help-icon" aria-hidden="true">?</span> 说明</summary>
             <div class="quant-help-body quant-pro-help-body">
               <p>
-                5m Ready 后写训练网格 <strong><code>tc_HHMM</code> L1</strong> 与<strong>按钟 DayCube（L2）</strong>，供 ŷ_τc / 做 T 消费。
-                不改 5m 仓、不算 ŷ；open 轨见「日线」物化。观察池不足时按钮会禁用。
+                5m Ready 后写训练网格 <strong><code>tc_HHMM</code> L1</strong>（<strong>322</strong> 列）与<strong>按钟 DayCube（L2）</strong>，供 ŷ_τ30…90 与做 T。
+                不改 5m 仓、不算 ŷ。开盘四头在「日线」物化。观察池不足时按钮会禁用。
               </p>
             </div>
           </details>
@@ -378,7 +378,7 @@
       </div>
       <div class="quant-pro-card-body quant-bars-body quant-bars-mat-body">
         <div id="quant-minute-materialize-progress" class="quant-bars-progress" hidden aria-live="polite" aria-label="分钟线物化进度"></div>
-        <p class="quant-bars-mat-note">写训练网格 <code>tc_HHMM</code> L1 与按钟 DayCube。不改 5m 仓、不算 ŷ。</p>
+        <p class="quant-bars-mat-note">写训练网格 <code>tc_HHMM</code> L1（322 列）与按钟 DayCube。给 ŷ_τ* / 做 T。</p>
       </div>
     </div>
     </div>

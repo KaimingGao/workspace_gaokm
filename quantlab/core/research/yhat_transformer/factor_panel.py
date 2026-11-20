@@ -45,8 +45,9 @@ class FactorPanel:
 # facv3：oo 走枢纽 assemble_oo_panels（含 coverage）。
 # tc_compact 是指纹抬到 62 后整段重算的短面板，丢掉了长湖前缀。
 # tc_compact_v2：短窗改回只读切片，能留下长湖里已经按 62 根预热写好的决策日。
+# tc_compact_v3：开盘面板丢掉分钟常数列（15 个 z_τc 分钟键 + 14 个 raw 前缀）。
 _FACTOR_CACHE_SCHEMA = "facv3"
-_TC_CACHE_KIND = "tc_compact_v2"
+_TC_CACHE_KIND = "tc_compact_v3"
 
 
 def _cache_key(
@@ -332,7 +333,7 @@ def build_oo_factor_panel(
     cdir = cache_dir or _default_cache_dir()
     cache_path = ""
     if use_cache:
-        key = _cache_key(items, horizon_days=horizon_days, kind="oo")
+        key = _cache_key(items, horizon_days=horizon_days, kind="oo_open_v2")
         cache_path = os.path.join(cdir, f"fac_{key}.npz")
         hit = _try_load_cache(cache_path)
         if hit is not None and hit.n > 0:
@@ -430,7 +431,8 @@ def build_tc_factor_panel(
 ) -> FactorPanel:
     """ŷ_τc（τ=开盘）因子面板：走枢纽 ``collect_tau_compact``。
 
-    截面广度在组装里写完。这里始终交回 atc_full；Arm·T 的 core 由调用方在开跑前裁。
+    截面广度在组装里写完。开盘 full 已去掉分钟常数列。
+    这里始终交回这份开盘 atc_full；Arm·T 的 core 由调用方在开跑前裁。
     传入的是条目指针的副本，避免组装过程 pop 掉调用方的日线。
     """
     from core.research.panel_matrix import collect_tau_compact
@@ -658,6 +660,79 @@ def align_seq_and_factor(
     return seq_out, fac_out
 
 
+def sequence_from_factor_panel(
+    panel: FactorPanel,
+    stock_bars: Mapping[str, Sequence[dict]],
+    *,
+    seq_len: int = 20,
+) -> Any:
+    """决策日 T 的序列是同一只股票的因子行 ``[T-L … T-1]``，列与这份面板一致。
+
+    列宽就是因子 core / full 裁完后的宽：oo 65 / 222，开盘 τc 61 / 218。
+    gap 仍是今开/昨收 − 1，不进这 L 列。非有限值写成 0。
+    """
+    from core.research.yhat_transformer.seq_dataset import SeqPanel, gaps_by_decision
+
+    require_factor_panel(panel)
+    L = max(5, int(seq_len or 20))
+    F = int(panel.X.shape[1])
+    names = tuple(str(n) for n in panel.feature_names)
+    gaps = gaps_by_decision(stock_bars)
+    by_code: Dict[str, List[int]] = {}
+    for i, code in enumerate(panel.codes):
+        by_code.setdefault(str(code), []).append(i)
+
+    plans: List[Tuple[str, int, List[int]]] = []
+    for code, idxs in by_code.items():
+        idxs.sort(key=lambda i: str(panel.dates[i])[:10])
+        dedup: List[int] = []
+        seen_day = ""
+        for i in idxs:
+            day = str(panel.dates[i])[:10]
+            if day == seen_day and dedup:
+                dedup[-1] = i
+            else:
+                dedup.append(i)
+                seen_day = day
+        for k in range(L, len(dedup)):
+            decision = str(panel.dates[dedup[k]])[:10]
+            window = dedup[k - L : k]
+            if any(str(panel.dates[j])[:10] >= decision for j in window):
+                continue
+            if (code, decision) not in gaps:
+                continue
+            yv = float(panel.y[dedup[k]])
+            if not np.isfinite(yv):
+                continue
+            plans.append((code, dedup[k], window))
+
+    n = len(plans)
+    X = np.zeros((n, L, F), dtype=np.float32)
+    gap = np.zeros((n,), dtype=np.float32)
+    y = np.zeros((n,), dtype=np.float32)
+    dates: List[str] = []
+    codes: List[str] = []
+    src = panel.X
+    for row, (code, dest, window) in enumerate(plans):
+        block = np.array(src[window], dtype=np.float32, copy=True)
+        np.nan_to_num(block, copy=False, nan=0.0, posinf=0.0, neginf=0.0)
+        X[row] = block
+        decision = str(panel.dates[dest])[:10]
+        gap[row] = np.float32(gaps[(code, decision)])
+        y[row] = np.float32(panel.y[dest])
+        dates.append(decision)
+        codes.append(code)
+    return SeqPanel(
+        X=X,
+        gap=gap,
+        y=y,
+        dates=dates,
+        codes=codes,
+        seq_len=L,
+        feature_names=names,
+    )
+
+
 __all__ = [
     "FactorPanel",
     "build_oo_factor_panel",
@@ -666,4 +741,5 @@ __all__ = [
     "require_factor_panel",
     "slice_arm_t_panel",
     "align_seq_and_factor",
+    "sequence_from_factor_panel",
 ]

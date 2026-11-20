@@ -28,8 +28,8 @@ const LOSS_CANON = {
   smooth_l1: "smooth_l1",
   huber: "smooth_l1",
   regression: "smooth_l1",
-  mse: "mse",
-  l2: "mse",
+  mse: "smooth_l1",
+  l2: "smooth_l1",
 };
 const GATE_LABEL = {
   oo: "Arm·L",
@@ -41,8 +41,8 @@ const BOOL_ON = new Set(["1", "true", "yes", "on", "full"]);
 const BOOL_OFF = new Set(["0", "false", "no", "off", "core"]);
 /** 与 desk `_as_bool` 同一张表。数字跟面板列宽走，改列宽时两处一起改。 */
 const PACK_WIDTH = {
-  aoo: { core: "core · 68", full: "full · 225" },
-  atc: { core: "core · 55", full: "full · 230" },
+  aoo: { core: "core · 65", full: "full · 222" },
+  atc: { core: "core · 61", full: "full · 218" },
 };
 
 function asBool(raw, fallback) {
@@ -279,12 +279,14 @@ function scrubFactorParams(value) {
 }
 
 function normalizeSeqFeatSet(raw) {
-  const s = String(raw || "seq16").trim().toLowerCase();
+  const s = String(raw || "seq_core").trim().toLowerCase();
   if (s === "8" || s === "seq8" || s === "base") return "seq8";
+  if (s === "16" || s === "seq16") return "seq16";
   if (s === "32" || s === "seq32") return "seq32";
   if (s === "64" || s === "seq64") return "seq64";
-  if (s === "16" || s === "seq16") return "seq16";
-  return "seq16";
+  if (s === "full" || s === "seq_full") return "seq_full";
+  if (s === "core" || s === "seq_core") return "seq_core";
+  return "seq_core";
 }
 
 function readRadioParam(panel, key, fallback) {
@@ -308,7 +310,7 @@ function applyRadioParam(panel, key, raw) {
 }
 
 function readSeqFeatSet(panel) {
-  return normalizeSeqFeatSet(readRadioParam(panel, "seq_feat_set", "seq16"));
+  return normalizeSeqFeatSet(readRadioParam(panel, "seq_feat_set", "seq_core"));
 }
 
 function applySeqFeatSet(panel, raw) {
@@ -343,12 +345,22 @@ function isFullAtc(raw) {
   return asBool(raw, true);
 }
 
-function seqFeatDim(featSet) {
+function seqWidthTable(pack) {
+  const name = String(pack || "");
+  if (name === "atc" || name.startsWith("atc")) return PACK_WIDTH.atc;
+  return PACK_WIDTH.aoo;
+}
+
+function seqFeatChip(featSet, pack) {
   const key = normalizeSeqFeatSet(featSet);
-  if (key === "seq8") return 8;
-  if (key === "seq32") return 32;
-  if (key === "seq64") return 64;
-  return 16;
+  const table = seqWidthTable(pack);
+  if (key === "seq_full") return table.full;
+  if (key === "seq_core") return table.core;
+  if (key === "seq8") return "8维";
+  if (key === "seq16") return "16维";
+  if (key === "seq32") return "32维";
+  if (key === "seq64") return "64维";
+  return table.core;
 }
 
 function factorLabel(panel) {
@@ -370,7 +382,8 @@ function formatTSamplePct(raw) {
 
 function updateProtocolPreviews(panel) {
   if (!panel) return;
-  const f = seqFeatDim(readSeqFeatSet(panel));
+  const pack = panel.querySelector("[data-protocol-card]")?.getAttribute("data-head-pack");
+  const f = seqFeatChip(readSeqFeatSet(panel), pack);
   const fac = factorLabel(panel);
   const card = panel.querySelector("[data-protocol-card]");
   if (card) {
@@ -547,7 +560,7 @@ function paramChipPairs(params) {
       : asBool(params.full_aoo, false)
         ? "full"
         : "core";
-  const dim = seqFeatDim(params.seq_feat_set);
+  const dim = seqFeatChip(params.seq_feat_set, packName);
   const pairs = [
     ["池子", poolLabel(params)],
     ["训练窗", params.lookback],
@@ -559,7 +572,7 @@ function paramChipPairs(params) {
     }
   } else {
     pairs.push(
-      ["序列", dim ? `${dim}维` : params.seq_feat_set],
+      ["序列", dim || params.seq_feat_set],
       ["T因子", fac],
       ["d_model", params.d_model],
       ["layers", params.nlayers],
@@ -871,18 +884,38 @@ function highlightFillLine(line) {
   return paintPct(html);
 }
 
+function fillActionClass(raw) {
+  if (raw === "开" || raw === "持") return "ytf-hit";
+  if (raw === "清") return "ytf-miss";
+  return "";
+}
+
 function renderFillGrid(line, head) {
   const body = line.split(" · ").map((raw, i) => {
     const text = escConsole(raw);
     const shown = head ? text : paintPct(text);
-    const cls = i === 3 ? ' class="ytf-name"' : "";
+    const classes = [];
+    if (i === 3) classes.push("ytf-name");
+    if (!head && i === 1) {
+      const tone = fillActionClass(raw.trim());
+      if (tone) classes.push(tone);
+    }
+    const cls = classes.length ? ` class="${classes.join(" ")}"` : "";
     const title = i === 3 ? ` title="${text.replace(/"/g, "&quot;")}"` : "";
     return `<span${cls}${title}>${shown}</span>`;
   }).join("");
   return `<span class="ytf-fill${head ? " ytf-fill-head" : ""}">${body}</span>`;
 }
 
+/** 日总结里的持仓用红。开 / 清只在成交行的动作列上色。 */
+function paintDayBookLine(line) {
+  if (!line.startsWith("现金 ")) return "";
+  return highlightPlain(line, /持仓 \d+/g, (m) => `<span class="ytf-hit">${escConsole(m[0])}</span>`);
+}
+
 function highlightLogLine(line) {
+  const book = paintDayBookLine(line);
+  if (book) return book;
   if (line.startsWith("日期 · 动作 · 代码 · ")) return renderFillGrid(line, true);
   if (/^\d{4}-\d{2}-\d{2} · (?:开|加|减|清|买|卖) · /.test(line)) return renderFillGrid(line, false);
   if (/^\d{4}-\d{2}-\d{2} (?:开|加|减|清|买|卖) /.test(line)) {
@@ -1079,8 +1112,8 @@ function armLProtocolBits(params) {
 function protocolTagFromParams(params) {
   if (!params || typeof params !== "object") return "";
   const seqLen = Number(params.seq_len) || 20;
-  const f = seqFeatDim(params.seq_feat_set);
   const pack = String(params.factor_pack || "");
+  const f = seqFeatChip(params.seq_feat_set, pack);
   const table = pack.startsWith("atc") ? PACK_WIDTH.atc : PACK_WIDTH.aoo;
   const fac = pack.startsWith("atc")
     ? isFullAtc(params.full_atc == null ? true : params.full_atc)
@@ -1830,30 +1863,83 @@ function bindToastDismiss() {
 let btTimer = 0;
 let btViewRun = "";
 const enabledIds = new Map();
+const BT_PICKS_KEY = "yhat_bt_head_picks";
 
-function backtestItems(head) {
-  return (mixCatalog.get(head) || []).map((it) => {
-    const factory = String(it.factory || "");
-    const base = String(it.label || it.id || "");
-    const marked = factory && base.split(" · ").pop() === factory;
-    const label = marked || !factory ? base : `${base} · ${factory}`;
-    return {
-      ...it,
-      id: `${factory}:${it.id}`,
-      run_id: it.id,
-      label,
+function readSavedBtPicks() {
+  try {
+    const raw = JSON.parse(localStorage.getItem(BT_PICKS_KEY) || "null");
+    return raw && typeof raw === "object" ? raw : {};
+  } catch (_) {
+    return {};
+  }
+}
+
+function currentBtPicks() {
+  const out = {};
+  document.querySelectorAll("[data-bt-head]").forEach((el) => {
+    const head = el.dataset.btHead;
+    const value = String(el.dataset.btValue || "");
+    const cut = value.indexOf(":");
+    const factory = cut > 0 ? value.slice(0, cut) : btArmOf(head);
+    out[head] = {
+      factory,
+      run_id: cut > 0 ? value.slice(cut + 1) : "",
     };
   });
+  return out;
+}
+
+function saveBtPicks() {
+  try {
+    localStorage.setItem(BT_PICKS_KEY, JSON.stringify(currentBtPicks()));
+  } catch (_) {
+    /* 隐私模式写不进时，这次刷新仍用页面上的选择 */
+  }
+}
+
+function restoreBtPicks() {
+  const saved = readSavedBtPicks();
+  document.querySelectorAll("[data-bt-arm]").forEach((el) => {
+    const fac = String(saved[el.dataset.btArm]?.factory || "").toUpperCase();
+    if (fac === "R" || fac === "L" || fac === "T") el.value = fac;
+  });
+  document.querySelectorAll("[data-bt-head]").forEach((btn) => {
+    const row = saved[btn.dataset.btHead] || {};
+    const fac = String(row.factory || "").toUpperCase();
+    const run = String(row.run_id || "");
+    if ((fac === "R" || fac === "L" || fac === "T") && run) {
+      btn.dataset.btValue = `${fac}:${run}`;
+    }
+  });
+}
+
+function btArmOf(head) {
+  const raw = String(document.querySelector(`[data-bt-arm="${head}"]`)?.value || "").toUpperCase();
+  if (raw === "R" || raw === "L" || raw === "T") return raw;
+  return head === "oo" || head === "tc" ? "R" : "L";
+}
+
+function backtestItems(head) {
+  const fac = btArmOf(head);
+  return (mixCatalog.get(head) || [])
+    .filter((it) => String(it.factory || "") === fac)
+    .map((it) => {
+      const factory = String(it.factory || "");
+      const base = String(it.label || it.id || "");
+      const marked = factory && base.split(" · ").pop() === factory;
+      const label = marked || !factory ? base : `${base} · ${factory}`;
+      return {
+        ...it,
+        id: `${factory}:${it.id}`,
+        run_id: it.id,
+        label,
+      };
+    });
 }
 
 function mixButtonText(it) {
   if (!it) return "";
   return String(it.label || it.id || "");
-}
-
-function preferredMixItem(head, items) {
-  const fac = head === "oo" || head === "tc" ? "R" : "L";
-  return items.find((it) => it.factory === fac) || items[0];
 }
 
 function fillBacktestSelects() {
@@ -1876,7 +1962,7 @@ function fillBacktestSelects() {
     }
     btn.disabled = false;
     const enabled = enabledIds.get(head) || "";
-    const preferred = String(preferredMixItem(head, items).id);
+    const preferred = String(items[0].id);
     const next = prev && items.some((it) => String(it.id) === prev)
       ? prev
       : enabled && items.some((it) => String(it.id) === enabled)
@@ -2038,6 +2124,18 @@ function scheduleBacktestRulesSave() {
   btRulesTimer = window.setTimeout(() => void saveBacktestRules(false), 400);
 }
 
+function paintBacktestBlend(blend) {
+  const blendEl = document.querySelector("[data-bt-blend]");
+  if (!blendEl) return;
+  if (blend === "day_rank") {
+    blendEl.hidden = false;
+    blendEl.textContent = "买序 · 当日名次";
+    return;
+  }
+  blendEl.hidden = true;
+  blendEl.textContent = "";
+}
+
 function renderBacktest(data) {
   const reportEl = $("[data-bt-report]");
   const errorEl = $("[data-bt-error]");
@@ -2052,6 +2150,9 @@ function renderBacktest(data) {
       el.disabled = running;
     });
   }
+  document.querySelectorAll("[data-bt-arm]").forEach((el) => {
+    el.disabled = running;
+  });
   const report = data?.report;
   const spent = backtestSpent(data?.started_at, running ? "" : data?.finished_at);
   let consoleState = { text: "尚未跑过", tone: "idle" };
@@ -2117,8 +2218,7 @@ function renderBacktest(data) {
     }
     const picksEl = document.querySelector("[data-bt-picks]");
     if (picksEl && !data?.picks) picksEl.hidden = true;
-    const blendEl = document.querySelector("[data-bt-blend]");
-    if (blendEl && !data?.rank_blend) blendEl.hidden = true;
+    paintBacktestBlend(String(data?.rank_blend || ""));
     syncBacktestOutput();
     renderBacktestHistory(data);
     return;
@@ -2142,20 +2242,7 @@ function renderBacktest(data) {
     picksEl.textContent = picks;
     picksEl.hidden = !picks;
   }
-  const blendEl = document.querySelector("[data-bt-blend]");
-  if (blendEl) {
-    const blend = String(report.rank_blend || data?.rank_blend || "");
-    if (blend === "day_rank") {
-      blendEl.hidden = false;
-      blendEl.textContent = "买序 · 当日名次";
-    } else if (blend === "raw") {
-      blendEl.hidden = false;
-      blendEl.textContent = "买序 · 原始分";
-    } else {
-      blendEl.hidden = true;
-      blendEl.textContent = "";
-    }
-  }
+  paintBacktestBlend(String(report.rank_blend || data?.rank_blend || ""));
   paint(retEl, pct(report.cumulative_return), signed(report.cumulative_return));
   paint(excessEl, points(report.excess_pct, 2), signed(report.excess_pct));
   if (excessEl) excessEl.title = report.benchmark_label ? `相对${report.benchmark_label}` : "相对观察池等权";
@@ -2275,6 +2362,7 @@ async function pollBacktest() {
 }
 
 function bindBacktest() {
+  restoreBtPicks();
   fillBacktestSelects();
   const form = $("#yhat-factory-backtest-form");
   form?.addEventListener("submit", (ev) => ev.preventDefault());
@@ -2291,6 +2379,15 @@ function bindBacktest() {
       if (form.contains(document.activeElement)) return;
       void saveBacktestRules(true);
     }, 0);
+  });
+  document.querySelectorAll("[data-bt-arm]").forEach((el) => {
+    el.addEventListener("change", () => {
+      const btn = document.querySelector(`[data-bt-head="${el.dataset.btArm}"]`);
+      if (btn) delete btn.dataset.btValue;
+      closeVersionMenus();
+      fillBacktestSelects();
+      saveBtPicks();
+    });
   });
   document.querySelectorAll(".yhat-tf-backtest-picks .yhat-tf-version-box").forEach((box) => {
     box.addEventListener("click", (ev) => {
@@ -2310,6 +2407,7 @@ function bindBacktest() {
         renderVersionMenu(menu, items, id, { deletable: false });
         closeVersionMenus();
         syncBacktestRun();
+        saveBtPicks();
         return;
       }
       if (!ev.target.closest(".yhat-tf-version-btn")) return;

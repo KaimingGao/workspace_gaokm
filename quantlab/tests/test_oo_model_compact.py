@@ -85,7 +85,13 @@ class TestOoRidgeCompact(unittest.TestCase):
         # 有 aoo_core 时丢掉重叠 z_oo（与 Tree 对齐）
         self.assertNotIn("z_oo_momentum", names)
         self.assertNotIn("z_oo_gap_risk", names)
+        self.assertNotIn("z_oo_alpha_th", names)
+        self.assertNotIn("z_oo_tail_anomaly", names)
+        self.assertNotIn("z_oo_money_flow", names)
+        self.assertEqual(len(names), 222)
         self.assertIn("raw_aoo_GAP", names)
+        core = OoPanelMatrix(aoo_core_only=True)
+        self.assertEqual(len(core.names), 65)
 
         _model, report = fit_oo_ridge_matrix(
             x_mat,

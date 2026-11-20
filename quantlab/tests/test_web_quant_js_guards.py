@@ -2663,8 +2663,12 @@ class TestWebQuantJsGuards(unittest.TestCase):
         self.assertNotIn("决策钟默认 10:30", panel)
         self.assertIn("ŷ_τc 因果前缀≤10:00", policy)
         # 分钟脚注 Downstream 已收进面板文案；JS 不再硬编码 ŷ_τc / ŷ_τ*
+        # 开盘四头读日线物化；分钟网格只给 ŷ_τ* / 做 T
         self.assertNotIn("ŷ_τc / ŷ_τ*", minute)
-        self.assertIn("下游 ŷ_τc", panel)
+        self.assertIn("下游 Arm·L/R/T 四头", panel)
+        self.assertIn("下游 ŷ_τ*", panel)
+        self.assertNotIn("下游 ŷ_τc", panel)
+        self.assertNotIn("供 ŷ_τc / 做 T", panel)
         self.assertIn("物化特征（L1/L2 · τ 网格）", panel)
         self.assertIn("物化特征（L1/L2）", panel)
 
@@ -3656,6 +3660,9 @@ class TestWebQuantJsGuards(unittest.TestCase):
         self.assertIn("suite=live", hub_arm)
         self.assertIn('role === "live" ? 0', hub_arm)
         self.assertIn('paintLive(spec, null, "拟合中")', hub_arm)
+        self.assertIn('paintGate(spec.ui, "拟合中")', hub_arm)
+        self.assertIn("armPick.disabled = false", hub_arm)
+        self.assertNotIn("armPick.disabled = busy", hub_arm)
         self.assertNotIn("拟合研究中", hub_arm)
         self.assertNotIn("拟合执行中", hub_arm)
         self.assertIn("hub arm-t live", hub_arm)

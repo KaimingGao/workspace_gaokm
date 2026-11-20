@@ -203,16 +203,23 @@ panel meta 额外写入：
 **定位**：L1 = 票级 raw（+y）；L2 = 日截面增广（μ/σ、slim），**不取代 L1**。
 
 ```text
-日线更新 → 日线「物化特征（L1/L2）」（oo/tc/oo_rank/tc_rank · open Cube + slim）
-分钟 Ready → 分钟线「物化特征（L1/L2）」（tc_HHMM 网格 · 按钟 Cube；oo 可空）
-  → 调仓回测 / ŷ_oo 拟合 / 出分：硬要 oo + open
-  → 做 T 回测 / 盘中 ŷ_τw（≥09:35）：硬要 tc_HHMM + 同钟 Cube
+日线更新 → 日线「物化特征（L1/L2）」
+    oo 222（16 z_oo + 206 raw_aoo）
+    开盘 τc 218（8 z_τc + 210 raw_atc；oo_rank / tc_rank 同列）
+    open Cube + slim
+分钟 Ready → 分钟线「物化特征（L1/L2）」
+    tc_HHMM 322（23 z_τc + 12 z_τh + 63 raw_ath + 224 raw_atc）
+    按钟 Cube；oo 可空
+  → Arm·L / Arm·R / Arm·T 四头：日线 oo 或开盘 tc + open L2
+  → 调仓回测 / 出分：oo + open
+  → ŷ_τ* / 做 T（≥09:35）：tc_HHMM + 同钟 Cube
 ```
 
 | 入口 | 覆盖硬依赖 | 缺覆盖提示 |
 |------|------------|------------|
-| 做 T 回测 | `tc_HHMM` + 分钟钟 L2 | 分钟线物化 |
-| 调仓回测 / 出分 / ŷ_oo | oo/tc + open L2 | 日线物化 |
+| Arm·L / Arm·R / Arm·T 四头 | 日线 oo 或开盘 tc + open L2 | 日线物化 |
+| 做 T 回测 / ŷ_τ* | `tc_HHMM` + 分钟钟 L2 | 分钟线物化 |
+| 调仓回测 / 出分 | oo/tc + open L2 | 日线物化 |
 
 产品入口经 ``materialized_consumer()`` / ``@consume_materialized`` 打开只读。缺覆盖返回 ``materialize_required``；``request`` 按缺口分流（仅 τ → ``do_l1_tau_grid``；仅 open → ``do_session_open_l2``，盘中补齐会话日官方 open L2）。特征与截面 μ/σ **只读**已写好的 L1/L2（拟合 / 回测 / live 同口径；**禁止**消费侧 open-pit 临时补数）。分钟 L2 生产允许空 oo panel（空 dict ≠ 取消）。调仓出分优先会话日同钟 L2。
 
@@ -407,8 +414,8 @@ L1 存的是特征行和拟合标签 y，不存可成交价格。消费方仍读
 
 ### 10.1 冷启动
 
-首次拟合会写满 L1 +（oo）DayCube；第二次同宇宙应大量 hit L1。  
-回测要吃到 L1，需先跑过对应 family 的日线物化。拟合只读已有面板，不覆盖生产湖。
+拟合优先读日线物化已经写好的 L1。工厂不在物化写入上下文里：单票未命中时可以在内存里用日线重算，不写回生产湖。截面 z 只读 open 立方，缺则 `MaterializeRequired`。  
+回测要吃到 L1，需先跑过对应 family 的日线物化。
 
 升级后 meta 缺 ``panel_end`` 会首轮全量 miss。本机湖已回填过时可跳过；迁入旧仓时再只读回填：
 

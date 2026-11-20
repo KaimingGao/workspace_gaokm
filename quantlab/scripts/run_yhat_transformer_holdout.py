@@ -1651,7 +1651,6 @@ def _run_arm_t(seq, fac, train_idx, test_idx, args) -> Dict[str, Any]:
         "factor_hidden": int(args.mlp_hidden or args.d_model),
         "dropout_infer": 0.0,
         "loss": str(getattr(args, "loss", "") or ""),
-        "rank_value_weight": report.get("rank_value_weight"),
         "seed": int(seed),
         "seq_clip": report.get("seq_clip"),
         "z_clip": z_clip,
@@ -1659,6 +1658,8 @@ def _run_arm_t(seq, fac, train_idx, test_idx, args) -> Dict[str, Any]:
     }
     if report.get("lambdarank_truncation") is not None:
         weight_meta["lambdarank_truncation"] = int(report["lambdarank_truncation"])
+    if report.get("regression_false_open"):
+        weight_meta["regression_false_open"] = True
     _try_save_transformer(state, weight_meta)
     return {
         "arm": "T_transformer",
@@ -1928,8 +1929,8 @@ def main() -> int:
     p.add_argument(
         "--seq-feat-set",
         type=str,
-        default="seq16",
-        help="序列特征集 seq8|seq16|seq32|seq64（默认 seq16）",
+        default="seq_core",
+        help="序列特征集 seq_core|seq_full（对齐因子列宽：oo 65/222，开盘 τc 61/218；旧 seq8|16|32|64 仍可加载）",
     )
     p.add_argument("--d-model", type=int, default=64)
     p.add_argument("--nhead", type=int, default=4)
@@ -1973,7 +1974,7 @@ def main() -> int:
         "--head",
         type=str,
         default="oo",
-        help="oo|tc|oo_rank|tc_rank；排序头 Arm·L=LambdaRank，Arm·T=LambdaRank+日z保值",
+        help="oo|tc|oo_rank|tc_rank；排序头 Arm·L 与 Arm·T 都是 LambdaRank",
     )
     p.add_argument(
         "--tau-end",
@@ -2107,6 +2108,10 @@ def _run_holdout(args: argparse.Namespace) -> int:
         args.loss = "ridge"
     need_fac = True
     need_seq = "T" in arms
+    if need_seq:
+        from core.research.yhat_transformer.seq_dataset import resolve_seq_feat_set
+
+        args.seq_feat_set = resolve_seq_feat_set(getattr(args, "seq_feat_set", None))
     # mlp_hidden 无配置时对齐 d_model
     if getattr(args, "mlp_hidden", None) is None:
         args.mlp_hidden = int(getattr(args, "d_model", 64) or 64)
@@ -2164,7 +2169,7 @@ def _run_holdout(args: argparse.Namespace) -> int:
     else:
         print(
             f"臂={arms} 池≤{len(codes)} lookback={args.lookback} L={args.seq_len} "
-            f"seq_feat={getattr(args, 'seq_feat_set', 'seq16')} "
+            f"seq_feat={getattr(args, 'seq_feat_set', 'seq_core')} "
             f"holdout={args.holdout_trading_days} ArmT_sample_frac={frac_s} "
             f"rss={_rss_mb()}",
             flush=True,
@@ -2208,7 +2213,10 @@ def _run_holdout(args: argparse.Namespace) -> int:
 
     seq = None
     fac = None
-    if need_seq:
+    from core.research.yhat_transformer.seq_dataset import is_factor_seq
+
+    factor_seq = bool(need_seq and is_factor_seq(getattr(args, "seq_feat_set", None)))
+    if need_seq and not factor_seq:
         from core.research.yhat_transformer.seq_dataset import build_seq_panel
 
         t0 = time.time()
@@ -2221,7 +2229,7 @@ def _run_holdout(args: argparse.Namespace) -> int:
         )
         print(
             f"序列面板 head={head_spec.id} N={seq.n} L={seq.seq_len} "
-            f"F={seq.X.shape[-1]} feat={getattr(args, 'seq_feat_set', 'seq16')} "
+            f"F={seq.X.shape[-1]} feat={getattr(args, 'seq_feat_set', 'seq_core')} "
             f"{time.time()-t0:.1f}s rss={_rss_mb()}",
             flush=True,
         )
@@ -2248,6 +2256,32 @@ def _run_holdout(args: argparse.Namespace) -> int:
         print(
             f"因子面板 N={fac.n} F={fac.X.shape[1]} "
             f"{time.time()-t0:.1f}s rss={_rss_mb()}",
+            flush=True,
+        )
+
+    if factor_seq and fac is not None and int(getattr(fac, "n", 0) or 0) > 0:
+        from core.research.yhat_transformer.factor_panel import (
+            sequence_from_factor_panel,
+            slice_arm_t_panel,
+        )
+
+        t0 = time.time()
+        tc_head = head_spec.id in ("tc", "tc_rank")
+        seq_src = fac
+        if str(getattr(args, "seq_feat_set", "") or "") == "seq_core":
+            seq_src = slice_arm_t_panel(
+                fac,
+                head_spec,
+                aoo_core_only=not tc_head,
+                atc_core_only=tc_head,
+            )
+        seq = sequence_from_factor_panel(
+            seq_src, stock_bars, seq_len=int(args.seq_len or 20)
+        )
+        print(
+            f"序列面板 head={head_spec.id} N={seq.n} L={seq.seq_len} "
+            f"F={seq.X.shape[-1]} feat={getattr(args, 'seq_feat_set', 'seq_core')} "
+            f"对齐因子列 {time.time()-t0:.1f}s rss={_rss_mb()}",
             flush=True,
         )
 

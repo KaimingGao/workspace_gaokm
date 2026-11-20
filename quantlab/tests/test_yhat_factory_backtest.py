@@ -230,17 +230,24 @@ class TestFactoryBacktestSim(unittest.TestCase):
             "日期 · 动作 · 代码 · 名称 · 股数 · 开盘 · 收盘 · 成交 · fuse · y_oo · y_τc · oo_rank · τc_rank",
             log,
         )
-        self.assertIn(
+        open_fill = (
             "2024-01-02 · 开 · 600000 · 浦发银行 · 1000股 · 10.00 · 11.00 · 10.00 · "
-            "+2.00% · +2.00%\u00a0(+20.00%) · +2.00%\u00a0(+10.00%)",
-            log,
+            "+2.00% · +2.00%\u00a0(+20.00%) · +2.00%\u00a0(+10.00%)"
         )
+        self.assertIn(open_fill, log)
+        open_at = log.index(open_fill)
+        open_sum = log.index("2024-01-02\n现金 189,995.00 · 持仓 1 · 净值 200,995.00\n")
+        self.assertLess(log.index("日期 · 动作"), open_sum)
+        self.assertLess(open_sum, open_at)
         self.assertNotIn(" · 收益 ", log)
         self.assertNotIn("+2.00%\u00a0(+20.00%) · +2.00%\u00a0(+20.00%)", log)
-        self.assertIn(
-            "2024-01-03 · 清 · 600000 · 浦发银行 · 1000股 · 12.00 · 12.00 · 12.00 · -1.00%",
-            log,
-        )
+        exit_fill = "2024-01-03 · 清 · 600000 · 浦发银行 · 1000股 · 12.00 · 12.00 · 12.00 · -1.00%"
+        self.assertIn(exit_fill, log)
+        exit_at = log.index(exit_fill)
+        exit_sum = log.index("2024-01-03\n现金 201,984.00 · 持仓 0 · 净值 201,984.00\n")
+        self.assertLess(open_at, exit_sum)
+        self.assertLess(exit_sum, exit_at)
+        self.assertNotRegex(log, r"(?m)^(清|开|加|减|持) \d+$")
         self.assertIn("-1.00%\u00a0(—)", log)
         self.assertNotIn("兑现", log)
         self.assertNotIn("同向", log)
@@ -256,6 +263,24 @@ class TestFactoryBacktestSim(unittest.TestCase):
         self.assertEqual(report["hit_rate_pct"], 100.0)
         self.assertEqual(report["max_drawdown_pct"], 0.0)
         self.assertIsNone(report["excess_pct"])
+
+    def test_flat_day_summary_has_no_trade_count(self):
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            simulate_scored_days(
+                [
+                    _day("2024-01-02", 2.0, 2.0, 10.0, 11.0),
+                    _day("2024-01-03", -1.0, -1.0, 12.0, 12.0),
+                    _day("2024-01-04", -1.0, -1.0, 12.0, 13.0),
+                ],
+                cfg=_cfg(),
+            )
+        log = buf.getvalue()
+        flat = log.index("2024-01-04\n")
+        nxt = log.index("\n", flat + len("2024-01-04\n"))
+        self.assertTrue(log[flat:nxt].startswith("2024-01-04\n现金 "))
+        self.assertIn("持仓 0 · 净值 ", log[flat:nxt])
+        self.assertNotIn("2024-01-04 · ", log)
 
     def test_same_day_sell_stays_locked(self):
         report = simulate_scored_days(
@@ -670,6 +695,49 @@ class TestScoreHelpers(unittest.TestCase):
         with self.assertRaises(ValueError):
             take_factor_columns(X, ["a"], ["b"])
 
+    def test_open_dead_column_filled_for_old_weight(self):
+        from core.signal.factors.alpha_tc import open_tau_neutral_value
+
+        X = np.ones((2, 1), dtype=np.float64)
+        got = take_factor_columns(
+            X,
+            ["z_τc_gap_pct"],
+            ["z_τc_gap_pct", "raw_atc_LOC_HL", "z_τc_ret_open_to_tau"],
+        )
+        self.assertEqual(got.shape, (2, 3))
+        self.assertEqual(float(got[0, 0]), 1.0)
+        self.assertEqual(float(got[0, 1]), open_tau_neutral_value("raw_atc_LOC_HL"))
+        self.assertEqual(float(got[0, 2]), 0.0)
+
+    def test_open_oo_constant_filled_for_old_weight(self):
+        X = np.ones((2, 1), dtype=np.float64)
+        got = take_factor_columns(X, ["z_oo_value"], ["z_oo_value", "z_oo_alpha_th"])
+        self.assertEqual(got.shape, (2, 2))
+        self.assertEqual(float(got[0, 0]), 1.0)
+        self.assertEqual(float(got[0, 1]), 50.0)
+
+    def test_open_seq_expands_legacy_full_width(self):
+        from core.research.yhat_factory_backtest import align_seq_open_width
+        from core.research.yhat_transformer.seq_dataset import SeqPanel
+        from core.signal.factors.alpha_tc import filter_open_tau_names, open_atc_full_names
+
+        full = open_atc_full_names()
+        opened = filter_open_tau_names(full)
+        seq = SeqPanel(
+            X=np.ones((2, 3, len(opened)), dtype=np.float32),
+            gap=np.zeros((2,), dtype=np.float32),
+            y=np.zeros((2,), dtype=np.float32),
+            dates=["a", "b"],
+            codes=["c", "c"],
+            seq_len=3,
+            feature_names=tuple(opened),
+        )
+        out = align_seq_open_width(seq, len(full))
+        self.assertEqual(int(out.X.shape[-1]), 247)
+        self.assertAlmostEqual(float(out.X[0, 0, full.index("raw_atc_LOC_HL")]), 0.5)
+        self.assertEqual(float(out.X[0, 0, full.index("z_τc_gap_pct")]), 1.0)
+        self.assertIs(align_seq_open_width(seq, 16), seq)
+
     def test_z_keeps_full_pool_and_only_a_is_scored(self):
         panel = SimpleNamespace(
             dates=["2024-01-02", "2024-01-02", "2024-01-02"],
@@ -704,6 +772,28 @@ class TestScoreHelpers(unittest.TestCase):
         self.assertEqual(seen["z_rows"], 3)
         self.assertEqual(seen["pred_rows"], 1)
         self.assertEqual(list(out), [("600001", "2024-01-02")])
+
+class TestFactoryBacktestConsoleColor(unittest.TestCase):
+    def test_open_hold_red_exit_green(self):
+        from tests.conftest import ROOT
+
+        js = os.path.join(ROOT, "web", "static", "js", "yhat_tf.js")
+        css = os.path.join(ROOT, "web", "static", "css", "quant.css")
+        with open(js, encoding="utf-8") as f:
+            script = f.read()
+        with open(css, encoding="utf-8") as f:
+            style = f.read()
+        self.assertNotIn("买序 · 原始分", script)
+        self.assertIn("买序 · 当日名次", script)
+        self.assertNotIn('/^(?:开|持) \\d+$/', script)
+        self.assertIn("持仓 \\d+", script)
+        self.assertIn('raw === "开" || raw === "持"', script)
+        self.assertIn('if (raw === "清") return "ytf-miss"', script)
+        hit = style.split(".yhat-tf-arm-log .ytf-hit {", 1)[1].split("}", 1)[0]
+        miss = style.split(".yhat-tf-arm-log .ytf-miss {", 1)[1].split("}", 1)[0]
+        self.assertIn("--quant-up", hit)
+        self.assertIn("--quant-down", miss)
+
 
 class TestFactoryBacktestPage(unittest.TestCase):
     def test_score_scope_is_full_pool(self):
@@ -740,7 +830,7 @@ class TestFactoryBacktestPage(unittest.TestCase):
         self.assertLess(form_end, actions)
         self.assertLess(actions, button)
         self.assertNotIn('data-bt-field="tier_a_only"', html)
-        self.assertIn("打分全池", html)
+        self.assertIn('data-feature-set', html)
         fill_css = style.split(".ytf-fill {", 1)[1].split("}", 1)[0]
         self.assertIn("grid-template-columns:", fill_css)
         metrics = html.split('class="yhat-tf-arm-metrics yhat-tf-bt-metrics"', 1)[1].split("<pre", 1)[0]
@@ -750,7 +840,7 @@ class TestFactoryBacktestPage(unittest.TestCase):
         self.assertNotIn("交易日", metrics)
         self.assertIn("gap: 24px;", style.split(".yhat-tf-backtest-actions {", 1)[1].split("}", 1)[0])
         self.assertNotIn("tier_a_only", script)
-        self.assertIn("打分全池", script)
+        self.assertIn("feature_set", script)
         self.assertNotIn("离线回测进程已退出", script)
         self.assertIn('deleteTitle: "删除该记录"', script)
         self.assertNotIn(
@@ -758,6 +848,21 @@ class TestFactoryBacktestPage(unittest.TestCase):
             script,
         )
         self.assertNotIn("股票池按当前观察池重取", html)
+        self.assertEqual(html.count("quant-hub-arm-select"), 4)
+        self.assertEqual(html.count("data-bt-arm="), 4)
+        self.assertIn('data-bt-arm="oo"', html)
+        self.assertIn('data-bt-arm="tc"', html)
+        self.assertIn('data-bt-arm="oo_rank"', html)
+        self.assertIn('data-bt-arm="tc_rank"', html)
+        oo_arm = html.split('data-bt-arm="oo"', 1)[1].split("</select>", 1)[0]
+        rank_arm = html.split('data-bt-arm="oo_rank"', 1)[1].split("</select>", 1)[0]
+        self.assertIn('value="R" selected', oo_arm)
+        self.assertIn('value="L" selected', rank_arm)
+        self.assertIn("function btArmOf", script)
+        self.assertIn("function restoreBtPicks", script)
+        self.assertIn("yhat_bt_head_picks", script)
+        self.assertIn('String(it.factory || "") === fac', script)
+        self.assertIn('body[data-page="yhat_bt"] .quant-hub-arm-select', style)
 
 
 def _mix_spec(head, pack, backend, factory, **kwargs):
@@ -817,6 +922,42 @@ class TestMixBacktest(unittest.TestCase):
         specs[2]["fit_params"]["seq_len"] = 32
         with self.assertRaises(ValueError):
             check_mix(specs)
+
+    def test_factor_seq_width_follows_family(self):
+        specs = [
+            _mix_spec("oo", "aoo_full", "transformer", "T"),
+            _mix_spec("tc", "atc_full", "transformer", "T"),
+            _mix_spec("oo_rank", "aoo_full", "lightgbm", "L"),
+            _mix_spec("tc_rank", "atc_full", "lightgbm", "L"),
+        ]
+        for spec in specs[:2]:
+            spec["fit_params"]["seq_feat_set"] = "seq_full"
+        specs[0]["meta"]["d_seq_in"] = 225
+        specs[1]["meta"]["d_seq_in"] = 247
+        suite = check_mix(specs)
+        self.assertEqual(suite["seq_feat_set"], "seq_full")
+        same = [
+            _mix_spec("oo", "aoo_full", "transformer", "T"),
+            _mix_spec("tc", "atc_full", "ridge", "R"),
+            _mix_spec("oo_rank", "aoo_full", "transformer", "T"),
+            _mix_spec("tc_rank", "atc_full", "ridge", "R"),
+        ]
+        for spec in (same[0], same[2]):
+            spec["fit_params"]["seq_feat_set"] = "seq_full"
+        same[0]["meta"]["d_seq_in"] = 225
+        same[2]["meta"]["d_seq_in"] = 68
+        with self.assertRaisesRegex(ValueError, "网络结构不一致"):
+            check_mix(same)
+        legacy = [
+            _mix_spec("oo", "aoo_core", "transformer", "T"),
+            _mix_spec("tc", "atc_core", "transformer", "T"),
+            _mix_spec("oo_rank", "aoo_core", "lightgbm", "L"),
+            _mix_spec("tc_rank", "atc_core", "lightgbm", "L"),
+        ]
+        legacy[0]["meta"]["d_seq_in"] = 16
+        legacy[1]["meta"]["d_seq_in"] = 64
+        with self.assertRaisesRegex(ValueError, "网络结构不一致"):
+            check_mix(legacy)
 
     def test_suite_still_rejects_mixed_backends(self):
         with self.assertRaises(ValueError):
@@ -889,7 +1030,12 @@ class TestMixBacktest(unittest.TestCase):
                 cfg=cfg,
             )
         text = buf.getvalue()
-        self.assertIn("组合 oo R 11-18 14:02 · tc R tc-v1 · oo_rank L oo_rank-v1 · tc_rank L tc_rank-v1 · 买序 原始分", text)
+        self.assertIn(
+            "组合 oo R 11-18 14:02 · tc R tc-v1 · oo_rank L oo_rank-v1 · tc_rank L tc_rank-v1",
+            text,
+        )
+        self.assertNotIn("买序 原始分", text)
+        self.assertNotIn("买序 · 原始分", text)
         self.assertIn("w_oo 0.60", text)
         self.assertIn("w_τc 0.40", text)
         self.assertIn("入场 fuse 0.10% 名次 6 金额 10000", text)

@@ -672,6 +672,7 @@ def _tau_stock_job(
             include_alpha_tc=int(atc),
             include_alpha_th=int(ath),
             use_minute=0,
+            atc_cols="drop_minute",
         )
     from core.research.lake_bridge import family_for_tc
     from core.research.materialize.consumer import MaterializeRequired
@@ -729,6 +730,7 @@ def _tau_stock_job(
             include_alpha_tc=int(atc),
             include_alpha_th=int(ath),
             use_minute=0,
+            atc_cols="drop_minute",
         )
 
     if code and not use_minute:
@@ -1613,6 +1615,11 @@ def collect_tau_compact(
         include_alpha_tc=include_alpha_tc,
         include_alpha_th=include_alpha_th,
     )
+    # 开盘不取分钟常数。盘中钟仍用完整 Z_TC_FIT_FEATURES + 前缀 raw。
+    if not use_minute:
+        from core.signal.factors.alpha_tc import filter_open_tau_names
+
+        col_names = filter_open_tau_names(col_names)
     # 父进程常驻面板用 float32。单票任务里仍用 float64 写 L1，返回前再收窄。
     block = PanelMatrix(col_names, widen_prefix="", dtype=np.float32)
     slim_keys = _breadth_keys()
@@ -1643,6 +1650,7 @@ def collect_tau_compact(
                 include_alpha_tc=int(bool(include_alpha_tc)),
                 include_alpha_th=int(bool(include_alpha_th)),
                 use_minute=0,
+                atc_cols="drop_minute",
             )
             hit = _meta_hit_for_width(
                 tau_family, code, fp, bars, n_cols=len(col_names)

@@ -20,8 +20,11 @@ import numpy as np
 
 logger = logging.getLogger(__name__)
 
-# 嵌套扩展：SEQ8 ⊂ SEQ16 ⊂ SEQ32 ⊂ SEQ64；每档都是「当日完整 K」上的互异 OHLCV 统计。
-# 不做 lag 拼维（序列轴 L 已覆盖多日）；滚动窗一律止于当日 j，历史不足则降级用已有。
+# 对外两档对齐因子列宽，不是 8/16/32/64：
+#   seq_core = 这一头的因子 core（oo 65，开盘 τc 61）
+#   seq_full = 这一头的因子 full（oo 222，开盘 τc 218）
+# 这两档的每一天就是因子面板同一套列，由 sequence_from_factor_panel 取决策日前 L 日。
+# 下面的 SEQ8 ⊂ SEQ16 ⊂ SEQ32 ⊂ SEQ64 只留给已落盘的旧权重。不做 lag 拼维。
 
 # 经典 8 维价量摘要（完整日 K）
 SEQ8_FEATURE_NAMES: Tuple[str, ...] = (
@@ -109,13 +112,14 @@ SEQ_FEAT_SETS: Dict[str, Tuple[str, ...]] = {
     "seq32": SEQ32_FEATURE_NAMES,
     "seq64": SEQ64_FEATURE_NAMES,
 }
-DEFAULT_SEQ_FEAT_SET = "seq16"
+FACTOR_SEQ_SETS = frozenset({"seq_core", "seq_full"})
+DEFAULT_SEQ_FEAT_SET = "seq_core"
 
 GAP_FEATURE_NAME = "gap_t"
 
 
 def resolve_seq_feat_set(feat_set: Optional[str] = None) -> str:
-    """归一 ``seq8|seq16|seq32|seq64``；非法值回落默认。"""
+    """``seq_core`` / ``seq_full`` 对齐因子列宽。``seq8|16|32|64`` 保持旧列宽。"""
     raw = str(feat_set if feat_set is not None else DEFAULT_SEQ_FEAT_SET).strip().lower()
     aliases = {
         "8": "seq8",
@@ -127,12 +131,34 @@ def resolve_seq_feat_set(feat_set: Optional[str] = None) -> str:
         "seq32": "seq32",
         "64": "seq64",
         "seq64": "seq64",
+        "core": "seq_core",
+        "seq_core": "seq_core",
+        "full": "seq_full",
+        "seq_full": "seq_full",
     }
     return aliases.get(raw, DEFAULT_SEQ_FEAT_SET)
 
 
-def seq_feature_names(feat_set: Optional[str] = None) -> Tuple[str, ...]:
+def is_factor_seq(feat_set: Optional[str] = None) -> bool:
+    """core / full：序列宽等于这一头的因子 core / full，不走 OHLCV 名单。"""
+    return resolve_seq_feat_set(feat_set) in FACTOR_SEQ_SETS
+
+
+def _ohlcv_feat_key(feat_set: Optional[str]) -> str:
+    """价量序列只接受旧 8/16/32/64。缺省 ``seq16``，避免把因子 core 误建成 16 列。"""
+    if feat_set is None or str(feat_set).strip() == "":
+        return "seq16"
     key = resolve_seq_feat_set(feat_set)
+    if key in FACTOR_SEQ_SETS:
+        raise ValueError(
+            f"{key} 对齐因子列宽（oo core 65 / full 222，开盘 τc core 61 / full 218），"
+            "用 sequence_from_factor_panel 取决策日前 L 日的因子列"
+        )
+    return key
+
+
+def seq_feature_names(feat_set: Optional[str] = None) -> Tuple[str, ...]:
+    key = _ohlcv_feat_key(feat_set)
     return SEQ_FEAT_SETS[key]
 
 
@@ -666,7 +692,8 @@ def samples_from_bars(
     """单票：返回 ``(X, gap, y, dates)``；无样本则空数组。
 
     ``label``：``oo``（open→open）或 ``tc_open``（close/open，τ=开盘）。
-    ``feat_set``：``seq8`` / ``seq16`` / ``seq32`` / ``seq64``（默认 ``seq16``）。
+    ``feat_set``：旧价量档 ``seq8|seq16|seq32|seq64``。缺省 seq16。
+    ``seq_core`` / ``seq_full`` 走因子列宽，不在这里建。
     入参按日期排序；窗口内日期必须严格递增且都早于决策日。
     """
     bars = _sort_bars_chrono(bars)
@@ -927,10 +954,12 @@ def build_seq_panel(
 ) -> SeqPanel:
     """多票堆叠序列面板（float32）；``head`` 可为 HeadSpec 或 id。
 
-    ``feat_set``：``seq8`` / ``seq16`` / ``seq32`` / ``seq64``（默认 ``seq16``）。
+    ``feat_set``：旧价量档 ``seq8|seq16|seq32|seq64``。缺省 seq16。
+    ``seq_core`` / ``seq_full`` 用 ``sequence_from_factor_panel``。
     相同日线、标签、窗长和特征集命中磁盘缓存，不再逐票重算。
     """
     L = max(5, int(seq_len or 20))
+    feat_set = _ohlcv_feat_key(feat_set)
     names = seq_feature_names(feat_set)
     F = len(names)
     lab = _label_for_head(head)
@@ -1078,6 +1107,40 @@ def assert_pit_last_bar_before_decision(
     return bool(last and dec and last < dec)
 
 
+def _bar_day(bar: Mapping[str, Any]) -> str:
+    return str(bar.get("date") or bar.get("trade_date") or "")[:10]
+
+
+def gaps_by_decision(
+    stock_bars: Mapping[str, Sequence[dict]],
+) -> Dict[Tuple[str, str], float]:
+    """决策日缺口：今开 / 昨收 − 1，百分点。键是 ``(code, YYYY-MM-DD)``。"""
+    out: Dict[Tuple[str, str], float] = {}
+    for code, bars in (stock_bars or {}).items():
+        code_s = str(code).strip()
+        if not code_s:
+            continue
+        rows: List[Tuple[str, dict]] = []
+        for bar in bars or []:
+            if not isinstance(bar, dict):
+                continue
+            day = _bar_day(bar)
+            if day:
+                rows.append((day, bar))
+        rows.sort(key=lambda item: item[0])
+        for i in range(1, len(rows)):
+            day, bar = rows[i]
+            prev = rows[i - 1][1]
+            cur_o = _f(bar.get("open"))
+            prev_c = _f(prev.get("close"))
+            if cur_o is None or cur_o <= 0 or prev_c is None or prev_c <= 0:
+                continue
+            gap = (float(cur_o) / float(prev_c) - 1.0) * 100.0
+            if math.isfinite(gap):
+                out[(code_s, day)] = float(gap)
+    return out
+
+
 def panel_metas(panel: SeqPanel) -> List[Dict[str, str]]:
     return [
         {"code": c, "date": d, "decision_date": d}
@@ -1094,7 +1157,9 @@ __all__ = [
     "DEFAULT_SEQ_FEAT_SET",
     "GAP_FEATURE_NAME",
     "resolve_seq_feat_set",
+    "is_factor_seq",
     "seq_feature_names",
+    "gaps_by_decision",
     "SeqPanel",
     "samples_from_bars",
     "build_seq_panel",
