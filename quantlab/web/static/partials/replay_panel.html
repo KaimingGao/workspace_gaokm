@@ -65,17 +65,6 @@
             <option value="live">执行</option>
           </select>
         </label>
-        <fieldset
-          class="platform-field quant-pro-field replay-lookback-field replay-pred-tier-field"
-          title="复用研究枢纽「股票分档」：截面 z 仍用整段观察池，ŷ 与名次只写允许档，档外不开仓。勾选同步到 live 调仓（掉出允许档则清仓）。回测天数仍用左侧「窗口」。须先跑枢纽分档。不勾=回测与 live 均不按档过滤。"
-        >
-          <span class="quant-pro-field-label">分档</span>
-          <span class="replay-fit-tier-checks" id="quant-pred-tier-checks">
-            <label><input type="checkbox" id="quant-pred-tier-a" value="A" checked /> A</label>
-            <label><input type="checkbox" id="quant-pred-tier-b" value="B" /> B</label>
-            <label><input type="checkbox" id="quant-pred-tier-c" value="C" /> C</label>
-          </span>
-        </fieldset>
         <input type="hidden" id="quant-min-amount-pctile" value="" />
         <input type="hidden" id="quant-benchmark-code" value="pool" />
         <button type="button" id="quant-portfolio-run" class="dialog-btn">跑回测</button>
@@ -294,7 +283,7 @@
           ></div>
         </div>
         <p id="quant-portfolio-legend" class="quant-sub">
-          每个交易日 fill_clock 对全部观察池按 fuse 调仓（基准 τ→open[T+1]）；过入场后买序按 rank_score；手数看上方入场/强档金额（按成交价换算整手，不够一手则跳过；单票市值不超过强档×120%）。横轴为本次全部交易日。
+          每个交易日 fill_clock 对沪深300按 fuse 调仓（基准 τ→open[T+1]）；过入场后买序按 rank_score；手数看上方入场/强档金额（按成交价换算整手，不够一手则跳过；单票市值不超过强档×120%）。横轴为本次全部交易日。
         </p>
         <div id="quant-bt-stock-contrib" class="replay-stock-contrib" hidden aria-label="分票贡献"></div>
         <div id="quant-bt-trades" class="quant-weight-table-wrap" aria-label="成交流水"></div>

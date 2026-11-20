@@ -1,6 +1,6 @@
-"""滚动验证（研究枢纽）：A 档 walk-forward 相对分闸门，不写模型。
+"""滚动验证（研究枢纽）：观察池 walk-forward 相对分闸门，不写模型。
 
-宇宙 = 观察池 ∩ 可预测性 A 档（读 ``predictability_tiers_last``），缩小内存与算量。
+宇宙 = 当前观察池（股票分档已下线，不再切 A 档）。
 OO：ŷ_oo>y_min 且 oo_rank 相对分 > rank_score_min，按相对分降序最多取 top_n
 τc：ŷ_τc>y_min 且 τc_rank 相对分 > rank_score_min（开盘钟），按相对分降序最多取 top_n
 有仓日收益 = 入选等权均值；命中 = 等权收益 > 0。
@@ -158,30 +158,19 @@ def persist_last(doc: Dict[str, Any]) -> str:
     return path
 
 
-def _tier_a_codes() -> List[str]:
-    """观察池 ∩ 可预测性 A 档。无分档报告或空 A → 空列表。"""
-    from core.research.predictability_tiers import (
-        load_predictability_tiers_last,
-        tier_code_set,
-    )
+def _pool_codes() -> List[str]:
+    """滚动验证宇宙：当前观察池。"""
     from core.watching.store import read_watching
 
     uni = read_watching()
-    watch = [str(c).strip() for c in (uni.get("watchlist") or []) if str(c).strip()]
-    if not watch:
-        return []
-    report = load_predictability_tiers_last()
-    a_set = tier_code_set(report, ["A"])
-    if not a_set:
-        return []
-    return [c for c in watch if c in a_set]
+    return [str(c).strip() for c in (uni.get("watchlist") or []) if str(c).strip()]
 
 
-def _load_tier_a_pool(lookback: int, codes: Optional[Sequence[str]] = None) -> List[dict]:
-    """只拉 A 档日线，避免全池进内存。"""
+def _load_pool(lookback: int, codes: Optional[Sequence[str]] = None) -> List[dict]:
+    """拉观察池日线。"""
     from core.data.facade import get_bars_batch
 
-    watch = [str(c).strip() for c in (codes if codes is not None else _tier_a_codes()) if str(c).strip()]
+    watch = [str(c).strip() for c in (codes if codes is not None else _pool_codes()) if str(c).strip()]
     if not watch:
         return []
     packs = get_bars_batch(watch, limit=int(lookback))
@@ -528,20 +517,20 @@ def run_roll_gate(
             except Exception:  # noqa: BLE001
                 logger.debug("roll_gate progress_cb failed", exc_info=True)
 
-    _emit(0, n_folds, "拉 A 档日线…")
-    a_codes = _tier_a_codes()
-    if not a_codes:
+    _emit(0, n_folds, "拉观察池日线…")
+    pool_codes = _pool_codes()
+    if not pool_codes:
         out = {
             "success": False,
-            "error": "无 A 档股票：请先在研究枢纽跑股票分档",
+            "error": "观察池为空",
         }
         _set_progress(status="failed", message=out["error"])
         return out
-    stock_bars = _load_tier_a_pool(need, a_codes)
+    stock_bars = _load_pool(need, pool_codes)
     if len(stock_bars) < 20:
         out = {
             "success": False,
-            "error": f"A 档有效标的不足 n={len(stock_bars)}（候选 {len(a_codes)}）",
+            "error": f"观察池有效标的不足 n={len(stock_bars)}（候选 {len(pool_codes)}）",
         }
         _set_progress(status="failed", message=out["error"])
         return out
@@ -718,13 +707,13 @@ def run_roll_gate(
                 "y_min": y_min,
                 "rank_score_min": rank_score_min,
                 "top_n": top_n,
-                "universe": "tier_a",
+                "universe": "pool",
             },
             "window": {
                 "start": test_days[0],
                 "end": test_days[-1],
                 "n_pool": len(stock_bars),
-                "n_tier_a": len(a_codes),
+                "n_candidates": len(pool_codes),
             },
             "folds": list(fold_rows),
             "summary": {
@@ -759,11 +748,11 @@ def run_roll_gate(
                 "y_min": y_min,
                 "rank_score_min": rank_score_min,
                 "top_n": top_n,
-                "universe": "tier_a",
+                "universe": "pool",
             },
             "window": {
                 "n_pool": len(stock_bars),
-                "n_tier_a": len(a_codes),
+                "n_candidates": len(pool_codes),
             },
             "folds": fold_rows,
             "summary": {
@@ -795,7 +784,7 @@ def run_roll_gate(
             "y_min": y_min,
             "rank_score_min": rank_score_min,
             "top_n": top_n,
-            "universe": "tier_a",
+            "universe": "pool",
             "embargo": 1,
             "oo_rank_backend": "lambdarank",
             "tc_rank_backend": "lambdarank",
@@ -806,12 +795,12 @@ def run_roll_gate(
             "end": test_days[-1] if test_days else None,
             "n_test_days": len(test_days),
             "n_pool": len(stock_bars),
-            "n_tier_a": len(a_codes),
+            "n_candidates": len(pool_codes),
         },
         "folds": fold_rows,
         "summary": summary,
         "finished_at": datetime.now(timezone.utc).isoformat(),
-        "note": "A 档宇宙；每折重训；空仓不计命中分母；不写模型/不入库",
+        "note": "观察池宇宙；每折重训；空仓不计命中分母；不写模型/不入库",
     }
     if run_id:
         doc["job_id"] = run_id

@@ -764,153 +764,18 @@ class TestApplyLegOpenCost(unittest.TestCase):
         self.assertEqual(sell["formula_terms_tau"]["total"], 0.8)
 
 class TestWatchingMatrixUniverseFitTiers(unittest.TestCase):
-    def test_mark_predictability_tier_exits(self):
-        from core.paper.rebalance.watching_matrix import _mark_predictability_tier_exits
+    def test_tier_filter_is_unrestricted(self):
+        from core.paper.rebalance.watching_matrix import _apply_universe_fit_tier_filter
 
-        item_by = {
-            "601318": {
-                "stock_code": "601318",
-                "predicted_score": 2.0,
-                "y_τc": 1.0,
-                "y_oo_fuse": 1.5,
-                "reject_reason": "评分失败",
-            }
-        }
-        _mark_predictability_tier_exits(
-            item_by,
-            force_exit_held=["601318"],
-            allowed_tiers=["A"],
+        codes, meta = _apply_universe_fit_tier_filter(
+            ["600519", "000001"],
+            keep=["601318"],
         )
-        self.assertTrue(item_by["601318"].get("hard_reject"))
-        self.assertTrue(item_by["601318"].get("predictability_tier_exit"))
-        self.assertEqual(
-            item_by["601318"].get("reject_reason"),
-            "评分失败；可预测性非A档 清仓",
-        )
-
-    def test_preview_force_exits_held_when_tier_drops_name(self):
-        from core.paper.rebalance.watching_matrix import simulate_watching_matrix_preview
-
-        paper = {
-            "strategy_id": "short_conservative",
-            "cash": 1_000_000,
-            "holdings": [
-                {
-                    "stock_code": "601318",
-                    "stock_name": "持仓",
-                    "shares": 200,
-                    "cost_price": 10.0,
-                    "buy_date": "2020-01-01",
-                }
-            ],
-            "rules": {"max_positions": 5, "position_pct": 0.2},
-        }
-
-        def _filter(codes, *, keep=(), **_kw):
-            keep_set = {str(c).strip() for c in (keep or []) if str(c).strip()}
-            kept = [c for c in codes if c == "600519" or c in keep_set]
-            return kept, {
-                "universe_fit_tiers": ["A"],
-                "allowed_tiers": ["A"],
-                "unrestricted": False,
-                "predictability_live": True,
-                "n_in": len(list(codes)),
-                "n_kept": len(kept),
-                "n_dropped": 1,
-                "force_exit_held": ["601318"],
-                "n_force_exit_held": 1,
-            }
-
-        with patch(
-            "core.paper.rebalance.watching_matrix._watching_codes",
-            return_value=(
-                ["600519", "000001", "601318"],
-                {"n_watch": 2, "n_total": 3},
-            ),
-        ), patch(
-            "core.paper.rebalance.watching_matrix._apply_universe_fit_tier_filter",
-            side_effect=_filter,
-        ), patch(
-            "core.paper.rebalance.watching_matrix._score_pool",
-            return_value=(
-                [
-                    _signal_item(
-                        stock_code="600519",
-                        stock_name="贵州茅台",
-                        predicted_score=2.0,
-                        y_τc=1.0,
-                        y_oo_fuse=1.5,
-                    ),
-                    _signal_item(
-                        stock_code="601318",
-                        stock_name="持仓",
-                        predicted_score=2.0,
-                        y_τc=1.0,
-                        y_oo_fuse=1.5,
-                    ),
-                ],
-                [], None),
-        ), patch(
-            "core.paper.rebalance.watching_matrix._quote_px",
-            return_value=10.0,
-        ), patch(
-            "core.paper.ledger.mark_to_market",
-            return_value={"equity": 1_002_000, "cash": 1_000_000},
-        ):
-            out = simulate_watching_matrix_preview(paper, dry_run=True)
-
-        self.assertTrue(out.get("ok") or out.get("success") is not False)
-        meta = out.get("pool_meta") or {}
-        fit = meta.get("fit_tiers") or {}
-        self.assertEqual(fit.get("force_exit_held"), ["601318"])
-        sells = out.get("sell_trades") or out.get("sells") or []
-        if not sells:
-            report = out.get("report") or []
-            sells = [
-                r
-                for r in report
-                if str(r.get("side") or "") == "sell"
-                or str(r.get("decision") or "") in {"卖出", "减仓"}
-            ]
-        self.assertTrue(sells, out)
-        reasons = " ".join(str(s.get("reason") or "") for s in sells)
-        self.assertIn("可预测性非A档", reasons)
-
-    def test_tier_block_rejects_new_names_outside_tradable(self):
-        from core.paper.rebalance.watching_matrix import _mark_predictability_tier_blocks
-
-        item_by = {
-            "000001": {"stock_code": "000001", "predicted_score": 1.0},
-            "000002": {"stock_code": "000002", "predicted_score": 2.0},
-        }
-        _mark_predictability_tier_blocks(
-            item_by,
-            tradable_codes=["000001"],
-            allowed_tiers=["A"],
-        )
-        self.assertFalse(item_by["000001"].get("hard_reject"))
-        self.assertTrue(item_by["000002"].get("hard_reject"))
-        self.assertIn("不开仓", item_by["000002"].get("reject_reason") or "")
-        # 闸失败 / tradable=None → 不误标全池
-        item_gate = {
-            "000001": {"stock_code": "000001"},
-            "000002": {"stock_code": "000002"},
-        }
-        _mark_predictability_tier_blocks(
-            item_gate,
-            tradable_codes=[],
-            allowed_tiers=["A"],
-            gate_ok=False,
-        )
-        self.assertFalse(item_gate["000001"].get("hard_reject"))
-        self.assertFalse(item_gate["000002"].get("hard_reject"))
-        _mark_predictability_tier_blocks(
-            item_gate,
-            tradable_codes=None,
-            allowed_tiers=["A"],
-            gate_ok=True,
-        )
-        self.assertFalse(item_gate["000001"].get("hard_reject"))
+        self.assertEqual(codes, ["600519", "000001"])
+        self.assertTrue(meta.get("unrestricted"))
+        self.assertIsNone(meta.get("tradable_codes"))
+        self.assertEqual(meta.get("force_exit_held"), [])
+        self.assertEqual(meta.get("reason"), "tiers_retired")
 
     def test_attach_oo_rank_passes_score_codes(self):
         """live 分档打开时，名次只编允许档；z 仍吃整批。"""

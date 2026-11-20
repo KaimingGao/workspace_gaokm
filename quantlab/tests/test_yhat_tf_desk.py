@@ -284,6 +284,96 @@ class TestYhatTfHardenParams(unittest.TestCase):
         self.assertEqual(argv_t[argv_t.index("--lookback") + 1], "900")
         self.assertEqual(argv_t[argv_t.index("--holdout-trading-days") + 1], "60")
 
+    def test_arm_t_both_pools_chain_finetune(self):
+        from unittest import mock
+
+        from core.research.yhat_tf_desk import build_holdout_argv, factory_scope
+
+        codes = ["000001", "000002"]
+        with factory_scope("T"), mock.patch(
+            "core.universe.feature_sets.codes_for_feature_set",
+            return_value=codes,
+        ):
+            argv = build_holdout_argv(
+                "oo",
+                {"feature_set": "pool", "train_stage": "chain"},
+                factory="T",
+            )
+        self.assertIn("--chain-finetune", argv)
+        self.assertNotIn("--finetune", argv)
+        self.assertEqual(argv[argv.index("--codes") + 1], "000001,000002")
+        with factory_scope("T"), mock.patch(
+            "core.universe.feature_sets.codes_for_feature_set",
+            return_value=codes,
+        ):
+            argv_hs = build_holdout_argv(
+                "oo",
+                {"feature_set": "hs300"},
+                factory="T",
+            )
+        self.assertNotIn("--finetune", argv_hs)
+        self.assertNotIn("--chain-finetune", argv_hs)
+        self.assertEqual(argv_hs[argv_hs.index("--codes") + 1], "000001,000002")
+        with factory_scope("T"), mock.patch(
+            "core.universe.feature_sets.codes_for_feature_set",
+            return_value=codes,
+        ):
+            argv_old = build_holdout_argv(
+                "oo",
+                {"feature_set": "hs300", "train_stage": "finetune"},
+                factory="T",
+            )
+        self.assertNotIn("--finetune", argv_old)
+        self.assertNotIn("--chain-finetune", argv_old)
+        with factory_scope("T"), mock.patch(
+            "core.universe.feature_sets.codes_for_feature_set",
+            return_value=codes,
+        ):
+            argv_stuck = build_holdout_argv(
+                "oo",
+                {"feature_set": "hs300", "train_stage": "chain"},
+                factory="T",
+            )
+        self.assertNotIn("--chain-finetune", argv_stuck)
+        self.assertNotIn("--finetune", argv_stuck)
+        from core.research.yhat_tf_desk import (
+            _merge_request_over_draft,
+            _normalize_fit_params,
+        )
+
+        stuck = _merge_request_over_draft(
+            {
+                "feature_set": "pool",
+                "train_stage": "chain",
+                "pool_n": 1600,
+                "watching_limit": 1600,
+            },
+            {"feature_set": "hs300"},
+        )
+        self.assertEqual(stuck.get("train_stage"), "chain")
+        wide = [f"{i:06d}" for i in range(300)]
+        with factory_scope("T"), mock.patch(
+            "core.universe.feature_sets.codes_for_feature_set",
+            return_value=wide,
+        ):
+            fixed = _normalize_fit_params("tc", stuck)
+        self.assertEqual(fixed.get("feature_set"), "hs300")
+        self.assertFalse(fixed.get("train_stage"))
+        self.assertEqual(fixed.get("pool_n"), 300)
+        self.assertEqual(fixed.get("watching_limit"), 300)
+        with factory_scope("L"), mock.patch(
+            "core.universe.feature_sets.codes_for_feature_set",
+            return_value=codes,
+        ):
+            argv_l = build_holdout_argv(
+                "oo",
+                {"feature_set": "hs300"},
+                factory="L",
+            )
+        self.assertNotIn("--chain-finetune", argv_l)
+        self.assertNotIn("--finetune", argv_l)
+        self.assertEqual(argv_l[argv_l.index("--codes") + 1], "000001,000002")
+
     def test_arm_r_is_ridge_factory(self):
         from core.research.yhat_tf_desk import (
             _metrics_from_holdout_summary,
@@ -1729,6 +1819,9 @@ class TestYhatTfPageWiring(unittest.TestCase):
         self.assertIn('id: "nav-yhat-r"', pal_js)
         self.assertIn("/yhat-r", pal_js)
         self.assertIn("模型中心 Arm·R", pal_js)
+        self.assertIn('id: "nav-yhat-bt"', pal_js)
+        self.assertIn("/yhat-bt", pal_js)
+        self.assertIn("回测中心", pal_js)
 
         clear_html_cache()
         html_t = render_tool_html("yhat_t")
@@ -1771,7 +1864,14 @@ class TestYhatTfPageWiring(unittest.TestCase):
         self.assertIn("CS rank · LambdaRank", html_l)
         self.assertIn('data-arm-console="L"', html_l)
         self.assertIn("data-contrast-protocol", html_l)
-        self.assertIn('data-param="pool_n"', html_l)
+        self.assertIn('data-pool="pool"', html_l)
+        self.assertIn('type="radio" name="pool_set" data-pool="pool"', html_l)
+        self.assertNotIn('type="checkbox" data-pool="pool"', html_l)
+        self.assertIn('data-pool="pool"', html_r)
+        self.assertIn('type="checkbox" data-pool="pool"', html_t)
+        self.assertNotIn('type="radio" name="pool_set"', html_t)
+        self.assertNotIn("池子（股）", html_t)
+        self.assertNotIn("{{FEATURE_CONTROL}}", html_t)
         self.assertIn('data-param="tau_end"', html_l)
         for gone in (
             'data-param-radio="seq_feat_set"',
@@ -1875,7 +1975,6 @@ class TestYhatTfPageWiring(unittest.TestCase):
                 "data-head-panel=", 1
             )[0]
             for key in (
-                "pool_n",
                 "lookback",
                 "holdout_trading_days",
                 "d_model",
@@ -1886,6 +1985,8 @@ class TestYhatTfPageWiring(unittest.TestCase):
                 "t_sample_pct",
             ):
                 self.assertIn(f'data-param="{key}"', panel, msg=f"{head}.{key}")
+            self.assertIn('type="checkbox" data-pool="pool"', panel, msg=f"{head}.pool")
+            self.assertIn('data-pool="hs300"', panel, msg=f"{head}.hs300")
             self.assertNotIn("yhat-tf-arm-picks", panel, msg=f"{head}.no_arm_picks")
             if head in ("tc", "tc_rank"):
                 self.assertIn('data-param="tau_end"', panel, msg=f"{head}.tau_end")
@@ -1901,7 +2002,7 @@ class TestYhatTfPageWiring(unittest.TestCase):
             '<span class="yhat-tf-version-box"><button type="button" class="yhat-tf-version-btn"'
         )
         for page in (html_t, html_l, html_r):
-            self.assertEqual(page.count("yhat-tf-version-box"), 8)
+            self.assertEqual(page.count("yhat-tf-version-box"), 4)
             self.assertEqual(page.count(version_box), 4)
             self.assertEqual(
                 page.count(
@@ -1926,6 +2027,10 @@ class TestYhatTfPageWiring(unittest.TestCase):
         self.assertNotIn("yhat-tf-toggle-view", yhat_js)
         self.assertIn("function currentFitMetrics", yhat_js)
         self.assertIn("function setFitInfoNote", yhat_js)
+        self.assertIn(
+            'Object.prototype.hasOwnProperty.call(pool, "train_stage")',
+            yhat_js,
+        )
         self.assertIn("勿回退 research/draft", yhat_js)
         # 未在跑时优先工作配置（隐式 draft），避免旧 job 盖回表单
         self.assertIn("st.draft?.params || lastParams || st.job?.params", yhat_js)

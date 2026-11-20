@@ -40,11 +40,12 @@ class TestWatching(unittest.TestCase):
         self.assertEqual(WATCHING_DEFAULT_SIZE, 300)
         self.assertEqual(WATCHING_MAX_SIZE, 1600)
         self.assertEqual(clamp_watching_max_size(None), 300)
-        self.assertEqual(clamp_watching_max_size(2), 200)
+        self.assertEqual(clamp_watching_max_size(2), 300)
+        self.assertEqual(clamp_watching_max_size(200), 300)
         self.assertEqual(clamp_watching_max_size(1001), 1001)
         self.assertEqual(clamp_watching_max_size(1601), 1600)
         self.assertEqual(clamp_watching_max_size(500), 500)
-        codes = [f"{i:06d}" for i in range(1, 221)]
+        codes = [f"{i:06d}" for i in range(1, 321)]
         extra = [f"{i:06d}" for i in range(900000, 900010)]
         with tempfile.TemporaryDirectory() as tmp:
             path = os.path.join(tmp, "watching.json")
@@ -56,7 +57,7 @@ class TestWatching(unittest.TestCase):
                     {
                         "sources": [],
                         "watchlist": list(codes),
-                        "max_size": 220,
+                        "max_size": 320,
                     },
                     path,
                 )
@@ -67,26 +68,26 @@ class TestWatching(unittest.TestCase):
                 "core.watching.repository._fill_codes_for_expand",
                 return_value=list(extra),
             ):
-                shrunk = set_watching_max_size(200, path=path)
+                shrunk = set_watching_max_size(300, path=path)
                 self.assertTrue(shrunk["ok"])
-                self.assertEqual(shrunk["max_size"], 200)
-                self.assertEqual(shrunk["count"], 200)
+                self.assertEqual(shrunk["max_size"], 300)
+                self.assertEqual(shrunk["count"], 300)
                 self.assertEqual(shrunk["dropped"], 20)
                 self.assertEqual(shrunk["added"], 0)
                 uni = read_watching(path)
-                self.assertEqual(uni["watchlist"], codes[:200])
-                self.assertEqual(uni["watchlist_reserve"], codes[200:])
+                self.assertEqual(uni["watchlist"], codes[:300])
+                self.assertEqual(uni["watchlist_reserve"], codes[300:])
 
-                restored = set_watching_max_size(220, path=path)
-                self.assertEqual(restored["count"], 220)
+                restored = set_watching_max_size(320, path=path)
+                self.assertEqual(restored["count"], 320)
                 self.assertEqual(restored["added"], 20)
                 self.assertEqual(restored["dropped"], 0)
                 uni = read_watching(path)
                 self.assertEqual(uni["watchlist"], codes)
                 self.assertEqual(uni.get("watchlist_reserve") or [], [])
 
-                expanded = set_watching_max_size(230, path=path)
-                self.assertEqual(expanded["count"], 230)
+                expanded = set_watching_max_size(330, path=path)
+                self.assertEqual(expanded["count"], 330)
                 self.assertEqual(expanded["added"], 10)
                 uni = read_watching(path)
                 self.assertEqual(uni["watchlist"], codes + extra)

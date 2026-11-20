@@ -1137,43 +1137,6 @@ class TestRebalanceDesk(unittest.TestCase):
         self.assertNotIn("morph_gate", by["000000"])
         self.assertLessEqual(len(rows), DESK_ROW_HARD_CAP)
 
-    def test_cover_fills_missing_a_tier_names(self):
-        from core.paper.rebalance.desk import cover_allowed_tier_rows
-
-        with patch(
-            "core.paper.rebalance.desk._allowed_tier_directory",
-            return_value={"600000": "浦发", "000001": "平安", "600519": "茅台"},
-        ), patch(
-            "core.research.predictability_tiers.load_predictability_tiers_active",
-            return_value={"allowed_tiers": ["A"], "enabled": True},
-        ):
-            rows, covered = cover_allowed_tier_rows(
-                [
-                    {
-                        "stock_code": "000001",
-                        "stock_name": "平安银行",
-                        "action": "skip",
-                        "phase": "skip",
-                        "reason": "hard_reject",
-                    },
-                    {
-                        "stock_code": "600000",
-                        "stock_name": "浦发",
-                        "action": "open",
-                        "phase": "done",
-                        "reason": "买",
-                    },
-                ]
-            )
-        self.assertTrue(covered)
-        codes = [r["stock_code"] for r in rows]
-        self.assertEqual(codes, ["600000", "000001", "600519"])
-        self.assertEqual(rows[0]["action"], "open")
-        by = {r["stock_code"]: r for r in rows}
-        self.assertEqual(by["600519"]["action"], "watch")
-        self.assertEqual(by["600519"]["reason"], "A 档")
-        self.assertNotEqual(by["000001"]["reason"], "hard_reject")
-
 class TestFollowPanelWorkerMarkup(unittest.TestCase):
     def test_html_ids(self):
         path = os.path.join(ROOT, "web", "static", "partials", "follow_panel.html")

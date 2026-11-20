@@ -4,9 +4,6 @@ const _WR_V = (typeof window !== "undefined" && window.__ASSET_V__) || "dev";
 const { resolveFuseScore, resolveEodScore, resolveTauScore } = await import(
   `./fmt.js?v=${encodeURIComponent(_WR_V)}`
 );
-const { getPredTier, predTierRank } = await import(
-  `../quant/pred_tier_ui.js?v=${encodeURIComponent(_WR_V)}`
-);
 
 function rankNum(row, key, nKey, altKey) {
   const y = Number(row && (row[key] != null ? row[key] : row[altKey]));
@@ -30,7 +27,6 @@ export function loadHoldingsSort() {
         saved.key === "score_eod" ||
         saved.key === "score_tau" ||
         saved.key === "pnl" ||
-        saved.key === "tier" ||
         saved.key === "oo_rank" ||
         saved.key === "tc_rank")
     ) {
@@ -65,21 +61,6 @@ export function sortHoldings(list, key, dir) {
       av = String(a.stock_code || "");
       bv = String(b.stock_code || "");
       return asc ? av.localeCompare(bv) : bv.localeCompare(av);
-    }
-    if (k === "tier") {
-      const ar = predTierRank((getPredTier(a.stock_code) || {}).tier);
-      const br = predTierRank((getPredTier(b.stock_code) || {}).tier);
-      if (ar !== br) return asc ? ar - br : br - ar;
-      const as = resolveFuseScore(a);
-      const bs = resolveFuseScore(b);
-      const aOk = as != null && Number.isFinite(Number(as));
-      const bOk = bs != null && Number.isFinite(Number(bs));
-      if (aOk && bOk && Number(as) !== Number(bs)) return Number(bs) - Number(as);
-      if (aOk && !bOk) return -1;
-      if (!aOk && bOk) return 1;
-      return String(a.stock_code || "").localeCompare(String(b.stock_code || ""), "zh-CN", {
-        numeric: true,
-      });
     }
     if (k === "score") {
       av = resolveFuseScore(a);

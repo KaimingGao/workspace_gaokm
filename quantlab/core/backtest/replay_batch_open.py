@@ -234,7 +234,15 @@ def _row_is_arm_t(item: Optional[Mapping[str, Any]]) -> bool:
         "_score_source",
     ):
         src = str(item.get(key) or "").lower()
-        if src in ("transformer", "arm_t", "arm_t_open"):
+        if src in (
+            "transformer",
+            "arm_t",
+            "arm_t_open",
+            "arm_l",
+            "arm_l_open",
+            "arm_r",
+            "arm_r_open",
+        ):
             return True
     return False
 

@@ -200,6 +200,37 @@ class TestHistoryResolve(unittest.TestCase):
         self.assertEqual(bars, [])
         self.assertEqual(got, "")
 
+    def test_sina_daily_http_timeout_stops_second_symbol(self):
+        from types import ModuleType
+
+        from adapters.market.history import fetch_a_daily_bars
+        from core.data.policy import SINA_DAILY_HTTP_TIMEOUT
+
+        seen = {}
+        calls = {"n": 0}
+
+        def _recorder(*_args, **kwargs):
+            seen["timeout"] = kwargs.get("timeout")
+            raise TimeoutError("connect timed out")
+
+        def _daily(symbol=None, adjust="", **kwargs):
+            calls["n"] += 1
+            import requests
+
+            return requests.get("https://example.invalid/daily")
+
+        fake = ModuleType("akshare")
+        fake.stock_zh_a_daily = _daily
+        with patch("requests.get", _recorder), patch(
+            "adapters.market.history.sina_daily_slot",
+            return_value=nullcontext(),
+        ), patch.dict(sys.modules, {"akshare": fake}):
+            bars, got = fetch_a_daily_bars("300750", limit=10, adjust="qfq")
+        self.assertEqual(bars, [])
+        self.assertEqual(got, "")
+        self.assertEqual(seen.get("timeout"), SINA_DAILY_HTTP_TIMEOUT)
+        self.assertEqual(calls["n"], 1)
+
     def test_hk_daily_uses_sina_only(self):
         from types import ModuleType
 

@@ -15,10 +15,8 @@ DEFAULT_FEATURE_ZSCORE = True
 ZSCORE_SCOPE_CROSS_SECTION = "cross_section"
 # 排序头截面 z 恒用整观察池（与主头一致）。
 ZSCORE_UNIVERSE_POOL = "pool"
-# 排序头训练/损失宇宙：产品固定 pool；下列 token 仅兼容旧落盘审计。
+# 排序头训练/损失宇宙固定整观察池。旧 ``tier_a`` / ``tier`` 读入后归并成 pool。
 TRAIN_UNIVERSE_POOL = "pool"
-TRAIN_UNIVERSE_TIER_A = "tier_a"  # 仅 A；兼容旧落盘
-TRAIN_UNIVERSE_TIER = "tier"  # 任意 A/B/C 子集（见 train_universe_tiers）
 TRAIN_TIER_LABELS = ("A", "B", "C")
 
 
@@ -112,28 +110,14 @@ def normalize_train_tiers(raw: Any) -> List[str]:
 
 
 def train_universe_token_for_tiers(tiers: Sequence[str]) -> str:
-    """落盘 ``train_universe``：仅 A → ``tier_a``；多档/含 B·C → ``tier``；空 → ``pool``。"""
-    labels = normalize_train_tiers(tiers)
-    if not labels:
-        return TRAIN_UNIVERSE_POOL
-    if labels == ["A"]:
-        return TRAIN_UNIVERSE_TIER_A
-    return TRAIN_UNIVERSE_TIER
+    """训练宇宙恒 ``pool``。旧档位列表不再改 token。"""
+    _ = tiers
+    return TRAIN_UNIVERSE_POOL
 
 
 def normalize_train_universe(raw: Any, *, tiers: Any = None) -> str:
-    """训练/损失宇宙：``pool`` / ``tier_a``（仅 A）/ ``tier``（任意档子集）。
-
-    ``tiers`` 非空时优先按档位表决定 token；否则解析 ``raw``。
-    """
-    labels = normalize_train_tiers(tiers) if tiers is not None else []
-    if labels:
-        return train_universe_token_for_tiers(labels)
-    s = str(raw or "").strip().lower().replace("-", "_")
-    if s in ("tier_a", "a", "tiera"):
-        return TRAIN_UNIVERSE_TIER_A
-    if s in ("tier", "tiers", "tier_abc", "tier_ab", "tier_bc", "tier_ac"):
-        return TRAIN_UNIVERSE_TIER
+    """训练/损失宇宙。现行恒为 ``pool``；旧 ``tier_a`` / ``tier`` 归并成 pool。"""
+    _ = raw, tiers
     return TRAIN_UNIVERSE_POOL
 
 
@@ -159,50 +143,21 @@ def stamp_train_universe(
     tier_meta: Optional[Mapping[str, Any]] = None,
     tiers: Optional[Sequence[str]] = None,
 ) -> dict:
-    """写入排序头训练宇宙；分档时带 ``train_universe_tiers`` 与冻结 ``tier_codes``。"""
-    labels = normalize_train_tiers(tiers)
-    if not labels and isinstance(tier_meta, Mapping):
-        labels = normalize_train_tiers(tier_meta.get("train_universe_tiers"))
-    if not labels:
-        # 旧调用：universe=tier_a 且未传 tiers → 仅 A
-        uni_hint = normalize_train_universe(universe)
-        if uni_hint == TRAIN_UNIVERSE_TIER_A:
-            labels = ["A"]
-        elif uni_hint == TRAIN_UNIVERSE_TIER:
-            labels = normalize_train_tiers(
-                (tier_meta or {}).get("train_universe_tiers")
-                if isinstance(tier_meta, Mapping)
-                else None
-            )
-    uni = (
-        train_universe_token_for_tiers(labels)
-        if labels
-        else normalize_train_universe(universe)
-    )
-    dest["train_universe"] = uni
-    # 截面 z 与训练解耦后恒 pool
+    """写入排序头训练宇宙（恒 ``pool``）。旧档位字段从这份报告上摘掉。"""
+    _ = universe, tier_codes, tier_meta, tiers
+    dest["train_universe"] = TRAIN_UNIVERSE_POOL
     dest["zscore_universe"] = ZSCORE_UNIVERSE_POOL
-    dest.pop("zscore_universe_tiers", None)
-    if uni in (TRAIN_UNIVERSE_TIER_A, TRAIN_UNIVERSE_TIER) and labels:
-        dest["train_universe_tiers"] = list(labels)
-        codes = sorted(
-            {str(c).strip() for c in (tier_codes or []) if str(c or "").strip()}
-        )
-        if codes:
-            dest["tier_codes"] = codes
-            dest["n_tier_codes"] = len(codes)
-        if isinstance(tier_meta, Mapping) and tier_meta:
-            for k in (
-                "tier_as_of",
-                "tier_as_of_last",
-                "holdout_n",
-                "tier_n",
-                "tier_fingerprint",
-            ):
-                if k in tier_meta and tier_meta.get(k) is not None:
-                    dest[k] = tier_meta.get(k)
-    else:
-        dest.pop("train_universe_tiers", None)
+    for key in (
+        "train_universe_tiers",
+        "zscore_universe_tiers",
+        "tier_codes",
+        "n_tier_codes",
+        "tier_as_of",
+        "tier_as_of_last",
+        "tier_n",
+        "tier_fingerprint",
+    ):
+        dest.pop(key, None)
     return dest
 
 

@@ -49,7 +49,7 @@ def drop_unscored_heads(
     items: Sequence[dict],
     score_codes: Optional[Collection[str]],
 ) -> None:
-    """分档外只留特征。ŷ、融合分和名次去掉，原始特征仍在，供当天截面 z 使用。"""
+    """打分名单外只留特征。ŷ、融合分和名次去掉，原始特征仍在，供当天截面 z 使用。"""
     from core.research.feature_standardize import normalize_score_codes
 
     allow = normalize_score_codes(score_codes)

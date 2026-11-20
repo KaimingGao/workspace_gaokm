@@ -33,7 +33,7 @@ class PaperReplayBacktestRequest(BaseModel):
     include_benchmark: bool = True
     benchmark_code: str = Field(
         default="pool",
-        description="超额基准：pool/tier_a=观察池可预测性 A 档等权买持；或指数代码如 000300。",
+        description="超额基准：pool/tier_a=观察池等权买持；或指数代码如 000300。",
     )
     fusion_w_oo: Optional[float] = Field(
         default=None,
@@ -127,36 +127,6 @@ class PaperReplayBacktestRequest(BaseModel):
         ge=1_000.0,
         le=1_000_000.0,
         description="调仓强档金额（元）。默认 2 万；不少于入场金额；单票持仓市值上限=此值×120%。保存规则同步到交易执行",
-    )
-    use_predictability_tiers: bool = Field(
-        default=False,
-        description=(
-            "复用研究枢纽「股票分档」（须先跑分档）：截面 z 仍用整段观察池，"
-            "ŷ 与名次只写允许档，档外不开仓。回测天数仍用 lookback（与 Holdout 独立）。"
-            "桌面勾选同步到 live 调仓闸。"
-        ),
-    )
-    predictability_tiers: Optional[list] = Field(
-        default=None,
-        description=(
-            "允许写 ŷ/名次并开仓的可预测性档；省略时服务端默认 [\"A\"]。"
-            "截面 z 不缩小。仅 use_predictability_tiers 时生效。"
-        ),
-    )
-    holdout_trading_days: Optional[int] = Field(
-        default=None,
-        ge=2,
-        le=90,
-        description=(
-            "可选：若传入则须与枢纽分档 last.holdout_n 一致。"
-            "分档 Holdout 已与 ŷ_oo 拟合卡解耦；前端默认不传，回测直接复用 last。"
-            "回测天数仍用 lookback。"
-        ),
-    )
-    predictability_head: str = Field(
-        default="oo",
-        max_length=8,
-        description="分档协议头（仅 oo；枢纽 last 亦为 oo）。",
     )
     price_space_gate: bool = Field(
         default=True,

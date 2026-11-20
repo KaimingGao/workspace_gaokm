@@ -167,6 +167,8 @@ seq16 在经典 8 维价量摘要上追加影线 / 位置 / 量变 / 缺口回�
 
 磁盘缓存键是 `facv3` 加每只股票的价量指纹（`bars_fingerprint`）。τc 的 kind 是 `tc_compact_v2`（`tc_compact` 是丢掉长湖前缀的短面板，不再命中）。固定 lookback 下滑窗、复权或中间一根价量改动都会 miss。oo 单票失败由枢纽组装抬异常，不落半成品。缺测在面板里保持 NaN。
 
+`assemble_oo_panels` 在非物化路径会尝试把 oo 面板落成 open 立方。面板没有 τc 列，已有 open 立方时不覆盖。截面 z 缺的是列时，报错给出本地跨度，并要求重跑日线物化补缺列的日子。
+
 ### 5.2 `slice_arm_t_panel`（仅 Arm·T）
 
 > Arm·L 始终全量，不走这里。点了 core 但裁不窄时 **显式 ValueError**，避免静默退回全量。
@@ -202,7 +204,7 @@ seq16 在经典 8 维价量摘要上追加影线 / 位置 / 量变 / 缺口回�
 | **seed** | 固定 **42** |
 | **epochs** | 默认 **12**；跑满，不提前停 |
 | **保存** | 最后一个 epoch 的权重 |
-| **eval** | 每个 epoch 结束后用 Holdout 做一次 `no_grad` 测试（Rank IC / hit / Top10% y；排序头另打 NDCG@100）。不反传，不选权重，不改学习率日程 |
+| **eval** | 每个 epoch 结束后用 Holdout 做一次 `no_grad` 测试（Rank IC / hit / Top10% y；排序头另打 NDCG@30）。不反传，不选权重，不改学习率日程 |
 | **optimizer** | AdamW，`lr=1e-3`，`weight_decay=1e-4` |
 | **LR** | cosine + warmup；`TRANSFORMER_WARMUP_STEPS` 默认 100；`min_ratio=0.01` |
 | **grad clip** | 1.0 |
@@ -219,9 +221,11 @@ seq16 在经典 8 维价量摘要上追加影线 / 位置 / 量变 / 缺口回�
 | regression（oo / tc） | `smooth_l1`（β=1） | |
 | rank（oo_rank / tc_rank） | LambdaRank + 日 z 保值 | 序：日内减均值后的 LambdaRank；值：`λ=0.3`·SmoothL1(ŷ, 当日标签截面 z±3) |
 
-标签与 Arm·L 相同：收益越高名次越大，`label_gain` 就是名次本身。权重按当前排序计算后断开梯度，只沿分数差反传。`truncation=100` 与 `LAMBDARANK_TRUNCATION_LEVEL` 相同，IDCG 也只累加这前 100 名。鲁棒性和 LightGBM 默认的 `lambdarank_norm` 对齐：权重再除以 `0.01+|分数差|`，整天 λ 质量乘 `log2(1+S)/S`。因子支路仍裁 ±`LAMBDARANK_Z_CLIP`。
+标签与 Arm·L 相同：收益越高名次越大，`label_gain` 就是名次本身。权重按当前排序计算后断开梯度，只沿分数差反传。`truncation=30`，IDCG 只累加这前 30 名。权重再除以 `0.01+|分数差|`，整天 λ 质量乘 `log2(1+S)/S`（LightGBM `lambdarank_norm`）。因子支路裁 ±`LAMBDARANK_Z_CLIP`。
 
-排序头额外加保值项：把 ŷ 拉向当日标签截面 z，钉住可与 `y_*>0` / rank 阈值比较的零点；LambdaRank 仍在日内减均值后的分数上算，避免与保值梯度抢平移自由度。混合损失只在训练日反传。Holdout 每个 epoch 另打 NDCG@100，只记日志。
+Arm·L 排序树：120 棵、`max_depth=5`、`num_leaves=32`、`subsample=0.85`、`colsample=0.9`、L2=1。
+
+排序头另加保值项：把 ŷ 拉向当日标签截面 z，钉住可与 `y_*>0` / rank 阈值比较的零点。LambdaRank 在日内减均值后的分数上算，保值项用原始 ŷ。混合损失只在训练日反传。Holdout 每个 epoch 另打 NDCG@30，只记日志。
 
 ---
 
@@ -326,13 +330,13 @@ PYTHONUNBUFFERED=1 .venv/bin/python scripts/run_yhat_transformer_holdout.py --he
 ## 12. 明确不做
 
 1. **不进生产 score**（无 promote-live / active）
-2. **不替代** `/quant` 研究枢纽落盘的 LightGBM / LambdaRank 选股链
+2. **不改写** 研究枢纽里 ŷ_τ30…90 的套槽模型。四头 ŷ 由枢纽选臂后读本厂版本
 3. 默认 **10%** 训练采样；L 全样本
 4. 因子 core/full **只作用于 T**
 5. Holdout 上的 epoch 指标 **不选权重**
-6. 不做多 seed / 多臂组合搜索（固定 L+T、seed=42）
+6. 不做多 seed 搜索（seed=42）。页内单臂；双臂只留 CLI `--factory LT`
 7. τc 仅开盘锚；不做其它 τ 网格
-8. 不设研究套 / 执行套，不做例行调度，不接入历史回测页。配方进入例行回测或 live，由研究枢纽执行。离线收益在本页底部按四头版本跑，成交固定 09:30（见 [model-factory-hub.md](model-factory-hub.md) §3.4）
+8. 不写套槽模型文件，不做例行调度。本页不挂历史回测。枢纽选中 Arm·T 时，历史回测读本厂已启用的版本。离线收益在回测中心 `/yhat-bt`，成交固定 09:30。本页不再放离线回测（见 [model-factory-hub.md](model-factory-hub.md) §3.4）
 
 ---
 
@@ -345,8 +349,8 @@ PYTHONUNBUFFERED=1 .venv/bin/python scripts/run_yhat_transformer_holdout.py --he
 | 2026-11-15 | §4 序列窗口须严格早于 T；§5 因子缓存改为价量指纹，缺测留到 CS-z 之后再写成 0；§6 整日组抽样放不进即停 |
 | 2026-11-15 | 对齐后只切早于 open 立方起点的前缀；起点之后缺立方仍失败 |
 | 2026-11-15 | 立方起点改为第一份能读出 μ/σ 的文件；开头坏文件跳过，日期全部早于起点则清空面板 |
-| 2026-11-16 | 排序头改为 LambdaRank 成对损失：前 100、对取平均、`lambdarank_norm`、IDCG 只看前 100；Holdout 另打 NDCG@100 |
-| 2026-11-16 | 写明现行权重不落盘；配方执行（研究套 / 执行套）归研究枢纽 |
+| 2026-11-16 | 排序头改为 LambdaRank 成对损失（`lambdarank_norm`，IDCG 只累加截断名次） |
+| 2026-11-16 | 配方执行（研究套 / 执行套）归研究枢纽 |
 | 2026-11-16 | 离线历史回测按版本号加载本页制品并预估，不写入套槽 |
 | 2026-11-16 | 模型中心拉起的成功拟合按版本号保存 `state.pt` 与序列 clip |
 | 2026-11-17 | 排序头混合损失：LambdaRank（日内减均值）+ `λ=0.3` 日 z 保值；权重 meta 记 `rank_value_weight` |
@@ -355,3 +359,6 @@ PYTHONUNBUFFERED=1 .venv/bin/python scripts/run_yhat_transformer_holdout.py --he
 | 2026-11-17 | 枢纽四头拟合改为调用本工厂训练；权重仍在工厂版本，不写研究套 / 执行套 |
 | 2026-11-18 | 已从版本列表删掉的失败不再出现在概览；有剩余版本时改看最新一条 |
 | 2026-11-18 | 删掉的成功跑次同样退出概览和拟合日志；日志改看列表里还在的最新一条 |
+| 2026-11-19 | oo 因子面板不再覆盖已有 open 立方；缺 τc 列按缺列补日线物化 |
+| 2026-11-19 | 本页离线回测下线，同臂与跨厂都在 `/yhat-bt` |
+| 2026-11-19 | 工厂排序头 truncation 改为 30；Arm·L 树改为 120 棵、深度 5、叶子 32、subsample 0.85、colsample 0.9、L2=1。Holdout 改打 NDCG@30 |

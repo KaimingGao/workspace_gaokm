@@ -13,6 +13,14 @@ logger = logging.getLogger(__name__)
 
 def universe_codes() -> List[str]:
     try:
+        from core.universe.feature_sets import active_feature_codes
+
+        chosen = active_feature_codes()
+        if chosen:
+            return list(chosen)
+    except Exception:  # noqa: BLE001
+        logger.debug("feature set universe failed", exc_info=True)
+    try:
         from core.research_universe import resolve_model_fit_codes
 
         return list((resolve_model_fit_codes() or {}).get("codes") or [])
@@ -190,6 +198,19 @@ def _format_l2_miss_error(meta: Optional[Mapping[str, Any]], *, default_clock: s
     note = _cube_disk_span_note(clk, miss_day=miss_day)
     open_clk = str(clk).lower() in ("", "open", "09:30", "0930")
     which = "日线物化" if open_clk else "分钟线物化"
+    column_miss = ("缺" in base) and ("列" in base)
+    if column_miss:
+        days = _cube_disk_span(clk)
+        if len(days) >= 2:
+            note = (
+                f"；本地 {clk} Cube 覆盖 {days[0]}→{days[-1]}（n={len(days)}），"
+                f"其中有日期缺这些列。请重跑{which}补全缺列的日子，并确认宇宙键一致"
+            )
+        elif len(days) == 1:
+            note = (
+                f"；本地 {clk} Cube 仅有 {days[0]}（n=1），且缺这些列。"
+                f"请重跑{which}补全，并确认宇宙键一致"
+            )
     if note:
         if "请加大" not in note and "请重跑" not in note:
             note += f"；请先跑{which}覆盖该窗（lookback≥Holdout），并确认宇宙键一致"

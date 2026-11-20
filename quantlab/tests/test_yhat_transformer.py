@@ -1027,7 +1027,15 @@ class TestArmLLiveAligned(unittest.TestCase):
         days = fit_m.call_args.args[0]
         self.assertEqual(len(days), 1)
         self.assertEqual(days[0].get("clock"), "open")
-        self.assertEqual(fit_m.call_args.kwargs.get("feature_names"), ["a", "b", "c"])
+        kw = fit_m.call_args.kwargs
+        self.assertEqual(kw.get("feature_names"), ["a", "b", "c"])
+        self.assertEqual(kw.get("n_estimators"), 120)
+        self.assertEqual(kw.get("max_depth"), 5)
+        self.assertEqual(kw.get("num_leaves"), 32)
+        self.assertEqual(kw.get("subsample"), 0.85)
+        self.assertEqual(kw.get("colsample_bytree"), 0.9)
+        self.assertEqual(kw.get("l2"), 1.0)
+        self.assertEqual(kw.get("truncation_level"), 30)
 
     def test_arml_step_callback_prints(self):
         import io
@@ -1093,6 +1101,17 @@ class TestArmLLiveAligned(unittest.TestCase):
             _fit("T", research)
         self.assertEqual(seen["params"]["holdout_trading_days"], 5)
         self.assertEqual(seen["suite"], "research")
+
+        ridge = YhatFactoryFitBody(
+            head="oo",
+            params={"holdout_trading_days": 20},
+            note="hub arm-r live",
+        )
+        with mock.patch("web.routers.quant_yhat_tf.start_holdout_fit", _capture):
+            _fit("R", ridge)
+        self.assertEqual(seen["factory"], "R")
+        self.assertEqual(seen["suite"], "live")
+        self.assertEqual(seen["params"]["holdout_trading_days"], 0)
 
     def test_max_train_default_unlimited(self):
         import os

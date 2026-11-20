@@ -51,6 +51,10 @@ class WatchingMaxSize(BaseModel):
         default=WATCHING_DEFAULT_SIZE,
         ge=WATCHING_MIN_SIZE,
         le=WATCHING_MAX_SIZE,
-        description="观察池只数（200～1600，默认 300）",
+        description="观察池只数（300～1600，左端是沪深300成分）",
+    )
+    compose: str = Field(
+        default="",
+        description="feature_pool=按沪深300打底重排名单；空=只改只数",
     )
 

@@ -74,7 +74,15 @@ function signCls(v) {
 
 function armScoreSource(raw, key) {
   const src = String((raw && raw[key]) || "").toLowerCase();
-  return src === "transformer" || src === "arm_t" || src === "arm_t_open";
+  return (
+    src === "transformer" ||
+    src === "arm_t" ||
+    src === "arm_t_open" ||
+    src === "arm_l" ||
+    src === "arm_l_open" ||
+    src === "arm_r" ||
+    src === "arm_r_open"
+  );
 }
 
 function armHeadCompose(raw, head) {
@@ -103,6 +111,10 @@ function armHeadCompose(raw, head) {
   const suite = String((raw && raw.arm_t && raw.arm_t.suite) || "").toLowerCase();
   if (suite === "research") bits.push(line("套", "研究"));
   else if (suite === "live") bits.push(line("套", "执行"));
+  const factory = card && String(card.factory || "").toUpperCase();
+  if (factory === "R" || factory === "L" || factory === "T") {
+    bits.push(line("臂", `Arm·${factory}`));
+  }
   const label = card && String(card.label || "").trim();
   const runId = card && String(card.run_id || "").trim();
   if (label) bits.push(line("版本", label));

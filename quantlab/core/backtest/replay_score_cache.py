@@ -141,7 +141,7 @@ def _lookup_bar(
 
 
 def bars_universe_fingerprint(stock_bars: Dict[str, Any]) -> str:
-    """观察池日线指纹：代码序 + 每票跨度与末 bar 屑（调试 / 元数据；不进 run_key）。"""
+    """回测名单日线指纹：代码序 + 每票跨度与末 bar 屑（调试 / 元数据；不进 run_key）。"""
     from core.research.panel_fingerprint import bars_fingerprint
 
     parts: List[str] = []
@@ -152,7 +152,7 @@ def bars_universe_fingerprint(stock_bars: Dict[str, Any]) -> str:
 
 
 def codes_universe_fingerprint(stock_bars: Dict[str, Any]) -> str:
-    """观察池代码集合指纹（排序后）；日线 tip 更新不改变。"""
+    """回测名单代码集合指纹（排序后）；日线 tip 更新不改变。"""
     codes = sorted(str(c).strip() for c in (stock_bars or {}).keys() if str(c).strip())
     blob = ",".join(codes) if codes else "empty"
     return hashlib.sha1(blob.encode("utf-8")).hexdigest()[:20]

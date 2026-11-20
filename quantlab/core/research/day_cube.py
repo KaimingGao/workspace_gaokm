@@ -687,6 +687,25 @@ def build_or_load(
     return cube
 
 
+def _open_panel_drops_tc(clock: str, names: Sequence[str]) -> bool:
+    """开盘面板没有 τc 列时，不能拿它盖掉已经落盘的 open 立方。"""
+    clk = str(clock or "open").strip().lower()
+    if clk in ("09:30", "0930"):
+        clk = "open"
+    if clk != "open":
+        return False
+    try:
+        from core.research.materialize.horizon_names import (
+            names_cover_horizon,
+            open_tc_required_names,
+        )
+    except Exception:  # noqa: BLE001
+        return False
+    return not names_cover_horizon(
+        list(names), min_frac=1.0, need=open_tc_required_names()
+    )
+
+
 def cubes_from_stacked_panel(
     dates: Sequence[str],
     codes: Sequence[str],
@@ -696,7 +715,11 @@ def cubes_from_stacked_panel(
     clock: str = "open",
     persist: bool = True,
 ) -> Dict[str, DayCube]:
-    """训练堆叠面板 → 按日 DayCube（codes 与行一一对应）。"""
+    """训练堆叠面板 → 按日 DayCube（codes 与行一一对应）。
+
+    oo 面板只有 ``z_oo_*`` / ``raw_aoo_*``。已有 open 立方（哪怕是薄的）不再被它覆盖，
+    否则 Arm·T 截面 z 会缺 ``z_τc_*``。当天还没有立方时仍可落盘。
+    """
     date_list = [str(d)[:10] for d in dates]
     code_list = [str(c).strip() for c in codes]
     x_arr = np.asarray(X, dtype=np.float64)
@@ -704,6 +727,7 @@ def cubes_from_stacked_panel(
     out: Dict[str, DayCube] = {}
     if x_arr.ndim != 2 or len(date_list) != x_arr.shape[0] or len(code_list) != x_arr.shape[0]:
         return out
+    drop_tc = _open_panel_drops_tc(clock, name_list)
     buckets: Dict[str, List[int]] = {}
     for i, d in enumerate(date_list):
         buckets.setdefault(d, []).append(i)
@@ -714,6 +738,8 @@ def cubes_from_stacked_panel(
         if cube is None:
             continue
         if persist:
+            if drop_tc and day_cube_status(day, sub_codes, clock=clock) != "miss":
+                continue
             save_day_cube(cube)
         else:
             remember(cube)

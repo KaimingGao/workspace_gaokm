@@ -1,0 +1,160 @@
+<div class="dashboard-head quant-head yhat-tf-head" data-factory="BT">
+  <div class="dashboard-head-text quant-head-text">
+    <p class="dashboard-eyebrow">Backtest Center</p>
+    <h2>回测中心</h2>
+    <p id="yhat-tf-meta" class="dashboard-meta quant-meta">拼三家工厂已落盘的四头，测组合收益。不拟合，不写 live。</p>
+    <p class="dashboard-section-desc quant-head-path">
+      <a class="quant-hero-link" href="/yhat-r">Arm·R</a>
+      →
+      <a class="quant-hero-link" href="/yhat-l">Arm·L</a>
+      →
+      <a class="quant-hero-link" href="/yhat-t">Arm·T</a>
+      · 只读版本 · 成交固定 09:30
+    </p>
+  </div>
+  <div class="dashboard-head-actions quant-head-actions">
+    <span class="quant-desk-guard" title="不写 live / 研究套 / 执行套">生产禁用</span>
+    <span class="quant-desk-badge" title="仅 ⌘⇧K 可达；侧栏不展示">隐藏页</span>
+    <button type="button" id="yhat-bt-refresh" class="dialog-btn secondary" title="重新读取三家工厂的版本">刷新</button>
+  </div>
+</div>
+
+<div class="quant-body quant-page yhat-tf-page" data-factory="BT">
+  <section class="dashboard-section quant-section yhat-tf-backtest" id="yhat-factory-backtest" aria-labelledby="yhat-factory-backtest-title">
+    <div class="dashboard-section-head quant-section-head">
+      <h3 id="yhat-factory-backtest-title" class="dashboard-section-title">组合回测</h3>
+      <p class="dashboard-section-desc quant-section-desc">四头各选一版 · 规则只写本页 · 不改历史回测和 live</p>
+    </div>
+    <div class="dashboard-card quant-pro-card">
+        <div class="quant-pro-card-body">
+          <div class="yhat-tf-backtest-picks">
+            <div class="yhat-tf-backtest-pick">
+              <span class="yhat-tf-backtest-pick-name">ŷ_oo</span>
+              <span class="yhat-tf-backtest-pick-role">入场 · open→open</span>
+              <span class="yhat-tf-version-box">
+                <button type="button" class="yhat-tf-version-btn" data-bt-head="oo" aria-haspopup="listbox" aria-expanded="false" disabled>尚无带权重的版本</button>
+                <div class="yhat-tf-version-menu" role="listbox" hidden></div>
+              </span>
+            </div>
+            <div class="yhat-tf-backtest-pick">
+              <span class="yhat-tf-backtest-pick-name">ŷ_τc</span>
+              <span class="yhat-tf-backtest-pick-role">入场 · open→close</span>
+              <span class="yhat-tf-version-box">
+                <button type="button" class="yhat-tf-version-btn" data-bt-head="tc" aria-haspopup="listbox" aria-expanded="false" disabled>尚无带权重的版本</button>
+                <div class="yhat-tf-version-menu" role="listbox" hidden></div>
+              </span>
+            </div>
+            <div class="yhat-tf-backtest-pick">
+              <span class="yhat-tf-backtest-pick-name">ŷ_oo_rank</span>
+              <span class="yhat-tf-backtest-pick-role">买序</span>
+              <span class="yhat-tf-version-box">
+                <button type="button" class="yhat-tf-version-btn" data-bt-head="oo_rank" aria-haspopup="listbox" aria-expanded="false" disabled>尚无带权重的版本</button>
+                <div class="yhat-tf-version-menu" role="listbox" hidden></div>
+              </span>
+            </div>
+            <div class="yhat-tf-backtest-pick">
+              <span class="yhat-tf-backtest-pick-name">ŷ_τc_rank</span>
+              <span class="yhat-tf-backtest-pick-role">买序</span>
+              <span class="yhat-tf-version-box">
+                <button type="button" class="yhat-tf-version-btn" data-bt-head="tc_rank" aria-haspopup="listbox" aria-expanded="false" disabled>尚无带权重的版本</button>
+                <div class="yhat-tf-version-menu" role="listbox" hidden></div>
+              </span>
+            </div>
+          </div>
+          <p class="yhat-tf-backtest-empty" data-bt-empty>这四头还没有可加载的权重。在模型中心拟合成功后，版本会出现在这里。</p>
+          <p class="dashboard-section-desc" data-bt-picks hidden></p>
+          <div class="yhat-tf-bt-frame">
+            <form id="yhat-factory-backtest-form" class="quant-fit-params yhat-tf-fit-params yhat-tf-bt-config" autocomplete="off">
+              <div class="yhat-tf-param-group" role="group" aria-label="入场">
+                <div class="yhat-tf-param-label">入场</div>
+                <div class="yhat-tf-param-fields">
+                  <label class="quant-inline-num" title="过这条 fuse 才开仓或加仓。未过的已持仓清仓。"><span>fuse %</span><input data-bt-field="fuse_enter_pct" type="number" min="0" max="10" step="0.01" value="0.10" inputmode="decimal" /></label>
+                  <label class="quant-inline-num" title="当天名次：max(oo_rank, τc_rank) 须小于本值。默认 6。清空后这道闸关掉。过强档后改看强档名次。"><span>名次</span><input data-bt-field="oo_rank_max" type="number" min="2" max="5000" step="1" value="6" inputmode="numeric" /></label>
+                  <label class="quant-inline-num" title="未过强档时的买入金额，按 09:30 开盘价换算整手。"><span>金额</span><input data-bt-field="lot_base_amount" type="number" min="1000" max="1000000" step="1000" value="10000" inputmode="numeric" /></label>
+                </div>
+              </div>
+              <div class="yhat-tf-param-group" role="group" aria-label="强档">
+                <div class="yhat-tf-param-label">强档</div>
+                <div class="yhat-tf-param-fields">
+                  <label class="quant-inline-num" title="过这条 fuse 改买强档金额，并改看强档 rank。低于入场时会抬到入场。"><span>fuse %</span><input data-bt-field="fuse_strong_pct" type="number" min="0" max="10" step="0.01" value="0.10" inputmode="decimal" /></label>
+                  <label class="quant-inline-num" title="过强档后，max(oo_rank, τc_rank) 须小于本值。默认 12。清空后这道闸关掉。"><span>名次</span><input data-bt-field="oo_rank_strong_max" type="number" min="2" max="5000" step="1" value="12" inputmode="numeric" /></label>
+                  <label class="quant-inline-num" title="过强档后的买入金额。少于入场金额时会抬到入场。"><span>金额</span><input data-bt-field="lot_strong_amount" type="number" min="1000" max="1000000" step="1000" value="20000" inputmode="numeric" /></label>
+                </div>
+              </div>
+              <div class="yhat-tf-param-group" role="group" aria-label="权重">
+                <div class="yhat-tf-param-label">权重</div>
+                <div class="yhat-tf-param-fields">
+                  <label class="quant-inline-num" title="fuse 里 ŷ_oo 的权重。0～1，与 w_τc 一起归一化。"><span>w_oo</span><input data-bt-field="w_oo" type="number" min="0" max="1" step="0.05" value="0.60" inputmode="decimal" /></label>
+                  <label class="quant-inline-num" title="fuse 里 ŷ_τc 的权重。0～1，与 w_oo 一起归一化。"><span>w_τc</span><input data-bt-field="w_tc" type="number" min="0" max="1" step="0.05" value="0.40" inputmode="decimal" /></label>
+                </div>
+              </div>
+              <div class="yhat-tf-param-group" role="group" aria-label="其他">
+                <div class="yhat-tf-param-label">其他</div>
+                <div class="yhat-tf-param-fields">
+                  <label class="quant-inline-num" title="这次组合回测的起始现金。只用于本页，不改交易执行。"><span>本金</span><input data-bt-field="start_cash" type="number" min="10000" max="100000000" step="10000" value="200000" inputmode="numeric" /></label>
+                  <div class="yhat-tf-protocol-row">
+                    <span class="yhat-tf-k" title="开：只看 ŷ_oo、ŷ_τc 都要大于 0。rank 原始分不进这道闸。缺分不拦。">y_*&gt;0</span>
+                    <span class="yhat-tf-seg" role="radiogroup" aria-label="y_* 大于 0">
+                      <label class="yhat-tf-seq-pick"><input type="radio" name="bt_y_oo_gt0" data-bt-field="y_oo_gt0" value="0" checked /><span>关</span></label>
+                      <label class="yhat-tf-seq-pick"><input type="radio" name="bt_y_oo_gt0" data-bt-field="y_oo_gt0" value="1" /><span>开</span></label>
+                    </span>
+                  </div>
+                  <div class="yhat-tf-protocol-row">
+                    <span class="yhat-tf-k" title="高波弱开、异常低开或涨停开盘时，只拦新开和加仓，不清仓。">形态闸</span>
+                    <span class="yhat-tf-seg" role="radiogroup" aria-label="形态闸">
+                      <label class="yhat-tf-seq-pick"><input type="radio" name="bt_morph_gate" data-bt-field="morph_gate_enabled" value="0" checked /><span>关</span></label>
+                      <label class="yhat-tf-seq-pick"><input type="radio" name="bt_morph_gate" data-bt-field="morph_gate_enabled" value="1" /><span>开</span></label>
+                    </span>
+                  </div>
+                  <label class="quant-inline-num" title="成交固定 09:30 开盘。T+1。没有日分价闸。"><span>成交</span><input type="text" value="09:30" readonly tabindex="-1" /></label>
+                </div>
+              </div>
+              <div class="yhat-tf-param-group" role="group" aria-label="截面">
+                <div class="yhat-tf-param-label">截面</div>
+                <div class="yhat-tf-param-fields">
+                  <label class="quant-inline-num" title="回测打分用哪一套已物化截面。须与对应模型的拟合截面一致。">
+                    <span>物化</span>
+                    <select data-feature-set data-bt-field="feature_set" aria-label="物化截面">
+                      <option value="pool">大池</option>
+                      <option value="hs300" selected>沪深300</option>
+                    </select>
+                  </label>
+                </div>
+              </div>
+            </form>
+            <div class="yhat-tf-backtest-actions">
+              <label class="yhat-tf-version yhat-tf-bt-history" data-bt-history>
+                <span class="yhat-tf-k yhat-tf-run-id-k">记录</span>
+                <span class="yhat-tf-version-box">
+                  <button type="button" class="yhat-tf-version-btn" data-bt-history-btn aria-haspopup="listbox" aria-expanded="false" aria-label="回看组合回测记录">尚无记录</button>
+                  <div class="yhat-tf-version-menu" data-bt-history-menu role="listbox" hidden></div>
+                </span>
+              </label>
+              <button type="button" class="dialog-btn primary dialog-raise yhat-tf-run-cta" id="yhat-factory-backtest-run">回测</button>
+            </div>
+            <p class="yhat-tf-backtest-error" data-bt-error hidden></p>
+            <section class="yhat-tf-arm-console yhat-tf-bt-console-card" data-bt-output hidden>
+              <header class="yhat-tf-arm-console-head">
+                <span class="yhat-tf-arm-badge">混</span>
+                <div class="yhat-tf-arm-title"><strong>组合回测</strong><span data-bt-score-scope>09:30 开盘 · 沪深300</span><span data-bt-blend hidden></span></div>
+                <div class="yhat-tf-bt-console-tools">
+                  <span class="yhat-tf-arm-state" data-arm-state="bt" data-bt-console-state data-state="idle">尚未跑过</span>
+                </div>
+              </header>
+              <div class="yhat-tf-arm-metrics yhat-tf-bt-metrics" data-bt-report hidden>
+                <div><span title="期末市值相对本金">累计收益</span><strong data-bt-return class="is-empty">—</strong></div>
+                <div><span title="策略累计减去观察池等权买持。没有日线时留空">超额</span><strong data-bt-excess class="is-empty">—</strong></div>
+                <div><span title="窗口内净值从高点回落的最大幅度">最大回撤</span><strong data-bt-dd class="is-empty">—</strong></div>
+                <div><span title="开仓加仓记今开到明开，清仓减仓记相反数。等权平均，不是账户净值。没有次日开盘不计">决策收益</span><strong data-bt-dec class="is-empty">—</strong></div>
+                <div><span title="开仓加仓上涨为命中，清仓减仓下跌为命中。平盘未命中。没有次日开盘不计">准确率</span><strong data-bt-acc class="is-empty">—</strong></div>
+                <div><span title="买、加、仍持有的名字里，今开到明开为正的占比。清仓减仓不计">命中率</span><strong data-bt-hit class="is-empty">—</strong></div>
+                <div><span>窗口</span><strong data-bt-window class="is-empty">—</strong></div>
+              </div>
+              <pre class="yhat-tf-arm-log" data-bt-console hidden></pre>
+            </section>
+          </div>
+        </div>
+      </div>
+  </section>
+  <div id="yhat-tf-toast" class="yhat-tf-toast" role="status" aria-live="polite" hidden></div>
+</div>

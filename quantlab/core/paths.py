@@ -41,7 +41,7 @@ LIVE_DIR = os.path.join(DATA_DIR, "live")
 CLUSTER_REPORT_CACHE_PATH = os.path.join(LIVE_DIR, "cluster_report_cache.json")
 # 最近一次成功分组（历史；分组 OLS 已退役）
 CLUSTER_LAST_REPORT_PATH = os.path.join(LIVE_DIR, "cluster_last_report.json")
-# 当日已强制刷新观察池日线到最新（按会话日标记，避免同日重复打网）
+# 本会话日日线整批成功过的标记。只给界面看，拉取前不读。
 BARS_FORCED_SESSION_PATH = os.path.join(
     LIVE_DIR, "bars_forced_session.json"
 )
@@ -53,9 +53,6 @@ LIVE_CONFIG_MANIFEST_PATH = os.path.join(LIVE_DIR, "live_config_manifest.json")
 REBALANCE_CS_10_PATH = os.path.join(LIVE_DIR, "rebalance_cs_10.json")
 RETURN_SCORE_MODEL_DRAFT_PATH = os.path.join(QUANT_REPORTS_DIR, "last_return_score_model.json")
 RETURN_SCORE_MODEL_ACTIVE_PATH = os.path.join(LIVE_DIR, "return_score_model_active.json")
-# 可预测性分档：影子 last vs 调仓闸 active（档位跟随历史回测勾选）
-PREDICTABILITY_TIERS_LAST_PATH = os.path.join(LIVE_DIR, "predictability_tiers_last.json")
-PREDICTABILITY_TIERS_ACTIVE_PATH = os.path.join(LIVE_DIR, "predictability_tiers_active.json")
 # 滚动验证 last（读盘可回退旧 roll_gate_top1_last.json）
 ROLL_GATE_LAST_PATH = os.path.join(LIVE_DIR, "roll_gate_last.json")
 ROLL_GATE_LAST_LEGACY_PATH = os.path.join(LIVE_DIR, "roll_gate_top1_last.json")

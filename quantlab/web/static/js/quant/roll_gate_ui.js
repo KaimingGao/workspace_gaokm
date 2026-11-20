@@ -6,7 +6,7 @@ import {
   jobTimings,
 } from "./cluster_job_ui.js";
 
-/** 研究枢纽 · 滚动验证（A 档 walk-forward 相对分闸门，不写模型） */
+/** 研究枢纽 · 滚动验证（观察池 walk-forward 相对分闸门，不写模型） */
 export function installRollGateUi(q) {
   const { on, apiFetch, escapeHtml } = q;
   const chip = document.getElementById("quant-rg-chip");
@@ -248,7 +248,7 @@ export function installRollGateUi(q) {
       phase.stage === "fit"
         ? "单折 Ridge×2 + LambdaRank×2，常 10–20 分钟；心跳在刷新即未卡死"
         : phase.stage === "prep"
-          ? "准备阶段：拉 A 档日线并建面板"
+          ? "准备阶段：拉观察池日线并建面板"
           : "";
     const detail = msg && msg !== phase.label ? msg : "";
     progressEl.hidden = false;
@@ -388,8 +388,8 @@ export function installRollGateUi(q) {
     const uni = String(params.universe || "");
     const nPool = win.n_pool != null ? win.n_pool : win.n_tier_a;
     if (nPool != null) {
-      // watching = 改 A 档前的旧落盘；新跑一律 tier_a
-      bits.push(uni === "watching" ? `全池(旧) ${nPool}` : `A档 ${nPool}`);
+      const oldA = uni === "tier_a" || uni === "a";
+      bits.push(oldA ? `A档(旧) ${nPool}` : `观察池 ${nPool}`);
     }
     bits.push(`折 ${folds.length}/${params.folds || 3}`);
     if (doc.partial) bits.push("部分结果");
@@ -508,7 +508,7 @@ export function installRollGateUi(q) {
     const folds = Array.isArray(doc?.folds) ? doc.folds : [];
     if (!folds.length) {
       foldHost.innerHTML =
-        '<p class="quant-empty muted">尚未跑折。点「运行」启动 A 档 walk-forward（LB500 · HO10×3；须先有股票分档）。</p>';
+        '<p class="quant-empty muted">尚未跑折。点「运行」启动观察池 walk-forward（LB500 · HO10×3）。</p>';
       return;
     }
     const rows = folds
@@ -1020,7 +1020,7 @@ export function installRollGateUi(q) {
     paintKpis(null);
     paintFoldTable(null);
     paintDayTable(null);
-    setStatus("busy", "启动中", "入队 A 档 walk-forward…");
+    setStatus("busy", "启动中", "入队观察池 walk-forward…");
     paintProgress({
       status: "running",
       pct: 0,
@@ -1046,7 +1046,7 @@ export function installRollGateUi(q) {
       if (data.reused) {
         setStatus("busy", "已有任务", "复用运行中的滚动验证");
       } else {
-        setStatus("busy", "fold 0/3", "拉 A 档日线…");
+        setStatus("busy", "fold 0/3", "拉观察池日线…");
       }
       startPoll();
       return data;

@@ -89,6 +89,8 @@ load_portfolio_stock_bars
 - `cache_max_age_hours=0`：本地条数够也不能短路返回，必须再走增量计划。
 - 每批 32 只。`timeout=60` 停在进程池 `AkPool.map` 上，不会传进 `get_bars`。
 - 真正打新浪前占日线名额：同时最多 2 只，两次开工至少隔 1 秒（`QUANTLAB_SINA_DAILY_MAX_INFLIGHT` / `QUANTLAB_SINA_DAILY_PACE_SEC`）。缓存命中不占名额。一次前复权在 AkShare 里还会连打多次 HTTP。
+- AkShare 的 `requests.get` 不带超时。这一轮补上连接 5 秒、读取 12 秒（`SINA_DAILY_HTTP_TIMEOUT`）。超时不再换一种代码写法重打同一台主机。
+- 每次打新浪记一条样本（接口耗时、排队、结果）到 `data/run/sina_daily_latency.json`，只留最近 60 次。数据中心日线状态条事实行显示中位、95%、排队中位和超时次数。`GET /api/quant/bars/sina-latency` 只读这份文件。
 - 写入前抽出观察池前复权的收盘和成交量，写完再比。摘要在数据中心日线 L0 卡差异 KPI（价变 / 量纲 / 只补尾 / 未改），并落在 `data/live/bars_refresh_diff.json`。价变是重叠日收盘移动；量纲是成交量中位倍数离开 0.67–1.5；只补尾是重叠日没动、只多了末尾日期。
 - 单例研究服务走 `research_bars_pack_worker` 进程池，避开主进程的 AkShare 锁。
 - 研究服务默认 `reject_quote_fallback=True`。腾讯现价压出来的假日线会被清空。
@@ -269,10 +271,10 @@ bars.db
 
 ## 8. 已落地的契约
 
-四处都改在原入口里。细则见 [日线契约修补规划](./bars-update-plan.md)。
+四处都在原入口里。
 
 - **前复权**：只补缺日时，若本地最后一天的开高低收和远端对不上（相对差超过 `1e-4`，或绝对差超过 `0.01`），再整窗拉一次并替换该复权键下的全部日线。重叠日一致仍只补新日期。新序列明显短于本地时不删库，来源 `cache:stale`。`mode=full` 和短仓整窗同样走替换写，盖不住本地起点或长度不够 90% 则不删。40 天长缺口仍直接整窗。
-- **已经拼坏的仓**：末根已齐且重叠日未变的序列不会进入 topup。可选再跑一次 `mode=full` 清旧头。2026-10-16 topup 已对 4 只触发重锚整窗替换，并写入部分 `amount`。
+- **末根已齐的仓**：重叠日未变时不会进入 topup。要清旧复权头或补全 `amount`，再跑一次 `mode=full`。
 - **成交额**：`daily_bars.amount` 可空。旧行保持 NULL，直到该日被重新写入。
 - **面板指纹**：schema 3，窗内每一根都参与哈希。下一次拟合全池 miss 一次。
 - **记账**：`cache:stale` 计入失败。本批有失败不写当日标记，并清掉同会话误写的标记。

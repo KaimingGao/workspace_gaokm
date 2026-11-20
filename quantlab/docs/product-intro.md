@@ -32,7 +32,7 @@
 | 数据中心（Data） | 观察池只数、日 K、5 分钟线、新闻舆情、物化特征 |
 | 交易执行（Paper/Follow） | 持仓、调仓、做T、规则、日志、北极星 |
 | 历史回测（Replay） | rank_lots 指标、分票贡献、成交账 |
-| 研究枢纽（Quant） | 因子、ŷ、股票分档、日报 |
+| 研究枢纽（Quant） | 因子、ŷ、日报 |
 | 平台（Platform） | 调度、审计 |
 | AI 抽屉（⌘K） | LLM 模型 + 自然语言命令 |
 
@@ -61,7 +61,7 @@
 
 调仓按 **y_oo_fuse**（配置键 `fusion_w_oo` / `fusion_w_oc`；开盘 rot=0 时即加权 ŷ_oo 与 ŷ_τc）决定买卖：fuse 过入场则开/加，未过则清仓；过线后按 **y_oo_rank** 买序。金额按 `lot_base_amount` / `lot_strong_amount`（缺省 1 万 / 2 万）换算整手；单票市值≤强档×120%；现金不够缩到整百。
 
-- **实现**：`core/paper/rebalance/rank_lots.py`，观察池与历史回测共用。
+- **实现**：`core/paper/rebalance/rank_lots.py`。live 打观察池，历史回测打沪深300。
 - **风控**：T+1（当日买入不可卖）、单票市值≤强档×120%、组合持仓市值上限（live 默认 15 万）、OOS 失败组禁新开、手续费/滑点按成本模型扣除。
 - **模式**：预演（dry-run，只出清单）/ 确认落账 / 历史回测。
 

@@ -1,4 +1,4 @@
-"""TopK 回测相对基准（T6/T9）：默认观察池 A 档等权；也可指定指数，失败则回退池等权。"""
+"""TopK 回测相对基准（T6/T9）：默认观察池等权；也可指定指数，失败则回退池等权。"""
 
 
 import logging
@@ -11,7 +11,7 @@ from typing import Any, Dict, List, Optional, Tuple
 POOL_BENCH_ALIASES = frozenset(
     {"pool", "pool_ew", "ew", "universe", "tier_a", "a", "pred_a"}
 )
-DEFAULT_POOL_BENCH_LABEL = "观察池A档等权"
+DEFAULT_POOL_BENCH_LABEL = "观察池等权"
 
 
 def resolve_tier_a_benchmark_bars(
@@ -20,79 +20,20 @@ def resolve_tier_a_benchmark_bars(
     lookback: int = 10,
     load_missing: bool = True,
 ) -> Tuple[Dict[str, List[dict]], Dict[str, Any]]:
-    """超额基线：观察池可预测性 A 档等权买持。
+    """超额基线：传入交易宇宙等权买持。
 
-    优先用已加载的 ``stock_bars`` 中的 A 档；缺失时可选补拉日线。
-    无枢纽分档报告时回退为传入 ``stock_bars`` 全量（标签降为观察池等权）。
+    旧名仍叫 tier_a：股票分档下线后不再切 A 档，``pool`` / ``tier_a`` 别名都走这份全量。
     """
+    _ = lookback, load_missing
+    bars_in = dict(stock_bars or {})
     meta: Dict[str, Any] = {
-        "ok": False,
-        "source": "fallback_universe",
-        "label": "观察池等权",
-        "n_a": 0,
-        "n_used": 0,
+        "ok": bool(bars_in),
+        "source": "universe",
+        "label": DEFAULT_POOL_BENCH_LABEL,
+        "n_used": len(bars_in),
         "loaded_extra": 0,
     }
-    bars_in = dict(stock_bars or {})
-    try:
-        from core.research.predictability_tiers import (
-            load_predictability_tiers_last,
-            tier_code_set,
-        )
-
-        tier_rep = load_predictability_tiers_last()
-    except Exception:  # noqa: BLE001 — best-effort
-        logger.debug("tier report load failed for A-bench", exc_info=True)
-        tier_rep = None
-
-    if not isinstance(tier_rep, dict) or not tier_rep.get("success"):
-        meta["n_used"] = len(bars_in)
-        meta["ok"] = bool(bars_in)
-        meta["reason"] = "无枢纽分档；回退交易宇宙等权"
-        return bars_in, meta
-
-    a_codes = sorted(tier_code_set(tier_rep, ["A"]))
-    meta["n_a"] = len(a_codes)
-    meta["source"] = "predictability_tier_a"
-    meta["label"] = DEFAULT_POOL_BENCH_LABEL
-    if not a_codes:
-        meta["reason"] = "分档无 A；回退交易宇宙等权"
-        meta["label"] = "观察池等权"
-        meta["n_used"] = len(bars_in)
-        meta["ok"] = bool(bars_in)
-        return bars_in, meta
-
-    out: Dict[str, List[dict]] = {
-        c: bars_in[c] for c in a_codes if c in bars_in and bars_in.get(c)
-    }
-    missing = [c for c in a_codes if c not in out]
-    if missing and load_missing:
-        try:
-            from core.research.portfolio_bars import load_portfolio_stock_bars
-
-            extra, _fail, _fund = load_portfolio_stock_bars(
-                missing,
-                lookback=max(5, int(lookback or 10)),
-                fetch_fundamentals=False,
-            )
-            for c, bars in (extra or {}).items():
-                if bars:
-                    out[c] = bars
-            meta["loaded_extra"] = sum(1 for c in missing if c in out)
-        except Exception:  # noqa: BLE001
-            logger.debug("load missing A-tier bars failed", exc_info=True)
-
-    if not out:
-        meta["reason"] = "A 档无日线；回退交易宇宙等权"
-        meta["label"] = "观察池等权"
-        meta["n_used"] = len(bars_in)
-        meta["ok"] = bool(bars_in)
-        return bars_in, meta
-
-    meta["ok"] = True
-    meta["n_used"] = len(out)
-    meta["missing"] = [c for c in a_codes if c not in out]
-    return out, meta
+    return bars_in, meta
 
 
 def _fetch_index_bars_bounded(
@@ -343,7 +284,7 @@ def build_topk_benchmark_summary(
     force_pool: bool = False,
     pool_label: Optional[str] = None,
 ) -> Dict[str, Any]:
-    """相对基准：index_code=pool / tier_a → 池等权（默认标签观察池A档等权）；否则优先指数。"""
+    """相对基准：index_code=pool / tier_a → 观察池等权；否则优先指数。"""
     strat = ((result.get("metrics") or {}).get("total_return_pct"))
     params = result.get("params") or {}
     req = result.get("request") or {}

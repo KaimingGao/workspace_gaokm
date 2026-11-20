@@ -205,14 +205,16 @@ def resolve_model_fit_codes(
     *,
     watching_limit: Optional[int] = None,
     codes: Optional[Sequence[str]] = None,
+    file_cap: bool = True,
 ) -> Dict[str, Any]:
     """ŷ_* 拟合用股票列表：显式 codes，否则观察池（不垫 research_universe）。
 
     上限 ``MODEL_FIT_MAX_SIZE``；实际只数 = min(请求, 上限, 观察池长度)。
+    显式成分名单传 ``file_cap=False``，避免被观察池滑条截短。
     """
     from core.watching.store import watching_pool_limit
 
-    lim = watching_pool_limit(watching_limit)
+    lim = watching_pool_limit(watching_limit, file_cap=file_cap)
 
     if codes is not None:
         seen: set = set()

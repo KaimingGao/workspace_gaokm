@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 import os
+import time
+from contextlib import contextmanager
 from datetime import datetime, timedelta
-from typing import Any, Callable, List, Optional, Tuple
+from typing import Any, Callable, Iterator, List, Optional, Tuple
 
-from core.data.policy import DAILY_CACHE_HOURS
+from core.data.policy import DAILY_CACHE_HOURS, SINA_DAILY_HTTP_TIMEOUT
 from core.market import register_symbol_resolver, resolve_market_code
 from core.numbers import to_float as _to_float
 from core.store import load_daily_cache, merge_save_daily_cache
@@ -18,6 +20,33 @@ register_symbol_resolver(StockAPI.resolve_symbol)
 import logging
 
 logger = logging.getLogger(__name__)
+
+
+def _http_timed_out(exc: BaseException) -> bool:
+    """连接或读取超时。这种失败再换一种代码写法打同一台主机，只会再占一个名额。"""
+    name = type(exc).__name__.lower()
+    if "timeout" in name:
+        return True
+    msg = str(exc).lower()
+    return "timed out" in msg or "timeout" in msg
+
+
+@contextmanager
+def _sina_requests_timeout(timeout: Tuple[float, float] = SINA_DAILY_HTTP_TIMEOUT) -> Iterator[None]:
+    """给这一轮 akshare 日线补上 HTTP 超时。只改本进程的 requests.get，离开时还原。"""
+    import requests
+
+    orig = requests.get
+
+    def _get(*args: Any, **kwargs: Any) -> Any:
+        kwargs.setdefault("timeout", timeout)
+        return orig(*args, **kwargs)
+
+    requests.get = _get  # type: ignore[assignment]
+    try:
+        yield
+    finally:
+        requests.get = orig  # type: ignore[assignment]
 
 
 def normalize_bars(rows: List[dict]) -> List[dict]:
@@ -309,20 +338,55 @@ def fetch_a_daily_bars(
         return [], ""
 
     errors: List[str] = []
-    with sina_daily_slot():
-        for label, got, call in attempts:
-            try:
-                df = call()
-                bars = _df_to_bars(df, limit)
-                if bars:
-                    return bars, got
-            except Exception as e:
-                errors.append(f"{label}: {e}")
-                continue
+    outcome = "error"
+    http_s: Optional[float] = None
+    wait_s: Optional[float] = None
+    result_bars: List[dict] = []
+    result_got = ""
+    t_wait0 = time.perf_counter()
+    try:
+        with sina_daily_slot():
+            wait_s = time.perf_counter() - t_wait0
+            t_http = time.perf_counter()
+            with _sina_requests_timeout():
+                for label, got, call in attempts:
+                    try:
+                        df = call()
+                        bars = _df_to_bars(df, limit)
+                        if bars:
+                            outcome = "ok"
+                            result_bars, result_got = bars, got
+                            break
+                        outcome = "empty"
+                    except Exception as e:
+                        errors.append(f"{label}: {e}")
+                        if _http_timed_out(e):
+                            outcome = "timeout"
+                            break
+                        outcome = "error"
+                        continue
+            http_s = time.perf_counter() - t_http
+    except Exception as e:
+        wait_s = time.perf_counter() - t_wait0
+        msg = str(e)
+        if "sina_daily_slot timed out" in msg:
+            outcome = "slot_wait"
+        elif _http_timed_out(e):
+            outcome = "timeout"
+        else:
+            outcome = "error"
+            errors.append(msg)
+    finally:
+        try:
+            from adapters.market.sina_latency import record_sina_daily_sample
+
+            record_sina_daily_sample(http_s=http_s, wait_s=wait_s, outcome=outcome)
+        except Exception:
+            logger.debug("sina daily latency record failed", exc_info=True)
 
     if errors:
         fetch_a_daily_bars.last_errors = errors[-6:]  # type: ignore[attr-defined]
-    return [], ""
+    return result_bars, result_got
 
 
 def fetch_hk_daily_bars(

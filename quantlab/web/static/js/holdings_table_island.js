@@ -229,16 +229,6 @@ const COLS = [
     title: "股票名称与代码",
   },
   {
-    id: "tier",
-    label: "分档",
-    width: 52,
-    sortable: true,
-    defaultDir: "asc",
-    headClass: "watching-col-center",
-    cellClass: "watching-col-center",
-    title: "可预测性分档（Holdout 前 60 日猜涨 lift）：A 强 / B 中 / C 弱。同档内按 fuse 从高到低",
-  },
-  {
     id: "sent",
     label: "舆情",
     width: 36,
@@ -353,24 +343,7 @@ function rankCmp(av, bv) {
   return 0;
 }
 
-let _predTier = {
-  rank() {
-    return 9;
-  },
-  get() {
-    return null;
-  },
-  badge() {
-    return "—";
-  },
-};
-
 function compare(id, a, b) {
-  if (id === "tier") {
-    const ta = _predTier.get(a && a.code);
-    const tb = _predTier.get(b && b.code);
-    return _predTier.rank(ta && ta.tier) - _predTier.rank(tb && tb.tier);
-  }
   if (id === "code") {
     return String(a.code || "").localeCompare(String(b.code || ""), "zh-CN", { numeric: true });
   }
@@ -393,13 +366,7 @@ export async function mountHoldingsTableIsland(host, options = {}) {
   const { mountVirtualTable } = await import(
     `./virtual_table.js?v=${encodeURIComponent(V)}`
   );
-  const predTier = await import(`./quant/pred_tier_ui.js?v=${encodeURIComponent(V)}`);
-  _predTier = {
-    rank: predTier.predTierRank,
-    get: predTier.getPredTier,
-    badge: predTier.predTierBadgeHtml,
-  };
-  await Promise.all([ensureFitTierMap(), predTier.ensurePredTierMap()]);
+  await ensureFitTierMap();
   return mountVirtualTable(host, {
     columns: COLS,
     emptyText: "暂无持仓",
@@ -408,17 +375,7 @@ export async function mountHoldingsTableIsland(host, options = {}) {
     bodyClass: "paper-holdings-react-body",
     initialSort: options.initialSort,
     compare,
-    tiebreak: (id, a, b) => {
-      if (id !== "tier") return 0;
-      const as = Number(a && a.scoreNum);
-      const bs = Number(b && b.scoreNum);
-      const aOk = Number.isFinite(as);
-      const bOk = Number.isFinite(bs);
-      if (aOk && bOk) return bs - as;
-      if (aOk) return -1;
-      if (bOk) return 1;
-      return 0;
-    },
+    tiebreak: () => 0,
     rowClass: (d) =>
       [
         "paper-hold-row",
@@ -458,7 +415,6 @@ export async function mountHoldingsTableIsland(host, options = {}) {
           `<span class="paper-wl-code">${escapeHtml(d.code || "")}</span></div>`
         );
       }
-      if (col.id === "tier") return _predTier.badge(d.code, escapeHtml);
       if (col.id === "sent") return d.sentHtml || holdingSentPlaceholder(d.code);
       if (col.id === "shares") {
         const text = d.shares != null ? String(d.shares) : "—";

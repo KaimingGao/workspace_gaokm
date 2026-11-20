@@ -2584,7 +2584,7 @@ def stamp_rank_zscore_universe_meta(
 ) -> Dict[str, Any]:
     """把宇宙写进报告与各 backend 的 return_model。
 
-    截面 z 恒 ``pool``；``train_universe`` / ``train_tiers`` 为损失/Holdout 子集。
+    截面 z 与训练损失都恒 ``pool``。传入的档位只会被写成全池。
     """
     from core.research.feature_standardize import (
         ZSCORE_UNIVERSE_POOL,

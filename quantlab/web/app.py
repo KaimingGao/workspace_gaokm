@@ -263,6 +263,15 @@ def yhat_r_page() -> HTMLResponse:
     )
 
 
+@app.get("/yhat-bt")
+def yhat_bt_page() -> HTMLResponse:
+    """回测中心：拼三家工厂已落盘的四头。仅 ⌘⇧K 入口；不写生产 score。"""
+    return HTMLResponse(
+        render_tool_html("yhat_bt"),
+        headers={"Cache-Control": "no-store"},
+    )
+
+
 @app.get("/yhat-tf")
 def yhat_tf_page() -> RedirectResponse:
     """旧模型中心入口 → Arm·T 工厂。"""

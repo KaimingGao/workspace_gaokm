@@ -364,14 +364,9 @@ export function installBacktest(q) {
       const lotB = p.lot_base_amount != null ? p.lot_base_amount : "—";
       const n = Number(p.fuse_enter);
       const enter = Number.isFinite(n) ? `${(n * 100).toFixed(2)}%` : "—";
-      const predOn = p.use_predictability_tiers === true;
-      const predT = Array.isArray(p.predictability_tiers)
-        ? p.predictability_tiers.join("")
-        : "AB";
-      const tierBit = predOn ? ` · 分档${predT}` : "";
       const psBit = p.price_space_gate === false ? " · 日分价关" : "";
       const role = String(p.score_model_role || "").toLowerCase() === "live" ? "执行" : "研究";
-      return `lb${lb} · ${clock} · ${lotB}元 · w${wt}/${wn} · 入场${enter}${tierBit}${psBit} · ${role} · ${cost}`;
+      return `lb${lb} · ${clock} · ${lotB}元 · w${wt}/${wn} · 入场${enter}${psBit} · ${role} · ${cost}`;
     }
     // 仅兼容旧日报冻结摘要（研究 Top-K 独立腿）
     return `K${p.top_k ?? "—"} · h${p.horizon_days ?? "—"} · ${cost}`;
@@ -408,25 +403,6 @@ export function installBacktest(q) {
       if (req.initial_cash != null) setName("pm_initial_cash", req.initial_cash);
       if (req.lot_base_amount != null) setName("pm_lot_base_amount", req.lot_base_amount);
       if (req.lot_strong_amount != null) setName("pm_lot_strong_amount", req.lot_strong_amount);
-      // 历史回测不再按拟合档过滤；只用股票分档勾选
-      if (Array.isArray(req.predictability_tiers)) {
-        const set = new Set(
-          req.predictability_tiers.map((t) => String(t || "").toUpperCase())
-        );
-        for (const [id, t] of [
-          ["quant-pred-tier-a", "A"],
-          ["quant-pred-tier-b", "B"],
-          ["quant-pred-tier-c", "C"],
-        ]) {
-          const el = document.getElementById(id);
-          if (el) el.checked = set.has(t);
-        }
-      } else if (req.use_predictability_tiers === false) {
-        for (const id of ["quant-pred-tier-a", "quant-pred-tier-b", "quant-pred-tier-c"]) {
-          const el = document.getElementById(id);
-          if (el) el.checked = false;
-        }
-      }
       if (req.price_space_gate != null) {
         const el = form && form.querySelector('[name="pm_price_space_gate"]');
         if (el && el.type === "checkbox") el.checked = req.price_space_gate !== false;
@@ -491,37 +467,6 @@ export function installBacktest(q) {
     } else {
       setName("pm_oo_rank_strong_max", 12);
     }
-  }
-
-  function readPredictabilityTiers() {
-    const out = [];
-    for (const id of ["quant-pred-tier-a", "quant-pred-tier-b", "quant-pred-tier-c"]) {
-      const el = document.getElementById(id);
-      if (el && el.checked) out.push(String(el.value || "").toUpperCase());
-    }
-    return out;
-  }
-
-  let _livePredTierSyncTimer = null;
-
-  /** 历史回测分档勾选 → live 调仓闸（空=关）。仅 /replay 桌同步，避免研究枢纽误关闸。 */
-  function syncLivePredTiersFromDesk() {
-    if (!isReplayDesk()) return;
-    if (typeof apiFetch !== "function") return;
-    if (!document.getElementById("quant-pred-tier-checks")) return;
-    if (_livePredTierSyncTimer) {
-      clearTimeout(_livePredTierSyncTimer);
-      _livePredTierSyncTimer = null;
-    }
-    const tiers = readPredictabilityTiers();
-    _livePredTierSyncTimer = setTimeout(() => {
-      _livePredTierSyncTimer = null;
-      void apiFetch("/api/quant/research-universe/predictability-tiers/live-sync", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ allowed_tiers: tiers }),
-      }).catch(() => {});
-    }, 180);
   }
 
   function markReplayRestored(at) {
@@ -932,8 +877,6 @@ export function installBacktest(q) {
           lot_base_amount: p.lot_base_amount,
           lot_strong_amount: p.lot_strong_amount,
           price_space_gate: p.price_space_gate !== false,
-          use_predictability_tiers: !!p.use_predictability_tiers,
-          predictability_tiers: p.predictability_tiers || [],
         })
       );
     } catch (_err) {
@@ -949,7 +892,6 @@ export function installBacktest(q) {
       applyScoreModelRole("paper-t0-score-model-role", prefs.t0_score_model_role);
     }
     restoreFillClock(prefs.fill_clock);
-    syncLivePredTiersFromDesk();
     return true;
   }
 
@@ -986,10 +928,8 @@ export function installBacktest(q) {
     let lookback = 10;
     if (lbEl && lbEl.value !== "") {
       const n = Number(lbEl.value);
-      if (Number.isFinite(n)) lookback = Math.max(10, Math.min(500, Math.round(n)));
+      if (Number.isFinite(n))       lookback = Math.max(10, Math.min(500, Math.round(n)));
     }
-    const predTiers = readPredictabilityTiers();
-    const usePred = predTiers.length > 0;
     return {
       lookback,
       score_model_role: readScoreModelRole("quant-score-model-role"),
@@ -1000,10 +940,6 @@ export function installBacktest(q) {
       benchmark_code: "pool",
       initial_cash: readInitialCash(),
       fill_clock: readFillClock(),
-      use_predictability_tiers: usePred,
-      predictability_tiers: usePred ? predTiers : null,
-      // 分档 Holdout 与 ŷ_oo 拟合卡解耦；回测只复用枢纽 last，不再对齐拟合卡 Holdout
-      predictability_head: "oo",
       price_space_gate: readPriceSpaceGate(),
       ...readReplayLots(),
       ...readFusionWeights(),
@@ -1436,7 +1372,7 @@ export function installBacktest(q) {
     return bits.filter(Boolean).join(" · ");
   }
 
-  /** 调仓回测状态里的窗口 / 分档 / 成交钟 / 模型槽 / 本金。 */
+  /** 调仓回测状态里的窗口 / 成交钟 / 模型槽 / 本金。 */
   function portfolioRunContextLabel(params) {
     const p = params || readPortfolioBtParams();
     const cash = Number(p.initial_cash);
@@ -1444,13 +1380,9 @@ export function installBacktest(q) {
       ? String(cash / 10000).replace(/\.0$/, "")
       : "20";
     const roleLbl = p.score_model_role === "live" ? "执行" : "研究";
-    const tiers = Array.isArray(p.predictability_tiers) ? p.predictability_tiers : [];
-    const usePred = p.use_predictability_tiers === true || tiers.length > 0;
-    const tierBit = usePred ? `分档${tiers.join("") || "A"}` : "";
     const days = Number(p.lookback);
     return [
       Number.isFinite(days) && days > 0 ? `${Math.round(days)}日` : "",
-      tierBit,
       p.fill_clock || "",
       roleLbl,
       `本金${cashWan}万`,
@@ -1525,8 +1457,6 @@ export function installBacktest(q) {
         fill_clock,
         lot_base_amount,
         lot_strong_amount,
-        use_predictability_tiers,
-        predictability_tiers,
         price_space_gate,
       } = readPortfolioBtParams();
       const enterThresh = fuse_enter;
@@ -1543,8 +1473,6 @@ export function installBacktest(q) {
         score_model_role,
         fill_clock,
         initial_cash,
-        use_predictability_tiers,
-        predictability_tiers,
       });
       rememberPortfolioRunContext(ctx);
       persistReplayDeskPrefs();
@@ -1572,11 +1500,6 @@ export function installBacktest(q) {
         fill_clock,
         lot_base_amount,
         lot_strong_amount,
-        use_predictability_tiers: !!use_predictability_tiers,
-        predictability_tiers: use_predictability_tiers
-          ? predictability_tiers || ["A"]
-          : null,
-        predictability_head: "oo",
         price_space_gate,
         include_benchmark: true,
       };
@@ -2557,18 +2480,6 @@ export function installBacktest(q) {
     });
   }
 
-  function wirePredTierChecks() {
-    for (const id of ["quant-pred-tier-a", "quant-pred-tier-b", "quant-pred-tier-c"]) {
-      const el = document.getElementById(id);
-      if (!el || el.dataset.wired === "1") continue;
-      el.dataset.wired = "1";
-      el.addEventListener("change", () => {
-        persistReplayDeskPrefs();
-        syncLivePredTiersFromDesk();
-      });
-    }
-  }
-
   hydrateT0BtLastLeg1Slider();
   wireT0SectionFold();
   wireReplayT0Pool();
@@ -2576,15 +2487,12 @@ export function installBacktest(q) {
   wireReplayFillClock();
   wireReplayPriceSpaceGate();
   wireReplayModelRole();
-  wirePredTierChecks();
   if (typeof window !== "undefined") {
     window.addEventListener("quantlab-replay-desk-persist", () => persistReplayDeskPrefs());
   }
   initExecutionRuleForms()
     .then(() => {
-      const restored = restoreReplayDeskPrefs();
-      // 无本地偏好时也按当前勾选同步 live（默认 A）
-      if (!restored) syncLivePredTiersFromDesk();
+      restoreReplayDeskPrefs();
     })
     .catch(() => {});
 

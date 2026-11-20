@@ -120,31 +120,18 @@ class TestBenchmarkFlat(unittest.TestCase):
         self.assertTrue(summary.get("ok"))
         self.assertEqual(summary.get("benchmark_label"), "观察池A档等权")
 
-    def test_resolve_tier_a_benchmark_bars_filters(self):
-        from unittest.mock import patch
-
+    def test_resolve_tier_a_benchmark_bars_keeps_full_pool(self):
         from core.backtest.topk_benchmark import resolve_tier_a_benchmark_bars
 
         flat = [{"date": "2024-01-01", "close": 10.0}, {"date": "2024-01-02", "close": 11.0}]
         stock_bars = {"000001": flat, "000002": flat, "000003": flat}
-        fake_rep = {
-            "success": True,
-            "rows": [
-                {"code": "000001", "tier": "A"},
-                {"code": "000002", "tier": "B"},
-                {"code": "000003", "tier": "A"},
-            ],
-        }
-        with patch(
-            "core.research.predictability_tiers.load_predictability_tiers_last",
-            return_value=fake_rep,
-        ):
-            out, meta = resolve_tier_a_benchmark_bars(
-                stock_bars, lookback=10, load_missing=False
-            )
-        self.assertEqual(set(out.keys()), {"000001", "000003"})
-        self.assertEqual(meta.get("label"), "观察池A档等权")
-        self.assertEqual(meta.get("n_used"), 2)
+        out, meta = resolve_tier_a_benchmark_bars(
+            stock_bars, lookback=10, load_missing=False
+        )
+        self.assertEqual(set(out.keys()), set(stock_bars))
+        self.assertEqual(meta.get("label"), "观察池等权")
+        self.assertEqual(meta.get("n_used"), 3)
+        self.assertEqual(meta.get("source"), "universe")
 
 class TestAmountFilter(unittest.TestCase):
     def test_pctile_drops_thin(self):

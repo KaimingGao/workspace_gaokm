@@ -15,8 +15,8 @@ _OO_FIT_RUNNING = False
 def resolve_replay_candidates(
     codes: Optional[Sequence[str]] = None,
 ) -> Dict[str, Any]:
-    """解析回测候选：显式 codes，否则 validation_universe（观察池，或 include_only）。"""
-    from core.validation_universe import resolve_validation_codes
+    """调仓回测候选：显式 codes，否则沪深300。``include_only`` 仍可收成指定名单。"""
+    from core.validation_universe import load_validation_universe, resolve_validation_codes
 
     if codes:
         cleaned = [str(c).strip() for c in codes if str(c).strip()]
@@ -25,34 +25,29 @@ def resolve_replay_candidates(
             "codes": cleaned,
             "count": len(cleaned),
             "source": "explicit",
-            "excluded": [],
-            "watching_count": None,
         }
 
-    watching: List[str] = []
-    try:
-        from core.watching.store import read_watching
+    uni = load_validation_universe()
+    include = [str(c).strip() for c in (uni.get("include_only") or []) if str(c).strip()]
+    if include:
+        return resolve_validation_codes(watching_codes=[], universe=uni)
 
-        watching = [
-            str(c).strip()
-            for c in (read_watching().get("watchlist") or [])
-            if str(c).strip()
-        ]
-    except FileNotFoundError:
+    from core.universe.feature_sets import codes_for_feature_set
+
+    hs = codes_for_feature_set("hs300", fetch=False)
+    if len(hs) < 50:
         return {
             "ok": False,
-            "error": "watching.json 不存在且无 codes",
+            "error": "沪深300成分未就绪",
             "codes": [],
             "count": 0,
-            "source": "missing_watching",
-            "excluded": [],
-            "watching_count": 0,
+            "source": "hs300",
         }
-
-    resolved = resolve_validation_codes(watching_codes=watching)
     return {
-        **resolved,
-        "watching_count": len(watching),
+        "ok": True,
+        "codes": list(hs),
+        "count": len(hs),
+        "source": "hs300",
     }
 
 
@@ -87,10 +82,6 @@ class QuantReplayMixin:
         fill_clock: str = "09:30",
         lot_base_amount: Optional[float] = None,
         lot_strong_amount: Optional[float] = None,
-        use_predictability_tiers: bool = False,
-        predictability_tiers: Optional[Sequence[str]] = None,
-        holdout_trading_days: Optional[int] = None,
-        predictability_head: str = "oo",
         price_space_gate: Optional[bool] = None,
         score_model_role: Optional[str] = None,
         score_backend: Optional[str] = None,
@@ -124,7 +115,7 @@ class QuantReplayMixin:
         if _cancelled():
             return {"success": False, "error": "已取消", "cancelled": True}
 
-        _emit("解析观察池…")
+        _emit("解析候选…" if codes else "解析沪深300…")
         resolved = resolve_replay_candidates(codes)
         if not resolved.get("ok", True) and resolved.get("error"):
             return {"success": False, "error": resolved["error"], "universe": resolved}
@@ -132,9 +123,10 @@ class QuantReplayMixin:
         if not candidates:
             return {
                 "success": False,
-                "error": "验证宇宙为空（检查 watching / validation_universe）",
+                "error": resolved.get("error") or "沪深300成分为空",
                 "universe": resolved,
             }
+        pool_name = "沪深300" if resolved.get("source") == "hs300" else "名单"
 
         fit_meta: Dict[str, Any] = {
             "unrestricted": True,
@@ -146,139 +138,9 @@ class QuantReplayMixin:
 
         backend = normalize_rebalance_score_backend(score_backend)
 
-        pred_meta: Dict[str, Any] = {"enabled": False}
         effective_lookback = int(lookback)
         tradable_codes = None
-        tradable_reject_reason = "可预测性分档外"
-        if use_predictability_tiers:
-            from core.research.predictability_tiers import (
-                load_predictability_tiers_last,
-                tier_code_set,
-                validate_predictability_tiers_report,
-            )
-
-            tier_rep = load_predictability_tiers_last()
-            if not isinstance(tier_rep, dict) or not tier_rep.get("success"):
-                return {
-                    "success": False,
-                    "error": "无枢纽分档报告；请先在研究枢纽跑「股票分档」（60 日猜涨 lift 定档）",
-                    "universe": resolved,
-                }
-            hold_n_req = (
-                int(holdout_trading_days)
-                if holdout_trading_days is not None
-                else None
-            )
-            gate = validate_predictability_tiers_report(
-                tier_rep,
-                holdout_n=hold_n_req,
-                pool_codes=candidates,
-                require_pool_fp=True,
-            )
-            if not gate.get("ok"):
-                return {
-                    "success": False,
-                    "error": gate.get("error")
-                    or "分档报告校验失败；请重跑「股票分档」",
-                    "universe": resolved,
-                    "predictability_gate": gate,
-                }
-            last_hold = tier_rep.get("holdout_n")
-            allowed = [
-                str(t).strip().upper()
-                for t in (predictability_tiers or ["A"])
-                if str(t or "").strip()
-            ] or ["A"]
-            _emit(f"复用枢纽分档 · 回测 lookback={int(lookback)}日…")
-            keep = tier_code_set(tier_rep, allowed)
-            n_before = len(candidates)
-            filtered = [c for c in candidates if c in keep]
-            tradable_codes = set(filtered)
-            try:
-                hold_n = (
-                    int(last_hold)
-                    if last_hold is not None
-                    else (
-                        int(hold_n_req) if hold_n_req is not None else None
-                    )
-                )
-            except (TypeError, ValueError):
-                hold_n = None
-            tier_dates = [
-                str(d).strip()[:10]
-                for d in (tier_rep.get("tier_dates") or [])
-                if str(d or "").strip()
-            ]
-            if len(filtered) < 1:
-                return {
-                    "success": False,
-                    "error": (
-                        f"允许档内无标的（允许 {''.join(allowed)}；"
-                        f"A{(tier_rep.get('counts') or {}).get('A', 0)}"
-                        f"/B{(tier_rep.get('counts') or {}).get('B', 0)}"
-                        f"/C{(tier_rep.get('counts') or {}).get('C', 0)}）"
-                    ),
-                    "universe": resolved,
-                    "predictability_tiers": {
-                        "enabled": True,
-                        "protocol": "hub_tier_gate",
-                        "reused_hub": True,
-                        "holdout_n": hold_n,
-                        "tier_n": tier_rep.get("tier_n") or len(tier_dates),
-                        "tier_dates": tier_dates,
-                        "as_of_tier_last": tier_rep.get("as_of_tier_last"),
-                        "as_of_eval_last": tier_rep.get("as_of_eval_last")
-                        or gate.get("as_of_eval_last"),
-                        "pool_codes_fp": tier_rep.get("pool_codes_fp")
-                        or gate.get("pool_codes_fp"),
-                        "lookback": int(lookback),
-                        "allowed_tiers": allowed,
-                        "counts": (tier_rep.get("counts") if isinstance(tier_rep, dict) else None),
-                        "n_in": n_before,
-                        "n_out": 0,
-                        "n_z": n_before,
-                        "n_scored": 0,
-                    },
-                }
-            # 截面 z 用整段候选池；ŷ 与名次只写允许档。分档外不开仓，并清掉不在允许档的持仓。
-            effective_lookback = max(1, int(lookback))
-            tier_label = "".join(allowed)
-            pred_meta = {
-                "enabled": True,
-                "protocol": "hub_tier_gate",
-                "reused_hub": True,
-                "holdout_n": hold_n,
-                "tier_n": tier_rep.get("tier_n") or len(tier_dates),
-                "lookback": effective_lookback,
-                "tier_dates": tier_dates,
-                "as_of_tier_last": tier_rep.get("as_of_tier_last"),
-                "as_of_eval_last": tier_rep.get("as_of_eval_last")
-                or gate.get("as_of_eval_last"),
-                "pool_codes_fp": tier_rep.get("pool_codes_fp")
-                or gate.get("pool_codes_fp"),
-                "allowed_tiers": allowed,
-                "head": tier_rep.get("head") or str(predictability_head or "oo"),
-                "counts": tier_rep.get("counts") if isinstance(tier_rep, dict) else None,
-                "n_in": n_before,
-                "n_out": len(filtered),
-                "n_z": n_before,
-                "n_scored": len(filtered),
-                "note": (
-                    "截面 z 用整段观察池（n_z）；ŷ 与名次只写允许档（n_scored）。"
-                    "分档外不开仓，并清掉不在允许档的持仓。"
-                    "回测天数=请求 lookback（与 Holdout 独立）。"
-                ),
-            }
-            fit_meta = {
-                "unrestricted": False,
-                "predictability_tiers": allowed,
-                "n_in": n_before,
-                "n_out": len(filtered),
-                "n_z": n_before,
-                "n_scored": len(filtered),
-                "note": "截面 z 用整段候选池；ŷ 与名次只写允许档；档外不开仓",
-                "tradable_reject_reason": f"可预测性非{tier_label}档",
-            }
+        tradable_reject_reason = ""
 
         if _cancelled():
             return {"success": False, "error": "已取消", "cancelled": True}
@@ -457,7 +319,7 @@ class QuantReplayMixin:
                 return {
                     "success": False,
                     "error": (
-                        f"回测时间 {clock} 需要 5 分钟 K，观察池无可用分钟缓存。"
+                        f"回测时间 {clock} 需要 5 分钟 K，{pool_name}无可用分钟缓存。"
                         "请先在研究页预热分钟线后再跑。"
                     ),
                     "universe": {
@@ -480,8 +342,17 @@ class QuantReplayMixin:
             materialized_consumer,
         )
 
+        from contextlib import nullcontext
+
+        from core.universe.feature_sets import feature_set_scope
+
+        score_scope = (
+            feature_set_scope("hs300")
+            if resolved.get("source") == "hs300"
+            else nullcontext()
+        )
         try:
-            with materialized_consumer():
+            with score_scope, materialized_consumer():
                 result = backtest_paper_replay(
                     stock_bars,
                     top_k=universe_n,
@@ -513,9 +384,7 @@ class QuantReplayMixin:
                     score_model_role=role,
                     score_backend=backend,
                     tradable_codes=tradable_codes,
-                    tradable_reject_reason=str(
-                        fit_meta.get("tradable_reject_reason") or tradable_reject_reason
-                    ),
+                    tradable_reject_reason=tradable_reject_reason,
                 )
         except MaterializeRequired as exc:
             # 预期缺口：交给前端物化提示，不当成 worker 崩溃
@@ -543,7 +412,6 @@ class QuantReplayMixin:
             "engine": "paper_replay",
             "lookback": int(effective_lookback),
             "lookback_requested": int(lookback),
-            "use_predictability_tiers": bool(use_predictability_tiers),
             "top_k": int(universe_n),
             "max_positions": int(universe_n),
             "paper_max_positions": int(max_positions),
@@ -579,7 +447,7 @@ class QuantReplayMixin:
                 f"w_oo={w_oo:g}；w_τc={w_τc:g}；"
                 f"门槛1/2 入场"
                 + "；"
-                f"宇宙=观察池 {universe_n} 只"
+                f"宇宙={pool_name} {universe_n} 只"
                 + ("；日分价闸开" if gate_on else "；日分价闸关")
                 + (
                     f"；名次<{int(oo_rank_max)}（未过强档）"
@@ -604,13 +472,7 @@ class QuantReplayMixin:
             "filters": filter_meta,
             "filter_dropped": filter_dropped,
             "fit_tiers": fit_meta,
-            "predictability_tiers": pred_meta if pred_meta.get("enabled") else None,
-            "note": (
-                "截面 z 用整段观察池；ŷ 与名次只写允许档；档外不开仓。"
-                "回测天数=请求 lookback（与 Holdout 独立）。"
-                if pred_meta.get("enabled")
-                else "候选=全部观察池；开加不按纸面持仓上限截断（≠研究 Top-K 独立腿）。"
-            ),
+            "note": f"候选={pool_name}；开加不按纸面持仓上限截断（≠研究 Top-K 独立腿）。",
         }
         if result.get("cancelled"):
             return result
@@ -628,15 +490,14 @@ class QuantReplayMixin:
                 bench_bars = stock_bars
                 pool_label = None
                 if bench_code.lower() in POOL_BENCH_ALIASES:
-                    _emit("挂基准（观察池A档等权）…")
+                    bench_label = "沪深300等权" if resolved.get("source") == "hs300" else "名单等权"
+                    _emit(f"挂基准（{bench_label}）…")
                     bench_bars, bench_meta = resolve_tier_a_benchmark_bars(
                         stock_bars,
                         lookback=int(effective_lookback or lookback),
                         load_missing=True,
                     )
-                    pool_label = str(
-                        (bench_meta or {}).get("label") or "观察池A档等权"
-                    )
+                    pool_label = bench_label
                     result["benchmark_universe"] = {
                         "source": (bench_meta or {}).get("source"),
                         "n_a": (bench_meta or {}).get("n_a"),

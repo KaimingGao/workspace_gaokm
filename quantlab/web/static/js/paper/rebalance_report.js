@@ -1,14 +1,6 @@
 /** Paper · 调仓预演报告渲染（从 paper.js 抽出）。 */
 
 const _V = (typeof window !== "undefined" && window.__ASSET_V__) || "dev";
-const {
-  ensurePredTierMap,
-  getPredTier,
-  predTierBadgeHtml,
-  selectedPredTiers,
-} = await import(
-  `../quant/pred_tier_ui.js?v=${encodeURIComponent(_V)}`
-);
 const { sentimentDeskBadgeHtml } = await import(
   `./rebalance_desk.js?v=${encodeURIComponent(_V)}`
 );
@@ -268,17 +260,6 @@ function orderReportRows(rows) {
   return list;
 }
 
-function filterSelectedTierRows(rows) {
-  const allow = selectedPredTiers();
-  if (!allow || !allow.length) return rows;
-  const set = new Set(allow);
-  return rows.filter((r) => {
-    const info = getPredTier(r && r.stock_code);
-    const tier = info ? String(info.tier || "").trim().toUpperCase() : "";
-    return set.has(tier);
-  });
-}
-
 function renderRebalanceReport(
   report,
   {
@@ -294,7 +275,6 @@ function renderRebalanceReport(
     emptyDetail = null,
     marketContext = null,
     matrixPreview = false,
-    tierFiltered = false,
   } = {}
 ) {
   const section = document.getElementById("paper-rebalance-section");
@@ -320,11 +300,8 @@ function renderRebalanceReport(
     emptyDetail,
     marketContext,
     matrixPreview,
-    tierFiltered,
   };
-  const allowNow = selectedPredTiers();
-  const filteredNow = !!(allowNow && allowNow.length);
-  report = orderReportRows(filteredNow ? filterSelectedTierRows(sourceRows) : sourceRows);
+  report = orderReportRows(sourceRows);
   const isAlignedSkip = (s) => {
     const r = String((s && s.reason) || "");
     return (
@@ -1062,10 +1039,6 @@ function rankOrdinal(raw, nRaw) {
           act.label
         )}</span>` +
         `</div>` +
-        `<div class="rebalance-tier" role="cell" data-code="${code}">${predTierBadgeHtml(
-          rawCode,
-          escapeText
-        )}</div>` +
         `<div class="num rebalance-prev-close" role="cell" title="上一交易日收盘价">${escapeText(
           prevCloseText
         )}</div>` +
@@ -1113,7 +1086,6 @@ function rankOrdinal(raw, nRaw) {
     `<div class="rebalance-th" role="columnheader">股票</div>` +
     `<div class="rebalance-th rebalance-th-sent" role="columnheader" title="不进 ŷ。手动执行只读 09:30 前已入库">舆情</div>` +
     `<div class="rebalance-th rebalance-th-act" role="columnheader" title="通过 = 预估可买，含已进买入但无有效报价；跳过 = 未进买入。不落账，不是盯盘的开/加/减/清。">动作</div>` +
-    `<div class="rebalance-th rebalance-th-tier" role="columnheader" title="可预测性分档（Holdout 前 60 日猜涨 lift）：A 强 / B 中 / C 弱">分档</div>` +
     `<div class="rebalance-th num" role="columnheader" title="上一交易日收盘价">昨收</div>` +
     `<div class="rebalance-th num" role="columnheader" title="当日开盘价">开盘</div>` +
     `<div class="rebalance-th num is-sortable${
@@ -1187,16 +1159,6 @@ function rankOrdinal(raw, nRaw) {
 
   scoreTips.bindHost(container, {
     scoreSelector: "[data-score-detail]",
-  });
-  void ensurePredTierMap().then(() => {
-    if (!container.isConnected) return;
-    if (!filteredNow && !tierFiltered && selectedPredTiers()) {
-      renderRebalanceReport(sourceRows, { ...viewOpts, tierFiltered: true });
-      return;
-    }
-    container.querySelectorAll(".rebalance-tier[data-code]").forEach((el) => {
-      el.innerHTML = predTierBadgeHtml(el.getAttribute("data-code") || "", escapeText);
-    });
   });
 
   paintRebalancePreviewChips({

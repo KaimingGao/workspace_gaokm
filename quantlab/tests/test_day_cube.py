@@ -52,6 +52,90 @@ class TestDayCube(unittest.TestCase):
         self.assertTrue(save_day_cube(cube))
         self.assertEqual(day_cube_status("2024-07-02", ["a", "b"], clock="open"), "ok")
 
+    def test_oo_panel_does_not_replace_existing_open_cube(self) -> None:
+        from core.research.day_cube import (
+            build_day_cube,
+            cubes_from_stacked_panel,
+            load_day_cube,
+            save_day_cube,
+        )
+        from core.research.materialize.horizon_names import open_tc_required_names
+
+        slim = {"a": {"gap_pct": 1.0}, "b": {"gap_pct": 3.0}}
+        thin = build_day_cube("2024-07-01", slim, names=["gap_pct"], clock="open")
+        self.assertTrue(save_day_cube(thin))
+        x = np.array([[1.0, 2.0], [3.0, 4.0]], dtype=np.float64)
+        kept = cubes_from_stacked_panel(
+            ["2024-07-01", "2024-07-01"],
+            ["a", "b"],
+            x,
+            ["z_oo_x", "raw_aoo_y"],
+            clock="open",
+            persist=True,
+        )
+        self.assertNotIn("2024-07-01", kept)
+        after = load_day_cube(
+            "2024-07-01", ["a", "b"], clock="open", remember=False
+        )
+        self.assertIsNotNone(after)
+        self.assertEqual(list(after.names), ["gap_pct"])
+
+        fresh = cubes_from_stacked_panel(
+            ["2024-07-03", "2024-07-03"],
+            ["a", "b"],
+            x,
+            ["z_oo_x", "raw_aoo_y"],
+            clock="open",
+            persist=True,
+        )
+        self.assertIn("2024-07-03", fresh)
+
+        tc = list(open_tc_required_names())
+        wide = np.ones((2, len(tc)), dtype=np.float64)
+        replaced = cubes_from_stacked_panel(
+            ["2024-07-01", "2024-07-01"],
+            ["a", "b"],
+            wide,
+            tc,
+            clock="open",
+            persist=True,
+        )
+        self.assertIn("2024-07-01", replaced)
+        covered = load_day_cube(
+            "2024-07-01", ["a", "b"], clock="open", remember=False
+        )
+        self.assertEqual(list(covered.names), tc)
+
+    def test_column_miss_error_names_days_inside_the_span(self) -> None:
+        from unittest import mock
+
+        from core.research.materialize.cube_z import _format_l2_miss_error
+
+        with mock.patch(
+            "core.research.materialize.cube_z._cube_disk_span",
+            return_value=("2022-07-06", "2026-11-18"),
+        ):
+            text = _format_l2_miss_error(
+                {
+                    "error": "open 立方缺 τc 列: z_τc_gap_pct",
+                    "clock": "open",
+                },
+                default_clock="open",
+            )
+        self.assertIn("覆盖 2022-07-06→2026-11-18（n=2）", text)
+        self.assertIn("其中有日期缺这些列", text)
+        self.assertNotIn("lookback", text)
+
+        with mock.patch(
+            "core.research.materialize.cube_z._cube_disk_span",
+            return_value=("2024-01-02", "2024-06-01"),
+        ):
+            early = _format_l2_miss_error(
+                {"error": "cube miss 2022-07-01|open"},
+                default_clock="open",
+            )
+        self.assertIn("请加大日线物化 lookback", early)
+
     def test_build_and_z(self) -> None:
         from core.research.day_cube import build_day_cube
         from core.research.feature_standardize import cross_section_zscore_matrix

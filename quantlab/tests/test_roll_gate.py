@@ -123,36 +123,23 @@ class TestRollGateHardening(unittest.TestCase):
         self.assertEqual(out["n"], 3)
         self.assertEqual(out["mean_ret"], 1.0)
 
-    def test_tier_a_codes_intersects_watching(self):
+    def test_pool_codes_follow_watchlist(self):
         from core.research import roll_gate as rg
 
         with mock.patch(
             "core.watching.store.read_watching",
             return_value={"watchlist": ["600000", "600001", "600002"]},
-        ), mock.patch(
-            "core.research.predictability_tiers.load_predictability_tiers_last",
-            return_value={
-                "success": True,
-                "rows": [
-                    {"code": "600000", "tier": "A"},
-                    {"code": "600001", "tier": "B"},
-                    {"code": "999999", "tier": "A"},
-                ],
-            },
         ):
-            self.assertEqual(rg._tier_a_codes(), ["600000"])
+            self.assertEqual(rg._pool_codes(), ["600000", "600001", "600002"])
 
-    def test_tier_a_codes_empty_without_report(self):
+    def test_pool_codes_empty_without_watchlist(self):
         from core.research import roll_gate as rg
 
         with mock.patch(
             "core.watching.store.read_watching",
-            return_value={"watchlist": ["600000"]},
-        ), mock.patch(
-            "core.research.predictability_tiers.load_predictability_tiers_last",
-            return_value=None,
+            return_value={"watchlist": []},
         ):
-            self.assertEqual(rg._tier_a_codes(), [])
+            self.assertEqual(rg._pool_codes(), [])
 
     def test_defaults_y_and_rank_score_min(self):
         from core.research.roll_gate import DEFAULT_RANK_SCORE_MIN, DEFAULT_Y_MIN

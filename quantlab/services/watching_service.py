@@ -170,7 +170,7 @@ class WatchingService:
 
         return write_watching(payload)
 
-    def set_max_size(self, max_size: int) -> Dict[str, Any]:
+    def set_max_size(self, max_size: int, *, compose: bool = False) -> Dict[str, Any]:
         from core.watching.store import set_watching_max_size
 
-        return set_watching_max_size(max_size)
+        return set_watching_max_size(max_size, compose=compose)

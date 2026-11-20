@@ -82,11 +82,59 @@ class TestReplayArmStamp(unittest.TestCase):
         self.assertEqual(by_code["600001"]["y_tc_rank"], 2)
         self.assertEqual(by_code["600000"]["y_oo_rank_score"], 0.4)
 
+    def test_stamp_uses_the_arm_on_each_head(self) -> None:
+        items = [{"stock_code": "600000", "y_oo": 1.0, "y_τc": 1.0}]
+        table = {
+            "heads": ["oo", "tc"],
+            "cards": {
+                "oo": {"factory": "R", "run_id": "oo-r"},
+                "tc": {"factory": "L", "run_id": "tc-l"},
+            },
+            "by_day": {
+                "2026-11-17": {
+                    "600000": {"y_oo": 0.2, "y_τc": 0.1},
+                }
+            },
+        }
+        stamp_replay_arm_day(items, table, "2026-11-17")
+        self.assertEqual(items[0]["y_oo_source"], "arm_r")
+        self.assertEqual(items[0]["y_τc_source"], "arm_l")
+        self.assertEqual(items[0]["_score_source"], "arm_l_open")
+        self.assertEqual(items[0]["arm_t"]["oo"]["factory"], "R")
+
     def test_missing_head_clears_suite_score(self) -> None:
         items = [{"stock_code": "600000", "y_oo": 3.0, "y_oo_source": "lightgbm"}]
         stamp_replay_arm_day(items, {"heads": [], "by_day": {}}, "2026-11-17")
         self.assertNotIn("y_oo", items[0])
         self.assertNotIn("y_oo_source", items[0])
+
+
+class TestHubArms(unittest.TestCase):
+    def test_missing_file_defaults_to_arm_t(self) -> None:
+        from core.research.yhat_hub_arms import read_hub_arms
+
+        with patch(
+            "core.research.yhat_hub_arms.arms_path",
+            return_value="/tmp/quantlab-missing-hub-arms.json",
+        ):
+            arms = read_hub_arms()
+        self.assertEqual(arms, {"oo": "T", "tc": "T", "oo_rank": "T", "tc_rank": "T"})
+
+    def test_write_keeps_unspecified_heads(self) -> None:
+        import os
+        import tempfile
+
+        from core.research.yhat_hub_arms import read_hub_arms, write_hub_arms
+
+        with tempfile.TemporaryDirectory() as tmp:
+            path = os.path.join(tmp, "arms.json")
+            with patch("core.research.yhat_hub_arms.arms_path", return_value=path):
+                saved = write_hub_arms({"oo": "R", "tc_rank": "lightgbm"})
+                again = read_hub_arms()
+        self.assertEqual(saved["oo"], "R")
+        self.assertEqual(saved["tc"], "T")
+        self.assertEqual(saved["tc_rank"], "L")
+        self.assertEqual(again, saved)
 
 
 class TestReplayArmRole(unittest.TestCase):
@@ -130,6 +178,45 @@ class TestReplayArmRole(unittest.TestCase):
         self.assertEqual(live["tc"], "tc-live")
         self.assertNotEqual(research["oo_rank"], live["oo_rank"])
 
+    def test_each_head_reads_its_chosen_arm(self) -> None:
+        from core.research.yhat_factory_backtest import enabled_replay_specs
+
+        seen = []
+
+        def listed(head, *, factory=None, suite=None):
+            seen.append((head, factory, suite))
+            vid = f"{head}-{factory}"
+            return {
+                "enabled_id": vid,
+                "items": [{"id": vid, "weights_ref": f"{vid}.weights"}],
+            }
+
+        def preview(head, vid, *, factory=None):
+            return {"success": True, "version": {"fit_params": {}}}
+
+        arms = {"oo": "R", "tc": "L", "oo_rank": "T", "tc_rank": "R"}
+        with patch(
+            "core.research.yhat_hub_arms.read_hub_arms",
+            return_value=arms,
+        ), patch(
+            "core.research.yhat_factory_versions.list_factory_versions",
+            side_effect=listed,
+        ), patch(
+            "core.research.yhat_factory_versions.preview_factory_version",
+            side_effect=preview,
+        ), patch(
+            "core.research.yhat_factory_weights.version_weights_dir",
+            return_value="/tmp/no-weights",
+        ), patch(
+            "core.research.yhat_factory_backtest._read_json",
+            return_value={"backend": "ridge", "factor_names": ["a"]},
+        ):
+            specs = {s["head"]: s for s in enabled_replay_specs()}
+        self.assertEqual(specs["oo"]["factory"], "R")
+        self.assertEqual(specs["tc"]["factory"], "L")
+        self.assertEqual(specs["oo_rank"]["factory"], "T")
+        self.assertEqual([factory for _head, factory, _suite in seen], ["R", "L", "T", "R"])
+
     def test_attach_skips_suite_loaders(self) -> None:
         from core.backtest.replay_scoring import _attach_open_yhat_heads
 
@@ -158,6 +245,28 @@ class TestReplayArmRole(unittest.TestCase):
             pop_replay_arm_heads(token)
         self.assertFalse(replay_uses_arm_t())
         self.assertEqual(out[0]["stock_code"], "600000")
+
+    def test_replay_score_drops_unfinished_session_day(self) -> None:
+        from core.research.yhat_factory_backtest import _bars_for_replay_score
+
+        bars = {
+            "000001": [{"date": "2026-11-19"}, {"date": "2026-11-20"}],
+            "600519": [{"date": "2026-11-19"}, {"date": "2026-11-20"}],
+        }
+        with patch(
+            "core.research.materialize.consumer.consumer_read_only",
+            return_value=True,
+        ), patch(
+            "core.research.materialize.coverage.complete_daily_as_of",
+            return_value="2026-11-19",
+        ):
+            clipped = _bars_for_replay_score(bars)
+        self.assertEqual([row["date"] for row in clipped["000001"]], ["2026-11-19"])
+        with patch(
+            "core.research.materialize.consumer.consumer_read_only",
+            return_value=False,
+        ):
+            self.assertEqual(_bars_for_replay_score(bars), bars)
 
 
 if __name__ == "__main__":

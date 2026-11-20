@@ -352,7 +352,7 @@ y_oo_fuse = fusion_w_oo·((ŷ_oo+1)/(1+rot)−1) + fusion_w_oc·ŷ_τc  # 某一
 | F3 以后 | 盘中窗以 ŷ_τ 为主 | 未做 |
 | P3 决策 bandit | 只学闸/听谁，不进 score | 未做 |
 
-**研究枢纽 UI（信息架构）**：页头路径为日线 / 分钟线（写入在数据中心）→ ŷ_oo → ŷ_τc → 排序头 → ŷ_τ30…90 → 股票分档 → 滚动验证 → 交易执行。ŷ_oo 卡内不再嵌 IC 时序。观察台 / 交易执行表列 y_oo / y_τc / fuse（y_oo_fuse）。训练：`POST /api/quant/tc-lgb`→ `tau_lgb_model.json`。
+**研究枢纽 UI（信息架构）**：页头路径为日线 / 分钟线（写入在数据中心）→ ŷ_oo → ŷ_τc → 排序头 → 滚动验证 → ŷ_τ30…90 → 交易执行。ŷ_oo 卡内不再嵌 IC 时序。观察台 / 交易执行表列 y_oo / y_τc / fuse（y_oo_fuse）。训练：`POST /api/quant/tc-lgb`→ `tau_lgb_model.json`。
 
 建模、训练面板、OOS 与字段细节见 [§2.5](#25-双层-predictedscoreŷoo-ŷτ)；盘中落地见 [§ Live 出分与旁路](#live-出分与旁路)。
 
@@ -421,7 +421,7 @@ open(t) ──y_τ(t)──► close(t) ──隔夜──► open(t+1)
 
 ## 3. 训练链（现行）
 
-日线 / 分钟面板由 `bars_*` / `minute_*` 增量物化（见 [bars-update-plan](internal/bars-update-plan.md)）；ŷ 头按 [§2.5](#25-双层-predictedscoreŷoo-ŷτ) 分标签独立训练：ŷ_oo（`oo_lgb` LightGBM）、ŷ_τc（`tc_lgb` / `tc_model_compact`）、ŷ_τ30…90（Ridge / LightGBM）。
+日线 / 分钟面板由 `bars_*` / `minute_*` 增量物化（见 [bars-update-cache](internal/bars-update-cache.md)）；ŷ 头按 [§2.5](#25-双层-predictedscoreŷoo-ŷτ) 分标签独立训练：ŷ_oo（`oo_lgb` LightGBM）、ŷ_τc（`tc_lgb` / `tc_model_compact`）、ŷ_τ30…90（Ridge / LightGBM）。
 
 产物落 `data/live/*_model.json`；OOS 与样本指纹过闸后**人工启用**，现网分研究套 / 执行套两槽（详见 §4）。
 
@@ -449,7 +449,7 @@ open(t) ──y_τ(t)──► close(t) ──隔夜──► open(t+1)
 
 **调仓回测 ŷ_oo / ŷ_τc=LightGBM**；Horizon τ30…90 已并入主卡双训（见 §4.3d）。
 
-**股票分档**（滚动验证上方「股票分档」区；工具栏 **Holdout** 默认 **60**，与 ŷ_oo 拟合 Holdout 独立，不回写自上次报告）：评测窗为 Holdout 前段，与 Holdout、与拟合窗交界各空 **1 个交易日**。定档模型只拟合评测窗之前，不覆盖研究套；交易打分仍用研究套。当场：**排序头 oo_rank / τc_rank** = 内存 **LambdaRank**；**收益头 oo / τc** = 落盘 **LightGBM**（研究套优先，缺则执行套；排序分无收益量纲，禁止用 LambdaRank 回退 abs 说涨）。收益头说涨 = 预估 > 0.05pp；排序头说涨 = 预估高于当日截面中位数。猜涨精度 = 说涨日里标签真正上涨的比例。lift = 猜涨精度 − 该票定档窗上涨日比例；有样本头等权。收益大小不进分数。单头说涨少于 **8 次**不计入该头；oo_rank 失败则整次失败，其余头软跳过；都没有则归 C。按 lift 降序取 **top A 数量→A**、**接着 B 数量→B**、其余→C。默认 A=100、B=300。表内：四头 lift + Lift_Score；档标题只留 Holdout Lift_Score 均值；KPI 平均收益率看 Holdout 等权买持。落盘 `predictability_tiers_last.json`（协议 `tier60_quad_uplift_holdout_eval`）；`/replay` 勾选同步 live 闸。回测/live 校验协议、Holdout N、评测末日新鲜度与池指纹；旧协议报告会被拒绝，须重跑分档。
+**股票分档已下线。** 研究枢纽不再跑可预测性 A/B/C。历史回测的调仓对沪深300打分成交；回测中心按所选物化截面；live 调仓对观察池全池打分。都不再按档收缩可买集，也不再把档外持仓强制清掉。排序头训练宇宙同样是整池；新落盘 `train_universe=pool`。旧报告上的 `tier_a` 只作审计，新戳会摘掉档位字段。
 
 ### 4.2 τ 打分链（层 2 · 残差头挂载）
 
@@ -490,11 +490,11 @@ score_stock(code) 续——
 
 | | |
 |--|--|
-| 训练宇宙 | 截面 z 与损失 / Holdout **均整观察池**（训练档 UI/API 已下线）。落盘 `train_universe=pool`（`zscore_universe` 恒 `pool`）。股票分档只管交易可买集，不进本头损失宇宙。拟合 `watching_limit` 默认满池（`MODEL_FIT_MAX_SIZE`；UI 走 `readWatchingLimit()`） |
+| 训练宇宙 | 截面 z 与损失 / Holdout **均整观察池**。落盘 `train_universe=pool`（`zscore_universe` 恒 `pool`）。拟合 `watching_limit` 默认满池（`MODEL_FIT_MAX_SIZE`；UI 走 `readWatchingLimit()`） |
 | 训练窗 | 允许 **100～1060** 交易日；默认 **700** |
 | Holdout | 卡头 **1～60** 交易日，默认 **20**；拟合按该值切分 |
 | 训练 | `POST /api/quant/oo-rank` 拟合写 last report（单头 LambdaRank）；标签为日截面 **稠密名次** ``0..n-1``；鲁棒默认：truncation=100、截面 z 裁 ±3、min_leaf=50、num_leaves=16、L2=5（API/UI 同默认）；人审「启用研究 / 启用执行」写入槽（须有 booster；旧 Ridge 顶层戳若同窗已有 LambdaRank 包，重新启用即可改写，不重训；无包则拒晋级），不重训 |
-| 回测 / live | 加载已启用模型（无 backend 开关），打相对分再编名次写入 `y_oo_rank`；成交明细 **oo_rank** 列。过门槛后买序按 `oo_rank_score`。`oo_rank_max` 开则未过强档另须 `max(oo_rank, τc_rank) < N`（不是 y_oo / y_τc）；fuse 过强档改看 `oo_rank_strong_max`。排序头截面 z **只吃全池 L2**（不进批现算；缺 Cube 跳过写分）。分档打开时名次只写允许档。旧落盘 `train_universe` / `zscore_universe=tier_a` 只审计 |
+| 回测 / live | 加载已启用模型（无 backend 开关），打相对分再编名次写入 `y_oo_rank`；成交明细 **oo_rank** 列。过门槛后买序按 `oo_rank_score`。`oo_rank_max` 开则未过强档另须 `max(oo_rank, τc_rank) < N`（不是 y_oo / y_τc）；fuse 过强档改看 `oo_rank_strong_max`。排序头截面 z **只吃全池 L2**（不进批现算；缺 Cube 跳过写分）。名次写全池。旧落盘 `train_universe` / `zscore_universe=tier_a` 只审计，新戳强制 `pool` |
 | OOS | **Gate lift / Gate y%**（主；研究用 `rank < N`，默认 10/100，不是调仓名次 6/12）/ **NDCG@K** / TopK；**IC** / **ICIR** / **Rank IC** 仅对照 |
 
 实现：`core/research/oo_rank_panel.py` · `core/research/oo_rank_lambdarank.py`。
@@ -514,7 +514,7 @@ score_stock(code) 续——
 | 训练 | `POST /api/quant/tc-rank` 拟合写 last report；「启用研究 / 启用执行」只落盘，不重训 |
 | 回测 / live | 按所选模型槽严格加载；缺槽不挂分。成交明细旁路名次；参与 rank 阈值（相对分）。宇宙语义与 ŷ_oo_rank 相同 |
 | OOS | 与 ŷ_oo_rank 同：Gate lift 为主；IC 类对照 |
-| 定档 | 股票分档内存 τc_rank **仍开盘面板**（独立短窗 lift，不绑研究套前缀） |
+| 定档 | 股票分档已下线。τc_rank 与 ŷ_oo_rank 一样训整观察池 |
 
 实现：`core/research/tc_rank.py`（复用 oo_rank 训练/推理内核）。
 
@@ -583,11 +583,11 @@ score_stock(code) 续——
 产品回测与 live Follow 同一套 **rank_lots**：按手数开/加/清仓（未过入场清仓，无「持」）。历史成交用 5 分钟 K（回测时间 09:30–10:00）；live 窗跟独立「启动时间」`live_fill_clock`（可含 09:25）。  
 权建议 OOS / WF 默认走轻量 `topk_oos_curve`；完整引擎在 `legacy/topk_backtest`（`full_engine=True` / 单测），**不进 `/replay`**。
 
-成功回测落盘 `data/last_portfolio_backtest.json`。打开 `/replay` 时 `GET /api/quant/last-portfolio-backtest` 恢复 KPI / 净值 / 分票贡献 / 成交账，**不重跑**；点「跑回测」才重算（默认后台 Job，进度条带日期 / 日序号 / 观察池只数）。前端轮询：进度停滞 >25 分钟才判超时（墙钟上限 6 小时）；刷新可挂回仍在跑 / 已 `done` 的任务。**表单以「保存」为准**（权重/门槛/手数写入交易执行覆盖；本金/回测窗/模型本页记住；回测 `fill_clock` 与 live `live_fill_clock` 分立），刷新不用上次回测请求盖掉已存配置。日报摘要仍走 `summarize_portfolio_backtest`，不覆盖这份落盘。
+成功回测落盘 `data/last_portfolio_backtest.json`。打开 `/replay` 时 `GET /api/quant/last-portfolio-backtest` 恢复 KPI / 净值 / 分票贡献 / 成交账，**不重跑**；点「跑回测」才重算（默认后台 Job，进度条带日期 / 日序号 / 沪深300只数）。前端轮询：进度停滞 >25 分钟才判超时（墙钟上限 6 小时）；刷新可挂回仍在跑 / 已 `done` 的任务。**表单以「保存」为准**（权重/门槛/手数写入交易执行覆盖；本金/回测窗/模型本页记住；回测 `fill_clock` 与 live `live_fill_clock` 分立），刷新不用上次回测请求盖掉已存配置。日报摘要仍走 `summarize_portfolio_backtest`，不覆盖这份落盘。
 
-**日线加载**：观察池日 K 经 `load_portfolio_stock_bars` **单连接批量**读 `bars.db`（可 `max_bars` 截尾）；勿用多线程并发扫同一库。进度拆成「读本地日线 → 日线已就绪 → 过滤宇宙 → 准备成交参数」。剔 ST 只用观察池已存名（`watchlist_names`），**不**逐只 `get_quote`；缺名则保留。
+**日线加载**：沪深300日 K 经 `load_portfolio_stock_bars` **单连接批量**读 `bars.db`（可 `max_bars` 截尾）；勿用多线程并发扫同一库。进度拆成「读本地日线 → 日线已就绪 → 过滤宇宙 → 准备成交参数」。剔 ST 只用观察池已存名（`watchlist_names`），**不**逐只 `get_quote`；缺名则保留。
 
-**开盘日打分缓存**（`data/cache/replay_scores/`，schema **v8**）：按观察池**代码集合** + 研究/执行套模型**内容**指纹分目录（含 oo_rank / tc_rank，故 `zscore_universe` / `tier_codes` 变更会换 `run_key`），每日 `_score_open_day` 另存该日开盘信息集指纹（昨收窗**全量** bar 屑 + **今开**；开跑预计算、顺序回测滑动窗）。缓存行含 **ŷ、oo_rank / τc_rank**；小名单另可带 ŷ/rank **因子组成**（全池批量打分跳过 pred_contrib，成交/续持 tip 在 plan 后懒补，不依赖缓存里有组成）。09:30 命中整包复用；勿在命中后再单独重挂 τc_rank。v7 只写了 τc_rank、v6 只有名次，不读。**命中不重写**；miss 或指纹变了才 `save_day`。改 fuse / 手数 / 本金 / 融合权重、或日线 tip 多一天再跑，历史日可复用；换模型内容、换观察池名单、改某日窗内任意 K、改 `max_window`、改分档可打分集则 miss / 新 `run_key`。`fill_clock≠09:30` 时走 `refresh_tau_heads_after_prefix`（前缀 ŷ_τc + 重挂 τc_rank，z 缩可交易；不进缓存）。`QUANTLAB_REPLAY_SCORE_CACHE=0` 关闭。写入新 `run_key` 时自动裁剪：同 schema 默认保留最近 20 个目录（`QUANTLAB_REPLAY_SCORE_CACHE_KEEP`，`0`=不裁剪），并删除更旧 schema（如 `v5/`）。
+**开盘日打分缓存**（`data/cache/replay_scores/`，schema **v8**）：按沪深300**代码集合** + 研究/执行套模型**内容**指纹分目录（含 oo_rank / tc_rank，故 `zscore_universe` / `tier_codes` 变更会换 `run_key`），每日 `_score_open_day` 另存该日开盘信息集指纹（昨收窗**全量** bar 屑 + **今开**；开跑预计算、顺序回测滑动窗）。缓存行含 **ŷ、oo_rank / τc_rank**；小名单另可带 ŷ/rank **因子组成**（全池批量打分跳过 pred_contrib，成交/续持 tip 在 plan 后懒补，不依赖缓存里有组成）。09:30 命中整包复用；勿在命中后再单独重挂 τc_rank。v7 只写了 τc_rank、v6 只有名次，不读。**命中不重写**；miss 或指纹变了才 `save_day`。改 fuse / 手数 / 本金 / 融合权重、或日线 tip 多一天再跑，历史日可复用；换模型内容、换沪深300成分、改某日窗内任意 K、改 `max_window`、改分档可打分集则 miss / 新 `run_key`。`fill_clock≠09:30` 时走 `refresh_tau_heads_after_prefix`（前缀 ŷ_τc + 重挂 τc_rank，z 缩可交易；不进缓存）。`QUANTLAB_REPLAY_SCORE_CACHE=0` 关闭。写入新 `run_key` 时自动裁剪：同 schema 默认保留最近 20 个目录（`QUANTLAB_REPLAY_SCORE_CACHE_KEEP`，`0`=不裁剪），并删除更旧 schema（如 `v5/`）。
 
 **一日分数包三态**（禁止第三处偷偷 `apply_*`）：
 
@@ -813,7 +813,7 @@ A 改进「估得准」；B 改进「做得对」。北极星乘积两者都要�
 | **物化写穿** | 物化写入时日线新于湖必须重算（`allow_l1_end_lag()=False`），禁止只切交集仍报成功 | [internal/feature-lake-daycube.md](internal/feature-lake-daycube.md) |
 | **舆情标签** | 读 `news.db` 决策窗标签写表列；规则栏已下掉软先验闸；不进 ŷ | [component/risk.md](component/risk.md#舆情与另类数据sentiment-altdata) |
 | **今日收益** | `当前净值 − session_nav[昨收]`；快照裁剪后仍可对账 | [rebalance-logic.md](rebalance-logic.md) · [quant-ui.md](quant-ui.md) `/follow` |
-| **滚动验证** | 研究枢纽 Walk-forward 相对分闸（默认 **A 档**；ŷ>0.5% ∧ `rank_score>0.5` · `top_n=10` 等权）；Job `roll-gate`；不写模型 | [quant-ui.md](quant-ui.md) `#quant-section-roll-gate` |
+| **滚动验证** | 研究枢纽 Walk-forward 相对分闸（观察池；ŷ>0.5% ∧ `rank_score>0.5` · `top_n=10` 等权）；Job `roll-gate`；不写模型 | [quant-ui.md](quant-ui.md) `#quant-section-roll-gate` |
 
 <a id="13-盘中剩余收益头intraday-residual方案"></a>
 

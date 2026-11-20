@@ -32,6 +32,15 @@ os.environ.setdefault("KMP_DUPLICATE_LIB_OK", "TRUE")
 os.environ.setdefault("OMP_NUM_THREADS", "1")
 os.environ.setdefault("MKL_NUM_THREADS", "1")
 
+# 排序 Arm·L：truncation=30，120 棵，深度 5，叶子 32，subsample=0.85，colsample=0.9，L2=1。
+_ARM_L_RANK_N_ESTIMATORS = 120
+_ARM_L_RANK_MAX_DEPTH = 5
+_ARM_L_RANK_NUM_LEAVES = 32
+_ARM_L_RANK_SUBSAMPLE = 0.85
+_ARM_L_RANK_COLSAMPLE = 0.9
+_ARM_L_RANK_L2 = 1.0
+_ARM_L_RANK_TRUNCATION = 30
+
 
 def _parse_codes(raw: Optional[str]) -> Optional[List[str]]:
     if not raw:
@@ -547,7 +556,10 @@ def _run_arm_l_rank(
     head_id: str = "oo_rank",
     t0: float,
 ) -> Dict[str, Any]:
-    """排序 Arm·L：日包 ``fit_lambdarank``（threads=1，≥5 个交易日，L2 截面 Z）。
+    """排序 Arm·L：日包 ``fit_lambdarank``。
+
+    truncation=30，120 棵，深度 5，叶子 32，subsample=0.85，colsample=0.9，L2=1。
+    threads=1，至少 5 个交易日，特征走截面立方 z。
 
     ŷ_τc_rank 的截面列已在 ``collect_tau_compact`` 里。这里只按枢纽列过滤
     （丢掉分钟列和别名，留下有限 raw_atc）。不把 booster 写入研究枢纽槽。
@@ -593,11 +605,25 @@ def _run_arm_l_rank(
         )
     print(
         f"  ArmL fit start head={hid} objective=lambdarank "
+        f"truncation={_ARM_L_RANK_TRUNCATION} trees={_ARM_L_RANK_N_ESTIMATORS} "
+        f"depth={_ARM_L_RANK_MAX_DEPTH} leaves={_ARM_L_RANK_NUM_LEAVES} "
+        f"subsample={_ARM_L_RANK_SUBSAMPLE} colsample={_ARM_L_RANK_COLSAMPLE} "
+        f"l2={_ARM_L_RANK_L2:g} "
         f"groups={len(days_tr)} F={len(names)} threads=1 rss={_rss_mb()}",
         flush=True,
     )
     try:
-        fit = fit_lambdarank(days_tr, feature_names=names)
+        fit = fit_lambdarank(
+            days_tr,
+            feature_names=names,
+            n_estimators=_ARM_L_RANK_N_ESTIMATORS,
+            max_depth=_ARM_L_RANK_MAX_DEPTH,
+            num_leaves=_ARM_L_RANK_NUM_LEAVES,
+            subsample=_ARM_L_RANK_SUBSAMPLE,
+            colsample_bytree=_ARM_L_RANK_COLSAMPLE,
+            l2=_ARM_L_RANK_L2,
+            truncation_level=_ARM_L_RANK_TRUNCATION,
+        )
     except MemoryError:
         return {
             "arm": "L_lambdarank",
@@ -680,9 +706,23 @@ def _run_arm_l_rank(
             "elapsed_sec": round(time.time() - t0, 2),
             "rss_mb": _rss_mb(),
             "note": (
-                "live fit_lambdarank day-pack · num_threads=1 · L2 cube CS-z "
+                "live fit_lambdarank day-pack · num_threads=1 · cube CS-z "
+                f"truncation={_ARM_L_RANK_TRUNCATION} "
+                f"trees={_ARM_L_RANK_N_ESTIMATORS} "
+                f"depth={_ARM_L_RANK_MAX_DEPTH} "
+                f"leaves={_ARM_L_RANK_NUM_LEAVES} "
+                f"subsample={_ARM_L_RANK_SUBSAMPLE} "
+                f"colsample={_ARM_L_RANK_COLSAMPLE} "
+                f"l2={_ARM_L_RANK_L2:g} "
                 f"(head={hid})"
             ),
+            "lambdarank_truncation_level": int(_ARM_L_RANK_TRUNCATION),
+            "n_estimators": int(_ARM_L_RANK_N_ESTIMATORS),
+            "max_depth": int(_ARM_L_RANK_MAX_DEPTH),
+            "num_leaves": int(_ARM_L_RANK_NUM_LEAVES),
+            "subsample": float(_ARM_L_RANK_SUBSAMPLE),
+            "colsample_bytree": float(_ARM_L_RANK_COLSAMPLE),
+            "l2": float(_ARM_L_RANK_L2),
             "max_train_cap": int(max_tr),
             "live_aligned": True,
         }
@@ -696,12 +736,379 @@ def _run_arm_l_rank(
             "factor_names": list(names),
             "solver": str(fit.get("solver") or "lambdarank"),
             "z_clip": fit.get("z_clip"),
+            "lambdarank_truncation_level": int(_ARM_L_RANK_TRUNCATION),
+            "n_estimators": int(_ARM_L_RANK_N_ESTIMATORS),
+            "max_depth": int(_ARM_L_RANK_MAX_DEPTH),
+            "num_leaves": int(_ARM_L_RANK_NUM_LEAVES),
+            "subsample": float(_ARM_L_RANK_SUBSAMPLE),
+            "colsample_bytree": float(_ARM_L_RANK_COLSAMPLE),
+            "l2": float(_ARM_L_RANK_L2),
             "seed": None,
             **span,
         },
     )
     del fit, X
     gc.collect()
+    return metrics
+
+
+def _fit_arm_r_like_hub(
+    fac,
+    X,
+    y: np.ndarray,
+    names: Sequence[str],
+    dates: Sequence[str],
+    tr_pos: Sequence[int],
+    te_pos: Sequence[int],
+    *,
+    hid: str,
+    ridge_alpha: float,
+    t0: float,
+) -> Dict[str, Any]:
+    """回归头与 main 的 ``fit_oo_ridge_matrix`` 同口径。
+
+    先丢稀疏列、真常数和覆盖不够的列，再做趋势族共线剔除。只留每一列都有数的行。
+    这些行对齐 L2 后做截面 z。Holdout 打分缺测不加项，整行都缺则不进指标。
+    """
+    from core.research.materialize.consumer import MaterializeRequired
+    from core.research.oo_model_compact import fit_oo_ridge_matrix, predict_oo_matrix
+
+    note = "Ridge · 枢纽同口径 · 完整行 · 缺测跳过"
+    try:
+        model, report = fit_oo_ridge_matrix(
+            np.asarray(X),
+            y,
+            names,
+            row_idx=list(tr_pos),
+            horizon_days=1,
+            ridge_lambda=float(ridge_alpha),
+            min_samples=24,
+            row_dates=list(dates),
+            cross_section_zscore=True,
+        )
+    except MaterializeRequired as exc:
+        return {
+            "arm": "R_ridge",
+            "success": False,
+            "error": f"MaterializeRequired: {exc}",
+            "elapsed_sec": round(time.time() - t0, 2),
+            "head": hid,
+            "note": note,
+        }
+    report = report if isinstance(report, dict) else {}
+    if model is None or not report.get("success"):
+        return {
+            "arm": "R_ridge",
+            "success": False,
+            "error": str(report.get("error") or "Ridge 求解失败"),
+            "elapsed_sec": round(time.time() - t0, 2),
+            "head": hid,
+            "n_train": int(report.get("sample_count") or 0),
+            "note": note,
+        }
+    coef_map = {
+        str(k): float(v) for k, v in dict(getattr(model, "coefficients", {}) or {}).items()
+    }
+    active = [str(n) for n in (report.get("active_features") or []) if str(n) in coef_map]
+    if not active:
+        active = list(coef_map.keys())
+    coef = [coef_map[n] for n in active]
+    if not coef:
+        return {
+            "arm": "R_ridge",
+            "success": False,
+            "error": "Ridge 入模列为空",
+            "elapsed_sec": round(time.time() - t0, 2),
+            "head": hid,
+            "note": note,
+        }
+    intercept = float(getattr(model, "intercept", 0.0) or 0.0)
+    n_train = int(report.get("sample_count") or 0)
+    excluded = [str(n) for n in (report.get("excluded_features") or [])]
+    print(
+        f"  ArmR fit done n_train_fit={n_train} F={len(active)} "
+        f"excluded={len(excluded)} {time.time() - t0:.1f}s rss={_rss_mb()}",
+        flush=True,
+    )
+    try:
+        raw_preds = predict_oo_matrix(
+            model,
+            np.asarray(X),
+            names,
+            list(te_pos),
+            row_dates=list(dates),
+        )
+    except MaterializeRequired as exc:
+        return {
+            "arm": "R_ridge",
+            "success": False,
+            "error": f"MaterializeRequired: {exc}",
+            "elapsed_sec": round(time.time() - t0, 2),
+            "head": hid,
+            "n_train": n_train,
+            "note": note,
+        }
+    preds: List[float] = []
+    ys: List[float] = []
+    metas: List[dict] = []
+    n_miss = 0
+    for i, fv in zip(te_pos, raw_preds):
+        if fv is None:
+            n_miss += 1
+            continue
+        yy = float(y[i])
+        val = float(fv)
+        if not np.isfinite(val) or not np.isfinite(yy):
+            n_miss += 1
+            continue
+        preds.append(val)
+        ys.append(yy)
+        metas.append(
+            {
+                "code": str(fac.codes[i]),
+                "date": str(fac.dates[i])[:10],
+                "decision_date": str(fac.dates[i])[:10],
+            }
+        )
+    if not preds:
+        return {
+            "arm": "R_ridge",
+            "success": False,
+            "error": f"holdout preds empty (soft_miss={n_miss})",
+            "n_train": n_train,
+            "n_test": len(te_pos),
+            "elapsed_sec": round(time.time() - t0, 2),
+            "note": note,
+        }
+    metrics = _eval_pack(preds, ys, metas)
+    metrics.update(
+        {
+            "arm": "R_ridge",
+            "success": True,
+            "n_features": len(active),
+            "n_excluded": len(excluded),
+            "n_train": n_train,
+            "n_test": len(te_pos),
+            "n_eval": len(preds),
+            "n_pred_miss": int(n_miss),
+            "elapsed_sec": round(time.time() - t0, 2),
+            "rss_mb": _rss_mb(),
+            "note": note,
+            "ridge_alpha": float(ridge_alpha),
+            "live_aligned": False,
+        }
+    )
+    span = _eval_span([str(fac.dates[i]) for i in te_pos])
+    _try_save_ridge(
+        {
+            "alpha": float(ridge_alpha),
+            "intercept": intercept,
+            "coef": coef,
+            "feature_names": list(active),
+        },
+        {
+            "head": hid,
+            "factor_pack": _factor_pack(hid, None),
+            "factor_names": list(active),
+            "solver": "ridge",
+            "alpha": float(ridge_alpha),
+            "intercept": intercept,
+            "z_clip": None,
+            "missing": "skip",
+            "task": "regression",
+            "seed": None,
+            **span,
+        },
+    )
+    return metrics
+
+
+def _fit_arm_r_tc(
+    fac,
+    X,
+    y: np.ndarray,
+    names: Sequence[str],
+    dates: Sequence[str],
+    tr_pos: Sequence[int],
+    te_pos: Sequence[int],
+    *,
+    hid: str,
+    ridge_alpha: float,
+    t0: float,
+) -> Dict[str, Any]:
+    """ŷ_τc 与 main 的 ``fit_keepall_ridge_matrix`` 同口径。
+
+    共线列保留。主题日样本权 1.5，其余 1。Holdout 上任一入模列缺测，整行不进指标。
+    """
+    from core.research.materialize.consumer import MaterializeRequired
+    from core.research.panel_matrix import fit_keepall_ridge_matrix, predict_ridge_matrix
+    from core.signal.factors.sum_identity import filter_predict_active_names
+
+    note = "Ridge · τc 枢纽同口径 · 共线保留 · 主题日×1.5 · 缺列整行不算"
+    tr_ii = np.asarray(list(tr_pos), dtype=np.int64)
+    te_ii = np.asarray(list(te_pos), dtype=np.int64)
+    x_arr = np.asarray(X, dtype=np.float64)
+    y_tr = np.asarray(y, dtype=np.float64)[tr_ii]
+    dates_tr = [str(dates[i])[:10] for i in tr_pos]
+    theme_all = _theme_weights_from_panel(x_arr, names)
+    weights = None
+    if theme_all is not None and int(theme_all.shape[0]) == int(x_arr.shape[0]):
+        weights = [float(v) for v in np.asarray(theme_all, dtype=np.float64)[tr_ii].tolist()]
+    try:
+        fit = fit_keepall_ridge_matrix(
+            x_arr[tr_ii],
+            y_tr,
+            names,
+            ridge_lambda=float(ridge_alpha),
+            sample_weights=weights,
+            row_dates=dates_tr,
+            cross_section_zscore=True,
+        )
+    except MaterializeRequired as exc:
+        return {
+            "arm": "R_ridge",
+            "success": False,
+            "error": f"MaterializeRequired: {exc}",
+            "elapsed_sec": round(time.time() - t0, 2),
+            "head": hid,
+            "note": note,
+        }
+    fit = fit if isinstance(fit, dict) else {}
+    if not fit.get("success"):
+        return {
+            "arm": "R_ridge",
+            "success": False,
+            "error": str(fit.get("error") or "Ridge 求解失败"),
+            "elapsed_sec": round(time.time() - t0, 2),
+            "head": hid,
+            "n_train": int(fit.get("sample_count") or 0),
+            "note": note,
+        }
+    coef_map = {
+        str(k): float(v)
+        for k, v in dict(fit.get("coefficients") or {}).items()
+        if v is not None
+    }
+    active = [
+        str(n)
+        for n in filter_predict_active_names(
+            fit.get("active_features") or list(coef_map.keys()),
+            coef_map,
+        )
+    ]
+    coef = [coef_map[n] for n in active if n in coef_map]
+    active = [n for n in active if n in coef_map]
+    if not coef:
+        return {
+            "arm": "R_ridge",
+            "success": False,
+            "error": "Ridge 入模列为空",
+            "elapsed_sec": round(time.time() - t0, 2),
+            "head": hid,
+            "note": note,
+        }
+    intercept = float(fit.get("intercept") or 0.0)
+    n_train = int(fit.get("sample_count") or 0)
+    excluded = [str(n) for n in (fit.get("excluded_features") or [])]
+    print(
+        f"  ArmR fit done n_train_fit={n_train} F={len(active)} "
+        f"excluded={len(excluded)} theme_weight={int(weights is not None)} "
+        f"{time.time() - t0:.1f}s rss={_rss_mb()}",
+        flush=True,
+    )
+    try:
+        raw_preds = (
+            predict_ridge_matrix(
+                fit,
+                x_arr[te_ii],
+                names,
+                row_dates=[str(dates[i])[:10] for i in te_pos],
+            )
+            if len(te_pos)
+            else []
+        )
+    except MaterializeRequired as exc:
+        return {
+            "arm": "R_ridge",
+            "success": False,
+            "error": f"MaterializeRequired: {exc}",
+            "elapsed_sec": round(time.time() - t0, 2),
+            "head": hid,
+            "n_train": n_train,
+            "note": note,
+        }
+    preds: List[float] = []
+    ys: List[float] = []
+    metas: List[dict] = []
+    n_miss = 0
+    for i, fv in zip(te_pos, raw_preds):
+        if fv is None:
+            n_miss += 1
+            continue
+        yy = float(y[i])
+        val = float(fv)
+        if not np.isfinite(val) or not np.isfinite(yy):
+            n_miss += 1
+            continue
+        preds.append(val)
+        ys.append(yy)
+        metas.append(
+            {
+                "code": str(fac.codes[i]),
+                "date": str(fac.dates[i])[:10],
+                "decision_date": str(fac.dates[i])[:10],
+            }
+        )
+    if not preds:
+        return {
+            "arm": "R_ridge",
+            "success": False,
+            "error": f"holdout preds empty (soft_miss={n_miss})",
+            "n_train": n_train,
+            "n_test": len(te_pos),
+            "elapsed_sec": round(time.time() - t0, 2),
+            "note": note,
+        }
+    metrics = _eval_pack(preds, ys, metas)
+    metrics.update(
+        {
+            "arm": "R_ridge",
+            "success": True,
+            "n_features": len(active),
+            "n_excluded": len(excluded),
+            "n_train": n_train,
+            "n_test": len(te_pos),
+            "n_eval": len(preds),
+            "n_pred_miss": int(n_miss),
+            "elapsed_sec": round(time.time() - t0, 2),
+            "rss_mb": _rss_mb(),
+            "note": note,
+            "ridge_alpha": float(ridge_alpha),
+            "live_aligned": False,
+        }
+    )
+    span = _eval_span([str(fac.dates[i]) for i in te_pos])
+    _try_save_ridge(
+        {
+            "alpha": float(ridge_alpha),
+            "intercept": intercept,
+            "coef": coef,
+            "feature_names": list(active),
+        },
+        {
+            "head": hid,
+            "factor_pack": _factor_pack(hid, None),
+            "factor_names": list(active),
+            "solver": "ridge",
+            "alpha": float(ridge_alpha),
+            "intercept": intercept,
+            "z_clip": None,
+            "missing": "complete",
+            "task": "regression",
+            "seed": None,
+            **span,
+        },
+    )
     return metrics
 
 
@@ -714,11 +1121,11 @@ def _run_arm_r(
     rank: bool = False,
     ridge_alpha: float = 1.0,
 ) -> Dict[str, Any]:
-    """Arm·R：与 Arm·L 同一份因子和 L2 立方 CS-z，求解带截距的岭回归。
+    """Arm·R。ŷ_oo 对齐枢纽隔夜 Ridge，ŷ_τc 对齐 main 的 τc Ridge。
 
-    训练窗在调用前已收到 open 立方起点。这里只给训练行和 Holdout 行打 z，
-    面板里更早的特征垫根不参与。这两段里的缺日仍 ``MaterializeRequired``。
-    排序头把训练标签换成日内稠密名次，并按 LambdaRank 同样裁 ±Z。评测仍对照实现收益。
+    训练窗在调用前已收到 open 立方起点。回归头只把训练行送进对应拟合，
+    垫根不参与。排序头只给训练行和 Holdout 行打 z，这两段里的缺日仍
+    ``MaterializeRequired``。排序头按 LambdaRank 同样裁 ±Z，评测仍对照实现收益。
     """
     import gc
 
@@ -764,6 +1171,20 @@ def _run_arm_r(
     n_rows = int(y.shape[0])
     tr_pos = [i for i in tr if 0 <= i < n_rows]
     te_pos = [i for i in te if 0 <= i < n_rows]
+    if not rank:
+        fit_head = _fit_arm_r_tc if hid == "tc" else _fit_arm_r_like_hub
+        return fit_head(
+            fac,
+            X,
+            y,
+            names,
+            dates,
+            tr_pos,
+            te_pos,
+            hid=hid,
+            ridge_alpha=float(ridge_alpha),
+            t0=t0,
+        )
     try:
         from core.research.materialize.cube_z import cs_z_matrix_prefer_cube
 
@@ -1144,7 +1565,25 @@ def _run_arm_t(seq, fac, train_idx, test_idx, args) -> Dict[str, Any]:
             f"rss={_rss_mb()}",
             flush=True,
         )
-    state, report = train_seq_factor_transformer(
+    init_state = None
+    if getattr(args, "finetune", False):
+        from core.research.yhat_factory_versions import latest_transformer_pretrain
+
+        loaded = latest_transformer_pretrain(head_id or str(getattr(args, "head", "") or ""))
+        if not loaded.get("success"):
+            return {
+                "arm": "T_transformer",
+                "success": False,
+                "error": str(loaded.get("error") or "还没有大池预训练权重"),
+                "elapsed_sec": round(time.time() - t0, 2),
+            }
+        init_state = loaded.get("state_dict")
+        print(
+            f"  ArmT finetune from {loaded.get('pretrain_run_id')}",
+            flush=True,
+        )
+    try:
+        state, report = train_seq_factor_transformer(
         seq,
         fac_X,
         train_idx,
@@ -1161,7 +1600,15 @@ def _run_arm_t(seq, fac, train_idx, test_idx, args) -> Dict[str, Any]:
         max_train_rows=max_tr,
         loss=getattr(args, "loss", "smooth_l1"),
         holdout_idx=te_ii,
-    )
+        init_state=init_state,
+        )
+    except ValueError as exc:
+        return {
+            "arm": "T_transformer",
+            "success": False,
+            "error": str(exc),
+            "elapsed_sec": round(time.time() - t0, 2),
+        }
     Xseq = report.pop("Xseq")
     gap = report.pop("gap")
     Xf = report.pop("Xf")
@@ -1192,27 +1639,27 @@ def _run_arm_t(seq, fac, train_idx, test_idx, args) -> Dict[str, Any]:
         flush=True,
     )
     span = _eval_span([row["date"] for row in te_metas])
-    _try_save_transformer(
-        state,
-        {
-            "head": head_id,
-            "factor_pack": _factor_pack(head_id, args),
-            "factor_names": names,
-            "d_seq_in": int(Xseq.shape[-1]),
-            "d_factor": int(Xf.shape[1]),
-            "d_model": int(args.d_model),
-            "nhead": int(args.nhead),
-            "nlayers": int(args.nlayers),
-            "factor_hidden": int(args.mlp_hidden or args.d_model),
-            "dropout_infer": 0.0,
-            "loss": str(getattr(args, "loss", "") or ""),
-            "rank_value_weight": report.get("rank_value_weight"),
-            "seed": int(seed),
-            "seq_clip": report.get("seq_clip"),
-            "z_clip": z_clip,
-            **span,
-        },
-    )
+    weight_meta: Dict[str, Any] = {
+        "head": head_id,
+        "factor_pack": _factor_pack(head_id, args),
+        "factor_names": names,
+        "d_seq_in": int(Xseq.shape[-1]),
+        "d_factor": int(Xf.shape[1]),
+        "d_model": int(args.d_model),
+        "nhead": int(args.nhead),
+        "nlayers": int(args.nlayers),
+        "factor_hidden": int(args.mlp_hidden or args.d_model),
+        "dropout_infer": 0.0,
+        "loss": str(getattr(args, "loss", "") or ""),
+        "rank_value_weight": report.get("rank_value_weight"),
+        "seed": int(seed),
+        "seq_clip": report.get("seq_clip"),
+        "z_clip": z_clip,
+        **span,
+    }
+    if report.get("lambdarank_truncation") is not None:
+        weight_meta["lambdarank_truncation"] = int(report["lambdarank_truncation"])
+    _try_save_transformer(state, weight_meta)
     return {
         "arm": "T_transformer",
         "success": True,
@@ -1393,11 +1840,80 @@ def _desk_mark_failed(head: str, error: str, *, factory: str = "T") -> None:
         print(f"desk 标记失败异常: {exc}", flush=True)
 
 
+def _run_pretrain_then_finetune(args: argparse.Namespace) -> int:
+    """大池预训练归档后，同一进程接着在沪深 300 上微调。"""
+    original = str(os.environ.get("YHAT_FACTORY_RUN_ID") or "")
+    pre_id = f"{original}-pre" if original else ""
+    head_id = str(args.head or "oo").strip() or "oo"
+    fac = str(getattr(args, "factory", "T") or "T")
+    if pre_id:
+        os.environ["YHAT_FACTORY_RUN_ID"] = pre_id
+    os.environ["QUANTLAB_FEATURE_SET"] = "pool"
+    args.update_desk = False
+    args.finetune = False
+    print("==== 大池预训练 ====", flush=True)
+    try:
+        code = _run_holdout(args)
+    except SystemExit as exc:
+        code = exc.code if isinstance(exc.code, int) else 1
+        if original:
+            os.environ["YHAT_FACTORY_RUN_ID"] = original
+        _desk_mark_failed(head_id, "大池预训练未完成，未开始沪深300微调", factory=fac)
+        return int(code) if isinstance(code, int) else 1
+    if code != 0:
+        if original:
+            os.environ["YHAT_FACTORY_RUN_ID"] = original
+        _desk_mark_failed(head_id, "大池预训练未完成，未开始沪深300微调", factory=fac)
+        return int(code)
+    sealed = False
+    try:
+        from core.research.yhat_tf_desk import factory_scope, seal_chain_pretrain
+
+        summary = getattr(args, "holdout_summary", None)
+        with factory_scope("T"):
+            sealed = bool(
+                seal_chain_pretrain(
+                    head_id,
+                    run_id=pre_id or original,
+                    factory="T",
+                    summary=summary if isinstance(summary, dict) else None,
+                )
+            )
+    except Exception as exc:  # noqa: BLE001
+        print(f"预训练权重未归档：{exc}", flush=True)
+        sealed = False
+    if original:
+        os.environ["YHAT_FACTORY_RUN_ID"] = original
+    if not sealed:
+        _desk_mark_failed(head_id, "大池预训练权重未保存，未开始沪深300微调", factory=fac)
+        return 1
+    from core.universe.feature_sets import codes_for_feature_set
+
+    hs = codes_for_feature_set("hs300", fetch=False)
+    if len(hs) < 2:
+        _desk_mark_failed(head_id, "沪深300成分未就绪，微调未开始", factory=fac)
+        return 2
+    os.environ["QUANTLAB_FEATURE_SET"] = "hs300"
+    args.codes = ",".join(hs)
+    args.watching_limit = len(hs)
+    args.finetune = True
+    args.chain_finetune = False
+    args.update_desk = True
+    print("==== 沪深300微调 ====", flush=True)
+    return _run_holdout(args)
+
+
 def main() -> int:
     p = argparse.ArgumentParser(
         description="四头 ŷ_* 工厂 Holdout（--factory L|R|T|LT；默认 head=oo；研究轨）"
     )
     p.add_argument("--codes", default="")
+    p.add_argument("--finetune", action="store_true")
+    p.add_argument(
+        "--chain-finetune",
+        action="store_true",
+        help="Arm·T：先按 --codes 大池预训练，再在沪深300上微调",
+    )
     p.add_argument("--watching-limit", type=int, default=800)
     p.add_argument("--lookback", type=int, default=900)
     p.add_argument("--horizon-days", type=int, default=1)
@@ -1480,6 +1996,10 @@ def main() -> int:
     head_id = str(args.head or "oo").strip() or "oo"
     fac = str(getattr(args, "factory", "T") or "T")
     try:
+        if bool(getattr(args, "chain_finetune", False)) and not bool(
+            getattr(args, "finetune", False)
+        ):
+            return _run_pretrain_then_finetune(args)
         return _run_holdout(args)
     except SystemExit as exc:
         # SIGTERM/SIGINT → SystemExit(128+n)；勿把成功码 0 标成失败
@@ -1619,7 +2139,9 @@ def _run_holdout(args: argparse.Namespace) -> int:
 
     explicit = _parse_codes(args.codes)
     resolved = resolve_model_fit_codes(
-        watching_limit=args.watching_limit, codes=explicit
+        watching_limit=args.watching_limit,
+        codes=explicit or None,
+        file_cap=not explicit,
     )
     codes = list(resolved.get("codes") or [])
     if len(codes) < 2:
@@ -2200,6 +2722,7 @@ def _run_holdout(args: argparse.Namespace) -> int:
                 )
         except Exception as exc:  # noqa: BLE001
             print(f"desk 回写异常: {exc}", flush=True)
+    args.holdout_summary = summary
     return 0
 
 

@@ -1397,6 +1397,28 @@ dialog h2 {
   color: #fff;
 }
 
+/* .primary / .warn 的静止投影写在前面，会盖住 .dialog-btn:hover。
+   要和「跑回测」一样上浮的按钮加 .dialog-raise。 */
+.dialog-btn.dialog-raise:hover:not(:disabled) {
+  transform: translateY(-1px);
+  box-shadow: 0 4px 16px rgba(37, 99, 235, 0.5), inset 0 1px 0 rgba(255, 255, 255, 0.2);
+}
+
+.dialog-btn.dialog-raise:active:not(:disabled) {
+  transform: translateY(0);
+  box-shadow: 0 1px 4px rgba(37, 99, 235, 0.4), inset 0 1px 0 rgba(0, 0, 0, 0.2);
+}
+
+.dialog-btn.warn.dialog-raise:hover:not(:disabled) {
+  transform: translateY(-1px);
+  box-shadow: 0 4px 16px rgba(245, 158, 11, 0.45), inset 0 1px 0 rgba(255, 255, 255, 0.2);
+}
+
+.dialog-btn.warn.dialog-raise:active:not(:disabled) {
+  transform: translateY(0);
+  box-shadow: 0 1px 4px rgba(245, 158, 11, 0.35), inset 0 1px 0 rgba(0, 0, 0, 0.2);
+}
+
 .dialog-btn.secondary {
   background: transparent;
   color: var(--ink-2);
@@ -3657,8 +3679,8 @@ html[data-density="compact"] .table-pager {
 }
 
 .rebalance-table {
-  /* 股票 / 舆情 / 动作 / 分档 / 昨收 / 开盘 / 现价(含相对开盘%) / 六列分数；吃满容器，禁止横向滚动 */
-  --rebalance-cols: minmax(0, 1.28fr) minmax(2.2rem, 0.32fr) minmax(3.4rem, 0.5fr) minmax(0, 0.4fr) minmax(0, 0.78fr) minmax(0, 0.78fr) minmax(0, 1.78fr) repeat(5, minmax(0, 0.88fr));
+  /* 股票 / 舆情 / 动作 / 昨收 / 开盘 / 现价(含相对开盘%) / 五列分数；吃满容器，禁止横向滚动 */
+  --rebalance-cols: minmax(0, 1.28fr) minmax(2.2rem, 0.32fr) minmax(3.4rem, 0.5fr) minmax(0, 0.78fr) minmax(0, 0.78fr) minmax(0, 1.78fr) repeat(5, minmax(0, 0.88fr));
   width: 100%;
   max-width: 100%;
   min-width: 0;
@@ -3735,15 +3757,6 @@ html[data-density="compact"] .table-pager {
 
 .rebalance-th.is-sortable {
   cursor: pointer;
-}
-
-.rebalance-th-tier,
-.rebalance-tier {
-  text-align: center;
-  justify-self: center;
-  display: flex;
-  align-items: center;
-  justify-content: center;
 }
 
 .rebalance-row {

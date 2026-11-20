@@ -27,7 +27,7 @@
 1. **一次物化、三处消费**：训练 / 回测 / live 读同一套 L1 特征行与 L2 日截面统计。  
 2. **增量优先**：日线 topup 只追加末几根时只重算尾窗；lookback 变长且旧窗是新 bars 后缀时只补更早日期；禁止常态「整票推倒」。  
 3. **单遍截面 ŷ**：池齐后用 DayCube μ/σ 打 z 再 predict；调仓扫池可先只抽特征。  
-4. **口径可审计**：截面宇宙绑 `universe_hash`；主头与排序头截面 z **与排序头损失**都用整观察池（L2 μ/σ，**均不进批现算**）。缺 Cube：ŷ_τ* 丢掉该 `日期|钟` 的行，训练行全部没有才 `materialize_required`；其余主头拟合/OOS 任一日 miss → `materialize_required`；排序头跳过该日/不写分（消费只读同报物化）。股票分档 / `tradable_codes` / `score_codes` 只挡写分与开仓；产品拟合拒 `train_tiers`（旧落盘 `train_universe=tier_*` 仅审计）。  
+4. **口径可审计**：截面宇宙绑 `universe_hash`；主头与排序头截面 z **与排序头损失**都用整观察池（L2 μ/σ，**均不进批现算**）。缺 Cube：ŷ_τ* 丢掉该 `日期|钟` 的行，训练行全部没有才 `materialize_required`；其余主头拟合/OOS 任一日 miss → `materialize_required`；排序头跳过该日/不写分（消费只读同报物化）。`score_codes` 只挡写分，不改截面 z 宇宙。产品拟合拒 `train_tiers`（旧落盘 `train_universe=tier_*` 仅审计，新戳强制 `pool`）。  
 5. **缺覆盖可审计**：消费只读缺 L1/L2 → ``materialize_required``（须先物化）。产品入口用 ``materialized_consumer()`` / ``@consume_materialized``（contextvar，**不是**进程级 env）；未进该上下文时单测/脚本仍可走旧现算，产品路径不回退矩阵 CS-z。
 
 ### 1.3 非目标
@@ -136,6 +136,8 @@ API 要点：
 | `clock` | `open` / `eod` / `tau_HHMM` |
 
 进程内 `_MEMORY` 缓存当日 cube。open 的 τ 池字段由物化 `attach_slim` 并进已有立方的 `slim`（不改 μ/σ）。组 Cube 时 `enrich_day_matrix_cross_section` 用当日 `gap_pct` / `ret_open_to_tau` 补截面列（`sector_gap_breadth` / `theme_day` / `gap_vs_sector` 等）进 `X_raw` 与 μ/σ，并镜像 `z_τh_*` / `z_τc_*`。列数不足 2 的旧文件在覆盖检查里算缺失。
+
+`cubes_from_stacked_panel`（Arm·T / 脚本的 `assemble_oo_panels`）带来的是 oo 面板，只有 `z_oo_*` / `raw_aoo_*`。当天还没有 open 立方时可以落一份；已经有立方（含缺 τc 的薄文件）不再覆盖。带齐开盘 τc 列的面板仍可覆盖。日线物化的 `release_rows` 路径本来就不写这份薄立方。
 
 **宇宙键**：`universe_hash` 用本次请求的完整代码名单（观察池），不用「当天有特征行的子集」。缺行代码不进 `X_raw` / μ/σ。读写不一致时立方 miss。说明与 2026-10-19 的 800/798 分叉见 [daycube-universe-key.md](./daycube-universe-key.md)。
 
@@ -251,7 +253,7 @@ L1 存的是特征行和拟合标签 y，不存可成交价格。消费方仍读
 
 产品拟合打开消费开关后：L1 指纹命中则用湖里的 X 和 y；未命中返回 ``materialize_required``，不 collect、不写湖、不冷建立方。截面 z 只用 L2。ŷ_τ* 缺的 ``日期|钟`` 整行丢掉，训练行全部没有才 ``materialize_required``；其余主头缺 Cube → ``materialize_required``。覆盖检查用 ``scorable_bar_dates``：跳过特征垫窗（``min_history``≈``ALPHA_OO_PANEL_WINDOW``）和凑不满截面人数的早期日，避免把 lookback 之前的垫根误报成缺日。
 
-不设该开关时（单测、脚本）仍走下面的旧路径：指纹命中返回；尾窗 ``keep_dates`` merge；全量 collect 后写 L1，oo 再物化 DayCube。
+不设该开关时（单测、脚本）仍走下面的旧路径：指纹命中返回；尾窗 ``keep_dates`` merge；全量 collect 后写 L1。oo 组装只有在当天还没有 open 立方时才落盘；已有立方不被没有 τc 列的 oo 面板覆盖。
 
 ### 5.2 历史回测（paper_replay）
 
@@ -447,6 +449,7 @@ rm -rf data/cache/feature_lake data/cache/day_cubes
 - 增量未触发：中间 bar 被复权改写 → 预期全量；看 meta 是否有 `bars_fp`/`stem_fp`/`n_bars`（旧分片无 stem 时需先全量写一次）。短窗→长窗应走历史前缀；若仍全量，核对末日是否一致、旧 `bars_fp` 是否为新 bars 后缀。
 - 物化仍每票扫盘作废：确认在 `l2_invalidation_batch` 内，且进程工人 defer→父进程 `apply_deferred_stale` / `apply_stale_from_exc`（`MaterializeRequired` 挂 `_deferred_l2_stale`）。  
 - 拟合 Cube miss 全回退矩阵：先物化 open（及所需 τ 钟）；确认 `QUANTLAB_DAY_CUBE` 未关、宇宙 hash 与 watching 一致。
+- open 立方缺 `z_τc_*`：日期跨度在，列不在。按缺列的日子重跑日线物化补 L2。报错写「其中有日期缺这些列」。
 
 ### 10.4 磁盘
 
@@ -560,7 +563,7 @@ L1/L2 按 schema 分目录。观察池名单变化后，旧 `universe_hash` 目�
 | 日线卡 | 两块：L0 日 K 仓 + 物化卡「物化特征（L1/L2）」= open L1（oo/tc）+ open Cube |
 | 分钟线卡 | 两块：L0 5m 仓 + 物化卡 Ready 后「物化特征（L1/L2）」= τ 网格 L1 + 按钟 Cube |
 | τ 网格进度 | 文案 `L1 τ 网格 HH:MM（k/N）`：`N`=`suggested_tau_clocks` 钟数（默认 **18**=09:35…11:00 每 5m，不含 open/09:30）；Job `current/total` 仍钉宏步（如 0/2） |
-| 状态条 | L0 与物化各有 chip+msg+progress；**蓝**=增量/强更，**黄**=物化（对齐按钮 primary/warn）；日线 / 分钟线 L0 完成后卡头回到覆盖摘要，进度框仍自动展开，只留阶段、进度、冻结耗时和短提示，不再回放任务原文里的完成计数，也不再显示结束后的心跳年龄；物化终态 msg「上次更新」仍用 `job.updated_at`；空闲覆盖条仍可显示仓写入时刻 |
+| 状态条 | L0 与物化各有 chip+msg+progress；**蓝**=增量/强更，**黄**=物化（对齐按钮 primary/warn）；日线 / 分钟线 L0 进度框刷新后常显，空闲也留覆盖，不隐藏；完成后卡头回到覆盖摘要，只留阶段、进度、冻结耗时和短提示，不再回放任务原文里的完成计数，也不再显示结束后的心跳年龄；日线事实行附新浪单次耗时（接口中位、95%、排队中位、超时/样本数），最近 60 次在 `data/run/sina_daily_latency.json`；日线与分钟线的增量补齐、强更、物化特征进行中不在按钮后加转圈；物化终态 msg「上次更新」仍用 `job.updated_at`；空闲覆盖条仍可显示仓写入时刻 |
 | 刷新接管 | 页加载 **先** `resumeIfRunning`（物化条）**再** `refreshStatus`（L0 覆盖），未接管再 `syncJobSlot`；**running** 后台挂 wait；**7 天内 done**（按 open/τ kind）与 **6h 内 failed** 重画状态条；`clearJobPanels` 清 sticky |
 | waitJob | 见过本 id 后槽位被换 →「已被新任务替换」；前端等待 open **90min** / τ **150min**；**终态看 `result.ok/success`**（勿只信 `status=done`）；等满且槽仍 running → 提示刷新接管（勿标 FAIL）；编排 `ok=false` 进度句为「物化失败」 |
 | waitMinuteJob | 增量 **60min** / 强更 5m **120min** 为软上限（勿再用 30min）；心跳不足 90s 则继续轮询，硬上限 **8h**；心跳停了且已过软上限 → WAIT + 刷新接管（勿标 FAIL）；页加载 `syncJobSlot` 可挂接 |

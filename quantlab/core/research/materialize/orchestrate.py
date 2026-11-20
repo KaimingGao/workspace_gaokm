@@ -225,6 +225,25 @@ def _run_materialize(
     code_list = resolve_materialize_codes(
         codes=codes, watching_limit=watching_limit
     )
+    l2_sets: List[List[str]] = []
+    if codes is None:
+        from core.universe.feature_sets import materialize_universes
+
+        named = materialize_universes(fetch=True)
+        if named:
+            seen = set()
+            union: List[str] = []
+            for _name, lst in named:
+                for code in lst:
+                    if code in seen:
+                        continue
+                    seen.add(code)
+                    union.append(code)
+            if len(union) >= 2:
+                code_list = union
+            l2_sets = [list(lst) for _name, lst in named if len(lst) >= 2]
+    if not l2_sets:
+        l2_sets = [code_list]
     out = {
         "success": False,
         "ok": False,
@@ -334,6 +353,26 @@ def _run_materialize(
             if str(c).strip().lower() not in ("open", "09:30", "0930")
         ]
         dual_cards = bool(do_l1 and do_l1_tau_grid)
+        universe_lists = l2_sets
+
+        def _l2_many(**kwargs: Any) -> Dict[str, Any]:
+            parts = [materialize_l2(list(lst), **kwargs) for lst in universe_lists]
+            head = dict(parts[0] if parts else {})
+            if any(not bool(part.get("ok")) for part in parts):
+                head["ok"] = False
+                if not head.get("error"):
+                    head["error"] = next(
+                        (
+                            str(part.get("error") or "")
+                            for part in parts
+                            if not part.get("ok") and part.get("error")
+                        ),
+                        "L2 未完成",
+                    )
+            if len(parts) > 1:
+                head["feature_set_codes"] = [int(part.get("n_codes") or 0) for part in parts]
+            return head
+
         if dual_cards or (open_clks and minute_clks):
             open_lb = resolve_l2_lookback(int(lookback or 0), minute=False)
             minute_lb = resolve_l2_lookback(int(lookback or 0), minute=True)
@@ -350,8 +389,7 @@ def _run_materialize(
             parts: List[Dict[str, Any]] = []
             if open_use:
                 parts.append(
-                    materialize_l2(
-                        code_list,
+                    _l2_many(
                         dates=dates,
                         clocks=open_use,
                         lookback_days=open_lb,
@@ -362,8 +400,7 @@ def _run_materialize(
                 )
             if minute_use:
                 parts.append(
-                    materialize_l2(
-                        code_list,
+                    _l2_many(
                         dates=dates,
                         clocks=minute_use,
                         lookback_days=minute_lb,
@@ -390,8 +427,7 @@ def _run_materialize(
                     clks, do_l1_tau_grid=bool(do_l1_tau_grid)
                 ),
             )
-            out["l2"] = materialize_l2(
-                code_list,
+            out["l2"] = _l2_many(
                 dates=dates,
                 clocks=clks,
                 lookback_days=l2_lb,

@@ -339,7 +339,7 @@ export const BT_LEDGER_TRADE_COLS = [
     widthMin: "5.6rem",
     num: true,
     sortable: true,
-    title: "ŷ_oo_rank 当日观察池截面名次 · 1=相对分最高 · 悬停看因子组成 · 不进 fuse；买序看合成 rank_score；名次门槛默认 <6；空=关；过强档改看 <12",
+    title: "ŷ_oo_rank 当日沪深300截面名次 · 1=相对分最高 · 悬停看因子组成 · 不进 fuse；买序看合成 rank_score；名次门槛默认 <6；空=关；过强档改看 <12",
   },
   {
     id: "y_tc_rank",

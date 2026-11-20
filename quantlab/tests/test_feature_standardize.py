@@ -135,22 +135,21 @@ class TestZscoreUniverse(unittest.TestCase):
     def test_normalize_aliases(self):
         from core.research.feature_standardize import (
             TRAIN_UNIVERSE_POOL,
-            TRAIN_UNIVERSE_TIER_A,
             ZSCORE_UNIVERSE_POOL,
             normalize_train_universe,
             normalize_zscore_universe,
         )
 
-        # 截面 z 恒 pool（含旧 tier_a 读入）
+        # 截面 z 与训练宇宙都恒 pool（含旧 tier_a 读入）
         self.assertEqual(normalize_zscore_universe(None), ZSCORE_UNIVERSE_POOL)
         self.assertEqual(normalize_zscore_universe("day_panel"), ZSCORE_UNIVERSE_POOL)
         self.assertEqual(normalize_zscore_universe("watching"), ZSCORE_UNIVERSE_POOL)
         self.assertEqual(normalize_zscore_universe("tier_a"), ZSCORE_UNIVERSE_POOL)
         self.assertEqual(normalize_zscore_universe("A"), ZSCORE_UNIVERSE_POOL)
-        self.assertEqual(normalize_train_universe("tier_a"), TRAIN_UNIVERSE_TIER_A)
-        self.assertEqual(normalize_train_universe("A"), TRAIN_UNIVERSE_TIER_A)
+        self.assertEqual(normalize_train_universe("tier_a"), TRAIN_UNIVERSE_POOL)
+        self.assertEqual(normalize_train_universe("A"), TRAIN_UNIVERSE_POOL)
         self.assertEqual(normalize_train_universe("pool"), TRAIN_UNIVERSE_POOL)
-        self.assertEqual(normalize_train_universe("tier"), "tier")
+        self.assertEqual(normalize_train_universe("tier"), TRAIN_UNIVERSE_POOL)
 
     def test_normalize_train_tiers(self):
         from core.research.feature_standardize import (
@@ -161,8 +160,8 @@ class TestZscoreUniverse(unittest.TestCase):
         self.assertEqual(normalize_train_tiers(None), [])
         self.assertEqual(normalize_train_tiers(["b", "A", "A"]), ["A", "B"])
         self.assertEqual(normalize_train_tiers("A+C"), ["A", "C"])
-        self.assertEqual(train_universe_token_for_tiers(["A"]), "tier_a")
-        self.assertEqual(train_universe_token_for_tiers(["A", "B"]), "tier")
+        self.assertEqual(train_universe_token_for_tiers(["A"]), "pool")
+        self.assertEqual(train_universe_token_for_tiers(["A", "B"]), "pool")
         self.assertEqual(train_universe_token_for_tiers([]), "pool")
 
     def test_stamp_train_universe_pool_z(self):
@@ -174,14 +173,15 @@ class TestZscoreUniverse(unittest.TestCase):
         doc: dict = {}
         stamp_train_universe(doc, "tier_a", tier_codes=["600519", "000001"])
         self.assertEqual(doc["zscore_universe"], "pool")
-        self.assertEqual(doc["train_universe"], "tier_a")
-        self.assertEqual(doc["train_universe_tiers"], ["A"])
-        self.assertEqual(doc["tier_codes"], ["000001", "600519"])
+        self.assertEqual(doc["train_universe"], "pool")
+        self.assertNotIn("train_universe_tiers", doc)
+        self.assertNotIn("tier_codes", doc)
         stamp_train_universe(
             doc, "tier", tiers=["A", "C"], tier_codes=["000001", "600519"]
         )
-        self.assertEqual(doc["train_universe"], "tier")
-        self.assertEqual(doc["train_universe_tiers"], ["A", "C"])
+        self.assertEqual(doc["train_universe"], "pool")
+        self.assertNotIn("train_universe_tiers", doc)
+        self.assertNotIn("tier_codes", doc)
         stamp_zscore_universe(doc, "pool")
         self.assertEqual(doc["zscore_universe"], "pool")
         self.assertNotIn("zscore_universe_tiers", doc)

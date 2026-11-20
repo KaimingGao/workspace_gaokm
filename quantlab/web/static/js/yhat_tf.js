@@ -1,10 +1,12 @@
-/** 模型工厂 · /yhat-l | /yhat-t | /yhat-r · 四头 Holdout 研究台（⌘⇧K；不写 live） */
+/** 模型工厂 · /yhat-l | /yhat-t | /yhat-r · 四头 Holdout；/yhat-bt 回测中心（⌘⇧K；不写 live） */
 
 import { apiFetch } from "./api_client.js";
 
 const HEADS = ["oo", "tc", "oo_rank", "tc_rank"];
 /** @type {"L"|"T"|"R"} */
 let pageFactory = "T";
+const mixCatalog = new Map();
+const BT_API = "/api/quant/yhat-bt";
 function isFactorFactory() {
   return pageFactory === "L" || pageFactory === "R";
 }
@@ -377,6 +379,58 @@ function updateProtocolPreviews(panel) {
   }
 }
 
+function poolLabel(params) {
+  if (!params || typeof params !== "object") return "";
+  const stage = String(params.train_stage || "");
+  const fs = String(params.feature_set || "");
+  if (stage === "chain") return "大池→沪深300";
+  if (stage === "finetune" || fs === "hs300") return "沪深300";
+  if (stage === "pretrain" || fs === "pool") return "大池";
+  const n = params.watching_limit ?? params.pool_n;
+  return n == null || n === "" ? "" : String(n);
+}
+
+function readPool(panel) {
+  const boxes = $all("[data-pool]", panel);
+  if (!boxes.length) return null;
+  const radio = boxes.some((el) => el.type === "radio");
+  if (radio) {
+    const on = boxes.find((el) => el.checked);
+    return { feature_set: on ? on.value : "pool" };
+  }
+  const picked = boxes.filter((el) => el.checked).map((el) => el.value);
+  if (picked.includes("pool") && picked.includes("hs300")) {
+    return { feature_set: "pool", train_stage: "chain" };
+  }
+  if (picked.includes("hs300")) {
+    return { feature_set: "hs300", train_stage: "" };
+  }
+  if (picked.includes("pool")) {
+    return { feature_set: "pool", train_stage: "pretrain" };
+  }
+  return null;
+}
+
+function applyPool(panel, params) {
+  const boxes = $all("[data-pool]", panel);
+  if (!boxes.length || !params) return;
+  const stage = String(params.train_stage || "");
+  const fs = String(params.feature_set || "");
+  if (!stage && !fs) return;
+  const want = new Set();
+  if (stage === "chain") {
+    want.add("pool");
+    want.add("hs300");
+  } else if (stage === "finetune" || fs === "hs300") {
+    want.add("hs300");
+  } else {
+    want.add("pool");
+  }
+  boxes.forEach((el) => {
+    el.checked = want.has(el.value);
+  });
+}
+
 function readParams(head) {
   const panel = panelOf(head);
   const out = {};
@@ -407,6 +461,12 @@ function readParams(head) {
   if (panel.querySelector('[data-param-radio="full_atc"]')) {
     out.full_atc = readFullAtc(panel);
   }
+  const pool = readPool(panel);
+  if (pool?.feature_set) out.feature_set = pool.feature_set;
+  // 空字符串也要提交。漏掉时草稿里的 chain 会留下来，回写又把大池勾上。
+  if (pool && Object.prototype.hasOwnProperty.call(pool, "train_stage")) {
+    out.train_stage = pool.train_stage;
+  }
   return out;
 }
 
@@ -433,6 +493,7 @@ function applyParams(head, params) {
   if (params.full_atc != null) {
     applyFullAtc(panel, params.full_atc);
   }
+  applyPool(panel, params);
   updateProtocolPreviews(panel);
 }
 
@@ -488,7 +549,7 @@ function paramChipPairs(params) {
         : "core";
   const dim = seqFeatDim(params.seq_feat_set);
   const pairs = [
-    ["池子", params.watching_limit ?? params.pool_n],
+    ["池子", poolLabel(params)],
     ["训练窗", params.lookback],
     ["Holdout", params.holdout_trading_days],
   ];
@@ -793,21 +854,37 @@ function highlightPlain(text, re, paint) {
 
 const METRIC_NAME = "rankIC|ICIR|sign_hit|cs_rank_ic|cs_rank_icir|cs_top_mean_y|topY";
 
-function highlightFillLine(line) {
-  let html = escConsole(line);
-  html = html.replace(
-    /(fuse|y_oo|y_τc|oo_rank|τc_rank|收益|开|收|成)(?= )/g,
-    '<span class="ytf-k">$1</span>'
-  );
-  html = html.replace(/([+-]?\d+(?:\.\d+)?)%/g, (full, num) => {
+function paintPct(escaped) {
+  return escaped.replace(/([+-]?\d+(?:\.\d+)?)%/g, (full, num) => {
     const v = Number(num);
     if (!Number.isFinite(v) || v === 0) return full;
     return `<span class="${v > 0 ? "ytf-hit" : "ytf-miss"}">${full}</span>`;
   });
-  return html;
+}
+
+function highlightFillLine(line) {
+  let html = escConsole(line);
+  html = html.replace(
+    /(fuse|y_oo|y_τc|oo_rank|τc_rank|开|收|成)(?= )/g,
+    '<span class="ytf-k">$1</span>'
+  );
+  return paintPct(html);
+}
+
+function renderFillGrid(line, head) {
+  const body = line.split(" · ").map((raw, i) => {
+    const text = escConsole(raw);
+    const shown = head ? text : paintPct(text);
+    const cls = i === 3 ? ' class="ytf-name"' : "";
+    const title = i === 3 ? ` title="${text.replace(/"/g, "&quot;")}"` : "";
+    return `<span${cls}${title}>${shown}</span>`;
+  }).join("");
+  return `<span class="ytf-fill${head ? " ytf-fill-head" : ""}">${body}</span>`;
 }
 
 function highlightLogLine(line) {
+  if (line.startsWith("日期 · 动作 · 代码 · ")) return renderFillGrid(line, true);
+  if (/^\d{4}-\d{2}-\d{2} · (?:开|加|减|清|买|卖) · /.test(line)) return renderFillGrid(line, false);
   if (/^\d{4}-\d{2}-\d{2} (?:开|加|减|清|买|卖) /.test(line)) {
     return highlightFillLine(line);
   }
@@ -986,10 +1063,10 @@ function renderContrast(root, st, metrics) {
 /** Arm·L 只吃全量因子，不带序列形状、T 因子宽和 T 采样。 */
 function armLProtocolBits(params) {
   const bits = [];
-  const pool = params?.watching_limit ?? params?.pool_n;
+  const pool = poolLabel(params);
   const lb = params?.lookback;
   const ho = params?.holdout_trading_days;
-  if (pool != null && pool !== "") bits.push(`池${pool}`);
+  if (pool) bits.push(`池${pool}`);
   if (lb != null && lb !== "") bits.push(`窗${lb}`);
   if (ho != null && ho !== "") bits.push(`HO${ho}`);
   bits.push("全量", pageFactory === "R" ? "Ridge" : "L=仅因子");
@@ -1755,9 +1832,28 @@ let btViewRun = "";
 const enabledIds = new Map();
 
 function backtestItems(head) {
-  return (versionLists.get(head) || []).filter(
-    (it) => it && it.weights_ref && it.status !== "error"
-  );
+  return (mixCatalog.get(head) || []).map((it) => {
+    const factory = String(it.factory || "");
+    const base = String(it.label || it.id || "");
+    const marked = factory && base.split(" · ").pop() === factory;
+    const label = marked || !factory ? base : `${base} · ${factory}`;
+    return {
+      ...it,
+      id: `${factory}:${it.id}`,
+      run_id: it.id,
+      label,
+    };
+  });
+}
+
+function mixButtonText(it) {
+  if (!it) return "";
+  return String(it.label || it.id || "");
+}
+
+function preferredMixItem(head, items) {
+  const fac = head === "oo" || head === "tc" ? "R" : "L";
+  return items.find((it) => it.factory === fac) || items[0];
 }
 
 function fillBacktestSelects() {
@@ -1780,14 +1876,15 @@ function fillBacktestSelects() {
     }
     btn.disabled = false;
     const enabled = enabledIds.get(head) || "";
+    const preferred = String(preferredMixItem(head, items).id);
     const next = prev && items.some((it) => String(it.id) === prev)
       ? prev
       : enabled && items.some((it) => String(it.id) === enabled)
         ? enabled
-        : String(items[0].id);
+        : preferred || String(items[0].id);
     const shown = items.find((it) => String(it.id) === next);
     btn.dataset.btValue = next;
-    btn.textContent = shown ? String(shown.label || shown.id) : next;
+    btn.textContent = shown ? mixButtonText(shown) : next;
     btn.title = btn.textContent;
     if (menu) renderVersionMenu(menu, items, next, { deletable: false });
   });
@@ -1851,25 +1948,17 @@ function readBacktestRules() {
     start_cash: num("start_cash"),
     y_oo_gt0: readToggle("y_oo_gt0"),
     morph_gate_enabled: readToggle("morph_gate_enabled"),
-    tier_a_only: tierAOnly(),
+    feature_set:
+      document.querySelector("#yhat-factory-backtest-form [data-feature-set]")?.value || "hs300",
   };
-}
-
-function tierField() {
-  return document.querySelector('#yhat-factory-backtest [data-bt-field="tier_a_only"]');
-}
-
-function tierAOnly() {
-  const el = tierField();
-  return !el || !!el.checked;
 }
 
 function syncBacktestScope() {
   const el = document.querySelector("[data-bt-score-scope]");
   if (!el) return;
-  el.textContent = tierAOnly()
-    ? "09:30 开盘 · 截面全池 · 打分 A档"
-    : "09:30 开盘 · 截面全池 · 打分全池";
+  const feature = document.querySelector("#yhat-factory-backtest-form [data-feature-set]");
+  const label = feature?.selectedOptions?.[0]?.textContent || "观察池";
+  el.textContent = `09:30 开盘 · ${label}`;
 }
 
 function readToggle(name) {
@@ -1920,14 +2009,16 @@ function fillBacktestForm(rules) {
   setBtNumber("start_cash", rules.start_cash, 0);
   setToggle("y_oo_gt0", !!rules.y_oo_gt0);
   setToggle("morph_gate_enabled", !!rules.morph_gate_enabled);
-  const tier = tierField();
-  if (tier) tier.checked = rules.tier_a_only !== false;
+  const feature = form.querySelector("[data-feature-set]");
+  if (feature && rules.feature_set && document.activeElement !== feature) {
+    feature.value = rules.feature_set;
+  }
   syncBacktestScope();
   form.dataset.ready = "1";
 }
 
 async function saveBacktestRules(apply) {
-  const { ok, data, error } = await apiFetch(`${apiBase()}/backtest/rules`, {
+  const { ok, data, error } = await apiFetch(`${BT_API}/backtest/rules`, {
     method: "PUT",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ rules: readBacktestRules() }),
@@ -1961,8 +2052,6 @@ function renderBacktest(data) {
       el.disabled = running;
     });
   }
-  const tier = tierField();
-  if (tier) tier.disabled = running;
   const report = data?.report;
   const spent = backtestSpent(data?.started_at, running ? "" : data?.finished_at);
   let consoleState = { text: "尚未跑过", tone: "idle" };
@@ -2011,7 +2100,25 @@ function renderBacktest(data) {
     return;
   }
   if (!report) {
-    reportEl.hidden = true;
+    const showMetrics = running || data?.status === "error";
+    reportEl.hidden = !showMetrics;
+    if (showMetrics) {
+      for (const el of [
+        $("[data-bt-window]"),
+        $("[data-bt-return]"),
+        $("[data-bt-excess]"),
+        $("[data-bt-dd]"),
+        $("[data-bt-dec]"),
+        $("[data-bt-acc]"),
+        $("[data-bt-hit]"),
+      ]) {
+        paint(el, "—");
+      }
+    }
+    const picksEl = document.querySelector("[data-bt-picks]");
+    if (picksEl && !data?.picks) picksEl.hidden = true;
+    const blendEl = document.querySelector("[data-bt-blend]");
+    if (blendEl && !data?.rank_blend) blendEl.hidden = true;
     syncBacktestOutput();
     renderBacktestHistory(data);
     return;
@@ -2029,6 +2136,26 @@ function renderBacktest(data) {
   const accEl = $("[data-bt-acc]");
   const hitEl = $("[data-bt-hit]");
   paint(windowEl, `${report.window_start || "—"} → ${report.window_end || "—"}`);
+  const picksEl = document.querySelector("[data-bt-picks]");
+  if (picksEl) {
+    const picks = String(report.picks || data?.picks || "");
+    picksEl.textContent = picks;
+    picksEl.hidden = !picks;
+  }
+  const blendEl = document.querySelector("[data-bt-blend]");
+  if (blendEl) {
+    const blend = String(report.rank_blend || data?.rank_blend || "");
+    if (blend === "day_rank") {
+      blendEl.hidden = false;
+      blendEl.textContent = "买序 · 当日名次";
+    } else if (blend === "raw") {
+      blendEl.hidden = false;
+      blendEl.textContent = "买序 · 原始分";
+    } else {
+      blendEl.hidden = true;
+      blendEl.textContent = "";
+    }
+  }
   paint(retEl, pct(report.cumulative_return), signed(report.cumulative_return));
   paint(excessEl, points(report.excess_pct, 2), signed(report.excess_pct));
   if (excessEl) excessEl.title = report.benchmark_label ? `相对${report.benchmark_label}` : "相对观察池等权";
@@ -2057,11 +2184,12 @@ function renderBacktest(data) {
 function backtestHistoryTitle(run) {
   const versions = run?.versions;
   if (!versions || typeof versions !== "object") return String(run?.label || "");
+  const picks = run?.picks ? String(run.picks) : "";
   const bits = ["oo", "tc", "oo_rank", "tc_rank"]
     .map((head) => (versions[head] ? `${head}=${versions[head]}` : ""))
     .filter(Boolean);
   const windowBit = run.window_start && run.window_end ? `${run.window_start}→${run.window_end}` : "";
-  return [run.label || "", windowBit, bits.join(" ")].filter(Boolean).join(" · ");
+  return [run.label || "", picks, windowBit, bits.join(" ")].filter(Boolean).join(" · ");
 }
 
 function renderBacktestHistory(data) {
@@ -2074,7 +2202,7 @@ function renderBacktestHistory(data) {
   if (!runs.length) {
     btn.dataset.btValue = "";
     btn.textContent = "尚无记录";
-    btn.title = "还没有可回看的离线回测";
+    btn.title = "还没有可回看的组合回测";
     btn.disabled = true;
     menu.hidden = true;
     menu.replaceChildren();
@@ -2095,9 +2223,9 @@ async function onBacktestDelete(runId) {
     `[data-bt-history-menu] [data-version-id="${CSS.escape(runId)}"]`,
   );
   const label = String(row?.dataset.versionLabel || runId);
-  if (!window.confirm(`删除记录「${label}」？只去掉这条归档和日志，页面上当前这次回测结果还在。`)) return;
+  if (!window.confirm(`删除记录「${label}」？只去掉这条归档和日志。成功的结果还留在页面上，失败的错误提示和这次日志一起去掉。`)) return;
   const { ok, error } = await apiFetch(
-    `${apiBase()}/backtest?run_id=${encodeURIComponent(runId)}`,
+    `${BT_API}/backtest?run_id=${encodeURIComponent(runId)}`,
     { method: "DELETE" },
   );
   if (!ok) {
@@ -2126,13 +2254,13 @@ function syncBacktestOutput() {
 async function pollBacktest() {
   window.clearTimeout(btTimer);
   const query = btViewRun ? `?run=${encodeURIComponent(btViewRun)}` : "";
-  const { ok, data, error } = await apiFetch(`${apiBase()}/backtest${query}`);
+  const { ok, data, error } = await apiFetch(`${BT_API}/backtest${query}`);
   if (!ok) {
     const errorEl = $("[data-bt-error]");
     renderArmState($("[data-bt-console-state]"), { text: "失败", tone: "fail" });
     if (errorEl) {
       errorEl.hidden = false;
-      errorEl.textContent = error || "无法读取离线回测";
+      errorEl.textContent = error || "无法读取组合回测";
     }
     return;
   }
@@ -2158,10 +2286,6 @@ function bindBacktest() {
     syncBacktestScope();
     scheduleBacktestRulesSave();
   });
-  tierField()?.addEventListener("change", () => {
-    syncBacktestScope();
-    scheduleBacktestRulesSave();
-  });
   form?.addEventListener("focusout", () => {
     window.setTimeout(() => {
       if (form.contains(document.activeElement)) return;
@@ -2181,7 +2305,7 @@ function bindBacktest() {
         const items = backtestItems(head);
         const shown = items.find((it) => String(it.id) === id);
         btn.dataset.btValue = id;
-        btn.textContent = shown ? String(shown.label || shown.id) : id;
+        btn.textContent = shown ? mixButtonText(shown) : id;
         btn.title = btn.textContent;
         renderVersionMenu(menu, items, id, { deletable: false });
         closeVersionMenus();
@@ -2228,7 +2352,12 @@ function bindBacktest() {
   $("#yhat-factory-backtest-run")?.addEventListener("click", async () => {
     const versions = {};
     document.querySelectorAll("[data-bt-head]").forEach((el) => {
-      versions[el.dataset.btHead] = el.dataset.btValue || "";
+      const value = el.dataset.btValue || "";
+      const cut = value.indexOf(":");
+      versions[el.dataset.btHead] = {
+        factory: cut > 0 ? value.slice(0, cut) : "",
+        run_id: cut > 0 ? value.slice(cut + 1) : value,
+      };
     });
     window.clearTimeout(btRulesTimer);
     const rules = (await saveBacktestRules(true)) || readBacktestRules();
@@ -2236,7 +2365,7 @@ function bindBacktest() {
     const btn = $("#yhat-factory-backtest-run");
     if (btn) btn.dataset.running = "1";
     syncBacktestRun();
-    const { ok, data, error } = await apiFetch(`${apiBase()}/backtest`, {
+    const { ok, data, error } = await apiFetch(`${BT_API}/backtest`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ versions, rules }),
@@ -2248,13 +2377,46 @@ function bindBacktest() {
       renderArmState($("[data-bt-console-state]"), { text: "失败", tone: "fail" });
       if (errorEl) {
         errorEl.hidden = false;
-        errorEl.textContent = error || "离线回测未能启动";
+        errorEl.textContent = error || "组合回测未能启动";
       }
       return;
     }
     renderBacktest({ ...data, status: "running" });
     void pollBacktest();
   });
+}
+
+async function loadMixCatalog() {
+  const { ok, data, error } = await apiFetch(`${BT_API}/versions`);
+  mixCatalog.clear();
+  if (!ok) {
+    showToast(error || "无法读取三家工厂的版本", "error");
+    return;
+  }
+  HEADS.forEach((head) => {
+    const rows = Array.isArray(data?.heads?.[head]) ? data.heads[head] : [];
+    mixCatalog.set(
+      head,
+      rows.filter((it) => it && it.id && it.factory),
+    );
+  });
+}
+
+export async function initYhatBt() {
+  bindCompactHead();
+  bindToastDismiss();
+  document.addEventListener("click", () => closeVersionMenus());
+  document.addEventListener("keydown", (ev) => {
+    if (ev.key === "Escape") closeVersionMenus();
+  });
+  await loadMixCatalog();
+  bindBacktest();
+  document.getElementById("yhat-bt-refresh")?.addEventListener("click", async () => {
+    await loadMixCatalog();
+    fillBacktestSelects();
+    void pollBacktest();
+  });
+  void pollBacktest();
 }
 
 export function initYhatTf(_ctx, factory = "T") {
@@ -2284,7 +2446,7 @@ export function initYhatTf(_ctx, factory = "T") {
       const t = ev.target;
       if (
         t?.matches?.(
-          '[data-param-radio="seq_feat_set"], [data-param-radio="full_aoo"], [data-param-radio="full_atc"], [data-param="seq_len"], [data-param="t_sample_pct"], [data-param="pool_n"], [data-param="lookback"], [data-param="holdout_trading_days"], [data-param="ridge_alpha"]'
+          '[data-param-radio="seq_feat_set"], [data-param-radio="full_aoo"], [data-param-radio="full_atc"], [data-param="seq_len"], [data-param="t_sample_pct"], [data-pool], [data-param="lookback"], [data-param="holdout_trading_days"], [data-param="ridge_alpha"]'
         )
       ) {
         updateProtocolPreviews(panel);
@@ -2329,10 +2491,18 @@ export function initYhatTf(_ctx, factory = "T") {
       menu.querySelector(".is-current")?.scrollIntoView({ block: "nearest" });
     });
     panel.addEventListener("input", markDirty);
+    panel.querySelectorAll('input[type="radio"][data-pool]').forEach((el) => {
+      el.name = `pool_${head}`;
+    });
     panel.addEventListener("change", (ev) => {
       if (ev.target?.matches?.("[data-version-for]")) {
         void onVersionChange(head, ev.target.value);
         return;
+      }
+      const box = ev.target;
+      if (box?.matches?.('input[type="checkbox"][data-pool]') && !box.checked) {
+        const any = panel.querySelector('input[type="checkbox"][data-pool]:checked');
+        if (!any) box.checked = true;
       }
       markDirty(ev);
       onProtocolChange(ev);
@@ -2356,6 +2526,4 @@ export function initYhatTf(_ctx, factory = "T") {
     }
   });
   refreshStatus();
-  bindBacktest();
-  void pollBacktest();
 }

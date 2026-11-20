@@ -14,6 +14,18 @@ from web.schemas import (
 
 router = APIRouter(tags=["quant"])
 
+@router.get("/api/quant/bars/sina-latency")
+
+def quant_bars_sina_latency() -> Dict[str, Any]:
+    """最近若干次新浪日线单次耗时。只读本机样本，不拉行情。"""
+    try:
+        from adapters.market.sina_latency import sina_daily_latency_snapshot
+
+        return {"success": True, "sina_latency": sina_daily_latency_snapshot()}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e)) from e
+
+
 @router.get("/api/quant/bars/status")
 
 def quant_bars_status(watching_limit: int = WATCHING_MAX_SIZE) -> Dict[str, Any]:

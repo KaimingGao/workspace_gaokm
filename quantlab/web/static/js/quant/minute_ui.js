@@ -174,15 +174,7 @@ export function installMinuteUi(q) {
     jobSuccess = null;
   }
 
-  function clearProgressPanel() {
-    if (!progressEl) return;
-    progressEl.hidden = true;
-    progressEl.innerHTML = "";
-    progressEl.classList.remove("is-active", "is-warn", "is-done");
-    delete progressEl.dataset.tone;
-  }
-
-  /** 没有进行中的补齐任务时，用覆盖结果把状态框展开。 */
+  /** 没有进行中的补齐任务时，用覆盖结果把状态条留在页面上。 */
   function paintIdleCoveragePanel(data) {
     if (!progressEl || jobFailure || jobSuccess || inflight) return;
     if (!data || !data.success) return;
@@ -335,8 +327,8 @@ export function installMinuteUi(q) {
     topupBtn?.classList.toggle("is-busy", onBusy);
     if (onBusy) setDeskStatusTone([minuteStrip, minuteCard], "primary");
     if (!onBusy && !jobFailure && !jobSuccess) {
-      clearProgressPanel();
       setDeskStatusTone([minuteStrip, minuteCard], null);
+      if (progressEl) progressEl.hidden = false;
     }
   }
 
@@ -688,6 +680,7 @@ export function installMinuteUi(q) {
         setProStatusChip(chip, "error", "ERR");
       }
       if (!inflight) setMinuteBusy(false);
+      if (lastCoverage) paintIdleCoveragePanel(lastCoverage);
       return null;
     }
     const gen = ++labelPortraitGen;

@@ -97,7 +97,7 @@
               <label class="yhat-tf-version" data-version-for><span class="yhat-tf-k yhat-tf-run-id-k">版本</span><span class="yhat-tf-version-box"><button type="button" class="yhat-tf-version-btn" aria-haspopup="listbox" aria-expanded="false" aria-label="跑次版本">尚无版本</button><div class="yhat-tf-version-menu" role="listbox" hidden></div></span></label>
             </div>
             <div class="dashboard-card-tools quant-pro-card-tools quant-fit-actions" role="group" aria-label="ŷ_oo 操作">
-              <button type="button" class="dialog-btn primary yhat-tf-run-cta" data-act="fit" title="按 Holdout 后台拟合 → 回写 last metrics；不写 live">拟合</button>
+              <button type="button" class="dialog-btn primary dialog-raise yhat-tf-run-cta" data-act="fit" title="按 Holdout 后台拟合 → 回写 last metrics；不写 live">拟合</button>
             </div>
           </div>
           <div class="quant-fit-params yhat-tf-fit-params yhat-tf-run-config" role="group" aria-label="ŷ_oo 拟合参数">
@@ -126,7 +126,7 @@
             <!--/yhat-only:T-->
             <div class="yhat-tf-hparams" role="group" aria-label="超参数">
               <div class="yhat-tf-param-group yhat-tf-param-group--data" role="group" aria-label="数据"><div class="yhat-tf-param-label">数据</div><div class="yhat-tf-param-fields">
-              <label class="quant-inline-num"><span>池子（股）</span><input data-param="pool_n" type="number" min="50" max="2000" step="50" value="800" /></label>
+              <label class="quant-inline-num" title="大池是数据中心滑条上的观察池。沪深300是固定成分。Arm·T 只选沪深300时从头训练；两套都选时，先用大池预训练，再用沪深300微调。"><span>池子</span><!--yhat-only:T--><span class="yhat-tf-pool-picks yhat-tf-seg" role="group" aria-label="池子"><label class="yhat-tf-seq-pick" title="当前大观察池"><input type="checkbox" data-pool="pool" value="pool" checked /><span>大池</span></label><label class="yhat-tf-seq-pick" title="固定的沪深300成分。只选它时从头训练；与大池一起选时先预训练再微调"><input type="checkbox" data-pool="hs300" value="hs300" /><span>沪深300</span></label></span><!--/yhat-only:T--><!--yhat-only:L--><span class="yhat-tf-pool-picks yhat-tf-seg" role="radiogroup" aria-label="池子"><label class="yhat-tf-seq-pick" title="当前大观察池"><input type="radio" name="pool_set" data-pool="pool" value="pool" checked /><span>大池</span></label><label class="yhat-tf-seq-pick" title="固定的沪深300成分"><input type="radio" name="pool_set" data-pool="hs300" value="hs300" /><span>沪深300</span></label></span><!--/yhat-only:L--><!--yhat-only:R--><span class="yhat-tf-pool-picks yhat-tf-seg" role="radiogroup" aria-label="池子"><label class="yhat-tf-seq-pick" title="当前大观察池"><input type="radio" name="pool_set" data-pool="pool" value="pool" checked /><span>大池</span></label><label class="yhat-tf-seq-pick" title="固定的沪深300成分"><input type="radio" name="pool_set" data-pool="hs300" value="hs300" /><span>沪深300</span></label></span><!--/yhat-only:R--></label>
               <label class="quant-inline-num"><span>训练窗（日）</span><input data-param="lookback" type="number" min="100" max="1200" step="10" value="900" /></label>
               <label class="quant-inline-num"><span>Holdout（日）</span><input data-param="holdout_trading_days" type="number" min="5" max="90" step="1" value="60" /></label>
             </div></div>
@@ -236,7 +236,7 @@
               <label class="yhat-tf-version" data-version-for><span class="yhat-tf-k yhat-tf-run-id-k">版本</span><span class="yhat-tf-version-box"><button type="button" class="yhat-tf-version-btn" aria-haspopup="listbox" aria-expanded="false" aria-label="跑次版本">尚无版本</button><div class="yhat-tf-version-menu" role="listbox" hidden></div></span></label>
             </div>
             <div class="dashboard-card-tools quant-pro-card-tools quant-fit-actions" role="group" aria-label="ŷ_τc 操作">
-              <button type="button" class="dialog-btn primary yhat-tf-run-cta" data-act="fit" title="按 Holdout 后台拟合 → 回写 last metrics；不写 live">拟合</button>
+              <button type="button" class="dialog-btn primary dialog-raise yhat-tf-run-cta" data-act="fit" title="按 Holdout 后台拟合 → 回写 last metrics；不写 live">拟合</button>
             </div>
           </div>
           <div class="quant-fit-params yhat-tf-fit-params yhat-tf-run-config" role="group" aria-label="ŷ_τc 拟合参数">
@@ -265,7 +265,7 @@
             <!--/yhat-only:T-->
             <div class="yhat-tf-hparams" role="group" aria-label="超参数">
               <div class="yhat-tf-param-group yhat-tf-param-group--data" role="group" aria-label="数据"><div class="yhat-tf-param-label">数据</div><div class="yhat-tf-param-fields">
-              <label class="quant-inline-num"><span>池子（股）</span><input data-param="pool_n" type="number" min="50" max="2000" step="50" value="800" /></label>
+              <label class="quant-inline-num" title="大池是数据中心滑条上的观察池。沪深300是固定成分。Arm·T 只选沪深300时从头训练；两套都选时，先用大池预训练，再用沪深300微调。"><span>池子</span><!--yhat-only:T--><span class="yhat-tf-pool-picks yhat-tf-seg" role="group" aria-label="池子"><label class="yhat-tf-seq-pick" title="当前大观察池"><input type="checkbox" data-pool="pool" value="pool" checked /><span>大池</span></label><label class="yhat-tf-seq-pick" title="固定的沪深300成分。只选它时从头训练；与大池一起选时先预训练再微调"><input type="checkbox" data-pool="hs300" value="hs300" /><span>沪深300</span></label></span><!--/yhat-only:T--><!--yhat-only:L--><span class="yhat-tf-pool-picks yhat-tf-seg" role="radiogroup" aria-label="池子"><label class="yhat-tf-seq-pick" title="当前大观察池"><input type="radio" name="pool_set" data-pool="pool" value="pool" checked /><span>大池</span></label><label class="yhat-tf-seq-pick" title="固定的沪深300成分"><input type="radio" name="pool_set" data-pool="hs300" value="hs300" /><span>沪深300</span></label></span><!--/yhat-only:L--><!--yhat-only:R--><span class="yhat-tf-pool-picks yhat-tf-seg" role="radiogroup" aria-label="池子"><label class="yhat-tf-seq-pick" title="当前大观察池"><input type="radio" name="pool_set" data-pool="pool" value="pool" checked /><span>大池</span></label><label class="yhat-tf-seq-pick" title="固定的沪深300成分"><input type="radio" name="pool_set" data-pool="hs300" value="hs300" /><span>沪深300</span></label></span><!--/yhat-only:R--></label>
               <label class="quant-inline-num"><span>训练窗（日）</span><input data-param="lookback" type="number" min="100" max="1200" step="10" value="900" /></label>
               <label class="quant-inline-num"><span>Holdout（日）</span><input data-param="holdout_trading_days" type="number" min="5" max="90" step="1" value="60" /></label>
               <label class="quant-inline-num" title="本期仅开盘 τ=09:30"><span>前缀</span><input data-param="tau_end" type="text" value="09:30" readonly disabled /></label>
@@ -376,7 +376,7 @@
               <label class="yhat-tf-version" data-version-for><span class="yhat-tf-k yhat-tf-run-id-k">版本</span><span class="yhat-tf-version-box"><button type="button" class="yhat-tf-version-btn" aria-haspopup="listbox" aria-expanded="false" aria-label="跑次版本">尚无版本</button><div class="yhat-tf-version-menu" role="listbox" hidden></div></span></label>
             </div>
             <div class="dashboard-card-tools quant-pro-card-tools quant-fit-actions" role="group" aria-label="ŷ_oo_rank 操作">
-              <button type="button" class="dialog-btn primary yhat-tf-run-cta" data-act="fit" title="按 Holdout 后台拟合 → 回写 last metrics；不写 live">拟合</button>
+              <button type="button" class="dialog-btn primary dialog-raise yhat-tf-run-cta" data-act="fit" title="按 Holdout 后台拟合 → 回写 last metrics；不写 live">拟合</button>
             </div>
           </div>
           <div class="quant-fit-params yhat-tf-fit-params yhat-tf-run-config" role="group" aria-label="ŷ_oo_rank 拟合参数">
@@ -405,7 +405,7 @@
             <!--/yhat-only:T-->
             <div class="yhat-tf-hparams" role="group" aria-label="超参数">
               <div class="yhat-tf-param-group yhat-tf-param-group--data" role="group" aria-label="数据"><div class="yhat-tf-param-label">数据</div><div class="yhat-tf-param-fields">
-              <label class="quant-inline-num"><span>池子（股）</span><input data-param="pool_n" type="number" min="50" max="2000" step="50" value="800" /></label>
+              <label class="quant-inline-num" title="大池是数据中心滑条上的观察池。沪深300是固定成分。Arm·T 只选沪深300时从头训练；两套都选时，先用大池预训练，再用沪深300微调。"><span>池子</span><!--yhat-only:T--><span class="yhat-tf-pool-picks yhat-tf-seg" role="group" aria-label="池子"><label class="yhat-tf-seq-pick" title="当前大观察池"><input type="checkbox" data-pool="pool" value="pool" checked /><span>大池</span></label><label class="yhat-tf-seq-pick" title="固定的沪深300成分。只选它时从头训练；与大池一起选时先预训练再微调"><input type="checkbox" data-pool="hs300" value="hs300" /><span>沪深300</span></label></span><!--/yhat-only:T--><!--yhat-only:L--><span class="yhat-tf-pool-picks yhat-tf-seg" role="radiogroup" aria-label="池子"><label class="yhat-tf-seq-pick" title="当前大观察池"><input type="radio" name="pool_set" data-pool="pool" value="pool" checked /><span>大池</span></label><label class="yhat-tf-seq-pick" title="固定的沪深300成分"><input type="radio" name="pool_set" data-pool="hs300" value="hs300" /><span>沪深300</span></label></span><!--/yhat-only:L--><!--yhat-only:R--><span class="yhat-tf-pool-picks yhat-tf-seg" role="radiogroup" aria-label="池子"><label class="yhat-tf-seq-pick" title="当前大观察池"><input type="radio" name="pool_set" data-pool="pool" value="pool" checked /><span>大池</span></label><label class="yhat-tf-seq-pick" title="固定的沪深300成分"><input type="radio" name="pool_set" data-pool="hs300" value="hs300" /><span>沪深300</span></label></span><!--/yhat-only:R--></label>
               <label class="quant-inline-num"><span>训练窗（日）</span><input data-param="lookback" type="number" min="100" max="1200" step="10" value="700" /></label>
               <label class="quant-inline-num"><span>Holdout（日）</span><input data-param="holdout_trading_days" type="number" min="5" max="90" step="1" value="60" /></label>
             </div></div>
@@ -515,7 +515,7 @@
               <label class="yhat-tf-version" data-version-for><span class="yhat-tf-k yhat-tf-run-id-k">版本</span><span class="yhat-tf-version-box"><button type="button" class="yhat-tf-version-btn" aria-haspopup="listbox" aria-expanded="false" aria-label="跑次版本">尚无版本</button><div class="yhat-tf-version-menu" role="listbox" hidden></div></span></label>
             </div>
             <div class="dashboard-card-tools quant-pro-card-tools quant-fit-actions" role="group" aria-label="ŷ_τc_rank 操作">
-              <button type="button" class="dialog-btn primary yhat-tf-run-cta" data-act="fit" title="按 Holdout 后台拟合 → 回写 last metrics；不写 live">拟合</button>
+              <button type="button" class="dialog-btn primary dialog-raise yhat-tf-run-cta" data-act="fit" title="按 Holdout 后台拟合 → 回写 last metrics；不写 live">拟合</button>
             </div>
           </div>
           <div class="quant-fit-params yhat-tf-fit-params yhat-tf-run-config" role="group" aria-label="ŷ_τc_rank 拟合参数">
@@ -544,7 +544,7 @@
             <!--/yhat-only:T-->
             <div class="yhat-tf-hparams" role="group" aria-label="超参数">
               <div class="yhat-tf-param-group yhat-tf-param-group--data" role="group" aria-label="数据"><div class="yhat-tf-param-label">数据</div><div class="yhat-tf-param-fields">
-              <label class="quant-inline-num"><span>池子（股）</span><input data-param="pool_n" type="number" min="50" max="2000" step="50" value="800" /></label>
+              <label class="quant-inline-num" title="大池是数据中心滑条上的观察池。沪深300是固定成分。Arm·T 只选沪深300时从头训练；两套都选时，先用大池预训练，再用沪深300微调。"><span>池子</span><!--yhat-only:T--><span class="yhat-tf-pool-picks yhat-tf-seg" role="group" aria-label="池子"><label class="yhat-tf-seq-pick" title="当前大观察池"><input type="checkbox" data-pool="pool" value="pool" checked /><span>大池</span></label><label class="yhat-tf-seq-pick" title="固定的沪深300成分。只选它时从头训练；与大池一起选时先预训练再微调"><input type="checkbox" data-pool="hs300" value="hs300" /><span>沪深300</span></label></span><!--/yhat-only:T--><!--yhat-only:L--><span class="yhat-tf-pool-picks yhat-tf-seg" role="radiogroup" aria-label="池子"><label class="yhat-tf-seq-pick" title="当前大观察池"><input type="radio" name="pool_set" data-pool="pool" value="pool" checked /><span>大池</span></label><label class="yhat-tf-seq-pick" title="固定的沪深300成分"><input type="radio" name="pool_set" data-pool="hs300" value="hs300" /><span>沪深300</span></label></span><!--/yhat-only:L--><!--yhat-only:R--><span class="yhat-tf-pool-picks yhat-tf-seg" role="radiogroup" aria-label="池子"><label class="yhat-tf-seq-pick" title="当前大观察池"><input type="radio" name="pool_set" data-pool="pool" value="pool" checked /><span>大池</span></label><label class="yhat-tf-seq-pick" title="固定的沪深300成分"><input type="radio" name="pool_set" data-pool="hs300" value="hs300" /><span>沪深300</span></label></span><!--/yhat-only:R--></label>
               <label class="quant-inline-num"><span>训练窗（日）</span><input data-param="lookback" type="number" min="100" max="1200" step="10" value="900" /></label>
               <label class="quant-inline-num"><span>Holdout（日）</span><input data-param="holdout_trading_days" type="number" min="5" max="90" step="1" value="60" /></label>
               <label class="quant-inline-num" title="本期仅开盘 τ=09:30"><span>前缀</span><input data-param="tau_end" type="text" value="09:30" readonly disabled /></label>
@@ -638,144 +638,6 @@
           </div>
           <div class="yhat-tf-inline-notice" data-notice-for="tc_rank" role="alert" hidden></div>
           <details class="yhat-tf-tech"><summary>技术详情 · CLI / 原始 JSON</summary><div class="yhat-tf-tech-body"><button type="button" class="dialog-btn secondary" data-copy-cli="tc_rank">复制 CLI</button><pre class="yhat-tf-cli" data-cli-for="tc_rank" hidden></pre><pre class="yhat-tf-pre" data-result-for="tc_rank">状态加载中…</pre></div></details>
-        </div>
-      </div>
-    </details>
-  </section>
-
-  <section class="dashboard-section quant-section yhat-tf-backtest" id="yhat-factory-backtest" aria-labelledby="yhat-factory-backtest-title">
-    <details class="quant-primary-fold">
-      <summary class="quant-primary-fold-sum dashboard-section-head quant-section-head">
-        <h3 id="yhat-factory-backtest-title" class="dashboard-section-title">离线回测</h3>
-        <p class="dashboard-section-desc quant-section-desc">本页规则 · 不改历史回测和 live · 成交固定 09:30</p>
-      </summary>
-      <div class="dashboard-card quant-pro-card">
-        <div class="quant-pro-card-body">
-    <div class="yhat-tf-backtest-picks">
-      <div class="yhat-tf-backtest-pick">
-        <span class="yhat-tf-backtest-pick-name">ŷ_oo</span>
-        <span class="yhat-tf-backtest-pick-role">入场 · open→open</span>
-        <span class="yhat-tf-version-box">
-          <button type="button" class="yhat-tf-version-btn" data-bt-head="oo" aria-haspopup="listbox" aria-expanded="false" disabled>尚无带权重的版本</button>
-          <div class="yhat-tf-version-menu" role="listbox" hidden></div>
-        </span>
-      </div>
-      <div class="yhat-tf-backtest-pick">
-        <span class="yhat-tf-backtest-pick-name">ŷ_τc</span>
-        <span class="yhat-tf-backtest-pick-role">入场 · open→close</span>
-        <span class="yhat-tf-version-box">
-          <button type="button" class="yhat-tf-version-btn" data-bt-head="tc" aria-haspopup="listbox" aria-expanded="false" disabled>尚无带权重的版本</button>
-          <div class="yhat-tf-version-menu" role="listbox" hidden></div>
-        </span>
-      </div>
-      <div class="yhat-tf-backtest-pick">
-        <span class="yhat-tf-backtest-pick-name">ŷ_oo_rank</span>
-        <span class="yhat-tf-backtest-pick-role">买序</span>
-        <span class="yhat-tf-version-box">
-          <button type="button" class="yhat-tf-version-btn" data-bt-head="oo_rank" aria-haspopup="listbox" aria-expanded="false" disabled>尚无带权重的版本</button>
-          <div class="yhat-tf-version-menu" role="listbox" hidden></div>
-        </span>
-      </div>
-      <div class="yhat-tf-backtest-pick">
-        <span class="yhat-tf-backtest-pick-name">ŷ_τc_rank</span>
-        <span class="yhat-tf-backtest-pick-role">买序</span>
-        <span class="yhat-tf-version-box">
-          <button type="button" class="yhat-tf-version-btn" data-bt-head="tc_rank" aria-haspopup="listbox" aria-expanded="false" disabled>尚无带权重的版本</button>
-          <div class="yhat-tf-version-menu" role="listbox" hidden></div>
-        </span>
-      </div>
-    </div>
-    <p class="yhat-tf-backtest-empty" data-bt-empty>这四头还没有可加载的权重。在模型中心拟合成功后，版本会出现在这里。</p>
-    <div class="yhat-tf-bt-frame">
-    <form id="yhat-factory-backtest-form" class="quant-fit-params yhat-tf-fit-params yhat-tf-bt-config" autocomplete="off">
-      <div class="yhat-tf-param-group" role="group" aria-label="入场">
-        <div class="yhat-tf-param-label">入场</div>
-        <div class="yhat-tf-param-fields">
-          <label class="quant-inline-num" title="过这条 fuse 才开仓或加仓。未过的已持仓清仓。"><span>fuse %</span><input data-bt-field="fuse_enter_pct" type="number" min="0" max="10" step="0.01" value="0.10" inputmode="decimal" /></label>
-          <label class="quant-inline-num" title="当天名次：max(oo_rank, τc_rank) 须小于本值。默认 6。清空后这道闸关掉。过强档后改看强档名次。买序仍看 rank_score。"><span>名次</span><input data-bt-field="oo_rank_max" type="number" min="2" max="5000" step="1" value="6" inputmode="numeric" /></label>
-          <label class="quant-inline-num" title="未过强档时的买入金额，按 09:30 开盘价换算整手。"><span>金额</span><input data-bt-field="lot_base_amount" type="number" min="1000" max="1000000" step="1000" value="10000" inputmode="numeric" /></label>
-        </div>
-      </div>
-      <div class="yhat-tf-param-group" role="group" aria-label="强档">
-        <div class="yhat-tf-param-label">强档</div>
-        <div class="yhat-tf-param-fields">
-          <label class="quant-inline-num" title="过这条 fuse 改买强档金额，并改看强档 rank。低于入场时会抬到入场。"><span>fuse %</span><input data-bt-field="fuse_strong_pct" type="number" min="0" max="10" step="0.01" value="0.10" inputmode="decimal" /></label>
-          <label class="quant-inline-num" title="过强档后，max(oo_rank, τc_rank) 须小于本值。默认 12。清空后这道闸关掉。"><span>名次</span><input data-bt-field="oo_rank_strong_max" type="number" min="2" max="5000" step="1" value="12" inputmode="numeric" /></label>
-          <label class="quant-inline-num" title="过强档后的买入金额。少于入场金额时会抬到入场。"><span>金额</span><input data-bt-field="lot_strong_amount" type="number" min="1000" max="1000000" step="1000" value="20000" inputmode="numeric" /></label>
-        </div>
-      </div>
-      <div class="yhat-tf-param-group" role="group" aria-label="权重">
-        <div class="yhat-tf-param-label">权重</div>
-        <div class="yhat-tf-param-fields">
-          <label class="quant-inline-num" title="fuse 里 ŷ_oo 的权重。0～1，与 w_τc 一起归一化。"><span>w_oo</span><input data-bt-field="w_oo" type="number" min="0" max="1" step="0.05" value="0.60" inputmode="decimal" /></label>
-          <label class="quant-inline-num" title="fuse 里 ŷ_τc 的权重。0～1，与 w_oo 一起归一化。"><span>w_τc</span><input data-bt-field="w_tc" type="number" min="0" max="1" step="0.05" value="0.40" inputmode="decimal" /></label>
-        </div>
-      </div>
-      <div class="yhat-tf-param-group" role="group" aria-label="其他">
-        <div class="yhat-tf-param-label">其他</div>
-        <div class="yhat-tf-param-fields">
-          <label class="quant-inline-num" title="这次离线回测的起始现金。只用于本页，不改交易执行。"><span>本金</span><input data-bt-field="start_cash" type="number" min="10000" max="100000000" step="10000" value="200000" inputmode="numeric" /></label>
-          <div class="yhat-tf-protocol-row">
-            <span class="yhat-tf-k" title="开：只看 ŷ_oo、ŷ_τc 都要大于 0。rank 原始分不进这道闸。缺分不拦。">y_*&gt;0</span>
-            <span class="yhat-tf-seg" role="radiogroup" aria-label="y_* 大于 0">
-              <label class="yhat-tf-seq-pick"><input type="radio" name="bt_y_oo_gt0" data-bt-field="y_oo_gt0" value="0" checked /><span>关</span></label>
-              <label class="yhat-tf-seq-pick"><input type="radio" name="bt_y_oo_gt0" data-bt-field="y_oo_gt0" value="1" /><span>开</span></label>
-            </span>
-          </div>
-          <div class="yhat-tf-protocol-row">
-            <span class="yhat-tf-k" title="高波弱开、异常低开或涨停开盘时，只拦新开和加仓，不清仓。">形态闸</span>
-            <span class="yhat-tf-seg" role="radiogroup" aria-label="形态闸">
-              <label class="yhat-tf-seq-pick"><input type="radio" name="bt_morph_gate" data-bt-field="morph_gate_enabled" value="0" checked /><span>关</span></label>
-              <label class="yhat-tf-seq-pick"><input type="radio" name="bt_morph_gate" data-bt-field="morph_gate_enabled" value="1" /><span>开</span></label>
-            </span>
-          </div>
-          <label class="quant-inline-num" title="成交固定 09:30 开盘。T+1。没有日分价闸。"><span>成交</span><input type="text" value="09:30" readonly tabindex="-1" /></label>
-        </div>
-      </div>
-    </form>
-    <div class="yhat-tf-backtest-actions">
-      <label class="yhat-tf-bt-tier" title="勾选：截面仍用全池，只给 A 档打分并成交。不勾：A、B、C 都打分并成交。">
-        <input type="checkbox" data-bt-field="tier_a_only" checked />
-        <span>A档</span>
-      </label>
-      <label class="yhat-tf-version yhat-tf-bt-history" data-bt-history>
-        <span class="yhat-tf-k yhat-tf-run-id-k">记录</span>
-        <span class="yhat-tf-version-box">
-          <button type="button" class="yhat-tf-version-btn" data-bt-history-btn aria-haspopup="listbox" aria-expanded="false" aria-label="回看离线回测记录">尚无记录</button>
-          <div class="yhat-tf-version-menu" data-bt-history-menu role="listbox" hidden></div>
-        </span>
-      </label>
-      <button type="button" class="dialog-btn primary yhat-tf-run-cta" id="yhat-factory-backtest-run">回测</button>
-    </div>
-    <p class="yhat-tf-backtest-error" data-bt-error hidden></p>
-    <section class="yhat-tf-arm-console yhat-tf-bt-console-card" data-bt-output hidden>
-      <header class="yhat-tf-arm-console-head">
-        <!--yhat-only:L-->
-        <span class="yhat-tf-arm-badge">L</span>
-        <!--/yhat-only:L-->
-        <!--yhat-only:R-->
-        <span class="yhat-tf-arm-badge">R</span>
-        <!--/yhat-only:R-->
-        <!--yhat-only:T-->
-        <span class="yhat-tf-arm-badge">T</span>
-        <!--/yhat-only:T-->
-        <div class="yhat-tf-arm-title"><strong>离线回测</strong><span data-bt-score-scope>09:30 开盘 · 截面全池 · 打分 A档</span></div>
-        <div class="yhat-tf-bt-console-tools">
-          <span class="yhat-tf-arm-state" data-arm-state="bt" data-bt-console-state data-state="idle">尚未跑过</span>
-        </div>
-      </header>
-      <div class="yhat-tf-arm-metrics yhat-tf-bt-metrics" data-bt-report hidden>
-        <div><span title="期末市值相对本金">累计收益</span><strong data-bt-return class="is-empty">—</strong></div>
-        <div><span title="策略累计减去观察池等权买持。没有日线时留空">超额</span><strong data-bt-excess class="is-empty">—</strong></div>
-        <div><span title="窗口内净值从高点回落的最大幅度">最大回撤</span><strong data-bt-dd class="is-empty">—</strong></div>
-        <div><span title="开仓加仓记今开到明开，清仓减仓记相反数。等权平均，不是账户净值。没有次日开盘不计">决策收益</span><strong data-bt-dec class="is-empty">—</strong></div>
-        <div><span title="开仓加仓上涨为命中，清仓减仓下跌为命中。平盘未命中。没有次日开盘不计">准确率</span><strong data-bt-acc class="is-empty">—</strong></div>
-        <div><span title="买、加、仍持有的名字里，今开到明开为正的占比。清仓减仓不计">命中率</span><strong data-bt-hit class="is-empty">—</strong></div>
-        <div><span>窗口</span><strong data-bt-window class="is-empty">—</strong></div>
-      </div>
-      <pre class="yhat-tf-arm-log" data-bt-console hidden></pre>
-    </section>
-    </div>
         </div>
       </div>
     </details>

@@ -1259,7 +1259,10 @@ class NewsArchiveScheduleTests(unittest.TestCase):
         ) as f:
             js = f.read()
         self.assertIn("watching-news-archive-fold", html)
-        self.assertIn("更新舆情", html)
+        self.assertIn(
+            'id="watching-news-archive-poll" class="dialog-btn primary dialog-raise"',
+            html,
+        )
         self.assertIn("与观察池同一本地库", html)
         news = html[html.find('id="quant-section-news"') :]
         self.assertIn("quant-section-head", news)

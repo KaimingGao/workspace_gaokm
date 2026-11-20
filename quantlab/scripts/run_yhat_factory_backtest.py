@@ -1,4 +1,4 @@
-"""模型中心离线回测进程。只读工厂权重，不写研究套 / 执行套 / live。"""
+"""回测中心组合回测进程。只读工厂权重，报告写 live/yhat_bt。不写研究套 / 执行套 / live。"""
 
 from __future__ import annotations
 
@@ -16,10 +16,10 @@ os.environ.setdefault("KMP_DUPLICATE_LIB_OK", "TRUE")
 
 
 def main(argv: list | None = None) -> int:
-    parser = argparse.ArgumentParser(description="工厂四头离线回测")
-    parser.add_argument("--factory", required=True, choices=("L", "T", "R"))
+    parser = argparse.ArgumentParser(description="回测中心四头组合回测")
+    parser.add_argument("--factory", required=True, choices=("BT",))
     parser.add_argument("--versions", required=True, help="四头版本号 JSON")
-    parser.add_argument("--rules", default="", help="本页 rank_lots JSON；缺省读工厂目录")
+    parser.add_argument("--rules", default="", help="本页 rank_lots JSON；缺省读 live/yhat_bt")
     args = parser.parse_args(argv)
     from core.research.yhat_factory_backtest import finish_factory_backtest, run_factory_backtest
 
@@ -32,7 +32,7 @@ def main(argv: list | None = None) -> int:
             raise ValueError("rules 须为对象")
         report = run_factory_backtest(args.factory, versions, rules=rules)
         print(
-            f"离线回测完成 窗口 {report.get('window_start')}→{report.get('window_end')} "
+            f"组合回测完成 窗口 {report.get('window_start')}→{report.get('window_end')} "
             f"收益 {float(report.get('cumulative_return') or 0):.4%}",
             flush=True,
         )

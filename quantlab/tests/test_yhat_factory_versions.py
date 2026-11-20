@@ -10,6 +10,7 @@ from unittest import mock
 
 from core.research.yhat_factory_versions import (
     KEEP,
+    _shown_label,
     archive_factory_run,
     delete_factory_version,
     enable_factory_version,
@@ -94,6 +95,21 @@ class TestYhatFactoryVersions(unittest.TestCase):
         self.assertEqual(research_on["enabled_id"], "oo-research-p7")
         self.assertEqual(live_on["enabled_id"], "")
 
+    def test_pretrain_archive_keeps_rank_ic(self):
+        with tempfile.TemporaryDirectory() as td:
+            last_path = os.path.join(td, "last_status.json")
+            with mock.patch("core.research.yhat_tf_desk.YHAT_TF_DIR", td), mock.patch(
+                "core.research.yhat_tf_desk.YHAT_TF_LAST_PATH", last_path
+            ):
+                job = _job("oo-pre")
+                job["params"] = dict(job["params"], train_stage="pretrain", feature_set="pool")
+                with factory_scope("T"):
+                    archive_factory_run("oo", job=job, last=_last(), status="done")
+                listed = list_factory_versions("oo", factory="T")
+        label = listed["items"][0]["label"]
+        self.assertIn("RankIC 0.042", label)
+        self.assertIn("预训练", label)
+
     def test_live_suite_stays_out_of_research_list(self):
         with tempfile.TemporaryDirectory() as td:
             last_path = os.path.join(td, "last_status.json")
@@ -117,6 +133,24 @@ class TestYhatFactoryVersions(unittest.TestCase):
         self.assertEqual(live["items"][0]["suite"], "live")
         self.assertEqual(live["items"][0]["holdout_trading_days"], 0)
         self.assertFalse(denied["success"])
+
+    def test_shown_label_keeps_time_rankic_factory(self):
+        self.assertEqual(
+            _shown_label("11-19 01:36 · RankIC 0.010 · λ1", "R"),
+            "11-19 01:36 · RankIC 0.010 · R",
+        )
+        self.assertEqual(
+            _shown_label("11-19 02:14 · RankIC 0.098 · lambdarank", "L"),
+            "11-19 02:14 · RankIC 0.098 · L",
+        )
+        self.assertEqual(
+            _shown_label("11-18 06:15 · RankIC 0.083 · 100% · core", "T"),
+            "11-18 06:15 · RankIC 0.083 · T",
+        )
+        self.assertEqual(
+            _shown_label("11-16 01:02 · RankIC 0.042 · 10% · full · l2", "L"),
+            "11-16 01:02 · RankIC 0.042 · L",
+        )
 
     def test_archive_list_preview_and_same_id_overwrites(self):
         with tempfile.TemporaryDirectory() as td:
@@ -142,8 +176,9 @@ class TestYhatFactoryVersions(unittest.TestCase):
                 self.assertTrue(listed["success"])
                 self.assertEqual(len(listed["items"]), 1)
                 self.assertIn("RankIC 0.042", listed["items"][0]["label"])
-                self.assertIn("10%", listed["items"][0]["label"])
-                self.assertIn("core", listed["items"][0]["label"])
+                self.assertTrue(listed["items"][0]["label"].endswith(" · T"))
+                self.assertNotIn("10%", listed["items"][0]["label"])
+                self.assertNotIn("core", listed["items"][0]["label"])
                 preview = preview_factory_version("oo", vid, factory="T")
                 self.assertTrue(preview["success"])
                 self.assertEqual(preview["fit_params"]["lookback"], 900)
@@ -204,7 +239,8 @@ class TestYhatFactoryVersions(unittest.TestCase):
                 self.assertTrue(os.path.isfile(os.path.join(td_l, "versions", "oo", f"{vid}.json")))
                 self.assertFalse(os.path.isdir(os.path.join(td_t, "versions")))
                 listed = list_factory_versions("oo", factory="L")
-                self.assertIn("l2", listed["items"][0]["label"])
+                self.assertTrue(listed["items"][0]["label"].endswith(" · L"))
+                self.assertNotIn("l2", listed["items"][0]["label"])
                 self.assertNotIn("10%", listed["items"][0]["label"])
                 empty = list_factory_versions("oo", factory="T")
                 self.assertEqual(empty["items"], [])

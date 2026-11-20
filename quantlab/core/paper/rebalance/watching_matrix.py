@@ -285,7 +285,7 @@ def _resolve_live_rank_pool(
 ) -> Tuple[List[str], Optional[Collection[str]], List[str], Dict[str, Any]]:
     """解析名次池。返回 (pool_codes, tradable_allow, held, watching_meta)。
 
-    ``tradable_allow`` 为 A 档可交易集；无闸时为 None（整池）。
+    ``tradable_allow`` 恒为 None（整池打分）。股票分档闸已下线。
     """
     paper = paper if isinstance(paper, dict) else {}
     if held is None:
@@ -325,7 +325,7 @@ def _resolve_live_rank_pool(
 def current_live_rank_universe(
     *, paper: Optional[dict] = None
 ) -> Tuple[List[str], str]:
-    """当前应用名次截面：优先 A 档可交易，否则整观察池。返回 (codes, fp)。"""
+    """当前应用名次截面：整观察池。返回 (codes, fp)。"""
     codes, allow, _held, meta = _resolve_live_rank_pool(paper=paper)
     if allow:
         uni = list(allow)
@@ -688,12 +688,6 @@ def _stamp_ranks_from_lake(focus: Sequence[dict]) -> None:
     _, fit_meta = _apply_universe_fit_tier_filter(
         codes, keep=held, pool_codes_for_fp=fp_codes
     )
-    if fit_meta.get("gate_ok") is False:
-        logger.debug(
-            "stamp ranks skip: tier gate rejected (%s)",
-            fit_meta.get("gate_error") or "gate_ok=False",
-        )
-        return
     score_codes = fit_meta.get("tradable_codes")
     if not isinstance(score_codes, (list, tuple, set)):
         score_codes = None
@@ -944,78 +938,20 @@ def _apply_universe_fit_tier_filter(
     keep: Sequence[str] = (),
     pool_codes_for_fp: Optional[Sequence[str]] = None,
 ) -> Tuple[List[str], Dict[str, Any]]:
-    """可预测性分档 live 闸的元数据。
-
-    截面 z 用调用方传入的整段观察池（调用方勿用返回列表缩小打分池）。
-    ``tradable_codes``：允许写 ŷ/名次并开仓；``force_exit_held``：掉档持仓硬清仓。
-    无 active / 闸失败时 ``tradable_codes`` 为 None（全员打分 vs 禁止套用）。
-    ``pool_codes_for_fp``：指纹只对观察池（不含持仓并入票）。
-    """
-    from core.research.predictability_tiers import filter_codes_by_predictability_live
-
-    return filter_codes_by_predictability_live(
-        codes, keep=keep, pool_codes_for_fp=pool_codes_for_fp
-    )
-
-
-def _mark_predictability_tier_exits(
-    item_by_code: Dict[str, dict],
-    *,
-    force_exit_held: Sequence[str],
-    allowed_tiers: Sequence[str],
-) -> None:
-    """持仓掉出 live 允许档 → hard_reject，rank_lots 清仓。"""
-    exits = [str(c).strip() for c in (force_exit_held or []) if str(c).strip()]
-    if not exits:
-        return
-    allow = [
-        str(t).strip().upper()
-        for t in (allowed_tiers or [])
-        if str(t or "").strip()
-    ]
-    label = "".join(allow) if allow else "A"
-    why = f"可预测性非{label}档 清仓"
-    for code in exits:
-        item = item_by_code.get(code)
-        if not isinstance(item, dict):
-            item = {"stock_code": code}
-            item_by_code[code] = item
-        prev = str(item.get("reject_reason") or "").strip()
-        item["hard_reject"] = True
-        item["reject_reason"] = f"{prev}；{why}" if prev and prev != why else why
-        item["predictability_tier_exit"] = True
-
-
-def _mark_predictability_tier_blocks(
-    item_by_code: Dict[str, dict],
-    *,
-    tradable_codes: Any,
-    allowed_tiers: Sequence[str],
-    gate_ok: Any = True,
-) -> None:
-    """不在允许档、且还没标清仓的名字：留在截面特征里（供 z），禁止新开。
-
-    闸失败（``gate_ok is False``）或 ``tradable_codes is None`` 时不改行——
-    与「允许集为空」区分，避免误把全池标成硬拒绝。
-    """
-    if gate_ok is False:
-        return
-    if not isinstance(tradable_codes, (list, tuple, set)):
-        return
-    allow = {str(c).strip() for c in tradable_codes if str(c).strip()}
-    label = "".join(
-        str(t).strip().upper()
-        for t in (allowed_tiers or [])
-        if str(t or "").strip()
-    ) or "A"
-    why = f"可预测性非{label}档 不开仓"
-    for code, item in item_by_code.items():
-        if not isinstance(item, dict) or code in allow or item.get("hard_reject"):
-            continue
-        prev = str(item.get("reject_reason") or "").strip()
-        item["hard_reject"] = True
-        item["reject_reason"] = f"{prev}；{why}" if prev and prev != why else why
-        item["predictability_tier_block"] = True
+    """股票分档闸已下线。原样返回观察池，``tradable_codes`` 为 None（全员打分）。"""
+    _ = keep, pool_codes_for_fp
+    cleaned = [str(c).strip() for c in (codes or []) if str(c).strip()]
+    return cleaned, {
+        "predictability_live": False,
+        "unrestricted": True,
+        "n_in": len(cleaned),
+        "n_kept": len(cleaned),
+        "n_dropped": 0,
+        "force_exit_held": [],
+        "reason": "tiers_retired",
+        "allowed_tiers": [],
+        "tradable_codes": None,
+    }
 
 
 def _resolve_report_name(
@@ -2537,18 +2473,6 @@ def simulate_watching_matrix_preview(
     _, fit_meta = _apply_universe_fit_tier_filter(
         codes, keep=held_codes, pool_codes_for_fp=fp_codes
     )
-    if fit_meta.get("gate_ok") is False:
-        return {
-            "success": False,
-            "ok": False,
-            "mode": "watching_matrix",
-            "dry_run": bool(dry_run),
-            "matrix_mode": True,
-            "error": fit_meta.get("gate_error")
-            or "分档报告校验失败；请重跑「股票分档」",
-            "fit_tiers": fit_meta,
-            "confirm_supported": True,
-        }
     score_codes = fit_meta.get("tradable_codes")
     if not isinstance(score_codes, (list, tuple, set)):
         score_codes = None
@@ -2677,18 +2601,6 @@ def simulate_watching_matrix_preview(
         stamp_live_ranks(list(item_by_code.values()), paper=paper, heal=False)
     except Exception:  # noqa: BLE001
         logger.debug("stamp held ranks after score pool failed", exc_info=True)
-
-    _mark_predictability_tier_exits(
-        item_by_code,
-        force_exit_held=list(fit_meta.get("force_exit_held") or []),
-        allowed_tiers=list(fit_meta.get("allowed_tiers") or []),
-    )
-    _mark_predictability_tier_blocks(
-        item_by_code,
-        tradable_codes=fit_meta.get("tradable_codes"),
-        allowed_tiers=list(fit_meta.get("allowed_tiers") or []),
-        gate_ok=fit_meta.get("gate_ok", True),
-    )
 
     prices: Dict[str, float] = {}
     opens: Dict[str, float] = {}

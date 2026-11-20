@@ -83,11 +83,29 @@ def fit_ridge(
     return float(beta[0]), coef
 
 
-def predict_ridge(X: np.ndarray, intercept: float, coef: Sequence[float]) -> np.ndarray:
+def predict_ridge(
+    X: np.ndarray,
+    intercept: float,
+    coef: Sequence[float],
+    *,
+    require_complete: bool = False,
+) -> np.ndarray:
+    """线性打分。缺测不加项。
+
+    ``require_complete=False``：一行里入模列全缺才是 NaN。
+    ``require_complete=True``：任一入模列缺测，整行是 NaN（ŷ_τc 与 main 同口径）。
+    """
     mat = np.asarray(X, dtype=np.float64)
     weights = np.asarray(coef, dtype=np.float64).reshape(-1)
     if mat.ndim != 2 or int(mat.shape[1]) != int(weights.shape[0]):
         raise ValueError("因子列数与权重不一致")
     if int(mat.shape[0]) == 0:
         return np.zeros((0,), dtype=np.float64)
-    return np.asarray(float(intercept) + mat @ weights, dtype=np.float64).reshape(-1)
+    finite = np.isfinite(mat)
+    filled = np.where(finite, mat, 0.0)
+    pred = np.asarray(float(intercept) + filled @ weights, dtype=np.float64).reshape(-1)
+    bad = ~finite.all(axis=1) if require_complete else ~finite.any(axis=1)
+    if bool(np.any(bad)):
+        pred = pred.copy()
+        pred[bad] = np.nan
+    return pred

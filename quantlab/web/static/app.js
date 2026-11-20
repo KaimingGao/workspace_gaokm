@@ -143,10 +143,14 @@ async function bootWorkspace() {
       await ctx.openPlatformPanel().catch((err) => console.error("[QuantLab] openPlatformPanel", err));
     }
   }
-  if (page === "yhat_l" || page === "yhat_t" || page === "yhat_r") {
+  if (page === "yhat_l" || page === "yhat_t" || page === "yhat_r" || page === "yhat_bt") {
     const yhatTfMod = await loadModule("yhat_tf", `./js/yhat_tf.js?v=${V}`);
-    const factory = page === "yhat_l" ? "L" : page === "yhat_r" ? "R" : "T";
-    if (yhatTfMod) safeInit(page, () => yhatTfMod.initYhatTf(ctx, factory));
+    if (page === "yhat_bt") {
+      if (yhatTfMod) safeInit(page, () => yhatTfMod.initYhatBt());
+    } else {
+      const factory = page === "yhat_l" ? "L" : page === "yhat_r" ? "R" : "T";
+      if (yhatTfMod) safeInit(page, () => yhatTfMod.initYhatTf(ctx, factory));
+    }
   }
 
   if (

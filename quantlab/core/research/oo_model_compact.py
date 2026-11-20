@@ -530,7 +530,10 @@ def _maybe_materialize_day_cubes(
     names: Sequence[str],
     dates: Sequence[str],
 ) -> None:
-    """按股块还原 code 列，物化 L2 DayCube（供回测/live 复用日 μ/σ）。"""
+    """按股块还原 code 列。当天还没有 open 立方时落一份 oo 面板。
+
+    已有立方不覆盖：这份面板没有 τc 列，盖上去 Arm·T 截面 z 会缺 ``z_τc_*``。
+    """
     from core.research.materialize.consumer import consumer_read_only
 
     if consumer_read_only():

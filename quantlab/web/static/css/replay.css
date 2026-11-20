@@ -145,78 +145,7 @@ body[data-page="replay"] .page-main {
   --r-gap-block: 8px;
 }
 
-/* ── 页头 ── */
-body[data-page="replay"] .dashboard-head.quant-head {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 12px;
-  padding: 2px 0 6px;
-  margin-bottom: 2px;
-  border-bottom: 1px solid color-mix(in srgb, var(--line) 70%, transparent);
-  background: var(--surface);
-  z-index: 5;
-  isolation: isolate;
-}
-
-body[data-page="replay"] .dashboard-eyebrow {
-  margin: 0 0 2px;
-  font-size: var(--r-fs-micro);
-  font-weight: var(--sys-fw-label, 650);
-  letter-spacing: 0.14em;
-  text-transform: uppercase;
-  color: var(--ink-3);
-  font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
-  line-height: 18px;
-}
-
-body[data-page="replay"] .dashboard-head h2,
-body[data-page="replay"] .quant-head h2 {
-  margin: 0;
-  font-size: var(--sys-fs-title, 1.125rem);
-  font-weight: var(--sys-fw-display, 700);
-  letter-spacing: -0.02em;
-  line-height: var(--sys-lh-tight, 1.2);
-  color: var(--ink);
-}
-
-body[data-page="replay"] .dashboard-meta,
-body[data-page="replay"] .quant-meta,
-body[data-page="replay"] #replay-meta {
-  margin: 4px 0 0 !important;
-  font-size: var(--r-fs-caption);
-  line-height: var(--sys-lh-snug, 1.35);
-  font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
-  font-variant-numeric: tabular-nums;
-  color: var(--ink-3);
-}
-
-body[data-page="replay"] .replay-head-path {
-  margin: 4px 0 0;
-  font-size: var(--r-fs-caption);
-  color: var(--ink-3);
-  letter-spacing: 0.01em;
-  line-height: var(--sys-lh-snug, 1.35);
-}
-
-body[data-page="replay"] .replay-hero-link {
-  color: var(--accent);
-  text-decoration: none;
-  font-weight: 600;
-}
-
-body[data-page="replay"] .replay-hero-link:hover {
-  text-decoration: underline;
-}
-
-body[data-page="replay"] .replay-head-actions {
-  display: inline-flex;
-  flex-direction: row;
-  align-items: center;
-  gap: 8px;
-  flex-wrap: wrap;
-  flex-shrink: 0;
-}
+/* 页头阶梯见 quant.css .page-panel.quant-panel .quant-head */
 
 body[data-page="replay"] .replay-desk-badge,
 body[data-page="replay"] .replay-desk-guard,
@@ -566,16 +495,6 @@ body[data-page="replay"] .replay-clock-field #quant-fill-clock {
   min-width: 5.5rem;
 }
 
-body[data-page="replay"] .replay-pred-tier-field {
-  flex-direction: row !important;
-  align-items: center;
-  gap: 6px;
-  margin-bottom: 0;
-  border: 0;
-  padding: 0;
-  min-width: 0;
-}
-
 body[data-page="replay"] .replay-three-window-check {
   white-space: nowrap;
   font-size: 12px;
@@ -605,15 +524,6 @@ body[data-page="replay"] .replay-fit-tier-checks label {
   gap: 3px;
   white-space: nowrap;
   cursor: pointer;
-}
-
-body[data-page="replay"] .replay-page .dashboard-section-title {
-  margin: 0;
-  font-size: var(--r-fs-section);
-  font-weight: var(--sys-fw-display, 700);
-  letter-spacing: 0.02em;
-  line-height: var(--sys-lh-tight, 1.2);
-  color: var(--ink);
 }
 
 body[data-page="replay"] .replay-page .dashboard-section-desc {

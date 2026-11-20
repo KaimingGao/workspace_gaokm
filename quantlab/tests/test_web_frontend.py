@@ -151,7 +151,7 @@ class TestP95P96WebPages(unittest.TestCase):
                 "quant-expr-code",
                 "quant-ols-summary",
                 "quant-ridge-lambda",
-                "quant-section-research-universe",
+                "quant-section-roll-gate",
             ),
             "/watching": ("data-page=\"watching\"", "watching-search-input", "watching-watchlist-table", "观察", "加入纸面", "quant-watching-sync", "watching-build-layer"),
             "/market-prior": ("data-page=\"strategy\"", "strategy-market-context", "strategy-factor-dict", "strategy-regime-board"),

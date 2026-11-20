@@ -113,9 +113,23 @@ def _arm_tip(table: Mapping[str, Any], row: Mapping[str, Any]) -> Optional[Dict[
         ic = card.get("rank_ic")
         if isinstance(ic, (int, float)) and ic == ic:
             slim["rank_ic"] = round(float(ic), 3)
+        factory = str(card.get("factory") or "").strip().upper()
+        if factory in ("R", "L", "T"):
+            slim["factory"] = factory
         if slim:
             out[head] = slim
     return out or None
+
+
+def _arm_score_source(table: Mapping[str, Any], head: str) -> str:
+    cards = table.get("cards") if isinstance(table.get("cards"), dict) else {}
+    card = cards.get(head) if isinstance(cards, dict) else None
+    fac = str(card.get("factory") or "").strip().upper() if isinstance(card, dict) else ""
+    if fac == "L":
+        return "arm_l"
+    if fac == "R":
+        return "arm_r"
+    return "transformer"
 
 
 def stamp_replay_arm_day(items: Sequence[dict], table: Mapping[str, Any], day: str) -> None:
@@ -139,19 +153,23 @@ def stamp_replay_arm_day(items: Sequence[dict], table: Mapping[str, Any], day: s
             it["y_oo"] = val
             it["predicted_score"] = val
             it["predicted_score_oo"] = val
-            it["y_oo_source"] = "transformer"
+            it["y_oo_source"] = _arm_score_source(table, "oo")
         if row.get("y_oo_rank_score") is not None:
             it["y_oo_rank_score"] = row.get("y_oo_rank_score")
-            it["y_oo_rank_source"] = "transformer"
+            it["y_oo_rank_source"] = _arm_score_source(table, "oo_rank")
         if row.get("y_τc") is not None:
             val = row.get("y_τc")
             it["y_τc"] = val
             it["predicted_score_τc"] = val
-            it["y_τc_source"] = "transformer"
-            it["_score_source"] = "arm_t_open"
+            it["y_τc_source"] = _arm_score_source(table, "tc")
+            clock = _arm_score_source(table, "tc")
+            it["_score_source"] = {
+                "arm_l": "arm_l_open",
+                "arm_r": "arm_r_open",
+            }.get(clock, "arm_t_open")
         if row.get("y_tc_rank_score") is not None:
             it["y_tc_rank_score"] = row.get("y_tc_rank_score")
-            it["y_tc_rank_source"] = "transformer"
+            it["y_tc_rank_source"] = _arm_score_source(table, "tc_rank")
         tip = _arm_tip(table, row)
         if tip:
             it["arm_t"] = tip
@@ -339,11 +357,11 @@ def _stamp_tradable_hard_reject(
     *,
     reason: str,
 ) -> None:
-    """分档外的名字留在截面特征里（供 z），但不许新开；已持仓则清仓。"""
+    """名单外的名字留在截面特征里（供 z），但不许新开；已持仓则清仓。"""
     if tradable_codes is None:
         return
     allow = {str(c).strip() for c in tradable_codes if str(c or "").strip()}
-    why = str(reason or "").strip() or "可预测性分档外"
+    why = str(reason or "").strip() or "不在打分名单"
     for it in scored or []:
         if not isinstance(it, dict):
             continue
@@ -352,7 +370,6 @@ def _stamp_tradable_hard_reject(
             continue
         it["hard_reject"] = True
         it["reject_reason"] = why
-        it["predictability_tier_block"] = True
 
 
 def _attach_open_yhat_heads(
@@ -521,7 +538,7 @@ def _attach_open_yhat_heads(
                     day_key = str(it.get("as_of") or it.get("date") or "")[:10]
                     if len(day_key) >= 10:
                         break
-            # L2 目录键必须是完整观察池（与物化 / assess_coverage 同）；
+            # L2 目录键必须是物化时的完整截面（历史回测为沪深300）；
             # score_codes 可能是分档子集，不能拿去 universe_hash。
             cube_codes = None
             try:
@@ -556,7 +573,7 @@ def _attach_open_yhat_heads(
                 f"replay 截面 rescore 失败（禁止 raw×β 落盘）: {exc}"
             ) from exc
     # ŷ_τc_rank：须在 features_tau 挂好之后；与 oo_rank 同槽，一并进开盘缓存。
-    # Arm·T 回测的名次在 stamp_replay_arm_day 里从启用权重写出。
+    # 工厂臂回测的名次在 stamp_replay_arm_day 里从启用权重写出。
     if not arm:
         try:
             from core.research.tc_rank import apply_tc_rank_scores, load_tc_rank_model

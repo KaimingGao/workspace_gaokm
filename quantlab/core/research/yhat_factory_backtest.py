@@ -1,7 +1,8 @@
-"""模型中心离线回测。
+"""回测中心组合回测。
 
 四头各拿一版工厂权重，在评测窗交集里按 09:30 开盘价走 rank_lots。
-报告写在工厂目录，不调用历史回测页，不写研究套 / 执行套，不改 live。
+四头可以来自 Arm·R / Arm·L / Arm·T，报告只写 live/yhat_bt。
+不调用历史回测页，不写研究套 / 执行套，不改 live，也不写三家工厂目录。
 """
 
 from __future__ import annotations
@@ -27,9 +28,44 @@ FILL_CLOCK = "09:30"
 START_CASH = 200_000.0
 _ARCH = ("d_model", "nhead", "nlayers", "factor_hidden", "d_seq_in")
 _QUANTLAB = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
+_MIX = "BT"
+_ARM_ALIASES = {
+    "L": "L",
+    "ARM-L": "L",
+    "ARM_L": "L",
+    "ARM·L": "L",
+    "LGB": "L",
+    "LIGHTGBM": "L",
+    "R": "R",
+    "ARM-R": "R",
+    "ARM_R": "R",
+    "ARM·R": "R",
+    "RIDGE": "R",
+    "T": "T",
+    "ARM-T": "T",
+    "ARM_T": "T",
+    "ARM·T": "T",
+    "TF": "T",
+    "TRANSFORMER": "T",
+}
+_BACKENDS = {"transformer", "lightgbm", "ridge"}
+
+
+def _factory_key(factory: str) -> str:
+    """L/R/T 走工厂目录。BT 是回测中心，不能落进 normalize 的默认 T。"""
+    raw = str(factory or "").strip().upper()
+    if raw in ("BT", "MIX", "YHAT-BT", "YHAT_BT"):
+        return _MIX
+    return normalize_factory(factory)
 
 
 def _store_dir(factory: str) -> str:
+    if _factory_key(factory) == _MIX:
+        from core.paths import LIVE_DIR
+
+        path = os.path.join(LIVE_DIR, "yhat_bt")
+        os.makedirs(path, exist_ok=True)
+        return path
     from core.research.yhat_tf_desk import _store_dir as desk_store
 
     with factory_scope(factory):
@@ -136,6 +172,72 @@ def _fit_span_note(specs: Mapping[str, Any]) -> str:
     return "；".join(bits) + "。截面按当前观察池，日线按最长回看"
 
 
+def _version_stamp(spec: Mapping[str, Any], vid: str) -> str:
+    """版本菜单上的时间标识。没有拟合时刻时退回版本号。"""
+    snap = spec.get("snapshot") if isinstance(spec.get("snapshot"), Mapping) else {}
+    raw = str(snap.get("started_at") or snap.get("finished_at") or "")
+    if len(raw) >= 16 and raw[4] == "-" and raw[7] == "-":
+        return f"{raw[5:10]} {raw[11:16]}"
+    return str(vid or snap.get("run_id") or spec.get("run_id") or "").strip()
+
+
+def _combo_console(spec: Mapping[str, Any]) -> str:
+    """组合方案。每个模型名带上工厂和版本标识。"""
+    factories = spec.get("factories") if isinstance(spec.get("factories"), Mapping) else {}
+    versions = spec.get("versions") if isinstance(spec.get("versions"), Mapping) else {}
+    specs = spec.get("specs") if isinstance(spec.get("specs"), Mapping) else {}
+    names: List[str] = []
+    for head in HEADS:
+        arm = str(factories.get(head) or "").strip()
+        vid = str(versions.get(head) or "").strip()
+        one = specs.get(head) if isinstance(specs.get(head), Mapping) else {}
+        mark = _version_stamp(one, vid)
+        names.append(" ".join(bit for bit in (head, arm, mark) if bit))
+    blend = "当日名次" if str(spec.get("rank_blend") or "") == "day_rank" else "原始分"
+    return "组合 " + " · ".join(names) + f" · 买序 {blend}"
+
+
+def _console_num(raw: Any, *, digits: Optional[int] = None, scale: float = 1.0, suffix: str = "") -> str:
+    try:
+        value = float(raw) * scale
+    except (TypeError, ValueError):
+        return "—"
+    text = f"{value:.{digits}f}" if digits is not None else str(int(round(value)))
+    return text + suffix
+
+
+def _rules_console(brief: Mapping[str, Any]) -> str:
+    """这次回测实际用的页面配置。成交钟固定，不在这里重复。"""
+    feature = str(brief.get("feature_set") or "").strip().lower()
+    if feature in ("hs300", "csi300", "沪深300", "000300"):
+        pool = "沪深300"
+    elif feature in ("pool", "pool1600", "1600", "full", "大池"):
+        pool = "大池"
+    else:
+        pool = "观察池"
+    rank = "关" if brief.get("oo_rank_max") in (None, "") else _console_num(brief.get("oo_rank_max"))
+    strong = (
+        "关"
+        if brief.get("oo_rank_strong_max") in (None, "")
+        else _console_num(brief.get("oo_rank_strong_max"))
+    )
+    return (
+        "配置 "
+        f"w_oo {_console_num(brief.get('w_oo'), digits=2)} "
+        f"w_τc {_console_num(brief.get('w_tc'), digits=2)} "
+        f"入场 fuse {_console_num(brief.get('fuse_enter'), digits=2, scale=100.0, suffix='%')} "
+        f"名次 {rank} "
+        f"金额 {_console_num(brief.get('lot_base_amount'))} "
+        f"强档 fuse {_console_num(brief.get('fuse_strong'), digits=2, scale=100.0, suffix='%')} "
+        f"名次 {strong} "
+        f"金额 {_console_num(brief.get('lot_strong_amount'))} "
+        f"本金 {_console_num(brief.get('start_cash'))} "
+        f"y_*>0 {'开' if brief.get('y_oo_gt0') else '关'} "
+        f"形态闸 {'开' if brief.get('morph_gate_enabled') else '关'} "
+        f"物化 {pool}"
+    )
+
+
 def _pack(spec: Mapping[str, Any]) -> str:
     meta = spec.get("meta") if isinstance(spec.get("meta"), dict) else {}
     return str(meta.get("factor_pack") or "").strip()
@@ -217,19 +319,139 @@ def check_suite(specs: Sequence[Mapping[str, Any]]) -> Dict[str, Any]:
     }
 
 
-def load_suite(factory: str, versions: Mapping[str, str]) -> Dict[str, Any]:
-    """读四份版本档案和权重 meta。不把 state.pt 载入内存。"""
+def _pack_family(pack: str) -> str:
+    text = str(pack or "").strip()
+    if text.startswith("aoo"):
+        return "aoo"
+    if text.startswith("atc"):
+        return "atc"
+    return ""
+
+
+def _arm_of(raw: Any, head: str) -> str:
+    token = str(raw or "").strip().upper()
+    if token not in _ARM_ALIASES:
+        raise ValueError(f"{head} 工厂须为 Arm·R、Arm·L 或 Arm·T")
+    return _ARM_ALIASES[token]
+
+
+def _transformer_heads(specs: Sequence[Mapping[str, Any]]) -> List[Mapping[str, Any]]:
+    return [spec for spec in specs if str(spec.get("backend") or "") == "transformer"]
+
+
+def _agree_arch(specs: Sequence[Mapping[str, Any]]) -> None:
+    if len(specs) < 2:
+        return
+    for key in _ARCH:
+        vals = []
+        blank = False
+        for spec in specs:
+            meta = spec.get("meta") if isinstance(spec.get("meta"), dict) else {}
+            if meta.get(key) in (None, ""):
+                blank = True
+                continue
+            vals.append(meta.get(key))
+        if not vals:
+            continue
+        if blank or len({_norm_token(v) for v in vals}) != 1:
+            raise ValueError("Transformer 头的网络结构不一致")
+
+
+def check_mix(specs: Sequence[Mapping[str, Any]]) -> Dict[str, Any]:
+    """四头可以来自不同工厂。因子族成对，core / full 可以不同。
+
+    序列长度、采样比例和网络结构只在选中的 Transformer 头之间要求一致。
+    两条排序头后端相同时买序用原始分；不同时用当日名次。
+    """
+    by_head = {str(s.get("head") or ""): s for s in specs}
+    missing = [h for h in HEADS if h not in by_head]
+    if missing:
+        raise ValueError("离线回测需要四头版本")
+    ordered = [by_head[h] for h in HEADS]
+    backends: Dict[str, str] = {}
+    factories: Dict[str, str] = {}
+    for spec in ordered:
+        head = str(spec.get("head") or "")
+        backend = str(spec.get("backend") or "")
+        if backend not in _BACKENDS:
+            raise ValueError(f"{head} 后端无法用于回测")
+        backends[head] = backend
+        factories[head] = _arm_of(spec.get("factory"), head)
+    oo_fam, oo_rank_fam = _pack_family(_pack(by_head["oo"])), _pack_family(_pack(by_head["oo_rank"]))
+    tc_fam, tc_rank_fam = _pack_family(_pack(by_head["tc"])), _pack_family(_pack(by_head["tc_rank"]))
+    if oo_fam != "aoo" or oo_rank_fam != "aoo":
+        raise ValueError("ŷ_oo 与 oo_rank 因子包须同为 aoo")
+    if tc_fam != "atc" or tc_rank_fam != "atc":
+        raise ValueError("ŷ_τc 与 τc_rank 因子包须同为 atc")
+    tf = _transformer_heads(ordered)
+    if tf:
+        for key, label in (
+            ("t_sample_pct", "采样比例"),
+            ("seq_len", "序列长度"),
+            ("seq_feat_set", "序列特征集"),
+        ):
+            _agree(tf, key, label)
+        _agree_arch(tf)
+    starts: List[str] = []
+    ends: List[str] = []
+    for spec in ordered:
+        start, end = _span(spec)
+        head = str(spec.get("head") or "")
+        if len(start) < 10 or len(end) < 10 or start > end:
+            raise ValueError(f"{head} 缺少评测窗")
+        starts.append(start)
+        ends.append(end)
+    window_start, window_end = max(starts), min(ends)
+    if window_start > window_end:
+        raise ValueError("四头评测窗没有交集")
+    lookback = _max_lookback(ordered)
+    rank_blend = "raw" if backends["oo_rank"] == backends["tc_rank"] else "day_rank"
+    seq_src = tf[0] if tf else ordered[0]
+    seq_params = seq_src.get("fit_params") if isinstance(seq_src.get("fit_params"), dict) else {}
+    picks = " · ".join(f"{head} {factories[head]}" for head in HEADS)
+    return {
+        "mix": True,
+        "factory": _MIX,
+        "backend": "mix",
+        "backends": backends,
+        "factories": factories,
+        "rank_blend": rank_blend,
+        "picks": picks,
+        "window_start": window_start,
+        "window_end": window_end,
+        "versions": {h: str(by_head[h].get("run_id") or "") for h in HEADS},
+        "sources": {
+            h: {"factory": factories[h], "run_id": str(by_head[h].get("run_id") or "")}
+            for h in HEADS
+        },
+        "specs": {h: by_head[h] for h in HEADS},
+        "lookback": lookback,
+        "seq_len": seq_params.get("seq_len") if tf else None,
+        "seq_feat_set": seq_params.get("seq_feat_set") if tf else None,
+    }
+
+
+def _mix_source(versions: Mapping[str, Any], head: str) -> Tuple[str, str]:
+    raw = (versions or {}).get(head)
+    if not isinstance(raw, Mapping):
+        raise ValueError("离线回测需要四头的工厂和版本")
+    arm = _arm_of(raw.get("factory"), head)
+    vid = str(raw.get("run_id") or raw.get("id") or "").strip()
+    if not vid:
+        raise ValueError(f"{head} 缺少版本")
+    return arm, vid
+
+
+def load_mix(versions: Mapping[str, Any]) -> Dict[str, Any]:
+    """按头读取三家工厂里的版本和权重 meta。不把权重载入内存。"""
     from core.research.yhat_factory_versions import preview_factory_version
     from core.research.yhat_factory_weights import version_weights_dir
 
-    fac = normalize_factory(factory)
     specs: List[Dict[str, Any]] = []
-    with factory_scope(fac):
-        for head in HEADS:
-            vid = str((versions or {}).get(head) or "").strip()
-            if not vid:
-                raise ValueError("离线回测需要四头版本")
-            snap = preview_factory_version(head, vid, factory=fac)
+    for head in HEADS:
+        arm, vid = _mix_source(versions, head)
+        with factory_scope(arm):
+            snap = preview_factory_version(head, vid, factory=arm)
             if not snap.get("success"):
                 raise ValueError(snap.get("error") or f"{head} 版本不存在")
             doc = snap.get("version") if isinstance(snap.get("version"), dict) else snap
@@ -237,19 +459,53 @@ def load_suite(factory: str, versions: Mapping[str, str]) -> Dict[str, Any]:
             meta = _read_json(meta_path)
             if not meta:
                 raise ValueError(f"{head} 没有权重")
+            backend = str(meta.get("backend") or "")
+            if backend not in _BACKENDS:
+                raise ValueError(f"{head} 权重缺少后端")
             specs.append(
                 {
                     "head": head,
                     "run_id": vid,
-                    "backend": str(meta.get("backend") or ""),
+                    "factory": arm,
+                    "backend": backend,
                     "meta": meta,
                     "fit_params": doc.get("fit_params") if isinstance(doc.get("fit_params"), dict) else {},
                     "snapshot": doc,
                 }
             )
-    suite = check_suite(specs)
-    suite["factory"] = fac
-    return suite
+    return check_mix(specs)
+
+
+def list_mix_catalog() -> Dict[str, Any]:
+    """三家工厂里、带权重的成功版本。每个头一份，新的在前。"""
+    from core.research.yhat_factory_versions import list_factory_versions
+
+    heads: Dict[str, List[Dict[str, Any]]] = {}
+    for head in HEADS:
+        rows: List[Dict[str, Any]] = []
+        for arm in ("R", "L", "T"):
+            listed = list_factory_versions(head, factory=arm)
+            if not listed.get("success"):
+                continue
+            for it in listed.get("items") or []:
+                if not isinstance(it, dict) or not it.get("weights_ref"):
+                    continue
+                if str(it.get("status") or "") == "error":
+                    continue
+                vid = str(it.get("id") or "").strip()
+                if not vid:
+                    continue
+                rows.append(
+                    {
+                        "id": vid,
+                        "factory": arm,
+                        "label": str(it.get("label") or vid),
+                        "weights_ref": it.get("weights_ref"),
+                        "status": str(it.get("status") or ""),
+                    }
+                )
+        heads[head] = rows
+    return {"success": True, "ok": True, "heads": heads}
 
 
 def _isolated_paper(start_cash: float, cfg: Mapping[str, Any]) -> Dict[str, Any]:
@@ -428,59 +684,12 @@ def _fuse_pred(trade: Mapping[str, Any]) -> Optional[float]:
     return (w_oo * (0.0 if y_oo is None else y_oo) + w_tc * (0.0 if y_tc is None else y_tc)) / total
 
 
-class _StockRetBook:
-    """收益率 = 卖出总额/买入总额−1。未卖完时剩余按当日收盘市值计入。"""
-
-    def __init__(self) -> None:
-        self._pos: Dict[str, Dict[str, float]] = {}
-
-    def mark(self, code: str, side: str, shares: Any, price: Any, close_px: Any) -> Optional[float]:
-        sh = _finite(shares)
-        px = _finite(price)
-        if not code or sh is None or sh <= 0 or px is None or px <= 0:
-            return None
-        slot = self._pos.get(code)
-        if side == "buy":
-            if slot is None:
-                slot = {"shares": 0.0, "buy": 0.0, "sell": 0.0}
-                self._pos[code] = slot
-            slot["shares"] += sh
-            slot["buy"] += px * sh
-        elif side == "sell":
-            if slot is None:
-                return None
-            slot["sell"] += px * sh
-            slot["shares"] -= sh
-        else:
-            return None
-        ret = self._ret(slot, close_px)
-        if slot["shares"] <= 1e-6:
-            self._pos.pop(code, None)
-        return ret
-
-    @staticmethod
-    def _ret(slot: Mapping[str, float], close_px: Any) -> Optional[float]:
-        buy = float(slot.get("buy") or 0)
-        if buy <= 0:
-            return None
-        held = float(slot.get("shares") or 0)
-        if held > 1e-6:
-            close = _finite(close_px)
-            if close is None or close <= 0:
-                return None
-            remain = held * close
-        else:
-            remain = 0.0
-        return (float(slot.get("sell") or 0) + remain) / buy * 100.0 - 100.0
-
-
 def _queue_fill(
     date: str,
     trade: Mapping[str, Any],
     *,
     day_open: Optional[float],
     day_close: Optional[float],
-    ret_pct: Optional[float],
 ) -> Optional[dict]:
     """收成一行的材料。次日开盘还没到，先不打印。"""
     code = str(trade.get("stock_code") or "").strip()
@@ -501,7 +710,6 @@ def _queue_fill(
         "open": _fmt_px(basis),
         "close": _fmt_px(day_close),
         "fill": _fmt_px(fill_px),
-        "ret": _fmt_pct2(ret_pct),
         "basis": basis,
         "fuse": _fuse_pred(trade),
         "y_oo": _finite(trade.get("y_oo")),
@@ -512,30 +720,57 @@ def _queue_fill(
     }
 
 
+_FILL_HEAD = (
+    "日期",
+    "动作",
+    "代码",
+    "名称",
+    "股数",
+    "开盘",
+    "收盘",
+    "成交",
+    "fuse",
+    "y_oo",
+    "y_τc",
+    "oo_rank",
+    "τc_rank",
+)
+
+
+def _fill_cell(value: Any) -> str:
+    text = str(value or "").strip()
+    return text or "—"
+
+
+def _fill_line(cells: Sequence[Any]) -> str:
+    return " · ".join(_fill_cell(cell) for cell in cells)
+
+
 def _emit_fill(row: Mapping[str, Any], next_open: Optional[float], *, legend: Dict[str, bool]) -> None:
-    """对齐历史回测成交明细：一笔一行，分数是预估(真实)。"""
+    """一笔一行，列序固定。fuse 只打预估；y_oo / y_τc 仍是预估(真实)。"""
     if not legend.get("on"):
-        print(
-            "成交明细 · 每行一笔 · 开/收/成=开盘/收盘/成交 · "
-            "收益=卖出额/买入额−1（未卖完按收盘市值） · 分数=预估(真实)",
-            flush=True,
-        )
+        print("成交明细 · fuse=预估 · y_oo/y_τc=预估(真实)", flush=True)
+        print(_fill_line(_FILL_HEAD), flush=True)
         legend["on"] = True
     oo_real = _chg_pct(next_open, row.get("basis"))
-    # 09:30 的 price(τ) 就是今开，fuse 真实与 y_oo 真实相同
-    who = f"{row.get('code') or ''} {row.get('name') or ''}".strip()
     print(
-        f"{row.get('date') or ''} {row.get('action') or ''} {who}"
-        f" · {row.get('shares') or '—'}"
-        f" · 开 {row.get('open') or '—'}"
-        f" · 收 {row.get('close') or '—'}"
-        f" · 成 {row.get('fill') or '—'}"
-        f" · 收益 {row.get('ret') or '—'}"
-        f" · fuse {_pred_real(row.get('fuse'), oo_real)}"
-        f" · y_oo {_pred_real(row.get('y_oo'), oo_real)}"
-        f" · y_τc {_pred_real(row.get('y_tc'), row.get('y_tc_real'))}"
-        f" · oo_rank {row.get('oo_rank') or '—'}"
-        f" · τc_rank {row.get('tc_rank') or '—'}",
+        _fill_line(
+            (
+                row.get("date"),
+                row.get("action"),
+                row.get("code"),
+                row.get("name"),
+                row.get("shares"),
+                row.get("open"),
+                row.get("close"),
+                row.get("fill"),
+                _fmt_pct2(row.get("fuse")),
+                _pred_real(row.get("y_oo"), oo_real),
+                _pred_real(row.get("y_tc"), row.get("y_tc_real")),
+                row.get("oo_rank"),
+                row.get("tc_rank"),
+            )
+        ),
         flush=True,
     )
 
@@ -627,7 +862,6 @@ def simulate_scored_days(
     opens_by_date: Dict[str, Dict[str, float]] = {}
     pending_fills: List[dict] = []
     fill_legend = {"on": False}
-    ret_book = _StockRetBook()
     legs: List[Dict[str, Any]] = []
     equities: List[float] = [float(start_cash)]
     for i, day in enumerate(days):
@@ -699,7 +933,6 @@ def simulate_scored_days(
                 filled,
                 day_open=open_px,
                 day_close=close_px,
-                ret_pct=ret_book.mark(code, side, filled.get("shares"), filled.get("price"), close_px),
             )
             if queued:
                 pending_fills.append(queued)
@@ -823,8 +1056,13 @@ def run_factory_backtest(
     rules: Optional[Mapping[str, Any]] = None,
 ) -> Dict[str, Any]:
     """校验四头，预估（或使用调用方已打分的日子），写出收益。"""
-    fac = normalize_factory(factory)
-    spec = dict(suite) if isinstance(suite, Mapping) else load_suite(fac, versions)
+    fac = _factory_key(factory)
+    if isinstance(suite, Mapping):
+        spec = dict(suite)
+    elif fac == _MIX:
+        spec = load_mix(versions)
+    else:
+        raise ValueError("组合回测只写 live/yhat_bt")
     window_start = str(spec.get("window_start") or "")
     window_end = str(spec.get("window_end") or "")
     vids = spec.get("versions") if isinstance(spec.get("versions"), dict) else dict(versions)
@@ -837,12 +1075,29 @@ def run_factory_backtest(
     if note:
         print(note, flush=True)
     planner, cash, rules_brief = _resolve_run_rules(fac, cfg=cfg, rules=rules, suite=spec)
-    scored = (
-        list(days)
-        if days is not None
-        else score_open_window(fac, spec, tier_a_only=bool(rules_brief.get("tier_a_only", True)))
-    )
+    if spec.get("mix"):
+        print(_combo_console(spec), flush=True)
+    print(_rules_console(rules_brief), flush=True)
+    feature_set = str((rules_brief or {}).get("feature_set") or "")
+    prev_feature = os.environ.get("QUANTLAB_FEATURE_SET")
+    if feature_set:
+        os.environ["QUANTLAB_FEATURE_SET"] = feature_set
+    try:
+        scored = (
+            list(days)
+            if days is not None
+            else score_open_window(fac, spec)
+        )
+    finally:
+        if not feature_set:
+            pass
+        elif prev_feature is None:
+            os.environ.pop("QUANTLAB_FEATURE_SET", None)
+        else:
+            os.environ["QUANTLAB_FEATURE_SET"] = prev_feature
     kept = _clip_days(scored, window_start, window_end)
+    if spec.get("mix"):
+        stamp_day_ranks(kept, blend=str(spec.get("rank_blend") or "raw"))
     print(f"计入收益 {len(kept)} 日", flush=True)
     if not kept:
         raise ValueError("评测窗内没有交易日")
@@ -862,6 +1117,11 @@ def run_factory_backtest(
             "rules": rules_brief,
         }
     )
+    if spec.get("mix"):
+        report["factories"] = dict(spec.get("factories") or {})
+        report["backends"] = dict(spec.get("backends") or {})
+        report["rank_blend"] = str(spec.get("rank_blend") or "")
+        report["picks"] = str(spec.get("picks") or "")
     return report
 
 
@@ -932,7 +1192,14 @@ def _window_idx(dates: Sequence[str], start: str, end: str) -> List[int]:
     return keep
 
 
-def _zscore(X: np.ndarray, names: Sequence[str], dates: Sequence[str], z_clip: Any) -> np.ndarray:
+def _zscore(
+    X: np.ndarray,
+    names: Sequence[str],
+    dates: Sequence[str],
+    z_clip: Any,
+    *,
+    fill_missing: bool = True,
+) -> np.ndarray:
     from core.research.materialize.cube_z import cs_z_matrix_prefer_cube
 
     out = cs_z_matrix_prefer_cube(np.array(X, dtype=np.float64, copy=True), list(names), list(dates), clock="open")
@@ -942,7 +1209,9 @@ def _zscore(X: np.ndarray, names: Sequence[str], dates: Sequence[str], z_clip: A
         clip = 0.0
     if clip > 0:
         out = np.clip(out, -clip, clip)
-    return np.where(np.isfinite(out), out, 0.0).astype(np.float32, copy=False)
+    if fill_missing:
+        out = np.where(np.isfinite(out), out, 0.0)
+    return out.astype(np.float32, copy=False)
 
 
 def _factor_panel(stock_bars: Mapping[str, Sequence[dict]], head: str, pack: str):
@@ -992,7 +1261,13 @@ def _predict_matrix(bundle: Mapping[str, Any], X: np.ndarray, seq, gap) -> np.nd
         )
         if not loaded.get("success"):
             raise ValueError(loaded.get("error") or "权重不存在")
-        return predict_ridge(X, loaded.get("intercept") or 0.0, loaded.get("coef") or [])
+        require_complete = str(meta.get("missing") or "") == "complete"
+        return predict_ridge(
+            X,
+            loaded.get("intercept") or 0.0,
+            loaded.get("coef") or [],
+            require_complete=require_complete,
+        )
     from core.research.yhat_factory_weights import load_factory_weights
     from core.research.yhat_transformer.train import predict_seq_factor_transformer
 
@@ -1023,7 +1298,15 @@ def _predict_matrix(bundle: Mapping[str, Any], X: np.ndarray, seq, gap) -> np.nd
 
 
 def _watching_pool_codes() -> List[str]:
-    """和股票分档同一份名单。截面 z 用这份全池，不按拟合池子大小截断。"""
+    """打分名单。选了物化截面就用那一套，否则用观察池全池。"""
+    try:
+        from core.universe.feature_sets import active_feature_codes
+
+        chosen = active_feature_codes()
+        if chosen:
+            return list(chosen)
+    except Exception:  # noqa: BLE001
+        logger.debug("factory backtest feature set failed", exc_info=True)
     try:
         from core.watching.store import read_watching
 
@@ -1040,31 +1323,6 @@ def _watching_pool_codes() -> List[str]:
         seen.add(code)
         out.append(code)
     return out
-
-
-def _a_tier_codes(pool_codes: Sequence[str]) -> set:
-    """研究枢纽上次分档里的 A 档，且必须对得上当前观察池。只读，不写 live。"""
-    from core.research.predictability_tiers import (
-        load_predictability_tiers_last,
-        tier_code_set,
-        validate_predictability_tiers_report,
-    )
-
-    report = load_predictability_tiers_last()
-    gate = validate_predictability_tiers_report(
-        report,
-        pool_codes=pool_codes,
-        require_pool_fp=True,
-    )
-    if not gate.get("ok"):
-        raise ValueError(gate.get("error") or "分档报告校验失败；请重跑「股票分档」")
-    allow = tier_code_set(report, ["A"])
-    scored = {code for code in pool_codes if code in allow}
-    if not scored:
-        counts = report.get("counts") if isinstance(report, dict) else None
-        n_a = (counts or {}).get("A", 0) if isinstance(counts, dict) else 0
-        raise ValueError(f"A档与观察池没有交集（报告 A={n_a}）；请重跑「股票分档」")
-    return scored
 
 
 def _scores_for_head(
@@ -1085,7 +1343,20 @@ def _scores_for_head(
         return {}
     names = [str(n) for n in panel.feature_names]
     X_all = take_factor_columns(np.asarray(panel.X), names, want)
-    X = _zscore(X_all[keep], want, [dates[i] for i in keep], meta.get("z_clip"))
+    backend = str(bundle.get("backend") or meta.get("backend") or "")
+    # ŷ_oo：缺测不加项。ŷ_τc：任一入模列缺测则整行不算。排序头仍把缺测填 0。
+    missing = str(meta.get("missing") or "")
+    keep_missing = backend == "ridge" and missing in ("skip", "complete")
+    if keep_missing:
+        X = _zscore(
+            X_all[keep],
+            want,
+            [dates[i] for i in keep],
+            meta.get("z_clip"),
+            fill_missing=False,
+        )
+    else:
+        X = _zscore(X_all[keep], want, [dates[i] for i in keep], meta.get("z_clip"))
     seq_rows = None
     gap_rows = None
     if seq is not None:
@@ -1118,22 +1389,66 @@ def _scores_for_head(
     return out
 
 
+def stamp_day_ranks(days: Sequence[Mapping[str, Any]], *, blend: str) -> None:
+    """给每条排序头编当日 1..n（1=该头分数最高）。
+
+    blend=raw 时保留原始分，名次只供名次闸。
+    blend=day_rank 时把原始分换成越高越好的当日分位，供两条不同后端的买序相加。
+    """
+    use_rank = str(blend or "") == "day_rank"
+    slots = (
+        ("y_oo_rank_score", "y_oo_rank", "y_oo_rank_hat", "predicted_score_oo_rank", "y_oo_rank_n"),
+        ("y_tc_rank_score", "y_tc_rank", "y_tc_rank_hat", "predicted_score_tc_rank", "y_tc_rank_n"),
+    )
+    for day in days:
+        scored = [row for row in (day.get("scored") or []) if isinstance(row, dict)]
+        for score_key, rank_key, hat_key, pred_key, n_key in slots:
+            rows = []
+            for row in scored:
+                raw = _finite(row.get(score_key))
+                if raw is None:
+                    continue
+                rows.append((float(raw), str(row.get("stock_code") or ""), row))
+            rows.sort(key=lambda item: (-item[0], item[1]))
+            n = len(rows)
+            for i, (_raw, _code, row) in enumerate(rows):
+                rank = i + 1
+                row[rank_key] = rank
+                row[hat_key] = rank
+                row[pred_key] = rank
+                row[n_key] = n
+                if use_rank and n > 0:
+                    row[score_key] = (n - rank + 1) / float(n)
+
+
+def _spec_backend(spec: Mapping[str, Any], fallback: str) -> str:
+    meta = spec.get("meta") if isinstance(spec.get("meta"), dict) else {}
+    return str(spec.get("backend") or meta.get("backend") or fallback or "")
+
+
+def _spec_factory(spec: Mapping[str, Any], fallback: str) -> str:
+    raw = str(spec.get("factory") or "").strip().upper()
+    if raw in _ARM_ALIASES:
+        return _ARM_ALIASES[raw]
+    if fallback in ("L", "R", "T"):
+        return fallback
+    raise ValueError(f"{spec.get('head') or '头'} 缺少工厂")
+
+
 def score_open_window(
     factory: str,
     suite: Mapping[str, Any],
-    *,
-    tier_a_only: bool = True,
 ) -> List[Dict[str, Any]]:
     """重建因子（Arm·T 再加序列），按权重预估，合成每日分数。
 
-    截面 z 始终用观察池全池（A/B/C）。勾选 A 档时只给 A 打分；不勾则全池打分。
+    截面 z 与打分都用观察池全池。组合回测按每头自己的后端决定要不要对齐序列。
     """
     from scripts.run_yhat_transformer_holdout import (
         _drop_aligned_rows_without_cube,
         _load_bars,
     )
 
-    fac = normalize_factory(factory)
+    fac = _factory_key(factory)
     specs = suite.get("specs") if isinstance(suite.get("specs"), dict) else {}
     start = str(suite.get("window_start") or "")
     end = str(suite.get("window_end") or "")
@@ -1150,20 +1465,16 @@ def score_open_window(
     if not codes:
         raise ValueError("观察池为空，无法预估")
     score_codes = None
-    if tier_a_only:
-        score_codes = _a_tier_codes(codes)
-        print(
-            f"截面 z {len(codes)} 只 · A/B/C · 打分 A档 {len(score_codes)} 只 · 回看 {lookback}",
-            flush=True,
-        )
-    else:
-        print(f"截面 z {len(codes)} 只 · 打分全池 {len(codes)} 只 · 回看 {lookback}", flush=True)
+    print(f"截面 z {len(codes)} 只 · 打分全池 {len(codes)} 只 · 回看 {lookback}", flush=True)
     stock_bars = _load_bars(codes, lookback=lookback)
     if not stock_bars:
         raise ValueError("没有可用日线")
     backend = str(suite.get("backend") or "")
+    head_backends = {
+        head: _spec_backend(specs.get(head) or {}, backend) for head in HEADS
+    }
     seq = None
-    if backend == "transformer":
+    if any(b == "transformer" for b in head_backends.values()):
         from core.research.yhat_transformer.seq_dataset import build_seq_panel
 
         seq = build_seq_panel(
@@ -1175,16 +1486,18 @@ def score_open_window(
         )
         if int(getattr(seq, "n", 0) or 0) <= 0:
             raise ValueError("序列面板为空")
-    panels: Dict[str, Any] = {}
+    panels: Dict[Tuple[str, bool], Any] = {}
     scores: Dict[str, Dict[Tuple[str, str], float]] = {}
     for head in HEADS:
         spec = specs.get(head) or {}
         meta = spec.get("meta") if isinstance(spec.get("meta"), dict) else {}
         pack = str(meta.get("factor_pack") or "")
-        key = pack or head
+        head_backend = head_backends[head]
+        aligned = head_backend == "transformer"
+        key = (pack or head, aligned)
         if key not in panels:
             panel = _factor_panel(stock_bars, head, pack)
-            if backend == "transformer":
+            if aligned:
                 from core.research.yhat_transformer.factor_panel import align_seq_and_factor
 
                 seq_a, fac_a = align_seq_and_factor(seq, panel)
@@ -1196,12 +1509,18 @@ def score_open_window(
         bundle = {
             "head": head,
             "run_id": spec.get("run_id"),
-            "backend": backend,
+            "backend": head_backend,
             "meta": meta,
-            "factory": fac,
+            "factory": _spec_factory(spec, fac),
         }
         scores[head] = _scores_for_head(bundle, fac_a, seq_a, start, end, score_codes=score_codes)
-        print(f"预估 {head} {len(scores[head])} 条", flush=True)
+        if suite.get("mix"):
+            print(
+                f"预估 {head} {bundle['factory']} {head_backend} {len(scores[head])} 条",
+                flush=True,
+            )
+        else:
+            print(f"预估 {head} {len(scores[head])} 条", flush=True)
     indexed = _index_bars(stock_bars)
     days: Dict[str, Dict[str, Any]] = {}
     for code, date in scores.get("oo") or {}:
@@ -1247,11 +1566,15 @@ def enabled_replay_specs() -> List[Dict[str, Any]]:
     )
     from core.research.yhat_factory_weights import version_weights_dir
 
+    from core.research.yhat_hub_arms import read_hub_arms
+
     suite = "live" if current_scoring_model_role() == MODEL_ROLE_LIVE else "research"
+    arms = read_hub_arms()
     specs: List[Dict[str, Any]] = []
-    with factory_scope("T"):
-        for head in HEADS:
-            listed = list_factory_versions(head, factory="T", suite=suite)
+    for head in HEADS:
+        fac = str(arms.get(head) or "T")
+        with factory_scope(fac):
+            listed = list_factory_versions(head, factory=fac, suite=suite)
             vid = str(listed.get("enabled_id") or "").strip()
             if not vid:
                 continue
@@ -1265,7 +1588,7 @@ def enabled_replay_specs() -> List[Dict[str, Any]]:
             )
             if not isinstance(hit, dict) or not hit.get("weights_ref"):
                 continue
-            snap = preview_factory_version(head, vid, factory="T")
+            snap = preview_factory_version(head, vid, factory=fac)
             doc = snap.get("version") if isinstance(snap.get("version"), dict) else {}
             meta = _read_json(os.path.join(version_weights_dir(head, vid), "meta.json"))
             if not meta:
@@ -1282,11 +1605,40 @@ def enabled_replay_specs() -> List[Dict[str, Any]]:
                     "backend": str(meta.get("backend") or ""),
                     "meta": meta,
                     "fit_params": fit,
-                    "factory": "T",
+                    "factory": fac,
                     "suite": suite,
                 }
             )
     return specs
+
+
+def _bars_for_replay_score(
+    stock_bars: Mapping[str, Sequence[dict]],
+) -> Mapping[str, Sequence[dict]]:
+    """只读消费时丢掉完整日线之后的会话日。
+
+    盘中 overlay 会把当天塞进 bars。物化闸若把这一天当成 oo/tc 硬缺，
+    四头预估整段失败，回测清掉入场分，结果是 0 笔成交。
+    """
+    from core.research.materialize.consumer import consumer_read_only
+
+    if not consumer_read_only() or not stock_bars:
+        return stock_bars
+    from core.research.materialize.coverage import complete_daily_as_of
+
+    as_of = str(complete_daily_as_of(list(stock_bars)) or "")[:10]
+    if len(as_of) < 10:
+        return stock_bars
+    out: Dict[str, Sequence[dict]] = {}
+    for code, rows in stock_bars.items():
+        kept = [
+            row
+            for row in (rows or [])
+            if isinstance(row, Mapping) and (not _bar_day(row) or _bar_day(row) <= as_of)
+        ]
+        if kept:
+            out[str(code)] = kept
+    return out or stock_bars
 
 
 def score_enabled_replay_heads(
@@ -1310,6 +1662,7 @@ def score_enabled_replay_heads(
     }
     if not specs or not stock_bars:
         return table
+    stock_bars = _bars_for_replay_score(stock_bars)
     try:
         lookback = max(_fit_int(s.get("fit_params"), "lookback", 120) for s in specs)
     except ValueError:
@@ -1363,7 +1716,11 @@ def score_enabled_replay_heads(
                 min(dates),
                 max(dates),
             )
-        except Exception:  # noqa: BLE001
+        except Exception as exc:  # noqa: BLE001
+            from core.research.materialize.consumer import MaterializeRequired
+
+            if isinstance(exc, MaterializeRequired):
+                raise
             logger.exception("replay arm-t score failed head=%s", head)
     by_day: Dict[str, Dict[str, Dict[str, float]]] = {}
     keys = {
@@ -1400,6 +1757,8 @@ def _replay_cards(specs: Sequence[Mapping[str, Any]]) -> Dict[str, Dict[str, Any
             "run_id": str(spec.get("run_id") or ""),
             "label": str(spec.get("label") or ""),
             "rank_ic": ic_n,
+            "factory": str(spec.get("factory") or "T"),
+            "backend": str(spec.get("backend") or ""),
         }
     return cards
 
@@ -1433,6 +1792,16 @@ def _tail_path(path: str, limit: int = 80000) -> str:
 
 def _log_tail(factory: str, limit: int = 80000) -> str:
     return _tail_path(_backtest_log_path(factory), limit)
+
+
+def _blank_backtest_log(factory: str) -> None:
+    """失败记录已经从页面拿掉时，当前这次的失败日志也不再留着。"""
+    path = _backtest_log_path(factory)
+    try:
+        with open(path, "w", encoding="utf-8") as handle:
+            handle.write("")
+    except OSError:
+        logger.exception("clear dropped backtest log failed path=%s", path)
 
 
 _RUN_KEEP = 20
@@ -1549,6 +1918,12 @@ def _run_entries(factory: str, live: Optional[Mapping[str, Any]]) -> List[Dict[s
         "window_start": live.get("window_start") or "",
         "window_end": live.get("window_end") or "",
     }
+    if live.get("picks"):
+        live_item["picks"] = live.get("picks")
+    if isinstance(live.get("factories"), dict):
+        live_item["factories"] = dict(live.get("factories") or {})
+    if live.get("rank_blend"):
+        live_item["rank_blend"] = live.get("rank_blend")
     return [live_item, *items]
 
 
@@ -1561,7 +1936,7 @@ def _archive_backtest(factory: str, job: Mapping[str, Any]) -> None:
     status = str(job.get("status") or "")
     if status not in ("done", "error"):
         return
-    fac = normalize_factory(factory)
+    fac = _factory_key(factory)
     run_id = _check_run_id(job.get("run_id"))
     if run_id and os.path.isfile(_run_snap_path(fac, run_id)):
         return
@@ -1588,6 +1963,15 @@ def _archive_backtest(factory: str, job: Mapping[str, Any]) -> None:
         "window_end": (report or {}).get("window_end") or job.get("window_end") or "",
         "report": report,
     }
+    picks = str((report or {}).get("picks") or job.get("picks") or "")
+    if picks:
+        snap["picks"] = picks
+    factories = (report or {}).get("factories") if isinstance((report or {}).get("factories"), dict) else job.get("factories")
+    if isinstance(factories, dict) and factories:
+        snap["factories"] = {str(k): str(v) for k, v in factories.items()}
+    blend = str((report or {}).get("rank_blend") or job.get("rank_blend") or "")
+    if blend:
+        snap["rank_blend"] = blend
     root = _runs_dir(fac)
     os.makedirs(root, exist_ok=True)
     text = _log_tail(fac)
@@ -1608,6 +1992,12 @@ def _archive_backtest(factory: str, job: Mapping[str, Any]) -> None:
         "window_start": snap["window_start"],
         "window_end": snap["window_end"],
     }
+    if snap.get("picks"):
+        brief["picks"] = snap["picks"]
+    if snap.get("factories"):
+        brief["factories"] = snap["factories"]
+    if snap.get("rank_blend"):
+        brief["rank_blend"] = snap["rank_blend"]
     items = [it for it in _read_run_index(fac) if str(it.get("id") or "") != run_id]
     items.insert(0, brief)
     dropped = items[_RUN_KEEP:]
@@ -1628,8 +2018,11 @@ def _archive_backtest(factory: str, job: Mapping[str, Any]) -> None:
 
 
 def delete_factory_backtest(factory: str, run_id: str) -> Dict[str, Any]:
-    """去掉一条离线回测记录。不改当前 console，也不改正在跑的那次。"""
-    fac = normalize_factory(factory)
+    """去掉一条离线回测记录。不改正在跑的那次。
+
+    成功的结果和当前 console 还留着。删掉的是当前这次失败时，错误提示和这次日志一起清掉。
+    """
+    fac = _factory_key(factory)
     rid = _check_run_id(run_id)
     if not rid:
         return {"success": False, "ok": False, "error": "invalid run_id"}
@@ -1664,7 +2057,14 @@ def delete_factory_backtest(factory: str, run_id: str) -> Dict[str, Any]:
         updated["history_dropped"] = True
         if _check_run_id(updated.get("run_id")) == rid:
             updated["run_id"] = ""
-        _write_job(fac, updated)
+        if str(job.get("status") or "") == "error":
+            updated["status"] = "idle"
+            updated["running"] = False
+            updated["error"] = ""
+            _write_job(fac, updated)
+            _blank_backtest_log(fac)
+        else:
+            _write_job(fac, updated)
     return {
         "success": True,
         "ok": True,
@@ -1699,7 +2099,6 @@ def _default_rules() -> Dict[str, Any]:
         "oo_rank_strong_max": 12,
         "y_oo_gt0": False,
         "morph_gate_enabled": False,
-        "tier_a_only": True,
         "lot_base_amount": 10_000.0,
         "lot_strong_amount": 20_000.0,
         "fill_clock": FILL_CLOCK,
@@ -1707,6 +2106,7 @@ def _default_rules() -> Dict[str, Any]:
         "cost_model": "simple_cn",
         "holdings_mv_cap": 150_000.0,
         "top_k": 200,
+        "feature_set": "",
     }
 
 
@@ -1775,6 +2175,7 @@ def normalize_backtest_rules(
     brief.pop("w_tc_rank", None)
     brief.pop("fusion_w_oo_rank", None)
     brief.pop("fusion_w_tc_rank", None)
+    brief.pop("tier_a_only", None)
     for key in ("lot_base_amount", "lot_strong_amount"):
         val, ok = _pick(src, key)
         if ok:
@@ -1784,7 +2185,12 @@ def normalize_backtest_rules(
     val, ok = _pick(src, "start_cash")
     if ok:
         brief["start_cash"] = _num(val, 10_000.0, 100_000_000.0, float(brief["start_cash"]))
-    for key in ("y_oo_gt0", "morph_gate_enabled", "tier_a_only"):
+    val, ok = _pick(src, "feature_set")
+    if ok:
+        from core.universe.feature_sets import normalize_feature_set
+
+        brief["feature_set"] = normalize_feature_set(val)
+    for key in ("y_oo_gt0", "morph_gate_enabled"):
         val, ok = _pick(src, key)
         if ok:
             brief[key] = bool(val)
@@ -1862,15 +2268,15 @@ def backtest_rules_brief() -> Dict[str, Any]:
 
 def load_factory_rules(factory: str) -> Dict[str, Any]:
     """本页自己的规则。没有文件时用 rank_lots 初值，不落盘。"""
-    saved = _read_json(_rules_path(normalize_factory(factory)))
+    saved = _read_json(_rules_path(_factory_key(factory)))
     if not saved:
         return backtest_rules_brief()
     return normalize_backtest_rules(saved, base=_default_rules())
 
 
 def save_factory_rules(factory: str, raw: Optional[Mapping[str, Any]]) -> Dict[str, Any]:
-    """写入工厂目录。不改历史回测页，不改 live。"""
-    fac = normalize_factory(factory)
+    """写入回测目录。不改历史回测页，不改 live，不改三家工厂目录。"""
+    fac = _factory_key(factory)
     brief = normalize_backtest_rules(raw, base=load_factory_rules(fac))
     atomic_write_json(_rules_path(fac), brief)
     return brief
@@ -1933,11 +2339,18 @@ def _status_body(
         "rules": load_factory_rules(fac),
         "report": report,
         "log_tail": log_tail,
+        "picks": job.get("picks") or (report.get("picks") if isinstance(report, Mapping) else "") or "",
+        "factories": job.get("factories")
+        or (report.get("factories") if isinstance(report, Mapping) else {})
+        or {},
+        "rank_blend": job.get("rank_blend")
+        or (report.get("rank_blend") if isinstance(report, Mapping) else "")
+        or "",
     }
 
 
 def factory_backtest_status(factory: str, run_id: str = "") -> Dict[str, Any]:
-    fac = normalize_factory(factory)
+    fac = _factory_key(factory)
     job = _read_json(_job_path(fac)) or {}
     last = _read_json(_last_path(fac))
     status = str(job.get("status") or "idle")
@@ -1953,6 +2366,11 @@ def factory_backtest_status(factory: str, run_id: str = "") -> Dict[str, Any]:
         }
         _write_job(fac, job)
         _archive_backtest(fac, job)
+    if status == "error" and job.get("history_dropped"):
+        job = {**job, "status": "idle", "running": False, "error": ""}
+        _write_job(fac, job)
+        _blank_backtest_log(fac)
+        status = "idle"
     if status in ("done", "error") and job:
         _archive_backtest(fac, job)
         job = _attach_archived_run(fac, job)
@@ -1988,12 +2406,18 @@ def factory_backtest_status(factory: str, run_id: str = "") -> Dict[str, Any]:
             viewing=False,
             runs=runs,
         )
+    if status == "done":
+        report = job.get("report")
+    elif status == "idle" and job.get("history_dropped"):
+        report = None
+    else:
+        report = last
     return _status_body(
         fac,
         status=status,
         live_status=live_status,
         job=job,
-        report=job.get("report") if status == "done" else last,
+        report=report,
         log_tail=_log_tail(fac),
         run_id=live_id,
         viewing=False,
@@ -2004,15 +2428,17 @@ def factory_backtest_status(factory: str, run_id: str = "") -> Dict[str, Any]:
 
 def start_factory_backtest(
     factory: str,
-    versions: Mapping[str, str],
+    versions: Mapping[str, Any],
     rules: Optional[Mapping[str, Any]] = None,
 ) -> Dict[str, Any]:
-    """校验四头后拉起独立进程。请求本身不等待预估。"""
-    fac = normalize_factory(factory)
-    suite = load_suite(fac, versions)
+    """校验四头后拉起独立进程。请求本身不等待预估。只接受回测中心。"""
+    fac = _factory_key(factory)
+    if fac != _MIX:
+        raise ValueError("组合回测只写 live/yhat_bt")
+    suite = load_mix(versions)
     current = factory_backtest_status(fac)
     if current.get("status") == "running":
-        return {"success": False, "ok": False, "error": "离线回测进行中", "status": "running"}
+        return {"success": False, "ok": False, "error": "组合回测进行中", "status": "running"}
     brief = save_factory_rules(fac, rules) if isinstance(rules, Mapping) else load_factory_rules(fac)
     prev = _read_json(_job_path(fac)) or {}
     if str(prev.get("status") or "") in ("done", "error"):
@@ -2037,8 +2463,14 @@ def start_factory_backtest(
         "rules": brief,
         "report": None,
     }
+    if fac == _MIX:
+        job["factories"] = suite.get("factories")
+        job["picks"] = suite.get("picks")
+        job["rank_blend"] = suite.get("rank_blend")
+        job["sources"] = suite.get("sources")
     _write_job(fac, job)
     script = os.path.join(_QUANTLAB, "scripts", "run_yhat_factory_backtest.py")
+    payload = suite.get("sources") if fac == _MIX else (suite.get("versions") or {})
     cmd = [
         sys.executable,
         "-u",
@@ -2046,7 +2478,7 @@ def start_factory_backtest(
         "--factory",
         fac,
         "--versions",
-        json.dumps(suite.get("versions") or {}, ensure_ascii=False),
+        json.dumps(payload, ensure_ascii=False),
         "--rules",
         json.dumps(brief, ensure_ascii=False),
     ]
@@ -2065,7 +2497,7 @@ def start_factory_backtest(
     log_fd = os.open(log_path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o644)
     os.write(
         log_fd,
-        f"==== 离线回测 {started} factory={fac} ====\n".encode("utf-8"),
+        f"==== 组合回测 {started} ====\n".encode("utf-8"),
     )
     try:
         proc = subprocess.Popen(
@@ -2078,7 +2510,7 @@ def start_factory_backtest(
         )
     except OSError as exc:
         os.close(log_fd)
-        failed = {**job, "status": "error", "running": False, "error": f"无法启动离线回测：{exc}"}
+        failed = {**job, "status": "error", "running": False, "error": f"无法启动组合回测：{exc}"}
         _write_job(fac, failed)
         _archive_backtest(fac, failed)
         return {"success": False, "ok": False, "error": failed["error"], "status": "error"}
@@ -2097,6 +2529,8 @@ def start_factory_backtest(
         "window_start": suite.get("window_start"),
         "window_end": suite.get("window_end"),
         "versions": suite.get("versions"),
+        "picks": suite.get("picks") or "",
+        "rank_blend": suite.get("rank_blend") or "",
         "run_id": run_id,
     }
 
@@ -2108,7 +2542,7 @@ def finish_factory_backtest(
     error: str = "",
 ) -> None:
     """子进程收尾。成功时报告同时留在 backtest_last.json。"""
-    fac = normalize_factory(factory)
+    fac = _factory_key(factory)
     prev = _read_json(_job_path(fac)) or {}
     done = not error
     job = {

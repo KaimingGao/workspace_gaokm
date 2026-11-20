@@ -19,7 +19,8 @@
 
 .strategy-page .dashboard-section-desc {
   margin: 0;
-  font-size: 0.68rem;
+  font-size: var(--sys-fs-caption, 0.75rem);
+  line-height: var(--sys-lh-snug, 1.35);
   color: var(--ink-3);
   font-weight: 500;
 }
@@ -146,7 +147,8 @@
   font-size: var(--d-fs-section, 0.875rem);
   font-weight: 700;
   letter-spacing: 0.04em;
-  color: var(--ink-2);
+  line-height: 1.25;
+  color: var(--ink);
 }
 
 .dashboard-section-title::before {
@@ -1588,19 +1590,6 @@ body[data-page="dashboard"] .dashboard-page > .dashboard-section > .dashboard-se
   align-items: baseline;
   flex-wrap: wrap;
   gap: 6px 12px;
-}
-
-body[data-page="dashboard"] .dashboard-page > .dashboard-section > .dashboard-section-head .dashboard-section-title {
-  margin: 0;
-  color: var(--ink);
-  font-size: var(--d-fs-section, 0.875rem);
-  font-weight: 700;
-  letter-spacing: 0.04em;
-  line-height: 1.25;
-}
-
-body[data-page="dashboard"] .dashboard-page > .dashboard-section > .dashboard-section-head .dashboard-section-title::before {
-  display: none; /* 左边框已承担 accent，避免双竖条 */
 }
 
 body[data-page="dashboard"] .dashboard-page > .dashboard-section > .dashboard-section-head .dashboard-section-desc {

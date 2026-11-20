@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import logging
-from typing import Any, Dict, List, Optional, Sequence, Tuple
+from typing import Any, Dict, List, Optional, Sequence
 
 from core.news_archive import row_is_sentiment_gate
 from core.paper.rebalance.morph_gate import row_is_morph_gate
@@ -19,7 +19,7 @@ PHASE_MISSED = "missed"
 PHASE_HOLIDAY = "holiday"
 
 MAX_DESK_ROWS = 80
-# A 档数量可配到 2000。盯盘先留住档内行，硬拒分不能把它们截掉。
+# 盯盘先留住成交和闸跳过；硬拒分不能把它们截掉。
 DESK_ROW_HARD_CAP = 2000
 
 _ACTION_RANK = {
@@ -199,8 +199,8 @@ def _cap_desk_rows(rows: List[dict], *, limit: int = DESK_ROW_HARD_CAP) -> List[
     return out
 
 
-def _is_tier_block_skip(row: dict) -> bool:
-    """不在允许档里的硬拒分。这些行按代码排序会占满 80 行上限，把 A 档挤出盯盘。"""
+def _is_hard_reject_skip(row: dict) -> bool:
+    """硬拒分。这些行按代码排序会占满 80 行上限，把成交行挤出盯盘。"""
     if str(row.get("action") or "") != "skip":
         return False
     reason = str(row.get("reason") or "").strip()
@@ -208,80 +208,13 @@ def _is_tier_block_skip(row: dict) -> bool:
 
 
 def _trim_desk_rows(rows: List[dict]) -> List[dict]:
-    """档内成交/跳过全部保留。硬拒分只在档内行还不满旧上限时补位。"""
-    keep = [r for r in rows if not _is_tier_block_skip(r)]
-    blocked = [r for r in rows if _is_tier_block_skip(r)]
+    """成交/跳过全部保留。硬拒分只在还不满旧上限时补位。"""
+    keep = [r for r in rows if not _is_hard_reject_skip(r)]
+    blocked = [r for r in rows if _is_hard_reject_skip(r)]
     if len(keep) >= MAX_DESK_ROWS:
         return _cap_desk_rows(keep)
     room = MAX_DESK_ROWS - len(keep)
     return _cap_desk_rows(keep + blocked[:room])
-
-
-def _allowed_tier_directory() -> Dict[str, str]:
-    """live 允许档 code → 名称。闸关闭时为空。"""
-    try:
-        from core.research.predictability_tiers import load_predictability_tiers_active
-    except Exception:  # noqa: BLE001
-        logger.debug("load allowed tier directory failed", exc_info=True)
-        return {}
-    doc = load_predictability_tiers_active()
-    if not isinstance(doc, dict) or doc.get("enabled") is False:
-        return {}
-    allow = {
-        str(t).strip().upper()
-        for t in (doc.get("allowed_tiers") or ["A"])
-        if str(t or "").strip()
-    } or {"A"}
-    report = doc.get("report") if isinstance(doc.get("report"), dict) else {}
-    out: Dict[str, str] = {}
-    for r in report.get("rows") or []:
-        if not isinstance(r, dict):
-            continue
-        if str(r.get("tier") or "").strip().upper() not in allow:
-            continue
-        code = str(r.get("code") or "").strip()
-        if not code or code in out:
-            continue
-        out[code] = str(r.get("name") or "").strip()
-    return out
-
-
-def cover_allowed_tier_rows(rows: List[dict]) -> Tuple[List[dict], bool]:
-    """落账盯盘补齐允许档。已被 80 行截掉的 A 档补成监视行，硬拒分不再占位。"""
-    directory = _allowed_tier_directory()
-    if not directory:
-        return list(rows or []), False
-    label = "A 档"
-    try:
-        from core.research.predictability_tiers import load_predictability_tiers_active
-
-        doc = load_predictability_tiers_active() or {}
-        allow = [
-            str(t).strip().upper()
-            for t in (doc.get("allowed_tiers") or ["A"])
-            if str(t or "").strip()
-        ]
-        if allow:
-            label = f"{''.join(allow)} 档"
-    except Exception:  # noqa: BLE001
-        logger.debug("allowed tier label failed", exc_info=True)
-    kept = [r for r in rows or [] if isinstance(r, dict) and not _is_tier_block_skip(r)]
-    have = {str(r.get("stock_code") or "").strip() for r in kept}
-    for code, name in directory.items():
-        if code in have:
-            continue
-        kept.append(
-            _compact_row(
-                stock_code=code,
-                stock_name=name,
-                action="watch",
-                phase=PHASE_WATCH,
-                reason=label,
-                held=False,
-            )
-        )
-        have.add(code)
-    return _cap_desk_rows(kept), True
 
 
 def desk_rows_from_result(result: Optional[dict], *, filled: bool = True) -> List[dict]:
@@ -915,7 +848,6 @@ def build_rebalance_desk_status(
     fill_clock = rebalance_fill_clock(paper)
     window = rebalance_window_label(paper)
     live_start = window.split("–")[0]
-    tier_covered = False
     if aligned and (filled_today or phase == PHASE_DONE):
         rows = list(persisted.get("rows") or [])
         hydrate_desk_rows_from_paper(rows, paper, sess or persisted_sess)
@@ -938,9 +870,6 @@ def build_rebalance_desk_status(
 
     attach_day_open_to_desk_rows(rows, session=sess or persisted_sess)
     attach_live_snapshot_ranks(rows, sess or persisted_sess, paper=paper)
-    if state_aligned and (filled_today or phase == PHASE_DONE):
-        # 今开只补已落账行。补齐的 A 档不逐票打行情，避免每次刷新扫完整档。
-        rows, tier_covered = cover_allowed_tier_rows(rows)
     for r in rows:
         if isinstance(r, dict) and row_is_morph_gate(r):
             r["morph_gate"] = True
@@ -975,7 +904,7 @@ def build_rebalance_desk_status(
         "phase": phase,
         "filled": bool(filled_today),
         "universe_count": len(rows),
-        "universe_label": "A档" if tier_covered else "持仓",
+        "universe_label": "持仓",
         "counts": counts,
         "open_count": int(counts.get("open") or 0) + int(counts.get("add") or 0),
         "exit_count": int(counts.get("exit") or 0),

@@ -711,7 +711,7 @@ def default_fit_params(head: str) -> Dict[str, Any]:
         # 排序头略缩 lookback 省内存；Holdout 天数与其它头统一 60
         base["lookback"] = 700
     # Arm·L / Arm·R 窗长跟研究枢纽：拟合 Holdout 20；oo 600 / τc 120 / 排序 700。
-    # Arm·T 仍用上面的 900/60（股票分档的 60 日不拿来当拟合默认）。
+    # Arm·T 仍用上面的 900/60。
     fac_def = normalize_factory()
     if fac_def in ("L", "R"):
         base["arms"] = fac_def
@@ -774,6 +774,8 @@ _DESK_PARAM_KEYS = frozenset(
         "full_aoo",
         "full_atc",
         "ridge_alpha",
+        "feature_set",
+        "train_stage",
     }
 )
 
@@ -1068,6 +1070,34 @@ def _normalize_fit_params(head: str, params: Optional[Dict[str, Any]]) -> Dict[s
             merged["pool_n"] = incoming.get("watching_limit")
         elif incoming.get("pool_n") is not None:
             merged["watching_limit"] = incoming.get("pool_n")
+    feature_set = ""
+    stage = ""
+    if incoming:
+        from core.universe.feature_sets import codes_for_feature_set, normalize_feature_set
+
+        stage = str(incoming.get("train_stage") or "").strip().lower()
+        if stage not in ("pretrain", "finetune", "chain"):
+            stage = ""
+        feature_set = normalize_feature_set(incoming.get("feature_set"))
+        # 只选沪深300是从头训练。草稿里残留的 chain / pretrain / finetune
+        # 不能把截面改回大池，也不能再去找大池预训练权重。
+        if normalize_factory() == "T" and feature_set == "hs300":
+            stage = ""
+        elif normalize_factory() == "T" and stage == "finetune":
+            stage = ""
+            feature_set = feature_set or "hs300"
+        elif normalize_factory() == "T" and stage in ("pretrain", "chain"):
+            feature_set = "pool"
+    if stage and normalize_factory() == "T":
+        merged["train_stage"] = stage
+    elif normalize_factory() == "T":
+        merged.pop("train_stage", None)
+    if feature_set:
+        merged["feature_set"] = feature_set
+        chosen = codes_for_feature_set(feature_set, fetch=True)
+        if len(chosen) >= 2:
+            merged["pool_n"] = len(chosen)
+            merged["watching_limit"] = len(chosen)
     merged["head"] = spec.id
     merged["loss"] = loss_for_factory(spec)
     hardened, _warns = harden_fit_params(spec.id, merged)
@@ -1100,6 +1130,18 @@ def build_holdout_argv(
         str(int(p["holdout_trading_days"])),
         "--update-desk",
     ]
+    feature_set = str(p.get("feature_set") or "").strip()
+    if feature_set:
+        from core.universe.feature_sets import codes_for_feature_set
+
+        chosen = codes_for_feature_set(feature_set, fetch=False)
+        if len(chosen) >= 2:
+            argv.extend(["--codes", ",".join(chosen)])
+    stage = str(p.get("train_stage") or "")
+    if fac == "T" and stage == "chain":
+        argv.append("--chain-finetune")
+    elif fac == "T" and stage == "finetune":
+        argv.append("--finetune")
     # Arm·T / LT 才拼 Transformer 超参；L 仅因子臂
     if fac in ("T", "LT"):
         argv.extend(
@@ -1566,6 +1608,56 @@ def reap_orphaned_fit_jobs(
 
 
 @_with_head_lock
+def seal_chain_pretrain(
+    head: str,
+    *,
+    run_id: str,
+    factory: Optional[str] = None,
+    summary: Optional[Dict[str, Any]] = None,
+) -> bool:
+    """两套都选时，把刚训完的大池权重收成预训练版本，任务继续跑微调。"""
+    _ = factory
+    h = _validate_head(head)
+    from core.research.yhat_factory_weights import _read_meta, pending_weights_dir
+
+    meta = _read_meta(pending_weights_dir(h))
+    if not meta or str(meta.get("run_id") or "") != str(run_id or ""):
+        return False
+    job = _read_json(_job_path(h))
+    pre_job = dict(job) if isinstance(job, dict) else {}
+    params = dict(pre_job.get("params") or {})
+    params["train_stage"] = "pretrain"
+    params["feature_set"] = "pool"
+    pre_job["params"] = params
+    pre_job["run_id"] = str(run_id)
+    try:
+        pre_job["pid"] = int(meta.get("pid") or os.getpid())
+    except (TypeError, ValueError):
+        pre_job["pid"] = os.getpid()
+    now = time.strftime("%Y-%m-%dT%H:%M:%S")
+    last = {
+        "action": "holdout_result",
+        "head": h,
+        "message": "大池预训练完成",
+        "params": params,
+        "fit_params": params,
+        "updated_at": now,
+        "live_allowed": False,
+    }
+    if isinstance(summary, dict):
+        metrics = _metrics_from_holdout_summary(summary)
+        if metrics:
+            last["metrics"] = metrics
+        for key in ("parity", "hard_gate_vs_arm_L", "gate", "eval_universe"):
+            if summary.get(key) is not None:
+                last[key] = summary.get(key)
+    from core.research.yhat_factory_versions import archive_factory_run
+
+    vid = archive_factory_run(h, job=pre_job, last=last, status="done")
+    return bool(vid)
+
+
+@_with_head_lock
 def start_holdout_fit(
     head: str,
     params: Optional[Dict[str, Any]] = None,
@@ -1605,6 +1697,22 @@ def start_holdout_fit(
     _, clamp_warns = harden_fit_params(spec.id, dict(p))
     cli = intent.get("cli") or build_holdout_cli(spec.id, p)
     argv = build_holdout_argv(spec.id, p)
+    if p.get("feature_set") and "--codes" not in argv:
+        return {
+            "ok": False,
+            "success": False,
+            "error": "截面名单未就绪，无法按该截面拟合",
+        }
+    if str(p.get("train_stage") or "") == "finetune":
+        from core.research.yhat_factory_versions import latest_transformer_pretrain
+
+        pre = latest_transformer_pretrain(spec.id)
+        if not pre.get("success"):
+            return {
+                "ok": False,
+                "success": False,
+                "error": str(pre.get("error") or "还没有大池预训练权重"),
+            }
     started_at = time.strftime("%Y-%m-%dT%H:%M:%S")
     run_id = f"{spec.id}-{started_at.replace(':', '').replace('-', '')}"
     suite_role = str(suite or "").strip().lower()
@@ -1641,6 +1749,8 @@ def start_holdout_fit(
         child_env[k] = "1"
     child_env["TORCH_NUM_THREADS"] = "4"
     child_env["YHAT_FACTORY_RUN_ID"] = run_id
+    if p.get("feature_set"):
+        child_env["QUANTLAB_FEATURE_SET"] = str(p.get("feature_set"))
     # 用裸 fd 交接 stdout：避免 TextIOWrapper 在 with 退出时关 fd 导致子进程日志静默
     log_fd: Optional[int] = None
     try:

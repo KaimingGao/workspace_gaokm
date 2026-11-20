@@ -1,4 +1,4 @@
-"""模型工厂 API：/yhat-l（Arm·L）、/yhat-t（Arm·T）、/yhat-r（Arm·R）；旧 /yhat-tf 别名落 T。"""
+"""模型工厂 API：/yhat-l（Arm·L）、/yhat-t（Arm·T）、/yhat-r（Arm·R）；旧 /yhat-tf 别名落 T。组合回测只在 /yhat-bt。"""
 
 from __future__ import annotations
 
@@ -10,6 +10,7 @@ from pydantic import BaseModel, Field
 from core.research.yhat_factory_backtest import (
     delete_factory_backtest,
     factory_backtest_status,
+    list_mix_catalog,
     save_factory_rules,
     start_factory_backtest,
 )
@@ -19,6 +20,7 @@ from core.research.yhat_factory_versions import (
     list_factory_versions,
     preview_factory_version,
 )
+from core.research.yhat_hub_arms import read_hub_arms, write_hub_arms
 from core.research.yhat_tf_desk import desk_status, start_holdout_fit
 
 router = APIRouter(tags=["quant-yhat-factory"])
@@ -32,8 +34,13 @@ class YhatFactoryFitBody(BaseModel):
     note: str = ""
 
 
-class YhatFactoryBacktestBody(BaseModel):
-    versions: Dict[str, str] = Field(default_factory=dict)
+class YhatMixPick(BaseModel):
+    factory: str
+    run_id: str = ""
+
+
+class YhatMixBacktestBody(BaseModel):
+    versions: Dict[str, YhatMixPick] = Field(default_factory=dict)
     rules: Optional[Dict[str, Any]] = None
 
 
@@ -47,6 +54,10 @@ class YhatFactoryEnableBody(BaseModel):
     suite: str = "research"
 
 
+class YhatHubArmsBody(BaseModel):
+    arms: Dict[str, str] = Field(default_factory=dict)
+
+
 def _status(factory: Factory) -> Dict[str, Any]:
     try:
         return desk_status(factory=factory)
@@ -54,17 +65,25 @@ def _status(factory: Factory) -> Dict[str, Any]:
         raise HTTPException(status_code=500, detail=str(e)) from e
 
 
+def _hub_suite(note: str) -> str:
+    text = " ".join(str(note or "").strip().lower().split())
+    if not text.startswith("hub "):
+        return ""
+    if text.endswith(" live"):
+        return "live"
+    if text.endswith(" research"):
+        return "research"
+    return ""
+
+
 def _fit(factory: Factory, body: YhatFactoryFitBody) -> Dict[str, Any]:
     try:
         params = dict(body.params or {})
         note = str(body.note or "").strip()
-        suite = ""
+        suite = _hub_suite(note)
         # 研究枢纽「拟合执行」进执行套，不进研究套。表单里的 Holdout 只给「拟合研究」。
-        if note == "hub arm-t live":
+        if suite == "live":
             params["holdout_trading_days"] = 0
-            suite = "live"
-        elif note == "hub arm-t research":
-            suite = "research"
         out = start_holdout_fit(body.head, params, factory=factory, suite=suite or None)
         if not out.get("success"):
             raise HTTPException(status_code=400, detail=out.get("error") or "拟合启动失败")
@@ -122,13 +141,6 @@ def _delete(
     return out
 
 
-def _backtest_get(factory: Factory, run: str = "") -> Dict[str, Any]:
-    try:
-        return factory_backtest_status(factory, run_id=run)
-    except Exception as e:  # noqa: BLE001
-        raise HTTPException(status_code=500, detail=str(e)) from e
-
-
 def _backtest_rules(factory: Factory, body: YhatFactoryRulesBody) -> Dict[str, Any]:
     try:
         rules = save_factory_rules(factory, body.rules or {})
@@ -154,18 +166,6 @@ def _backtest_delete(factory: Factory, run_id: str) -> Dict[str, Any]:
     return out
 
 
-def _backtest_start(factory: Factory, body: YhatFactoryBacktestBody) -> Dict[str, Any]:
-    try:
-        out = start_factory_backtest(factory, body.versions or {}, body.rules)
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e)) from e
-    except Exception as e:  # noqa: BLE001
-        raise HTTPException(status_code=500, detail=str(e)) from e
-    if not out.get("success"):
-        raise HTTPException(status_code=400, detail=out.get("error") or "离线回测未能启动")
-    return out
-
-
 def _preview(factory: Factory, head: str, run_id: str) -> Dict[str, Any]:
     try:
         out = preview_factory_version(head, run_id, factory=factory)
@@ -188,8 +188,16 @@ def yhat_l_fit(body: YhatFactoryFitBody) -> Dict[str, Any]:
 
 
 @router.get("/api/quant/yhat-l/versions")
-def yhat_l_versions(head: str) -> Dict[str, Any]:
-    return _versions("L", head)
+def yhat_l_versions(
+    head: str,
+    suite: Optional[str] = Query(None, description="research | live；缺省不过滤"),
+) -> Dict[str, Any]:
+    return _versions("L", head, suite=suite)
+
+
+@router.post("/api/quant/yhat-l/versions/enable")
+def yhat_l_versions_enable(body: YhatFactoryEnableBody) -> Dict[str, Any]:
+    return _enable("L", body)
 
 
 @router.get("/api/quant/yhat-l/versions/preview")
@@ -200,28 +208,6 @@ def yhat_l_versions_preview(head: str, run_id: str) -> Dict[str, Any]:
 @router.delete("/api/quant/yhat-l/versions")
 def yhat_l_versions_delete(head: str, run_id: str) -> Dict[str, Any]:
     return _delete("L", head, run_id)
-
-
-@router.get("/api/quant/yhat-l/backtest")
-def yhat_l_backtest_status(
-    run: str = Query("", description="回看某次离线回测的 console"),
-) -> Dict[str, Any]:
-    return _backtest_get("L", run)
-
-
-@router.delete("/api/quant/yhat-l/backtest")
-def yhat_l_backtest_delete(run_id: str) -> Dict[str, Any]:
-    return _backtest_delete("L", run_id)
-
-
-@router.post("/api/quant/yhat-l/backtest")
-def yhat_l_backtest_start(body: YhatFactoryBacktestBody) -> Dict[str, Any]:
-    return _backtest_start("L", body)
-
-
-@router.put("/api/quant/yhat-l/backtest/rules")
-def yhat_l_backtest_rules(body: YhatFactoryRulesBody) -> Dict[str, Any]:
-    return _backtest_rules("L", body)
 
 
 @router.get("/api/quant/yhat-t/status")
@@ -261,28 +247,6 @@ def yhat_t_versions_delete(
     return _delete("T", head, run_id, suite=suite)
 
 
-@router.get("/api/quant/yhat-t/backtest")
-def yhat_t_backtest_status(
-    run: str = Query("", description="回看某次离线回测的 console"),
-) -> Dict[str, Any]:
-    return _backtest_get("T", run)
-
-
-@router.delete("/api/quant/yhat-t/backtest")
-def yhat_t_backtest_delete(run_id: str) -> Dict[str, Any]:
-    return _backtest_delete("T", run_id)
-
-
-@router.post("/api/quant/yhat-t/backtest")
-def yhat_t_backtest_start(body: YhatFactoryBacktestBody) -> Dict[str, Any]:
-    return _backtest_start("T", body)
-
-
-@router.put("/api/quant/yhat-t/backtest/rules")
-def yhat_t_backtest_rules(body: YhatFactoryRulesBody) -> Dict[str, Any]:
-    return _backtest_rules("T", body)
-
-
 @router.get("/api/quant/yhat-r/status")
 def yhat_r_status() -> Dict[str, Any]:
     return _status("R")
@@ -294,8 +258,16 @@ def yhat_r_fit(body: YhatFactoryFitBody) -> Dict[str, Any]:
 
 
 @router.get("/api/quant/yhat-r/versions")
-def yhat_r_versions(head: str) -> Dict[str, Any]:
-    return _versions("R", head)
+def yhat_r_versions(
+    head: str,
+    suite: Optional[str] = Query(None, description="research | live；缺省不过滤"),
+) -> Dict[str, Any]:
+    return _versions("R", head, suite=suite)
+
+
+@router.post("/api/quant/yhat-r/versions/enable")
+def yhat_r_versions_enable(body: YhatFactoryEnableBody) -> Dict[str, Any]:
+    return _enable("R", body)
 
 
 @router.get("/api/quant/yhat-r/versions/preview")
@@ -306,28 +278,6 @@ def yhat_r_versions_preview(head: str, run_id: str) -> Dict[str, Any]:
 @router.delete("/api/quant/yhat-r/versions")
 def yhat_r_versions_delete(head: str, run_id: str) -> Dict[str, Any]:
     return _delete("R", head, run_id)
-
-
-@router.get("/api/quant/yhat-r/backtest")
-def yhat_r_backtest_status(
-    run: str = Query("", description="回看某次离线回测的 console"),
-) -> Dict[str, Any]:
-    return _backtest_get("R", run)
-
-
-@router.delete("/api/quant/yhat-r/backtest")
-def yhat_r_backtest_delete(run_id: str) -> Dict[str, Any]:
-    return _backtest_delete("R", run_id)
-
-
-@router.post("/api/quant/yhat-r/backtest")
-def yhat_r_backtest_start(body: YhatFactoryBacktestBody) -> Dict[str, Any]:
-    return _backtest_start("R", body)
-
-
-@router.put("/api/quant/yhat-r/backtest/rules")
-def yhat_r_backtest_rules(body: YhatFactoryRulesBody) -> Dict[str, Any]:
-    return _backtest_rules("R", body)
 
 
 # 旧路径兼容 → Arm·T
@@ -363,23 +313,54 @@ def yhat_tf_versions_delete(
     return _delete("T", head, run_id, suite=suite)
 
 
-@router.get("/api/quant/yhat-tf/backtest")
-def yhat_tf_backtest_status(
-    run: str = Query("", description="回看某次离线回测的 console"),
+@router.get("/api/quant/hub/arms")
+def hub_arms_get() -> Dict[str, Any]:
+    return {"success": True, "ok": True, "arms": read_hub_arms()}
+
+
+@router.put("/api/quant/hub/arms")
+def hub_arms_put(body: YhatHubArmsBody) -> Dict[str, Any]:
+    return {"success": True, "ok": True, "arms": write_hub_arms(body.arms)}
+
+
+@router.get("/api/quant/yhat-bt/versions")
+def yhat_bt_versions() -> Dict[str, Any]:
+    """三家工厂里带权重的版本。回测中心只读，不在这里删除或启用。"""
+    try:
+        return list_mix_catalog()
+    except Exception as e:  # noqa: BLE001
+        raise HTTPException(status_code=500, detail=str(e)) from e
+
+
+@router.get("/api/quant/yhat-bt/backtest")
+def yhat_bt_backtest_status(
+    run: str = Query("", description="回看某次组合回测的 console"),
 ) -> Dict[str, Any]:
-    return _backtest_get("T", run)
+    return factory_backtest_status("BT", run_id=run)
 
 
-@router.delete("/api/quant/yhat-tf/backtest")
-def yhat_tf_backtest_delete(run_id: str) -> Dict[str, Any]:
-    return _backtest_delete("T", run_id)
+@router.delete("/api/quant/yhat-bt/backtest")
+def yhat_bt_backtest_delete(run_id: str) -> Dict[str, Any]:
+    return _backtest_delete("BT", run_id)
 
 
-@router.post("/api/quant/yhat-tf/backtest")
-def yhat_tf_backtest_start(body: YhatFactoryBacktestBody) -> Dict[str, Any]:
-    return _backtest_start("T", body)
+@router.post("/api/quant/yhat-bt/backtest")
+def yhat_bt_backtest_start(body: YhatMixBacktestBody) -> Dict[str, Any]:
+    versions = {
+        head: {"factory": pick.factory, "run_id": pick.run_id}
+        for head, pick in (body.versions or {}).items()
+    }
+    try:
+        out = start_factory_backtest("BT", versions, body.rules)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    except Exception as e:  # noqa: BLE001
+        raise HTTPException(status_code=500, detail=str(e)) from e
+    if not out.get("success"):
+        raise HTTPException(status_code=400, detail=out.get("error") or "组合回测未能启动")
+    return out
 
 
-@router.put("/api/quant/yhat-tf/backtest/rules")
-def yhat_tf_backtest_rules(body: YhatFactoryRulesBody) -> Dict[str, Any]:
-    return _backtest_rules("T", body)
+@router.put("/api/quant/yhat-bt/backtest/rules")
+def yhat_bt_backtest_rules(body: YhatFactoryRulesBody) -> Dict[str, Any]:
+    return _backtest_rules("BT", body)

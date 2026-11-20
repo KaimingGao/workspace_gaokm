@@ -1,6 +1,7 @@
-"""观察池日线：按交易会话日记下「今天是否已强制刷过」。
+"""观察池日线会话标记。
 
-同日后续刷新可走缓存 / 过期窗口，不必再打网。
+只表示本会话日整批刷新成功过，供界面 ``needs_force_latest_bars``。
+拉取前不读这份标记，也不用它拦住下一次刷新。
 """
 
 
@@ -47,7 +48,7 @@ def needs_force_latest_bars(
     *,
     session_date: Optional[str] = None,
 ) -> bool:
-    """True = 本会话日尚未做过「分组强制日线更新」。"""
+    """True = 本会话日还没有一次整批成功的日线刷新。"""
     sess = str(session_date or bars_session_date() or "")[:10]
     if not sess:
         return True

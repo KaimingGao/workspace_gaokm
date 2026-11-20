@@ -63,8 +63,9 @@
  *  │                                                                │
  *  │  Section (<section class="dashboard-section">)                 │
  *  │  ├─ .dashboard-section-head                                    │
- *  │  │  ├─ <h3 class="dashboard-section-title">  14px fw-700 ink-2 │
- *  │  │  │     ::before  3px accent bar                             │
+ *  │  │  ├─ <h3 class="dashboard-section-title">  14px fw-700 ink   │
+ *  │  │  │     letter-spacing 0.04em · line-height 1.25            │
+ *  │  │  │     区段左边框已是 accent，标题不再画 ::before          │
  *  │  │  └─ <p class="dashboard-section-desc">    12px ink-3       │
  *  │  └─ Content area (card / band / row)                          │
  *  │                                                                │
@@ -494,11 +495,11 @@ html[data-theme="dark"] .quant-viz-empty {
 
 /* Dark theme for dashboard report rails + secondary cards */
 html[data-theme="dark"] .dashboard-section-title {
-  color: rgba(255, 255, 255, 0.72);
+  color: var(--ink);
 }
 
 html[data-theme="dark"] .dashboard-section-desc {
-  color: rgba(255, 255, 255, 0.42);
+  color: var(--ink-3);
 }
 
 html[data-theme="dark"] .dashboard-card-head {

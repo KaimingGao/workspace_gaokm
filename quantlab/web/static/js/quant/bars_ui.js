@@ -105,6 +105,7 @@ export function installBarsUi(q) {
   let lastPolledJob = null;
   let lastStatusJob = null;
   let lastCoverage = null;
+  let lastSinaLatency = null;
   let activeMode = "topup";
 
   function hasBarsFacts(sum) {
@@ -161,12 +162,117 @@ export function installBarsUi(q) {
     return isTopupSummary(modeOrSum) ? "增量补齐（L0）" : "强更日 K（L0）";
   }
 
-  function clearProgressPanel() {
+  function fmtSec(raw) {
+    const n = Number(raw);
+    if (!Number.isFinite(n)) return "—";
+    return n >= 10 ? `${n.toFixed(0)}s` : `${n.toFixed(1)}s`;
+  }
+
+  const SINA_OUTCOME = {
+    ok: "成功",
+    empty: "空返回",
+    timeout: "超时",
+    error: "失败",
+    slot_wait: "排队超时",
+  };
+
+  /** 新浪耗时并进状态条的事实行，不另起一行。 */
+  function sinaLatencyFact(lat) {
+    const n = Number(lat?.n) || 0;
+    if (!lat || n < 1) {
+      return `<span data-sina-fact class="quant-bars-sina-fact" title="开始拉日线后显示接口耗时和排队">新浪 <strong>—</strong></span>`;
+    }
+    const timeoutN = Number(lat.timeout) || 0;
+    const slotN = Number(lat.slot_wait) || 0;
+    const okN = Number(lat.ok) || 0;
+    const errN = (Number(lat.error) || 0) + (Number(lat.empty) || 0);
+    const badN = timeoutN + slotN;
+    const last = lat.last && typeof lat.last === "object" ? lat.last : null;
+    const lastLabel = SINA_OUTCOME[String(last?.outcome || "")] || "其他";
+    const lastHttp = last && last.http_s != null ? fmtSec(last.http_s) : "—";
+    const badRate = badN / n;
+    const p95 = Number(lat.http_p95_s);
+    let tone = "is-ok";
+    if (badRate >= 0.2 || last?.outcome === "timeout" || last?.outcome === "slot_wait") {
+      tone = "is-bad";
+    } else if (Number.isFinite(p95) && p95 >= 8) {
+      tone = "is-warn";
+    }
+    const title = esc(
+      `最近 ${n} 次 · 成功 ${okN} · 超时 ${timeoutN} · 失败 ${errN} · 排队超时 ${slotN} · 最近 ${lastHttp} ${lastLabel}`
+    );
+    return (
+      `<span data-sina-fact class="quant-bars-sina-fact ${tone}" title="${title}">` +
+      `新浪 <strong>${fmtSec(lat.http_p50_s)}</strong>` +
+      ` · 95% <strong>${fmtSec(lat.http_p95_s)}</strong>` +
+      ` · 排队 <strong>${fmtSec(lat.wait_p50_s)}</strong>` +
+      ` · 超时 <strong>${badN}</strong>/${n}</span>`
+    );
+  }
+
+  function attachSinaFacts() {
     if (!progressEl) return;
-    progressEl.hidden = true;
-    progressEl.innerHTML = "";
-    progressEl.classList.remove("is-active", "is-warn", "is-done");
-    delete progressEl.dataset.tone;
+    progressEl.querySelectorAll("[data-sina-fact]").forEach((node) => node.remove());
+    let facts = progressEl.querySelector(".quant-bars-progress-facts");
+    if (!facts) {
+      facts = document.createElement("div");
+      facts.className = "quant-bars-progress-facts";
+      const anchor = progressEl.querySelector(
+        ".quant-bars-progress-msg, .quant-bars-progress-hint"
+      );
+      if (anchor) progressEl.insertBefore(facts, anchor);
+      else progressEl.appendChild(facts);
+    }
+    facts.insertAdjacentHTML("beforeend", sinaLatencyFact(lastSinaLatency));
+  }
+
+  function paintSinaLatency(lat) {
+    lastSinaLatency = lat || null;
+    attachSinaFacts();
+  }
+
+  async function refreshSinaLatency() {
+    try {
+      const { ok, data } = await apiFetch("/api/quant/bars/sina-latency");
+      if (ok && data) paintSinaLatency(data.sina_latency);
+    } catch (_) {
+      /* 样本条失败不打断日 K 进度 */
+    }
+  }
+
+  /** 没有进行中的更新时，用覆盖结果把状态条留在页面上。 */
+  function paintIdleCoveragePanel(data) {
+    if (!progressEl || jobFailure || jobSuccess || inflight) return;
+    if (!data || !data.success) return;
+    const total = Number(data.universe_count) || 0;
+    const at = Number(data.at_expected) || 0;
+    const stale = Number(data.stale) || 0;
+    const missing = Number(data.missing) || 0;
+    const pct = total > 0 ? Math.round((1000 * at) / total) / 10 : 0;
+    const asof = overviewRangeFact(data.last_bar_min, data.last_bar_max);
+    const fetched = overviewFetchedFact(data.last_fetched_at);
+    const facts = [];
+    if (total > 0) facts.push(`Coverage <strong>${at}/${total}</strong>`);
+    if (asof.v && asof.v !== "—") facts.push(`更新至 <strong>${esc(asof.v)}</strong>`);
+    if (fetched.v && fetched.v !== "—") facts.push(`上次 <strong>${esc(fetched.v)}</strong>`);
+    facts.push(`Stale <strong>${stale}</strong>`);
+    facts.push(`Missing <strong>${missing}</strong>`);
+    const width = Math.max(0, Math.min(100, pct));
+    progressEl.hidden = false;
+    progressEl.classList.add("is-active", "is-done");
+    progressEl.classList.remove("is-warn");
+    progressEl.dataset.tone = "primary";
+    progressEl.innerHTML =
+      `<div class="quant-bars-progress-head">` +
+      `<span class="quant-bars-progress-phase">${data.coverage_ok ? "已齐" : "未齐"}</span>` +
+      `<span class="quant-bars-progress-pct">${total > 0 ? `${pct}%` : "—"}</span>` +
+      `</div>` +
+      `<div class="quant-bars-progress-track" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${Math.round(width)}">` +
+      `<div class="quant-bars-progress-fill" style="width:${width.toFixed(1)}%"></div>` +
+      `</div>` +
+      `<div class="quant-bars-progress-facts">${facts.map((f) => `<span>${f}</span>`).join("")}</div>` +
+      `<p class="quant-bars-progress-hint">增量补齐（L0）· 末 bar 未齐只补新日期 · 已有日不动</p>`;
+    attachSinaFacts();
   }
 
   function paintProgressFailed(job, errText) {
@@ -180,6 +286,7 @@ export function installBarsUi(q) {
       errText,
       hint: "可再次点击「增量补齐（L0）」或「强更日 K（L0）」重试",
     });
+    attachSinaFacts();
   }
 
   function paintProgressDone(job, mode) {
@@ -197,6 +304,7 @@ export function installBarsUi(q) {
         ? "只拉未齐 as-of · 进程池并行 · 单票 60s"
         : "整窗替换 · 进程池并行 · 单票 60s",
     });
+    attachSinaFacts();
   }
 
   function applyJobSuccess(job, mode) {
@@ -271,6 +379,7 @@ export function installBarsUi(q) {
         : "整窗替换 · 进程池并行 · 单票 60s",
       extraFacts: l0ParsedFacts(parsed),
     });
+    attachSinaFacts();
   }
 
   function setBarsBusy(busy) {
@@ -283,8 +392,8 @@ export function installBarsUi(q) {
     topupBtn?.classList.toggle("is-busy", on);
     if (on) setDeskStatusTone([barsStrip, barsCard], "primary");
     if (!on && !jobFailure && !jobSuccess) {
-      clearProgressPanel();
       setDeskStatusTone([barsStrip, barsCard], null);
+      if (progressEl) progressEl.hidden = false;
     }
   }
 
@@ -645,6 +754,7 @@ export function installBarsUi(q) {
   }
 
   function paint(data, { skipHead = false } = {}) {
+    if (data && data.sina_latency) paintSinaLatency(data.sina_latency);
     if (data && data.success) lastCoverage = data;
     // 物化不占用日 K 状态条：覆盖文案只避开本卡日 K 任务结果
     if (!skipHead && !jobFailure && !jobSuccess) {
@@ -678,6 +788,7 @@ export function installBarsUi(q) {
         setProStatusChip(chip, "error", "ERR");
       }
       if (!inflight) setBarsBusy(false);
+      if (lastCoverage) paintIdleCoveragePanel(lastCoverage);
       return null;
     }
     paint(data, {
@@ -696,6 +807,7 @@ export function installBarsUi(q) {
       jobSt !== "running"
     ) {
       setBarsBusy(false);
+      paintIdleCoveragePanel(data);
     }
     return data;
   }
@@ -810,6 +922,7 @@ export function installBarsUi(q) {
       setProStatusChip(chip, "busy", view.chip);
       setBarsBusy(true);
       paintProgressPanel(job, { pollStartedAt: started, mode });
+      void refreshSinaLatency();
       msgEl.textContent = view.text;
       const pastSoft = Date.now() - started >= softCapMs;
       if (pastSoft && isJobHeartbeatStale(job, heartbeatFreshSec)) break;

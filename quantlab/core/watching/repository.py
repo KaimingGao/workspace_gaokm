@@ -313,13 +313,59 @@ def reconcile_watching_to_research(
     }
 
 
-def set_watching_max_size(max_size: int, path: Optional[str] = None) -> Dict[str, Any]:
-    """改观察池目标只数：缩小截断并暂存，放大从研究宇宙补齐。"""
+def set_watching_max_size(
+    max_size: int,
+    path: Optional[str] = None,
+    *,
+    compose: bool = False,
+) -> Dict[str, Any]:
+    """改观察池目标只数：缩小截断并暂存，放大从研究宇宙补齐。
+
+    ``compose=True`` 时名单改为沪深 300 打底、再按全池顺序放到目标只数。
+    成分拉不到则失败，不改已有名单。
+    """
     data = read_watching(path)
     before = len(_clean_code_list(data.get("watchlist")))
     # 先剥离越界票，再扩容
     _strip_watchlist_outside_research(data)
     cap = clamp_watching_max_size(max_size, WATCHING_DEFAULT_SIZE)
+    if compose:
+        from core.universe.feature_sets import watching_prefix
+
+        prefix = watching_prefix(cap, fetch=True)
+        if len(prefix) < 50:
+            return {
+                "ok": False,
+                "error": "沪深300成分未就绪",
+                "max_size": int(data.get("max_size") or cap),
+                "count": before,
+                "before": before,
+            }
+        data["max_size"] = clamp_watching_max_size(max(cap, len(prefix)), cap)
+        data["watchlist"] = prefix
+        data["watchlist_reserve"] = []
+        for key in _WATCHLIST_SIDE_KEYS:
+            arr = data.get(key)
+            if isinstance(arr, list):
+                data[key] = []
+        try:
+            data["watchlist_names"] = watchlist_names_for(data, allow_live=False)
+        except Exception:
+            logger.debug("compose watchlist: names failed", exc_info=True)
+        write_watching(data, path)
+        saved = read_watching(path)
+        n = len(_clean_code_list(saved.get("watchlist")))
+        return {
+            "ok": True,
+            "max_size": int(saved.get("max_size") or cap),
+            "count": n,
+            "dropped": max(0, before - n),
+            "added": max(0, n - before),
+            "reserve": 0,
+            "over_cap": False,
+            "before": before,
+            "compose": "feature_pool",
+        }
     data["max_size"] = cap
     stats = _resize_watchlist(data, cap, expand=True)
     if stats.get("added"):

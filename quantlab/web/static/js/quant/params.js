@@ -168,7 +168,7 @@ export const WATCHING_POOL_LIMIT_CHANGED = "quant-watching-pool-limit-changed";
 function clampWatchingPoolLimit(v, fallback = WATCHING_POOL_DEFAULT) {
   const n = Number(v);
   if (!Number.isFinite(n)) return fallback;
-  return Math.max(200, Math.min(MODEL_FIT_LIMIT, Math.round(n)));
+  return Math.max(300, Math.min(MODEL_FIT_LIMIT, Math.round(n)));
 }
 
 let _poolLimitReadyResolve = null;

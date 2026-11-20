@@ -10,7 +10,7 @@ import hashlib
 from typing import Any, List, Optional, Sequence
 
 # 特征注册 / collect_* 语义变更时人工 +1 → 全池 fingerprint miss
-# v2：τc 改为矩阵+slim；v3：指纹覆盖窗内每一根价量
+# 3：指纹覆盖窗内每一根价量
 PANEL_CACHE_SCHEMA = 3
 
 

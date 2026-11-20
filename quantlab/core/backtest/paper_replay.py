@@ -195,14 +195,14 @@ def backtest_paper_replay(
     score_model_role: Optional[str] = None,
     score_backend: Optional[str] = None,
     tradable_codes: Optional[Collection[str]] = None,
-    tradable_reject_reason: str = "可预测性分档外",
+    tradable_reject_reason: str = "不在打分名单",
 ) -> Dict[str, Any]:
-    """策略调仓历史回测：四头用工厂已启用的 Arm·T 开盘权重；ŷ_τ30…90 仍走套槽。按调仓钟 5m 价成交。
+    """策略调仓历史回测：四头用枢纽所选臂已启用的工厂开盘权重；ŷ_τ30…90 仍走套槽。按调仓钟 5m 价成交。
 
     ``score_backend`` 恒为 ridge（影子树头已下线）；传入 tree 会被忽略。
     ŷ_oo_rank / ŷ_τc_rank 有模型时按当日截面编成 1..n 名次透传到成交行；
     过入场后买序按 rank_score=0.6·y_oo_rank_score+0.4·y_tc_rank_score（固定，不进配置）。
-    ``tradable_codes`` 给定时：主头与排序头截面 z 仍用整池；ŷ 与名次只写这份名单（分档内）。
+    ``tradable_codes`` 给定时：主头与排序头截面 z 仍用整池；ŷ 与名次只写这份名单。
     产品排序头拟合固定全池；旧落盘 ``train_universe`` / ``zscore_universe=tier_a`` 仅审计，打分不缩 z。
     ``oo_rank_max`` 开则未过强档时另须 max(oo_rank, τc_rank) < N（缺省 6；None=关）。
     y_oo_fuse > fuse_strong 时改看 ``oo_rank_strong_max``（缺省 12；None=关）。
@@ -278,8 +278,12 @@ def backtest_paper_replay(
             from core.research.yhat_factory_backtest import score_enabled_replay_heads
 
             arm_table = score_enabled_replay_heads(stock_bars)
-        except Exception:  # noqa: BLE001
-            logger.exception("replay arm-t table failed")
+        except Exception as exc:  # noqa: BLE001
+            from core.research.materialize.consumer import MaterializeRequired
+
+            if isinstance(exc, MaterializeRequired):
+                raise
+            logger.exception("replay factory arm table failed")
             arm_table = {"heads": [], "runs": {}, "by_day": {}, "suite": ""}
 
     tc_rank_doc = None
@@ -1186,7 +1190,7 @@ def backtest_paper_replay(
         f"引擎={ENGINE_ID}：每个交易日 y_oo_fuse={FORMULA_OO_FUSE}，{fill_note}；{oc_note}；"
         f"fuse 权 w_oo={w_oo:g} w_τc={w_τc:g}；未过入场则已持仓清仓；"
         f"fuse 过入场（fuse入场={fuse_enter}）后按 y_oo_rank 买，缺名次才按 fuse"
-        f"（开加上限=观察池 {top_k} 只，现金不够则停），"
+        f"（开加上限=名单 {top_k} 只，现金不够则停），"
         f"每笔 {int(rl_cfg.get('lot_base_amount') or REPLAY_AMOUNT_BASE)} 元；"
         f"不留现金地板；T+1；成本={cost_model}；≠ topk_research。"
     )

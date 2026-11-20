@@ -14,7 +14,7 @@ alwaysApply: false
 0. **产品边界**：一切买卖仅为 **模拟账户**（研究用途）；UI/文案禁止暗示真实券商下单。见 [design-spine · 产品边界](quantlab/docs/design-spine.md#产品边界现行)。
 1. **主导航（侧栏）**：仪表盘(`/dashboard`) · 市场先验(`/market-prior`) · 观察台(`/watching`) · 交易执行 · 历史回测 · 数据中心(`/data`) · 研究枢纽(`/quant`) · 平台(`/platform`)。旧 `/strategy` 302 到 `/market-prior`。**AI 不占侧栏**；顶栏「AI 助手」+ ⌘K 抽屉（全屏 `/chat` 已下线）。
 2. **每页一事**：新块必须落入该页「唯一任务」；否则先改契约再写代码。
-3. **Desk Shell（必守）**：页头 / 区段 / 卡片只用 `.dashboard-head` · `.dashboard-section*` · `.dashboard-card`（见 `quant-ui.md` UI 契约）；禁止平行 `.quant-eyebrow` / `.strategy-section-title` / 裸 `platform-section > h3`。按钮 `.dialog-btn`；收益色 vs 质量色分轨。
+3. **Desk Shell（必守）**：页头 / 区段 / 卡片只用 `.dashboard-head` · `.dashboard-section*` · `.dashboard-card`（见 `quant-ui.md` UI 契约）。页头阶梯只改 `.page-panel.quant-panel .quant-head`，不要在各页 CSS 再复制一套。禁止平行 `.quant-eyebrow` / `.strategy-section-title` / 裸 `platform-section > h3`。按钮 `.dialog-btn`；收益色 vs 质量色分轨。
 4. **组件白名单**：页壳 / 主表 / 指标卡 / 五问条 / 策略卡 / dashboard-section / dialog-btn / details / factor-tip；壳层 `app-shell` / `side-nav` / `topbar` / `ai-drawer`；W4：`#research-dock` · 虚拟表内核。
 5. **四页主表**：遵守 `quantlab-table-layout.mdc`。
 6. **缓存版本**：只 bump `ASSET_V`。

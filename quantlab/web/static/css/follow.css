@@ -641,8 +641,8 @@ body[data-page="follow"] .follow-pending-grid.watching-react-grid {
 }
 
 .follow-page .rebalance-table {
-  /* 与 base.css 同步：股票 / 舆情 / 动作 / 分档 / 昨收 / 开盘 / 现价(含相对开盘%) / 六列分数 */
-  --rebalance-cols: minmax(0, 1.28fr) minmax(2.2rem, 0.32fr) minmax(3.4rem, 0.5fr) minmax(0, 0.4fr) minmax(0, 0.78fr) minmax(0, 0.78fr) minmax(0, 1.78fr) repeat(5, minmax(0, 0.88fr));
+  /* 与 base.css 同步：股票 / 舆情 / 动作 / 昨收 / 开盘 / 现价(含相对开盘%) / 五列分数 */
+  --rebalance-cols: minmax(0, 1.28fr) minmax(2.2rem, 0.32fr) minmax(3.4rem, 0.5fr) minmax(0, 0.78fr) minmax(0, 0.78fr) minmax(0, 1.78fr) repeat(5, minmax(0, 0.88fr));
   width: 100%;
   max-width: 100%;
   min-width: 0;
@@ -1168,11 +1168,6 @@ body[data-page="follow"] #paper-rebalance-report.quant-weight-table-wrap,
 
 .follow-holdings-card .paper-holdings-table thead th:first-child {
   text-align: left;
-}
-
-.follow-holdings-card .paper-holdings-table thead th.paper-hold-tier,
-.follow-holdings-card .paper-holdings-table td.paper-hold-tier {
-  text-align: center;
 }
 
 .follow-holdings-card .paper-holdings-table thead th:nth-child(8) {
@@ -5802,72 +5797,7 @@ html[data-density="compact"] .follow-page #paper-chart.lw-host {
  *  Bloomberg-style section rhythm · token-only colors (no hardcodes)
  *  Safe: legacy classes preserved; specificity wins by scope + later block.
  */
-/* ============================================================
- * 1. HERO / PAGE HEAD — Execution Desk header
- * ============================================================ */
-.follow-page .quant-head {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 12px;
-  padding: 2px 0 6px;
-  border-bottom: 1px solid color-mix(in srgb, var(--line) 70%, transparent);
-  margin-bottom: 2px;
-}
-
-.follow-page .quant-head-text {
-  display: flex;
-  flex-direction: column;
-  gap: 1px;
-  min-width: 0;
-}
-
-/* Eyebrow — desk micro / mono / 0.14em（与其它四页页头同一套） */
-.follow-page .dashboard-eyebrow {
-  margin: 0 0 2px;
-  font-size: var(--f-fs-micro);
-  font-weight: var(--sys-fw-label, 650);
-  letter-spacing: 0.14em;
-  text-transform: uppercase;
-  color: var(--ink-3);
-  font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
-  line-height: 18px;
-}
-
-/* Page title — --sys-fs-title / 700 */
-.follow-page .quant-head h2 {
-  margin: 0;
-  font-size: var(--sys-fs-title, 1.125rem);
-  line-height: var(--sys-lh-tight, 1.2);
-  font-weight: var(--sys-fw-display, 700);
-  letter-spacing: -0.02em;
-  color: var(--ink);
-}
-
-/* Meta line — caption / 4px 顶距 */
-.follow-page .quant-meta {
-  margin: 4px 0 0 !important;
-  font-size: var(--f-fs-caption);
-  line-height: var(--sys-lh-snug, 1.35);
-  color: var(--ink-3);
-}
-
-/* Breadcrumb / path — 与 meta 同级 caption */
-.follow-head-path {
-  margin: 4px 0 0;
-  font-size: var(--f-fs-caption);
-  line-height: var(--sys-lh-snug, 1.35);
-  color: var(--ink-3);
-  letter-spacing: 0.01em;
-}
-
-.follow-hero-link {
-  color: var(--accent);
-  font-weight: 600;
-  text-decoration: none;
-}
-
-.follow-hero-link:hover { text-decoration: underline; }
+/* 页头阶梯见 quant.css .page-panel.quant-panel .quant-head */
 
 /* Cost model select in hero header */
 .follow-cost-model-hero {
@@ -5978,15 +5908,6 @@ html[data-density="compact"] .follow-page #paper-chart.lw-host {
   gap: 12px;
   margin: 0 0 8px;
   min-height: 24px;
-}
-
-.follow-page .dashboard-section-title {
-  margin: 0;
-  font-size: 14px;
-  line-height: 20px;
-  font-weight: 600;
-  color: var(--ink);
-  letter-spacing: 0.01em;
 }
 
 .follow-page .dashboard-section-desc {
@@ -6251,14 +6172,6 @@ html[data-density="compact"] .follow-page #paper-chart.lw-host {
   gap: 12px;
   margin: 0 0 12px;
   min-height: 20px;
-}
-
-.follow-ops-head .dashboard-section-title {
-  margin: 0;
-  font-size: 14px;
-  line-height: 20px;
-  font-weight: 600;
-  color: var(--ink);
 }
 
 .follow-ops-hint {
@@ -7423,16 +7336,6 @@ body[data-page="follow"] .follow-page .dashboard-section.quant-section > details
   margin: 0;
 }
 
-/* 底框内 section title 对齐研究枢纽：14px fw-700 ink + accent bar */
-body[data-page="follow"] .follow-page .dashboard-section.quant-section > .dashboard-section-head .dashboard-section-title {
-  margin: 0;
-  color: var(--ink);
-  font-size: var(--sys-fs-section, 0.875rem);
-  font-weight: 700;
-  letter-spacing: 0.04em;
-  line-height: 1.25;
-}
-
 body[data-page="follow"] .follow-page .dashboard-section.quant-section > .dashboard-section-head .dashboard-section-desc {
   margin: 0;
   flex: 1 1 12rem;
@@ -7719,15 +7622,6 @@ body[data-page="follow"] .follow-page .dashboard-section.follow-section-secondar
   color: var(--accent);
 }
 
-.follow-secondary-fold-sum .dashboard-section-title {
-  margin: 0;
-  font-size: var(--sys-fs-section, 0.875rem);
-  font-weight: 700;
-  letter-spacing: 0.04em;
-  line-height: 1.25;
-  color: var(--ink);
-}
-
 .follow-secondary-fold-sum .dashboard-section-desc {
   margin: 0;
   flex: 1 1 10rem;
@@ -7783,75 +7677,7 @@ body[data-page="follow"] {
   --f-r: var(--sys-r-tier2, 6px);
 }
 
-/* ── 页头：紧、静、可读 ── */
-body[data-page="follow"] .dashboard-head.quant-head {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 12px;
-  padding: 2px 0 6px;
-  margin-bottom: 2px;
-  border-bottom: 1px solid color-mix(in srgb, var(--line) 70%, transparent);
-}
-
-body[data-page="follow"] .dashboard-head-text,
-body[data-page="follow"] .quant-head-text {
-  gap: 1px;
-}
-
-body[data-page="follow"] .dashboard-eyebrow {
-  margin: 0 0 2px;
-  font-size: var(--f-fs-micro);
-  font-weight: var(--sys-fw-label, 650);
-  letter-spacing: 0.14em;
-  text-transform: uppercase;
-  color: var(--ink-3);
-  font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
-  line-height: 18px;
-}
-
-body[data-page="follow"] .dashboard-head h2,
-body[data-page="follow"] .quant-head h2 {
-  margin: 0;
-  font-size: var(--sys-fs-title, 1.125rem);
-  font-weight: var(--sys-fw-display, 700);
-  letter-spacing: -0.02em;
-  line-height: var(--sys-lh-tight, 1.2);
-  color: var(--ink);
-}
-
-body[data-page="follow"] .dashboard-meta,
-body[data-page="follow"] .quant-meta,
-body[data-page="follow"] #follow-meta {
-  margin: 4px 0 0 !important;
-  font-size: var(--f-fs-caption);
-  line-height: var(--sys-lh-snug, 1.35);
-  font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
-  font-variant-numeric: tabular-nums;
-  color: var(--ink-3);
-}
-
-body[data-page="follow"] .follow-head-path {
-  margin: 4px 0 0;
-  font-size: var(--f-fs-caption);
-  color: var(--ink-3);
-  letter-spacing: 0.01em;
-  line-height: var(--sys-lh-snug, 1.35);
-}
-
-body[data-page="follow"] .follow-hero-link {
-  color: var(--accent);
-  text-decoration: none;
-  font-weight: 600;
-}
-
-body[data-page="follow"] .follow-hero-link:hover {
-  text-decoration: underline;
-}
-
-body[data-page="follow"] .follow-head-actions {
-  gap: 8px;
-}
+/* 页头阶梯见 quant.css .page-panel.quant-panel .quant-head */
 
 body[data-page="follow"] .follow-desk-badge {
   height: 28px;
@@ -7936,14 +7762,6 @@ body[data-page="follow"] .follow-page .dashboard-section-head {
   gap: 4px 10px;
   margin: 0 0 2px;
   padding: 0;
-}
-
-body[data-page="follow"] .follow-page .dashboard-section-title {
-  font-size: var(--f-fs-section);
-  font-weight: var(--sys-fw-display, 700);
-  letter-spacing: 0.02em;
-  line-height: var(--sys-lh-tight, 1.2);
-  color: var(--ink);
 }
 
 body[data-page="follow"] .follow-page .dashboard-section-desc {
@@ -8223,11 +8041,6 @@ body[data-page="follow"] .follow-page .dashboard-section.follow-section-secondar
 body[data-page="follow"] .follow-secondary-fold-sum {
   padding: 8px 10px;
   gap: 4px 10px;
-}
-
-body[data-page="follow"] .follow-secondary-fold-sum .dashboard-section-title {
-  font-size: var(--f-fs-body);
-  letter-spacing: 0.03em;
 }
 
 body[data-page="follow"] .follow-secondary-fold > .dashboard-card.quant-pro-card {

@@ -56,8 +56,6 @@ def build_live_config_manifest(*, note: str = "") -> Dict[str, Any]:
     from core.paths import (
         LIVE_DIR,
         PAPER_PATH,
-        PREDICTABILITY_TIERS_ACTIVE_PATH,
-        PREDICTABILITY_TIERS_LAST_PATH,
         RETURN_SCORE_MODEL_ACTIVE_PATH,
         SIGNAL_CONFIG_PATH,
     )
@@ -71,8 +69,6 @@ def build_live_config_manifest(*, note: str = "") -> Dict[str, Any]:
     artifacts = {
         "signal_config": _file_fingerprint(signal_path),
         "return_score_model_active": _file_fingerprint(RETURN_SCORE_MODEL_ACTIVE_PATH),
-        "predictability_tiers_last": _file_fingerprint(PREDICTABILITY_TIERS_LAST_PATH),
-        "predictability_tiers_active": _file_fingerprint(PREDICTABILITY_TIERS_ACTIVE_PATH),
         "strategy_promoted": _file_fingerprint(promoted_path),
         "paper": _file_fingerprint(PAPER_PATH),
     }

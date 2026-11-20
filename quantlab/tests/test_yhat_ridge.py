@@ -44,6 +44,28 @@ class TestRidgeMath(unittest.TestCase):
         pred = predict_ridge(x, intercept, coef)
         self.assertLess(float(np.max(np.abs(pred - y))), 1e-6)
 
+    def test_predict_skips_missing_cells(self):
+        x = np.array([[1.0, np.nan], [np.nan, np.nan]])
+        pred = predict_ridge(x, 0.5, [2.0, 3.0])
+        self.assertAlmostEqual(float(pred[0]), 2.5)
+        self.assertTrue(np.isnan(pred[1]))
+
+    def test_predict_complete_row_rejects_partial(self):
+        x = np.array([[1.0, np.nan], [1.0, 2.0]])
+        pred = predict_ridge(x, 0.5, [2.0, 3.0], require_complete=True)
+        self.assertTrue(np.isnan(pred[0]))
+        self.assertAlmostEqual(float(pred[1]), 0.5 + 2.0 + 6.0)
+
+
+def _keep_l2(x, y, dates, clock="open", **_kwargs):
+    days = [str(d)[:10] for d in dates]
+    return (
+        np.asarray(x, dtype=np.float64),
+        np.asarray(y, dtype=np.float64),
+        days,
+        np.ones(len(days), dtype=bool),
+    )
+
 
 class TestRidgeHoldout(unittest.TestCase):
     def test_regression_arm_saves_coef(self):
@@ -70,6 +92,9 @@ class TestRidgeHoldout(unittest.TestCase):
             os.environ[ENV_RUN_ID] = "ridge-run"
             try:
                 with mock.patch(
+                    "core.research.materialize.cube_z.align_fit_rows_to_l2",
+                    side_effect=_keep_l2,
+                ), mock.patch(
                     "core.research.materialize.cube_z.cs_z_matrix_prefer_cube",
                     side_effect=_identity,
                 ), mock.patch(
@@ -137,6 +162,9 @@ class TestRidgeHoldout(unittest.TestCase):
             return np.array(X, dtype=np.float64, copy=True)
 
         with mock.patch(
+            "core.research.materialize.cube_z.align_fit_rows_to_l2",
+            side_effect=_keep_l2,
+        ), mock.patch(
             "core.research.materialize.cube_z.cs_z_matrix_prefer_cube",
             side_effect=_z,
         ):
@@ -162,9 +190,10 @@ class TestRidgeHoldout(unittest.TestCase):
 
         n_train, n_test = 30, 12
         n = n_train + n_test
+        rng = np.random.default_rng(4)
         fac = SimpleNamespace(
-            X=np.ones((n, 2)),
-            y=np.ones(n),
+            X=rng.normal(size=(n, 2)),
+            y=rng.normal(size=n),
             feature_names=["a", "b"],
             dates=["2024-01-02"] * n_train + ["2024-06-03"] * n_test,
             codes=[f"c{i:03d}" for i in range(n)],
@@ -175,6 +204,9 @@ class TestRidgeHoldout(unittest.TestCase):
             raise MaterializeRequired({"error": "cube miss 2024-01-02|open"})
 
         with mock.patch(
+            "core.research.materialize.cube_z.align_fit_rows_to_l2",
+            side_effect=_keep_l2,
+        ), mock.patch(
             "core.research.materialize.cube_z.cs_z_matrix_prefer_cube",
             side_effect=_z,
         ):
@@ -187,6 +219,97 @@ class TestRidgeHoldout(unittest.TestCase):
         self.assertFalse(out.get("success"))
         self.assertIn("MaterializeRequired", str(out.get("error") or ""))
         self.assertIn("2024-01-02", str(out.get("error") or ""))
+
+    def test_regression_drops_incomplete_rows(self):
+        """缺测行不进训练；Holdout 整行都缺则不进指标。"""
+        from scripts.run_yhat_transformer_holdout import _run_arm_r
+
+        n_train, n_test = 30, 12
+        n = n_train + n_test
+        rng = np.random.default_rng(3)
+        x = rng.normal(size=(n, 2))
+        x[:6, 1] = np.nan
+        x[-1, :] = np.nan
+        y = 0.2 + np.where(np.isfinite(x[:, 0]), x[:, 0], 0.0)
+        fac = SimpleNamespace(
+            X=x,
+            y=y,
+            feature_names=["a", "b"],
+            dates=["2024-01-02"] * n_train + ["2024-06-03"] * n_test,
+            codes=[f"c{i:03d}" for i in range(n)],
+            n=n,
+        )
+
+        def _identity(X, names, dates, clock="open", **_kwargs):
+            return np.array(X, dtype=np.float64, copy=True)
+
+        with mock.patch(
+            "core.research.materialize.cube_z.align_fit_rows_to_l2",
+            side_effect=_keep_l2,
+        ), mock.patch(
+            "core.research.materialize.cube_z.cs_z_matrix_prefer_cube",
+            side_effect=_identity,
+        ):
+            out = _run_arm_r(
+                fac,
+                list(range(n_train)),
+                list(range(n_train, n)),
+                head_id="oo",
+                rank=False,
+                ridge_alpha=0.0,
+            )
+        self.assertTrue(out.get("success"), out.get("error"))
+        self.assertEqual(out.get("n_train"), n_train - 6)
+        self.assertEqual(out.get("n_eval"), n_test - 1)
+        self.assertEqual(out.get("n_features"), 2)
+        self.assertIn("缺测跳过", str(out.get("note") or ""))
+
+    def test_tc_matches_main_keepall_and_drops_partial_row(self):
+        """ŷ_τc：主题日加权，Holdout 缺任一入模列则整行不进指标。"""
+        from scripts.run_yhat_transformer_holdout import _run_arm_r
+
+        n_train, n_test = 30, 12
+        n = n_train + n_test
+        rng = np.random.default_rng(5)
+        gap = rng.normal(size=n)
+        theme = np.zeros(n, dtype=np.float64)
+        theme[:8] = 1.0
+        x = np.column_stack([gap, theme])
+        x[-1, 0] = np.nan
+        y = 0.2 + np.where(np.isfinite(gap), gap, 0.0)
+        fac = SimpleNamespace(
+            X=x,
+            y=y,
+            feature_names=["z_τc_gap_pct", "z_τc_theme_day"],
+            dates=["2024-01-02"] * n_train + ["2024-06-03"] * n_test,
+            codes=[f"c{i:03d}" for i in range(n)],
+            n=n,
+        )
+
+        def _identity(X, names, dates, clock="open", **_kwargs):
+            return np.array(X, dtype=np.float64, copy=True)
+
+        with mock.patch(
+            "core.research.materialize.cube_z.align_fit_rows_to_l2",
+            side_effect=_keep_l2,
+        ), mock.patch(
+            "core.research.materialize.cube_z.cs_z_matrix_prefer_cube",
+            side_effect=_identity,
+        ):
+            out = _run_arm_r(
+                fac,
+                list(range(n_train)),
+                list(range(n_train, n)),
+                head_id="tc",
+                rank=False,
+                ridge_alpha=1.0,
+            )
+        self.assertTrue(out.get("success"), out.get("error"))
+        self.assertEqual(out.get("n_train"), n_train)
+        self.assertEqual(out.get("n_eval"), n_test - 1)
+        self.assertEqual(out.get("n_features"), 2)
+        self.assertIn("主题日×1.5", str(out.get("note") or ""))
+        self.assertIn("缺列整行不算", str(out.get("note") or ""))
 
     def test_pending_requires_run_id(self):
         with tempfile.TemporaryDirectory() as td:

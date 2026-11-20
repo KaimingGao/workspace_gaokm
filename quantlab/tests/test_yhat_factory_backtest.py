@@ -1,4 +1,4 @@
-"""模型中心离线回测：成套校验、评测窗、收益与 T+1。不写套槽。"""
+"""回测中心组合回测：成套校验、评测窗、收益与 T+1。不写套槽。"""
 
 from __future__ import annotations
 
@@ -15,9 +15,9 @@ import numpy as np
 from types import SimpleNamespace
 
 from core.research.yhat_factory_backtest import (
-    _a_tier_codes,
     _scores_for_head,
     apply_seq_clip,
+    check_mix,
     check_suite,
     delete_factory_backtest,
     factory_backtest_status,
@@ -26,6 +26,7 @@ from core.research.yhat_factory_backtest import (
     run_factory_backtest,
     save_factory_rules,
     simulate_scored_days,
+    stamp_day_ranks,
     start_factory_backtest,
     take_factor_columns,
 )
@@ -226,17 +227,21 @@ class TestFactoryBacktestSim(unittest.TestCase):
         log = buf.getvalue()
         self.assertIn("成交明细", log)
         self.assertIn(
-            "2024-01-02 开 600000 浦发银行 · 1000股 · 开 10.00 · 收 11.00 · 成 10.00 · 收益 +10.00%",
+            "日期 · 动作 · 代码 · 名称 · 股数 · 开盘 · 收盘 · 成交 · fuse · y_oo · y_τc · oo_rank · τc_rank",
             log,
         )
-        self.assertIn("fuse +2.00%\u00a0(+20.00%)", log)
-        self.assertIn("y_oo +2.00%\u00a0(+20.00%)", log)
-        self.assertIn("y_τc +2.00%\u00a0(+10.00%)", log)
         self.assertIn(
-            "2024-01-03 清 600000 浦发银行 · 1000股 · 开 12.00 · 收 12.00 · 成 12.00 · 收益 +20.00%",
+            "2024-01-02 · 开 · 600000 · 浦发银行 · 1000股 · 10.00 · 11.00 · 10.00 · "
+            "+2.00% · +2.00%\u00a0(+20.00%) · +2.00%\u00a0(+10.00%)",
             log,
         )
-        self.assertIn("y_oo -1.00%\u00a0(—)", log)
+        self.assertNotIn(" · 收益 ", log)
+        self.assertNotIn("+2.00%\u00a0(+20.00%) · +2.00%\u00a0(+20.00%)", log)
+        self.assertIn(
+            "2024-01-03 · 清 · 600000 · 浦发银行 · 1000股 · 12.00 · 12.00 · 12.00 · -1.00%",
+            log,
+        )
+        self.assertIn("-1.00%\u00a0(—)", log)
         self.assertNotIn("兑现", log)
         self.assertNotIn("同向", log)
         self.assertEqual(report["n_buys"], 1)
@@ -315,16 +320,18 @@ class TestFactoryBacktestJob(unittest.TestCase):
             calls.append(cmd)
             return _Proc()
 
-        with tempfile.TemporaryDirectory() as td, _patch_store(td), mock.patch(
-            "core.research.yhat_factory_backtest.load_suite", return_value=suite
+        with tempfile.TemporaryDirectory() as td, mock.patch(
+            "core.paths.LIVE_DIR", td
+        ), mock.patch(
+            "core.research.yhat_factory_backtest.load_mix", return_value=suite
         ), mock.patch(
             "core.research.yhat_factory_backtest._pid_alive", return_value=True
         ), mock.patch(
             "core.research.yhat_factory_backtest.subprocess.Popen", side_effect=_popen
         ):
-            out = start_factory_backtest("T", suite["versions"])
-            again = start_factory_backtest("T", suite["versions"])
-            with open(os.path.join(td, "backtest_job.json"), encoding="utf-8") as f:
+            out = start_factory_backtest("BT", suite["versions"])
+            again = start_factory_backtest("BT", suite["versions"])
+            with open(os.path.join(td, "yhat_bt", "backtest_job.json"), encoding="utf-8") as f:
                 job = json.load(f)
         self.assertTrue(out["success"])
         self.assertFalse(again["success"])
@@ -377,8 +384,8 @@ class TestFactoryBacktestRules(unittest.TestCase):
                 "w_tc": 0,
             }
         )
-        self.assertTrue(brief["tier_a_only"])
-        self.assertFalse(normalize_backtest_rules({"tier_a_only": False})["tier_a_only"])
+        self.assertNotIn("tier_a_only", brief)
+        self.assertNotIn("tier_a_only", normalize_backtest_rules({"tier_a_only": False}))
         self.assertEqual(brief["fuse_strong"], 0.02)
         self.assertEqual(brief["lot_strong_amount"], 20000)
         self.assertIsNone(brief["oo_rank_max"])
@@ -412,20 +419,23 @@ class TestFactoryBacktestRules(unittest.TestCase):
             calls.append(cmd)
             return _Proc()
 
-        with tempfile.TemporaryDirectory() as td, _patch_store(td), mock.patch(
-            "core.research.yhat_factory_backtest.load_suite", return_value=suite
+        with tempfile.TemporaryDirectory() as td, mock.patch(
+            "core.paths.LIVE_DIR", td
+        ), mock.patch(
+            "core.research.yhat_factory_backtest.load_mix", return_value=suite
         ), mock.patch(
             "core.research.yhat_factory_backtest._pid_alive", return_value=True
         ), mock.patch(
             "core.research.yhat_factory_backtest.subprocess.Popen", side_effect=_popen
         ):
-            saved = save_factory_rules("T", {"w_oo": 0.8, "y_oo_gt0": True, "start_cash": 300000})
-            out = start_factory_backtest("T", suite["versions"], {"w_oo": 0.85})
-            with open(os.path.join(td, "backtest_rules.json"), encoding="utf-8") as f:
+            saved = save_factory_rules("BT", {"w_oo": 0.8, "y_oo_gt0": True, "start_cash": 300000})
+            out = start_factory_backtest("BT", suite["versions"], {"w_oo": 0.85})
+            root = os.path.join(td, "yhat_bt")
+            with open(os.path.join(root, "backtest_rules.json"), encoding="utf-8") as f:
                 disk = json.load(f)
-            with open(os.path.join(td, "backtest_job.json"), encoding="utf-8") as f:
+            with open(os.path.join(root, "backtest_job.json"), encoding="utf-8") as f:
                 job = json.load(f)
-            names = set(os.listdir(td))
+            names = set(os.listdir(root))
         self.assertEqual(saved["w_oo"], 0.8)
         self.assertTrue(saved["y_oo_gt0"])
         self.assertEqual(saved["start_cash"], 300000.0)
@@ -571,6 +581,72 @@ class TestFactoryBacktestHistory(unittest.TestCase):
         self.assertFalse(cur_log)
         self.assertFalse(delete_factory_backtest("T", "../secret")["success"])
 
+    def test_delete_failed_record_clears_the_error(self):
+        with tempfile.TemporaryDirectory() as td, _patch_store(td):
+            self._seed(td, "20261118-140201", "2026-11-18T14:02:01", "Traceback · 权重缺失\n")
+            finish_factory_backtest("T", error="权重不存在")
+            before = factory_backtest_status("T")
+            removed = delete_factory_backtest("T", before["run_id"])
+            after = factory_backtest_status("T")
+            with open(os.path.join(td, "backtest_job.json"), encoding="utf-8") as f:
+                job = json.load(f)
+            with open(os.path.join(td, "backtest.log"), encoding="utf-8") as f:
+                live = f.read()
+        self.assertEqual(before["status"], "error")
+        self.assertEqual(before["error"], "权重不存在")
+        self.assertTrue(removed["success"])
+        self.assertEqual(after["runs"], [])
+        self.assertEqual(after["status"], "idle")
+        self.assertEqual(after["error"], "")
+        self.assertIsNone(after["report"])
+        self.assertEqual(job["error"], "")
+        self.assertEqual(job["status"], "idle")
+        self.assertEqual(after["log_tail"], "")
+        self.assertEqual(live, "")
+
+    def test_older_failure_delete_keeps_the_current_error(self):
+        with tempfile.TemporaryDirectory() as td, _patch_store(td):
+            self._seed(td, "20261118-140201", "2026-11-18T14:02:01", "第一笔\n")
+            finish_factory_backtest("T", error="第一笔失败")
+            self._seed(td, "20261118-150000", "2026-11-18T15:00:00", "第二笔\n")
+            finish_factory_backtest("T", error="第二笔失败")
+            delete_factory_backtest("T", "20261118-140201")
+            after = factory_backtest_status("T")
+        self.assertEqual([it["id"] for it in after["runs"]], ["20261118-150000"])
+        self.assertEqual(after["status"], "error")
+        self.assertEqual(after["error"], "第二笔失败")
+        self.assertIn("第二笔", after["log_tail"])
+
+    def test_status_hides_error_when_failed_record_was_already_dropped(self):
+        with tempfile.TemporaryDirectory() as td, _patch_store(td):
+            job = {
+                "status": "error",
+                "error": "权重不存在",
+                "history_dropped": True,
+                "run_id": "",
+                "running": False,
+                "started_at": "2026-11-18T14:02:01",
+                "report": None,
+            }
+            with open(os.path.join(td, "backtest_job.json"), "w", encoding="utf-8") as f:
+                json.dump(job, f)
+            with open(os.path.join(td, "backtest_last.json"), "w", encoding="utf-8") as f:
+                json.dump({"cumulative_return": 0.1}, f)
+            with open(os.path.join(td, "backtest.log"), "w", encoding="utf-8") as f:
+                f.write("Traceback · 权重缺失\n")
+            status = factory_backtest_status("T")
+            with open(os.path.join(td, "backtest_job.json"), encoding="utf-8") as f:
+                saved = json.load(f)
+            with open(os.path.join(td, "backtest.log"), encoding="utf-8") as f:
+                live = f.read()
+        self.assertEqual(status["status"], "idle")
+        self.assertEqual(status["error"], "")
+        self.assertEqual(status["log_tail"], "")
+        self.assertIsNone(status["report"])
+        self.assertEqual(saved["status"], "idle")
+        self.assertEqual(saved["error"], "")
+        self.assertEqual(live, "")
+
     def test_running_record_cannot_be_deleted(self):
         with tempfile.TemporaryDirectory() as td, _patch_store(td):
             self._seed(td, "20261118-160000", "2026-11-18T16:00:00", "进行中\n")
@@ -629,58 +705,52 @@ class TestScoreHelpers(unittest.TestCase):
         self.assertEqual(seen["pred_rows"], 1)
         self.assertEqual(list(out), [("600001", "2024-01-02")])
 
-    def test_a_tier_requires_matching_pool_report(self):
-        with mock.patch(
-            "core.research.predictability_tiers.load_predictability_tiers_last",
-            return_value={"success": True, "rows": [{"code": "600001", "tier": "A"}]},
-        ), mock.patch(
-            "core.research.predictability_tiers.validate_predictability_tiers_report",
-            return_value={"ok": True},
-        ):
-            self.assertEqual(_a_tier_codes(["600001", "600002"]), {"600001"})
-        with mock.patch(
-            "core.research.predictability_tiers.load_predictability_tiers_last",
-            return_value=None,
-        ), mock.patch(
-            "core.research.predictability_tiers.validate_predictability_tiers_report",
-            return_value={"ok": False, "error": "无枢纽分档报告；请先在研究枢纽跑「股票分档」"},
-        ):
-            with self.assertRaises(ValueError) as ctx:
-                _a_tier_codes(["600001"])
-        self.assertIn("股票分档", str(ctx.exception))
-
-
 class TestFactoryBacktestPage(unittest.TestCase):
-    def test_a_tier_sits_before_the_run_button(self):
+    def test_score_scope_is_full_pool(self):
         from tests.conftest import ROOT
 
-        panel = os.path.join(ROOT, "web", "static", "partials", "yhat_factory_panel.html")
+        factory = os.path.join(ROOT, "web", "static", "partials", "yhat_factory_panel.html")
+        center = os.path.join(ROOT, "web", "static", "partials", "yhat_bt_panel.html")
         css = os.path.join(ROOT, "web", "static", "css", "quant.css")
         js = os.path.join(ROOT, "web", "static", "js", "yhat_tf.js")
-        with open(panel, encoding="utf-8") as f:
+        router = os.path.join(ROOT, "web", "routers", "quant_yhat_tf.py")
+        with open(factory, encoding="utf-8") as f:
+            factory_html = f.read()
+        with open(center, encoding="utf-8") as f:
             html = f.read()
         with open(css, encoding="utf-8") as f:
             style = f.read()
         with open(js, encoding="utf-8") as f:
             script = f.read()
+        with open(router, encoding="utf-8") as f:
+            routes = f.read()
+        self.assertNotIn('id="yhat-factory-backtest"', factory_html)
+        self.assertNotIn("离线回测", factory_html)
+        self.assertNotIn("pageMix", script)
+        self.assertNotIn("离线回测", script)
+        for factory_name in ("l", "t", "r", "tf"):
+            self.assertNotIn(f"/api/quant/yhat-{factory_name}/backtest", routes)
+        self.assertIn("/api/quant/yhat-bt/backtest", routes)
+        desk = script.split("export function initYhatTf", 1)[1]
+        self.assertNotIn("bindBacktest()", desk)
+        self.assertNotIn("pollBacktest()", desk)
         form_end = html.find("</form>")
         actions = html.find('class="yhat-tf-backtest-actions"')
-        tier = html.find('data-bt-field="tier_a_only"')
         button = html.find('id="yhat-factory-backtest-run"')
         self.assertLess(form_end, actions)
-        self.assertLess(actions, tier)
-        self.assertLess(tier, button)
-        self.assertEqual(html.count('data-bt-field="tier_a_only"'), 1)
+        self.assertLess(actions, button)
+        self.assertNotIn('data-bt-field="tier_a_only"', html)
+        self.assertIn("打分全池", html)
+        fill_css = style.split(".ytf-fill {", 1)[1].split("}", 1)[0]
+        self.assertIn("grid-template-columns:", fill_css)
         metrics = html.split('class="yhat-tf-arm-metrics yhat-tf-bt-metrics"', 1)[1].split("<pre", 1)[0]
         for label in ("累计收益", "超额", "最大回撤", "决策收益", "准确率", "命中率", "窗口"):
             self.assertIn(label, metrics)
         self.assertNotIn("换手", html)
         self.assertNotIn("交易日", metrics)
         self.assertIn("gap: 24px;", style.split(".yhat-tf-backtest-actions {", 1)[1].split("}", 1)[0])
-        self.assertIn(
-            "document.querySelector('#yhat-factory-backtest [data-bt-field=\"tier_a_only\"]')",
-            script,
-        )
+        self.assertNotIn("tier_a_only", script)
+        self.assertIn("打分全池", script)
         self.assertNotIn("离线回测进程已退出", script)
         self.assertIn('deleteTitle: "删除该记录"', script)
         self.assertNotIn(
@@ -688,6 +758,194 @@ class TestFactoryBacktestPage(unittest.TestCase):
             script,
         )
         self.assertNotIn("股票池按当前观察池重取", html)
+
+
+def _mix_spec(head, pack, backend, factory, **kwargs):
+    spec = _spec(head, pack, backend=backend, **kwargs)
+    spec["factory"] = factory
+    return spec
+
+
+def _main_combo():
+    return [
+        _mix_spec("oo", "aoo_full", "ridge", "R"),
+        _mix_spec("tc", "atc_full", "ridge", "R"),
+        _mix_spec("oo_rank", "aoo_core", "lightgbm", "L"),
+        _mix_spec("tc_rank", "atc_full", "lightgbm", "L"),
+    ]
+
+
+class TestMixBacktest(unittest.TestCase):
+    def test_main_combo_keeps_raw_rank_blend(self):
+        suite = check_mix(_main_combo())
+        self.assertEqual(suite["rank_blend"], "raw")
+        self.assertEqual(suite["picks"], "oo R · tc R · oo_rank L · tc_rank L")
+        self.assertEqual(suite["factories"]["oo"], "R")
+        self.assertEqual(suite["factories"]["oo_rank"], "L")
+
+    def test_core_and_full_share_a_family(self):
+        suite = check_mix(_main_combo())
+        self.assertEqual(suite["window_start"], "2024-01-02")
+        self.assertNotEqual(
+            suite["specs"]["oo"]["meta"]["factor_pack"],
+            suite["specs"]["oo_rank"]["meta"]["factor_pack"],
+        )
+
+    def test_cross_family_rejected(self):
+        specs = _main_combo()
+        specs[2] = _mix_spec("oo_rank", "atc_full", "lightgbm", "L")
+        with self.assertRaises(ValueError):
+            check_mix(specs)
+
+    def test_different_rank_backends_use_day_rank(self):
+        specs = _main_combo()
+        specs[3] = _mix_spec("tc_rank", "atc_full", "ridge", "R")
+        suite = check_mix(specs)
+        self.assertEqual(suite["rank_blend"], "day_rank")
+
+    def test_transformer_seq_only_compared_among_transformer_heads(self):
+        specs = [
+            _mix_spec("oo", "aoo_full", "transformer", "T", sample=10.0),
+            _mix_spec("tc", "atc_full", "ridge", "R", sample=100.0),
+            _mix_spec("oo_rank", "aoo_full", "lightgbm", "L", sample=100.0),
+            _mix_spec("tc_rank", "atc_full", "lightgbm", "L", sample=100.0),
+        ]
+        specs[0]["fit_params"]["seq_len"] = 20
+        suite = check_mix(specs)
+        self.assertEqual(suite["rank_blend"], "raw")
+        specs[2] = _mix_spec("oo_rank", "aoo_full", "transformer", "T", sample=10.0)
+        specs[2]["fit_params"]["seq_len"] = 32
+        with self.assertRaises(ValueError):
+            check_mix(specs)
+
+    def test_suite_still_rejects_mixed_backends(self):
+        with self.assertRaises(ValueError):
+            check_suite(_main_combo())
+
+    def test_raw_blend_keeps_scores_and_writes_ordinals(self):
+        day = {
+            "scored": [
+                {"stock_code": "B", "y_oo_rank_score": 1.0, "y_tc_rank_score": 3.0},
+                {"stock_code": "A", "y_oo_rank_score": 2.0, "y_tc_rank_score": 1.0},
+            ]
+        }
+        stamp_day_ranks([day], blend="raw")
+        by = {row["stock_code"]: row for row in day["scored"]}
+        self.assertEqual(by["A"]["y_oo_rank"], 1)
+        self.assertEqual(by["B"]["y_oo_rank"], 2)
+        self.assertEqual(by["A"]["y_oo_rank_score"], 2.0)
+        self.assertEqual(by["B"]["y_tc_rank"], 1)
+        self.assertEqual(by["A"]["y_tc_rank"], 2)
+
+    def test_day_rank_blend_replaces_scores_with_percentile(self):
+        day = {
+            "scored": [
+                {"stock_code": "B", "y_oo_rank_score": 1.0, "y_tc_rank_score": 9.0},
+                {"stock_code": "A", "y_oo_rank_score": 5.0, "y_tc_rank_score": 1.0},
+            ]
+        }
+        stamp_day_ranks([day], blend="day_rank")
+        by = {row["stock_code"]: row for row in day["scored"]}
+        self.assertEqual(by["A"]["y_oo_rank"], 1)
+        self.assertEqual(by["A"]["y_oo_rank_score"], 1.0)
+        self.assertEqual(by["B"]["y_oo_rank_score"], 0.5)
+        self.assertEqual(by["B"]["y_tc_rank_score"], 1.0)
+        self.assertEqual(by["A"]["y_tc_rank_score"], 0.5)
+
+    def test_mix_run_records_the_combo(self):
+        suite = check_mix(_main_combo())
+        report = run_factory_backtest(
+            "BT",
+            suite["sources"],
+            days=[
+                _day("2024-01-02", 2.0, 2.0, 10.0),
+                _day("2024-01-03", -1.0, -1.0, 12.0),
+            ],
+            suite=suite,
+            cfg=_cfg(),
+        )
+        self.assertEqual(report["factory"], "BT")
+        self.assertEqual(report["rank_blend"], "raw")
+        self.assertEqual(report["fill_clock"], "09:30")
+        self.assertIn("oo R", report["picks"])
+
+    def test_console_records_version_marks_and_rules(self):
+        suite = check_mix(_main_combo())
+        suite["specs"]["oo"]["snapshot"] = {"started_at": "2026-11-18T14:02:01"}
+        cfg = dict(_cfg())
+        cfg["feature_set"] = "hs300"
+        cfg["y_oo_gt0"] = True
+        cfg["oo_rank_strong_max"] = None
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            run_factory_backtest(
+                "BT",
+                suite["sources"],
+                days=[
+                    _day("2024-01-02", 2.0, 2.0, 10.0),
+                    _day("2024-01-03", -1.0, -1.0, 12.0),
+                ],
+                suite=suite,
+                cfg=cfg,
+            )
+        text = buf.getvalue()
+        self.assertIn("组合 oo R 11-18 14:02 · tc R tc-v1 · oo_rank L oo_rank-v1 · tc_rank L tc_rank-v1 · 买序 原始分", text)
+        self.assertIn("w_oo 0.60", text)
+        self.assertIn("w_τc 0.40", text)
+        self.assertIn("入场 fuse 0.10% 名次 6 金额 10000", text)
+        self.assertIn("强档 fuse 5.00% 名次 关 金额 10000", text)
+        self.assertIn("本金 200000", text)
+        self.assertIn("y_*>0 开", text)
+        self.assertIn("形态闸 关", text)
+        self.assertIn("物化 沪深300", text)
+        self.assertNotIn("组合 oo R · tc R · oo_rank L · tc_rank L", text)
+
+    def test_mix_job_stays_out_of_the_transformer_dir(self):
+        suite = check_mix(_main_combo())
+        calls = []
+
+        class _Proc:
+            pid = 5151
+
+        def _popen(cmd, **kwargs):
+            calls.append(cmd)
+            return _Proc()
+
+        with tempfile.TemporaryDirectory() as td, mock.patch(
+            "core.paths.LIVE_DIR", os.path.join(td, "live")
+        ), mock.patch(
+            "core.research.yhat_factory_backtest.load_mix", return_value=suite
+        ), mock.patch(
+            "core.research.yhat_factory_backtest._pid_alive", return_value=True
+        ), mock.patch(
+            "core.research.yhat_factory_backtest.subprocess.Popen", side_effect=_popen
+        ):
+            out = start_factory_backtest("BT", suite["sources"])
+            job_path = os.path.join(td, "live", "yhat_bt", "backtest_job.json")
+            with open(job_path, encoding="utf-8") as f:
+                job = json.load(f)
+        self.assertTrue(out["success"])
+        self.assertEqual(job["factory"], "BT")
+        self.assertEqual(job["rank_blend"], "raw")
+        self.assertFalse(os.path.exists(os.path.join(td, "live", "yhat_t")))
+        cmd = calls[0]
+        self.assertIn("BT", cmd)
+        self.assertIn("run_yhat_factory_backtest.py", " ".join(cmd))
+        payload = json.loads(cmd[cmd.index("--versions") + 1])
+        self.assertEqual(payload["oo"]["factory"], "R")
+        self.assertEqual(payload["oo_rank"]["factory"], "L")
+
+    def test_page_is_palette_only(self):
+        from web.page_html import clear_html_cache, render_tool_html
+
+        clear_html_cache()
+        html = render_tool_html("yhat_bt")
+        self.assertIn("<title>QuantLab · 回测中心</title>", html)
+        self.assertNotIn('id="yhat-bt-main"', html)
+        self.assertNotIn("main 组合", html)
+        self.assertNotIn("<details", html)
+        self.assertNotIn('href="/yhat-bt"', html)
+        self.assertIn('href="/yhat-r"', html)
 
 
 if __name__ == "__main__":

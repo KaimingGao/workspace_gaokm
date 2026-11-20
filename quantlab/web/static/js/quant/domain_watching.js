@@ -1767,16 +1767,7 @@ export function installWatching(q) {
       console.warn("[watching] 虚拟表挂载失败，回退原生表", err);
       state.watchingGrid = null;
       state.watchingGridReady = false;
-      let tierCell = () => "—";
-      try {
-        const V = (typeof window !== "undefined" && window.__ASSET_V__) || "dev";
-        const tm = await import(`./pred_tier_ui.js?v=${encodeURIComponent(V)}`);
-        await tm.ensurePredTierMap();
-        tierCell = (code) => tm.predTierBadgeHtml(code, escapeHtml);
-      } catch (_) {
-        /* 分档缺失时该列留空 */
-      }
-      renderWatchingWatchTableFallback(rows, { tierCell });
+      renderWatchingWatchTableFallback(rows);
       void ensureFitTierMap(watchTable);
       paintWatchingYhatHist();
     }

@@ -31,21 +31,21 @@
       <div class="quant-overview-pool-tools" role="group" aria-label="观察池只数">
         <label
           class="quant-watching-pool-slider"
-          title="数据中心观察池目标只数。200～1600，默认 300。缩小截名单并暂存；放大先恢复暂存，再从研究宇宙补齐。日 K、5m、舆情跟这份名单。"
+          title="观察池 300～1600。左端是固定的沪深300成分；向右是可调的大池。日 K、5m、舆情跟这份名单。物化同时写沪深300截面和当前大池截面。"
         >
           <span class="quant-watching-pool-slider-lab">观察池</span>
           <span class="quant-watching-pool-scale">
-            <span class="quant-watching-pool-bound" aria-hidden="true">200</span>
+            <span class="quant-watching-pool-bound" aria-hidden="true">300</span>
             <input
               id="quant-watching-max-size"
               class="quant-watching-pool-range"
               type="range"
-              min="200"
+              min="300"
               max="1600"
               step="10"
               value="300"
               aria-label="观察池只数"
-              aria-valuemin="200"
+              aria-valuemin="300"
               aria-valuemax="1600"
             />
             <span class="quant-watching-pool-bound" aria-hidden="true">1600</span>
@@ -59,8 +59,8 @@
           <button
             type="button"
             id="quant-ru-rebuild-align"
-            class="dialog-btn primary"
-            title="① 按 tradable_universe_policy 重建研究池（日 K ∪ 现货严筛）② 把数据中心观察池裁成研究池子集。不暖仓；日 K / 5m 覆盖按裁完的池子重拉。分档 / ŷ 仍读这份名单。"
+            class="dialog-btn primary dialog-raise"
+            title="① 按 tradable_universe_policy 重建研究池（日 K ∪ 现货严筛）② 把数据中心观察池裁成研究池子集。不暖仓；日 K / 5m 覆盖按裁完的池子重拉。ŷ 仍读这份名单。"
           >
             重建并对齐
           </button>
@@ -134,16 +134,22 @@
               </p>
             </div>
           </details>
-          <button type="button" id="quant-bars-topup" class="dialog-btn primary" title="写入日 K 仓（增量 · 窗 1060 个交易日）：只补本地没有的日期，已有日不动；本地太短或前复权重锚则整窗。日常 / ŷ_oo 先点这个。不改名单、不写 5m、不算 ŷ。">
+          <button type="button" id="quant-bars-topup" class="dialog-btn primary dialog-raise" title="写入日 K 仓（增量 · 窗 1060 个交易日）：只补本地没有的日期，已有日不动；本地太短或前复权重锚则整窗。日常 / ŷ_oo 先点这个。不改名单、不写 5m、不算 ŷ。">
             增量补齐（L0）
           </button>
-          <button type="button" id="quant-bars-refresh" class="dialog-btn primary" title="写入日 K 仓（整窗替换 · 窗 1060 个交易日 · 进程池）。仓损坏、复权混用或要覆盖近窗时用。不改名单、不写 5m、不算 ŷ。">
+          <button type="button" id="quant-bars-refresh" class="dialog-btn primary dialog-raise" title="写入日 K 仓（整窗替换 · 窗 1060 个交易日 · 进程池）。仓损坏、复权混用或要覆盖近窗时用。不改名单、不写 5m、不算 ŷ。">
             强更日 K（L0）
           </button>
         </div>
       </div>
       <div class="quant-pro-card-body quant-bars-body">
-        <div id="quant-bars-progress" class="quant-bars-progress" hidden aria-live="polite" aria-label="日 K 进度"></div>
+        <div id="quant-bars-progress" class="quant-bars-progress is-active" aria-live="polite" aria-label="日 K 进度">
+          <div class="quant-bars-progress-head">
+            <span class="quant-bars-progress-phase">覆盖</span>
+            <span class="quant-bars-progress-pct">…</span>
+          </div>
+          <p class="quant-bars-progress-hint">读取日 K 覆盖…</p>
+        </div>
         <div id="quant-bars-context-strip" class="quant-bars-context-strip" aria-live="polite"></div>
         <div class="quant-bars-kpi-row" id="quant-bars-kpis" aria-label="日线覆盖 KPI">
           <div class="quant-bars-kpi quant-pro-kpi-card dashboard-kpi-card" data-bars-kpi="align" title="末 bar ≥ 期望 as-of 的标的占比">
@@ -238,7 +244,7 @@
               </p>
             </div>
           </details>
-          <button type="button" id="quant-materialize-run" class="dialog-btn warn" title="日线后物化 open L1（oo/tc）+ open L2 DayCube。τ 网格/按钟见「分钟线」。不训模型、不出 ŷ。">
+          <button type="button" id="quant-materialize-run" class="dialog-btn warn dialog-raise" title="日线后物化 open L1（oo/tc）+ open L2 DayCube。τ 网格/按钟见「分钟线」。不训模型、不出 ŷ。">
             物化特征（L1/L2）
           </button>
         </div>
@@ -276,16 +282,22 @@
               </p>
             </div>
           </details>
-          <button type="button" id="quant-minute-topup" class="dialog-btn primary" title="写入 5m 仓（增量 · 只打新浪 5 分钟，不拉日线）：会话日齐窗且今日已拉才跳过；缺尾（如只到 10:00）强制补拉落盘。调仓/做T/ŷ_τc 日常先点这个。不改日K、不算 ŷ。">
+          <button type="button" id="quant-minute-topup" class="dialog-btn primary dialog-raise" title="写入 5m 仓（增量 · 只打新浪 5 分钟，不拉日线）：会话日齐窗且今日已拉才跳过；缺尾（如只到 10:00）强制补拉落盘。调仓/做T/ŷ_τc 日常先点这个。不改日K、不算 ŷ。">
             增量补齐（L0）
           </button>
-          <button type="button" id="quant-minute-refresh" class="dialog-btn primary" title="写入 5m 仓（强更 · 只打新浪 5 分钟，不拉日线 · 单票子进程≤45s）。约 41 个交易日，不复权；同时刻覆盖。仓损坏或要覆盖近窗时用。不改日K、不算 ŷ。">
+          <button type="button" id="quant-minute-refresh" class="dialog-btn primary dialog-raise" title="写入 5m 仓（强更 · 只打新浪 5 分钟，不拉日线 · 单票子进程≤45s）。约 41 个交易日，不复权；同时刻覆盖。仓损坏或要覆盖近窗时用。不改日K、不算 ŷ。">
             强更 5m（L0）
           </button>
         </div>
       </div>
       <div class="quant-pro-card-body quant-bars-body">
-        <div id="quant-minute-progress" class="quant-bars-progress" hidden aria-live="polite" aria-label="5m 进度"></div>
+        <div id="quant-minute-progress" class="quant-bars-progress is-active" aria-live="polite" aria-label="5m 进度">
+          <div class="quant-bars-progress-head">
+            <span class="quant-bars-progress-phase">覆盖</span>
+            <span class="quant-bars-progress-pct">…</span>
+          </div>
+          <p class="quant-bars-progress-hint">读取 5m 覆盖…</p>
+        </div>
         <div id="quant-minute-context-strip" class="quant-bars-context-strip" aria-live="polite"></div>
         <div class="quant-bars-kpi-row" id="quant-minute-kpis" aria-label="分钟覆盖 KPI">
           <div class="quant-bars-kpi quant-pro-kpi-card dashboard-kpi-card" data-minute-kpi="ok" title="最近 40 个交易日无缺（分钟 Ready）">
@@ -359,7 +371,7 @@
               </p>
             </div>
           </details>
-          <button type="button" id="quant-minute-materialize-run" class="dialog-btn warn" title="按训练网格写 tc_HHMM L1（须 5m Ready）并物化按钟 L2。不训模型、不出 ŷ。" disabled>
+          <button type="button" id="quant-minute-materialize-run" class="dialog-btn warn dialog-raise" title="按训练网格写 tc_HHMM L1（须 5m Ready）并物化按钟 L2。不训模型、不出 ŷ。" disabled>
             物化特征（L1/L2）
           </button>
         </div>
@@ -387,7 +399,7 @@
         <div class="dashboard-card-tools quant-pro-card-tools">
           <span class="watching-news-ran-row">
             <span id="watching-news-archive-ran" class="watching-news-ran" title="尚无更新记录">上次 —</span>
-            <button type="button" id="watching-news-archive-poll" class="dialog-btn primary">更新舆情</button>
+            <button type="button" id="watching-news-archive-poll" class="dialog-btn primary dialog-raise">更新舆情</button>
           </span>
         </div>
       </div>

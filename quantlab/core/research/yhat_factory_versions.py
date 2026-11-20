@@ -217,15 +217,6 @@ def _rank_ic(metrics: Optional[Dict[str, Any]]) -> Optional[float]:
     return ic
 
 
-def _loss_label(params: Optional[Dict[str, Any]]) -> str:
-    loss = str((params or {}).get("loss") or "").strip().lower()
-    if loss == "lambdarank":
-        return "lambdarank"
-    if loss:
-        return "l2"
-    return ""
-
-
 def _badges(
     head: str,
     params: Optional[Dict[str, Any]],
@@ -269,12 +260,27 @@ def _short_stamp(raw: Any) -> str:
     return s[:16]
 
 
+def _shown_label(label: str, factory: str = "") -> str:
+    """版本名只留时间、RankIC、状态，末尾补 R/L/T。"""
+    drop = {"core", "full", "l2", "lambdarank"}
+    kept = []
+    for bit in str(label or "").split(" · "):
+        text = bit.strip()
+        low = text.lower()
+        if not text or text.startswith("λ") or text.endswith("%") or low in drop or low in {"r", "l", "t"}:
+            continue
+        kept.append(text)
+    fac = str(factory or "").strip().upper()
+    if fac in {"R", "L", "T"}:
+        kept.append(fac)
+    return " · ".join(kept)
+
+
 def _label(
     *,
     started_at: Any,
     status: str,
     badges: Dict[str, Any],
-    params: Optional[Dict[str, Any]],
 ) -> str:
     bits = [_short_stamp(started_at) or "—"]
     if status == "error" or badges.get("failed"):
@@ -285,27 +291,6 @@ def _label(
     ic = badges.get("cs_rank_ic")
     if isinstance(ic, (int, float)):
         bits.append(f"RankIC {float(ic):.3f}")
-    if _factory() == "L":
-        loss = _loss_label(params)
-        if loss:
-            bits.append(loss)
-    elif _factory() == "R":
-        try:
-            alpha = float((params or {}).get("ridge_alpha"))
-        except (TypeError, ValueError):
-            alpha = None
-        if alpha is not None and alpha == alpha:
-            bits.append(f"λ{alpha:g}")
-    else:
-        pct = badges.get("sample_pct")
-        if isinstance(pct, (int, float)):
-            shown = int(pct) if float(pct) == int(pct) else pct
-            bits.append(f"{shown}%")
-        factor = str(badges.get("factor") or "")
-        if factor.endswith("_core"):
-            bits.append("core")
-        elif factor.endswith("_full"):
-            bits.append("full")
     if badges.get("formal"):
         bits.append("正式")
     elif badges.get("gate_pass") is True:
@@ -313,6 +298,14 @@ def _label(
     elif badges.get("gate_pass") is False:
         bits.append("未过闸")
     return " · ".join(bit for bit in bits if bit)
+
+
+def _pretrain_label(label: str, params: Optional[Dict[str, Any]]) -> str:
+    """大池预训练没有微调结果，版本名单独标出来。"""
+    stage = str((params or {}).get("train_stage") or "").strip().lower()
+    if stage != "pretrain" or "预训练" in str(label or ""):
+        return label
+    return f"{label} · 预训练"
 
 
 def _archive_id(head: str, job: Optional[Dict[str, Any]], last: Optional[Dict[str, Any]]) -> str:
@@ -475,7 +468,10 @@ def archive_factory_run(
         "finished_at": finished_at,
         "status": st,
         "action": action,
-        "label": _label(started_at=started_at or finished_at, status=st, badges=badges, params=params),
+        "label": _pretrain_label(
+            _label(started_at=started_at or finished_at, status=st, badges=badges),
+            params,
+        ),
         "badges": badges,
         "weights_ref": weights_ref,
         "suite": marked,
@@ -548,6 +544,35 @@ def _filter_suite(items: List[Dict[str, Any]], suite: Optional[str]) -> List[Dic
     return items
 
 
+def latest_transformer_pretrain(head: str) -> Dict[str, Any]:
+    """最近一次大池预训练的 Transformer 权重。微调从这里接着训。"""
+    desk = _desk()
+    with desk.factory_scope("T"):
+        try:
+            h = desk._validate_head(head)
+        except ValueError as exc:
+            return {"success": False, "ok": False, "error": str(exc)}
+        from core.research.yhat_factory_weights import load_factory_weights
+
+        for it in _read_index(h):
+            vid = _check_version_id(it.get("id"))
+            if not vid or str(it.get("status") or "") not in ("done", "partial"):
+                continue
+            snap = _read_json(_snap_path(h, vid)) or {}
+            params = snap.get("fit_params") if isinstance(snap.get("fit_params"), dict) else {}
+            stage = str(params.get("train_stage") or "")
+            fs = str(params.get("feature_set") or "")
+            if stage in ("finetune", "chain") or fs == "hs300":
+                continue
+            if stage != "pretrain" and fs not in ("pool", "pool1600"):
+                continue
+            loaded = load_factory_weights(h, vid, factory="T")
+            if loaded.get("success") and isinstance(loaded.get("state_dict"), dict):
+                loaded["pretrain_run_id"] = vid
+                return loaded
+    return {"success": False, "ok": False, "error": "还没有大池预训练权重"}
+
+
 def list_factory_versions(
     head: str,
     *,
@@ -562,6 +587,8 @@ def list_factory_versions(
         except ValueError as exc:
             return {"success": False, "ok": False, "error": str(exc), "items": []}
         items = _filter_suite(_with_holdout(h, _stamp_weights_ref(h, _read_index(h))), suite)
+        for it in items:
+            it["label"] = _shown_label(str(it.get("label") or ""), _factory())
         role = str(suite or "").strip().lower()
         enabled_id = _enabled_map(h).get(role, "")
         if enabled_id and not any(str(it.get("id") or "") == enabled_id for it in items):

@@ -36,6 +36,9 @@ MINUTE_WARMUP_WORKERS_MAX = 4
 # 新浪日线：同时在途上限，以及两次开工的最小间隔。一次前复权内部还有多次 HTTP。
 SINA_DAILY_MAX_INFLIGHT = 2
 SINA_DAILY_PACE_SEC = 1.0
+# akshare 的 requests.get 不带 timeout。连接挂起会占死进程池工人，
+# 父进程 60s 放弃后名额仍不释放。元组是 (连接秒, 读取秒)。
+SINA_DAILY_HTTP_TIMEOUT = (5.0, 12.0)
 # 进程被杀掉后，超过此时长的在途名额收回，避免闸门被占死
 SINA_DAILY_SLOT_STALE_SEC = 180.0
 MINUTE_WARMUP_PACE_SEC = 2.0

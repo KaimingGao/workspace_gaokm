@@ -274,7 +274,20 @@ def build_bars_status(*, watching_limit: int = WATCHING_MAX_SIZE) -> Dict[str, A
         "forced_marker": marker if marker else None,
         "refresh_job": _safe_bars_refresh_job_snapshot(),
         "bars_diff": _bars_refresh_diff_snapshot(),
+        "sina_latency": _sina_daily_latency_snapshot(),
     }
+
+
+def _sina_daily_latency_snapshot() -> Dict[str, Any]:
+    try:
+        from adapters.market.sina_latency import sina_daily_latency_snapshot
+
+        snap = sina_daily_latency_snapshot()
+        if isinstance(snap, dict):
+            return snap
+    except Exception:  # noqa: BLE001
+        logger.debug("sina daily latency snapshot failed", exc_info=True)
+    return {"n": 0, "window": 60}
 
 
 def _bars_refresh_diff_snapshot() -> Optional[Dict[str, Any]]:

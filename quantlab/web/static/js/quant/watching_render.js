@@ -635,7 +635,7 @@ export function renderWatchingBuildPlan(plan, opts) {
 }
 
 /** CDN/React 不可用时的原生表回退 */
-export function renderWatchingWatchTableFallback(rows, { onPickCountUpdate, tierCell } = {}) {
+export function renderWatchingWatchTableFallback(rows, { onPickCountUpdate } = {}) {
   const watchTable = document.getElementById("watching-watchlist-table");
   if (!watchTable) return;
   const body = (rows || [])
@@ -658,9 +658,6 @@ export function renderWatchingWatchTableFallback(rows, { onPickCountUpdate, tier
         oosBadge +
         `</span>` +
         `<span class="watching-code-sub">${code}<span class="watching-mkt"></span></span></td>` +
-        `<td class="watching-col-center" data-q="tier">${
-          typeof tierCell === "function" ? tierCell(d.code) : "—"
-        }</td>` +
         `<td class="watching-paper-cell">` +
         (d.onPaper
           ? `<button type="button" class="watching-held-btn" data-code="${code}">${escapeHtml(d.paper || "已持")}</button>`
@@ -733,7 +730,6 @@ export function renderWatchingWatchTableFallback(rows, { onPickCountUpdate, tier
     `<div class="watching-table-scroll"><table class="quant-weight-table watching-result-table"><thead><tr>` +
     `<th class="watching-pick-cell" title="勾选后可加入模拟持仓"><input type="checkbox" id="watching-select-all" /></th>` +
     `<th title="股票名称与代码">股票</th>` +
-    `<th class="watching-col-center" title="可预测性分档（Holdout 前 60 日猜涨 lift：说涨精度 − 上涨日比例）：A 强 top N / B 中接着 M / C 弱。同档内按 fuse 从高到低">分档</th>` +
     `<th title="是否已在模拟持仓">仓位</th>` +
     `<th title="本地新闻库当前页。没有或超过 15 分钟向东财要并写回。不进 ŷ。历史回测按发布时间卡到当日 09:30。手动执行只读 09:30 前已入库">舆情</th>` +
     `<th class="watching-col-num" title="上一交易日收盘价">昨收</th>` +

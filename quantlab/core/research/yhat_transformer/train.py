@@ -143,8 +143,8 @@ def _iter_group_batches(
         yield bucket
 
 
-# 与 Arm·L ``LAMBDARANK_TRUNCATION_LEVEL`` 对齐：当前分数前 100 名。
-_LAMBDARANK_TRUNCATION = 100
+# 当前分数前 30 名，与 Arm·L truncation 相同。
+_LAMBDARANK_TRUNCATION = 30
 # 排序头保值：把 ŷ 拉向当日标签截面 z，避免 LambdaRank 零点乱漂。
 _RANK_VALUE_LOSS_WEIGHT = 0.3
 _RANK_VALUE_Z_CLIP = 3.0
@@ -241,8 +241,8 @@ def _lambdarank_group_loss(pred, yb, *, truncation: int = _LAMBDARANK_TRUNCATION
     ``log2(1+S)/S``。IDCG 只用前 ``truncation`` 名，尾部不稀释头部。
 
     不再除以 pair 数。``S`` 已经随截面宽度涨，``log2(1+S)/S`` 把整天梯度压到
-    ``O(log S)``。A 股一日约 1500 只、截断 100 时 pair 约 1.5e5，再取平均会把
-    loss 打到 1e-5 以下、参数梯度打到 0。
+    ``O(log S)``。A 股一日约 1500 只、截断 30 时 pair 约 4.5e4，再取平均会把
+    loss 和参数梯度压没。
     """
     torch = _require_torch()
     finite = torch.isfinite(pred) & torch.isfinite(yb)
@@ -455,6 +455,7 @@ def train_seq_factor_transformer(
     max_train_rows: Optional[int] = None,
     loss: str = "smooth_l1",
     holdout_idx: Optional[Sequence[int]] = None,
+    init_state: Optional[Dict[str, Any]] = None,
 ) -> Tuple[Any, Dict[str, Any]]:
     """Arm·T 训练（固定调用方 seed，默认 42）。
 
@@ -555,6 +556,12 @@ def train_seq_factor_transformer(
         factor_hidden=int(factor_hidden),
         dropout=float(dropout),
     ).to(dev)
+    if init_state:
+        try:
+            model.load_state_dict(init_state, strict=True)
+        except RuntimeError as exc:
+            raise ValueError(f"预训练权重与当前结构不一致：{exc}") from exc
+        print("    transformer init=pretrain", flush=True)
     print(
         f"    transformer model ready n_params={count_parameters(model)}",
         flush=True,
@@ -769,7 +776,7 @@ def train_seq_factor_transformer(
         if grouped:
             from core.research.yhat_transformer.metrics import mean_daily_ndcg
 
-            pack["cs_ndcg_100"] = mean_daily_ndcg(
+            pack["cs_ndcg_30"] = mean_daily_ndcg(
                 preds.tolist(), ys.tolist(), metas, k=_LAMBDARANK_TRUNCATION
             )
         return pack
@@ -807,7 +814,7 @@ def train_seq_factor_transformer(
                     "cs_top_mean_y",
                 ]
                 if grouped:
-                    ho_keys.append("cs_ndcg_100")
+                    ho_keys.append("cs_ndcg_30")
                 for key in ho_keys:
                     raw = ho_pack.get(key)
                     try:
@@ -819,7 +826,7 @@ def train_seq_factor_transformer(
                 holdout_by_epoch.append(row)
                 ndcg_bit = ""
                 if grouped:
-                    ndcg_bit = f" ndcg100={_fmt4(ho_pack.get('cs_ndcg_100'))}"
+                    ndcg_bit = f" ndcg30={_fmt4(ho_pack.get('cs_ndcg_30'))}"
                 print(
                     f"    transformer ep={ep}/{epochs} holdout "
                     f"rankIC={_fmt4(ho_pack.get('cs_rank_ic'))} "
@@ -852,6 +859,7 @@ def train_seq_factor_transformer(
         "rank_value_weight": (
             float(_RANK_VALUE_LOSS_WEIGHT) if grouped else None
         ),
+        "lambdarank_truncation": int(_LAMBDARANK_TRUNCATION) if grouped else None,
         "global_step": int(global_step),
         "holdout_by_epoch": holdout_by_epoch,
         "seq_clip": seq_clip,

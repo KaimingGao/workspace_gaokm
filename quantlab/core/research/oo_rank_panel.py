@@ -765,7 +765,7 @@ def resolve_rank_fit_plan(
 ) -> Dict[str, Any]:
     """排序头拟合宇宙：截面 z / 建面板 / 损失均用整观察池。
 
-    产品固定全池；``train_tiers`` 非空拒。成功时 ``train_codes is None``。
+    ``train_tiers`` 非空拒（只训 A 档已下线）。成功时 ``train_codes is None``。
     离线消融若要子集损失，请直接传 ``train_codes`` 给拟合核，勿走本入口。
     """
     from core.research.feature_standardize import (

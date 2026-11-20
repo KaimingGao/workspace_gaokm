@@ -280,7 +280,10 @@ def watching_save(body: WatchingFile) -> Dict[str, Any]:
 @router.post("/api/watching/max-size")
 def watching_max_size(body: WatchingMaxSize) -> Dict[str, Any]:
     try:
-        return deps.watching.set_max_size(body.max_size)
+        return deps.watching.set_max_size(
+            body.max_size,
+            compose=str(body.compose or "").strip() == "feature_pool",
+        )
     except FileNotFoundError as e:
         raise HTTPException(status_code=404, detail=str(e)) from e
     except ValueError as e:

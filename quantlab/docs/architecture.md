@@ -1383,11 +1383,10 @@ quantlab/
 | 框架梳理 | [internal/framework-review.md](internal/framework-review.md) | 工程债台账 |
 | 工程结构轨 | [internal/engineering-track.md](internal/engineering-track.md) | A0–A4 · B0–B4 |
 | SQLite 迁移 | [internal/sqlite-migration.md](internal/sqlite-migration.md) | bars.db WAL（已落地 A1） |
-| 行情更新缓存 | [internal/bars-update-cache.md](internal/bars-update-cache.md) | 日线/5m 写仓读仓 · 指纹 · 已知缝 |
+| 行情更新缓存 | [internal/bars-update-cache.md](internal/bars-update-cache.md) | 日线/5m 写仓读仓 · 指纹 · 前复权替换 |
 | Feature Lake / DayCube | [internal/feature-lake-daycube.md](internal/feature-lake-daycube.md) | L1/L2 物化 · 写穿 · `allow_l1_end_lag` |
 | DayCube 宇宙键 | [internal/daycube-universe-key.md](internal/daycube-universe-key.md) | `universe_hash` |
 | Live 开盘 L2 | [internal/live-open-pit-rebalance.md](internal/live-open-pit-rebalance.md) | 只读会话日 open 立方；缺则 `ensure_session_open_l2`（临时→终态） |
-| 日线契约修补 | [internal/bars-update-plan.md](internal/bars-update-plan.md) | 四处缝改造顺序 |
 | AkShare vs Tushare | [internal/akshare-tushare-daily-compare.md](internal/akshare-tushare-daily-compare.md) | 日线对齐审计 |
 
 ---

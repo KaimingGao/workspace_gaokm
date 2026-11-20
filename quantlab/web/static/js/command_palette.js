@@ -31,6 +31,13 @@ const COMMANDS = [
     keywords: "模型中心 arm-r ridge yhat-r oo τc tau rank 岭回归 l4 拟合 隐藏",
   },
   {
+    id: "nav-yhat-bt",
+    label: "前往 · 回测中心",
+    hint: "/yhat-bt",
+    href: "/yhat-bt",
+    keywords: "回测中心 组合 ridge lambdarank yhat-bt 混配 离线回测 隐藏",
+  },
+  {
     id: "ai-open",
     label: "打开 AI",
     hint: "⌘K",

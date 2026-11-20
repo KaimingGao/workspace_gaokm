@@ -36,6 +36,7 @@ _PAGE_TITLES = {
     "yhat_l": "模型中心 · Arm·L",
     "yhat_t": "模型中心 · Arm·T",
     "yhat_r": "模型中心 · Arm·R",
+    "yhat_bt": "回测中心",
 }
 
 _PANEL_CLASS = {
@@ -51,6 +52,7 @@ _PANEL_CLASS = {
     "yhat_l": "quant-panel",
     "yhat_t": "quant-panel",
     "yhat_r": "quant-panel",
+    "yhat_bt": "quant-panel",
 }
 
 @lru_cache(maxsize=16)
@@ -195,6 +197,140 @@ def _yhat_factory_panel(factory: str) -> str:
     return html
 
 
+# 与 hub_arm_t.js 的 ARM_DEFAULTS 一致。只在当前值仍是 Arm·T 默认时改成新臂默认。
+_HUB_UI_API = {"oo": "oo", "tau": "tc", "oo_rank": "oo_rank", "tc_rank": "tc_rank"}
+_HUB_T_LOOKBACK = {"oo": 900, "tc": 900, "oo_rank": 700, "tc_rank": 900}
+_HUB_LR_LOOKBACK = {"oo": 600, "tc": 120, "oo_rank": 700, "tc_rank": 700}
+_HUB_T_HOLDOUT = 60
+_HUB_LR_HOLDOUT = 20
+_HUB_ARM_COPY = {
+    "R": ("Arm·R", "Ridge · 全量"),
+    "L": ("Arm·L", "LightGBM · 全量"),
+    "T": ("Arm·T", "双支路晚融合"),
+}
+_HUB_SECTION = re.compile(
+    r'<section\b[^>]*\bdata-head-section="(oo|tau|oo_rank|tc_rank)"[^>]*>'
+)
+_HUB_FIELD_OPEN = re.compile(
+    r"<([a-zA-Z][\w:-]*)(\s[^>]*?\bdata-hub-fields=\"(T|LR|R)\"[^>]*)>"
+)
+
+
+def _hub_field_visible(fields: str, tag: str) -> bool:
+    if fields == "T":
+        return tag == "T"
+    if fields == "R":
+        return tag == "R"
+    return tag in ("L", "R")
+
+
+def _stamp_hub_fields(section: str, tag: str) -> str:
+    def repl(match: re.Match[str]) -> str:
+        name, attrs, fields = match.group(1), match.group(2), match.group(3)
+        attrs = re.sub(r"\s+hidden\b", "", attrs)
+        if not _hub_field_visible(fields, tag):
+            attrs += " hidden"
+        return f"<{name}{attrs}>"
+
+    return _HUB_FIELD_OPEN.sub(repl, section)
+
+
+def _stamp_hub_section(section: str, ui: str, tag: str) -> str:
+    api = _HUB_UI_API[ui]
+    if 'data-hub-layout="' not in section:
+        section = section.replace(
+            'class="quant-fit-params yhat-tf-fit-params yhat-tf-run-config"',
+            'class="quant-fit-params yhat-tf-fit-params yhat-tf-run-config"'
+            f' data-hub-layout="{tag}"',
+            1,
+        )
+    section = _stamp_hub_fields(section, tag)
+    lb_m = re.search(r'data-param="lookback"[^>]*\bvalue="([0-9]+)"', section)
+    ho_m = re.search(
+        r'data-param="holdout_trading_days"[^>]*\bvalue="([0-9]+)"', section
+    )
+    lookback = int(lb_m.group(1)) if lb_m else _HUB_T_LOOKBACK[api]
+    holdout = int(ho_m.group(1)) if ho_m else _HUB_T_HOLDOUT
+    if tag != "T":
+        if lookback == _HUB_T_LOOKBACK[api]:
+            lookback = _HUB_LR_LOOKBACK[api]
+        if holdout == _HUB_T_HOLDOUT:
+            holdout = _HUB_LR_HOLDOUT
+    section = re.sub(
+        r'(data-param="lookback"[^>]*\bvalue=")[0-9]+',
+        rf"\g<1>{lookback}",
+        section,
+        count=1,
+    )
+    section = re.sub(
+        r'(data-param="holdout_trading_days"[^>]*\bvalue=")[0-9]+',
+        rf"\g<1>{holdout}",
+        section,
+        count=1,
+    )
+    title, desc = _HUB_ARM_COPY[tag]
+    section = re.sub(r'data-arm-console="[LTR]"', f'data-arm-console="{tag}"', section, count=1)
+    section = re.sub(
+        r'(<span class="yhat-tf-arm-badge">)[LTR](</span>)',
+        rf"\g<1>{tag}\2",
+        section,
+        count=1,
+    )
+    section = re.sub(
+        r'(<div class="yhat-tf-arm-title"><strong>)[^<]*(</strong><span>)[^<]*(</span>)',
+        rf"\g<1>{title}\2{desc}\3",
+        section,
+        count=1,
+    )
+    return section
+
+
+def _stamp_hub_select(html: str, ui: str, tag: str) -> str:
+    pat = re.compile(
+        rf'(<select\b[^>]*\bdata-hub-arm-select="{ui}"[^>]*>)(.*?)(</select>)',
+        re.DOTALL,
+    )
+
+    def repl(match: re.Match[str]) -> str:
+        inner = re.sub(r"\s+selected\b", "", match.group(2))
+        inner = re.sub(
+            rf'(<option\b[^>]*\bvalue="{tag}"[^>]*)>',
+            r"\1 selected>",
+            inner,
+            count=1,
+        )
+        return match.group(1) + inner + match.group(3)
+
+    return pat.sub(repl, html, count=1)
+
+
+def _stamp_quant_hub_arms(html: str, arms: dict | None = None) -> str:
+    """按已保存的臂画出首屏，避免刷新先闪 Arm·T 再跳到 R/L。"""
+    if arms is None:
+        try:
+            from core.research.yhat_hub_arms import read_hub_arms
+
+            arms = read_hub_arms()
+        except Exception:  # noqa: BLE001 — 读不到记录就保持模板里的 Arm·T
+            return html
+    marks = list(_HUB_SECTION.finditer(html))
+    if not marks:
+        return html
+    out = [html[: marks[0].start()]]
+    for i, mark in enumerate(marks):
+        ui = mark.group(1)
+        end = marks[i + 1].start() if i + 1 < len(marks) else len(html)
+        tag = str(arms.get(_HUB_UI_API[ui]) or "T").upper()
+        if tag not in ("R", "L", "T"):
+            tag = "T"
+        chunk = html[mark.start() : end]
+        if tag != "T":
+            chunk = _stamp_hub_section(chunk, ui, tag)
+        out.append(chunk)
+        out[0] = _stamp_hub_select(out[0], ui, tag) if tag != "T" else out[0]
+    return "".join(out)
+
+
 def _panel(name: str) -> str:
     if name == "yhat_l":
         return _yhat_factory_panel("L")
@@ -202,6 +338,10 @@ def _panel(name: str) -> str:
         return _yhat_factory_panel("T")
     if name == "yhat_r":
         return _yhat_factory_panel("R")
+    if name == "yhat_bt":
+        return _partial("yhat_bt_panel.html")
+    if name == "quant":
+        return _stamp_quant_hub_arms(_partial("quant_panel.html"))
     return _partial(f"{name}_panel.html")
 
 

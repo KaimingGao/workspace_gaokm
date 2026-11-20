@@ -11,25 +11,7 @@ function numSortKey(row, key) {
   return Number.isFinite(n) ? n : -Infinity;
 }
 
-/** 分档表在 mount 时注入；未加载前未知档排最后。 */
-let _predTier = {
-  rank() {
-    return 9;
-  },
-  get() {
-    return null;
-  },
-  badge() {
-    return "—";
-  },
-};
-
 function compare(id, a, b) {
-  if (id === "tier") {
-    const ta = _predTier.get(a && a.code);
-    const tb = _predTier.get(b && b.code);
-    return _predTier.rank(ta && ta.tier) - _predTier.rank(tb && tb.tier);
-  }
   if (id === "score") return numSortKey(a, "scoreNum") - numSortKey(b, "scoreNum");
   if (id === "score_eod") return numSortKey(a, "scoreEodNum") - numSortKey(b, "scoreEodNum");
   if (id === "score_tau") return numSortKey(a, "scoreTauNum") - numSortKey(b, "scoreTauNum");
@@ -65,16 +47,6 @@ const COLS = [
     sortable: true,
     cellClass: "watching-stock",
     title: "股票名称与代码",
-  },
-  {
-    id: "tier",
-    label: "分档",
-    width: 52,
-    sortable: true,
-    defaultDir: "asc",
-    headClass: "watching-col-center",
-    cellClass: "watching-col-center",
-    title: "可预测性分档（Holdout 前 60 日猜涨 lift）：A 强 / B 中 / C 弱。同档内按 fuse 从高到低",
   },
   {
     id: "paper",
@@ -163,13 +135,7 @@ export async function mountWatchingTableIsland(host, options = {}) {
   const { fitTierBadgeForCode, ensureFitTierMap } = await import(
     `./quant/fit_tier_ui.js?v=${encodeURIComponent(V)}`
   );
-  const predTier = await import(`./quant/pred_tier_ui.js?v=${encodeURIComponent(V)}`);
-  _predTier = {
-    rank: predTier.predTierRank,
-    get: predTier.getPredTier,
-    badge: predTier.predTierBadgeHtml,
-  };
-  await Promise.all([ensureFitTierMap(), predTier.ensurePredTierMap()]);
+  await ensureFitTierMap();
 
   const api = mountVirtualTable(host, {
     columns: COLS,
@@ -178,7 +144,7 @@ export async function mountWatchingTableIsland(host, options = {}) {
     initialSort: options.initialSort,
     compare,
     tiebreak: (id, a, b) => {
-      if (id !== "tier" && id !== "paper") return 0;
+      if (id !== "paper") return 0;
       const as = numSortKey(a, "scoreNum");
       const bs = numSortKey(b, "scoreNum");
       const aOk = Number.isFinite(as);
@@ -240,9 +206,6 @@ export async function mountWatchingTableIsland(host, options = {}) {
           `<span class="watching-code-sub">${escapeHtml(d.code || "")}` +
           `<span class="watching-mkt">${escapeHtml(d.market || "")}</span></span></div>`
         );
-      }
-      if (col.id === "tier") {
-        return _predTier.badge(d.code, escapeHtml);
       }
       if (col.id === "paper") {
         return d.onPaper

@@ -1,4 +1,4 @@
-/** 研究枢纽四头：Arm·T 配方拟合。训练走工厂，指标进运行台。不写研究套 / 执行套。 */
+/** 研究枢纽四头：每头在 Arm·R / Arm·L / Arm·T 里三选一。训练走对应工厂。 */
 
 import { apiFetch } from "../api_client.js";
 import { readWatchingPoolLimit } from "./params.js";
@@ -15,9 +15,34 @@ const PREFIX_CLOCKS = (() => {
   return out;
 })();
 
-const STATUS_URL = "/api/quant/yhat-t/status";
-const FIT_URL = "/api/quant/yhat-t/fit";
-const VERSION_URL = "/api/quant/yhat-t/versions";
+const ARMS_URL = "/api/quant/hub/arms";
+const ARM_API = {
+  R: {
+    status: "/api/quant/yhat-r/status",
+    fit: "/api/quant/yhat-r/fit",
+    versions: "/api/quant/yhat-r/versions",
+  },
+  L: {
+    status: "/api/quant/yhat-l/status",
+    fit: "/api/quant/yhat-l/fit",
+    versions: "/api/quant/yhat-l/versions",
+  },
+  T: {
+    status: "/api/quant/yhat-t/status",
+    fit: "/api/quant/yhat-t/fit",
+    versions: "/api/quant/yhat-t/versions",
+  },
+};
+const ARM_COPY = {
+  R: { title: "Arm·R", desc: "Ridge · 全量" },
+  L: { title: "Arm·L", desc: "LightGBM · 全量" },
+  T: { title: "Arm·T", desc: "双支路晚融合" },
+};
+const ARM_DEFAULTS = {
+  T: { holdout: 60, lookback: { oo: 900, tc: 900, oo_rank: 700, tc_rank: 900 } },
+  L: { holdout: 20, lookback: { oo: 600, tc: 120, oo_rank: 700, tc_rank: 700 } },
+  R: { holdout: 20, lookback: { oo: 600, tc: 120, oo_rank: 700, tc_rank: 700 } },
+};
 
 const HEADS = [
   {
@@ -64,13 +89,14 @@ const HEADS = [
     statusId: "quant-tc-rank-summary",
     holdoutId: "quant-holdout-days-tc_rank",
     lookbackId: "quant-fit-lookback-tc_rank",
-    lookback: 700,
+    lookback: 900,
     loss: "lambdarank",
     fullAtc: true,
   },
 ];
 
 const pending = new Set();
+const armOf = new Map();
 const versionLists = new Map();
 const viewing = new Map();
 const chosen = new Map();
@@ -80,6 +106,24 @@ const liveLabel = new Map();
 let timer = 0;
 let clockTimer = 0;
 let versionMenusWired = false;
+
+function arm(spec) {
+  const tag = armOf.get(spec.api);
+  return tag === "L" || tag === "R" ? tag : "T";
+}
+
+function armName(spec) {
+  return ARM_COPY[arm(spec)].title;
+}
+
+function factoryUrls(spec) {
+  return ARM_API[arm(spec)];
+}
+
+function defaultsFor(tag, api) {
+  const row = ARM_DEFAULTS[tag] || ARM_DEFAULTS.T;
+  return { holdout: row.holdout, lookback: row.lookback[api] || 900 };
+}
 
 function parseStamp(raw) {
   const text = String(raw || "").trim();
@@ -134,7 +178,8 @@ function tickHubClocks() {
     const msg = document
       .getElementById(spec.statusId)
       ?.querySelector(".quant-rem-status-msg");
-    if (!msg || !text || !msg.textContent.startsWith("Arm·T 拟合")) continue;
+    const prefix = `${armName(spec)} 拟合`;
+    if (!msg || !text || !msg.textContent.startsWith(prefix)) continue;
     const base = msg.textContent.replace(/ · \d[\dhm s]*$/, "");
     const next = `${base} · ${text}`;
     if (msg.textContent !== next) msg.textContent = next;
@@ -210,16 +255,17 @@ function sectionRadio(section, key, fallback) {
   return el ? el.value : fallback;
 }
 
-function packOf(st) {
+function packOf(st, tag) {
   const arms = st?.arms_metrics;
-  if (arms && typeof arms === "object" && arms.T) return arms.T;
+  if (arms && typeof arms === "object" && arms[tag]) return arms[tag];
   const last = st?.last;
   const action = last?.action;
   if (action !== "holdout_result" && action !== "holdout_failed") return null;
   const metrics = last?.metrics;
   if (!metrics || typeof metrics !== "object") return null;
-  if (metrics.arm === "T") return metrics;
-  if (metrics.arms && metrics.arms.T) return metrics.arms.T;
+  if (metrics.arm === tag) return metrics;
+  if (metrics.arms && metrics.arms[tag]) return metrics.arms[tag];
+  if (metrics.cs_rank_ic != null && (!metrics.arm || metrics.arm === tag)) return metrics;
   return null;
 }
 
@@ -265,33 +311,41 @@ function paintCardMessage(spec, text) {
 
 function recipeParams(spec, role) {
   const section = sectionOf(spec.ui);
+  const tag = arm(spec);
+  const preset = defaultsFor(tag, spec.api);
   const params = {
     pool_n: sectionNum(section, "pool_n", readWatchingPoolLimit()),
-    lookback: sectionNum(section, "lookback", spec.lookback),
-    holdout_trading_days: role === "live" ? 0 : sectionNum(section, "holdout_trading_days", 60),
-    d_model: sectionNum(section, "d_model", 64),
-    nlayers: sectionNum(section, "nlayers", 3),
-    nhead: 4,
-    dropout: 0.1,
-    batch_size: sectionNum(section, "batch_size", 32),
-    epochs: sectionNum(section, "epochs", 12),
-    lr: 0.001,
-    t_sample_pct: sectionNum(section, "t_sample_pct", 10),
-    arms: "T",
-    device: "cpu",
-    seq_feat_set: sectionRadio(section, "seq_feat_set", "seq16"),
-    seq_len: sectionNum(section, "seq_len", 20),
-    loss: spec.loss,
+    lookback: sectionNum(section, "lookback", preset.lookback),
+    holdout_trading_days: role === "live" ? 0 : sectionNum(section, "holdout_trading_days", preset.holdout),
+    arms: tag,
   };
-  if (spec.fullAoo) {
-    params.full_aoo = sectionRadio(section, "full_aoo", "0") === "1";
-    params.factor_pack = params.full_aoo ? "aoo_full" : "aoo_core";
+  if (tag === "T") {
+    params.d_model = sectionNum(section, "d_model", 64);
+    params.nlayers = sectionNum(section, "nlayers", 3);
+    params.nhead = 4;
+    params.dropout = 0.1;
+    params.batch_size = sectionNum(section, "batch_size", 32);
+    params.epochs = sectionNum(section, "epochs", 12);
+    params.lr = 0.001;
+    params.t_sample_pct = sectionNum(section, "t_sample_pct", 10);
+    params.device = "cpu";
+    params.seq_feat_set = sectionRadio(section, "seq_feat_set", "seq16");
+    params.seq_len = sectionNum(section, "seq_len", 20);
+    params.loss = spec.loss;
+    if (spec.fullAoo) {
+      params.full_aoo = sectionRadio(section, "full_aoo", "0") === "1";
+      params.factor_pack = params.full_aoo ? "aoo_full" : "aoo_core";
+    }
+    if (spec.fullAtc) {
+      params.full_atc = sectionRadio(section, "full_atc", "1") !== "0";
+      params.factor_pack = params.full_atc ? "atc_full" : "atc_core";
+    }
+  } else {
+    const pool = section?.querySelector("[data-hub-pool]:checked");
+    params.feature_set = pool?.value || "pool";
+    if (tag === "R") params.ridge_alpha = sectionNum(section, "ridge_alpha", 1);
   }
-  if (spec.fullAtc) {
-    params.full_atc = sectionRadio(section, "full_atc", "1") !== "0";
-    params.factor_pack = params.full_atc ? "atc_full" : "atc_core";
-    params.tau_end = readPrefixHm();
-  }
+  if (spec.fullAtc) params.tau_end = readPrefixHm();
   return params;
 }
 
@@ -468,6 +522,7 @@ function fillVersion(spec) {
 
 async function loadVersions(spec, { replay = false } = {}) {
   const head = encodeURIComponent(spec.api);
+  const VERSION_URL = factoryUrls(spec).versions;
   const [research, live] = await Promise.all([
     apiFetch(`${VERSION_URL}?head=${head}&suite=research`),
     apiFetch(`${VERSION_URL}?head=${head}&suite=live`),
@@ -487,11 +542,11 @@ async function loadVersions(spec, { replay = false } = {}) {
   if (shown) await openVersion(spec, shown, "research");
 }
 
-function metricsPack(metrics) {
+function metricsPack(metrics, tag) {
   if (!metrics || typeof metrics !== "object") return null;
-  if (metrics.cs_rank_ic != null) return metrics;
-  if (metrics.arms && metrics.arms.T) return metrics.arms.T;
-  if (metrics.T) return metrics.T;
+  if (metrics.cs_rank_ic != null && (!metrics.arm || metrics.arm === tag)) return metrics;
+  if (metrics.arms && metrics.arms[tag]) return metrics.arms[tag];
+  if (metrics[tag] && metrics[tag].cs_rank_ic != null) return metrics[tag];
   return null;
 }
 
@@ -520,12 +575,32 @@ function applyRecipeParams(spec, params) {
   pick("seq_feat_set", params.seq_feat_set);
   if (params.full_aoo != null) pick("full_aoo", flagValue(params.full_aoo));
   if (params.full_atc != null) pick("full_atc", flagValue(params.full_atc));
+  const pool = String(params.feature_set || "");
+  if (pool === "pool" || pool === "hs300") {
+    const el = section.querySelector(`[data-hub-pool="${pool}"]`);
+    if (el) el.checked = true;
+  }
   const prefix = params.tau_end || params.tau_end_hm;
   if (spec.fullAtc && prefix) paintPrefixHm(prefix);
 }
 
 function replayChips(params) {
   if (!params || typeof params !== "object") return [];
+  const tag = String(params.arms || "T").toUpperCase();
+  const pool =
+    params.feature_set === "hs300"
+      ? "沪深300"
+      : params.feature_set === "pool"
+        ? "大池"
+        : params.pool_n;
+  if (tag === "R" || tag === "L") {
+    return [
+      ["池子", pool],
+      ["训练窗", params.lookback],
+      ["Holdout", params.holdout_trading_days],
+      ["λ", tag === "R" ? params.ridge_alpha : ""],
+    ].filter(([, value]) => value != null && value !== "");
+  }
   const dim = String(params.seq_feat_set || "").replace(/^seq/, "");
   const pack = String(params.factor_pack || "");
   const fac = pack
@@ -581,7 +656,7 @@ function paintReplay(spec, doc) {
     dur: spentDur(
       doc?.started_at,
       doc?.finished_at,
-      metricsPack(doc?.metrics)?.elapsed_sec
+      metricsPack(doc?.metrics, arm(spec))?.elapsed_sec
     ),
   });
   if (meta) {
@@ -652,7 +727,7 @@ function paintLive(spec, st, label) {
   const from = rememberLiveStart(spec.api, st?.job?.started_at);
   const clock = elapsedClock(from);
   paintArmState(box, shown, "busy", { clockFrom: from, clock });
-  paintCardMessage(spec, clock ? `Arm·T ${shown} · ${clock}` : `Arm·T ${shown}`);
+  paintCardMessage(spec, clock ? `${armName(spec)} ${shown} · ${clock}` : `${armName(spec)} ${shown}`);
   paintMetrics(spec.ui, null);
   const logEl = box.querySelector("[data-recipe-replay-log]");
   const text = replayLog(st?.log_tail);
@@ -679,16 +754,17 @@ async function openVersion(spec, runId, role = "research") {
   if (role === "research" || role === "live") roleChoice(spec.api)[role] = runId;
   viewing.set(spec.api, runId);
   fillVersion(spec);
+  const VERSION_URL = factoryUrls(spec).versions;
   const res = await apiFetch(
     `${VERSION_URL}/preview?head=${encodeURIComponent(spec.api)}&run_id=${encodeURIComponent(runId)}`
   );
   if (!res.ok) {
-    paintCardMessage(spec, `Arm·T ${res.error || "版本预览失败"}`);
+    paintCardMessage(spec, `${armName(spec)} ${res.error || "版本预览失败"}`);
     return;
   }
   applyRecipeParams(spec, res.data?.fit_params);
   paintReplay(spec, res.data);
-  const pack = metricsPack(res.data?.metrics);
+  const pack = metricsPack(res.data?.metrics, arm(spec));
   if (pack) paintMetrics(spec.ui, pack);
   paintCardMessage(spec, "");
 }
@@ -697,12 +773,13 @@ async function deleteVersion(spec, runId) {
   const it = findVersion(spec.api, runId);
   const label = String(it?.label || runId);
   if (!window.confirm(`删除版本「${label}」？只去掉这条归档、日志和权重，当前拟合不动。`)) return;
+  const VERSION_URL = factoryUrls(spec).versions;
   const res = await apiFetch(
     `${VERSION_URL}?head=${encodeURIComponent(spec.api)}&run_id=${encodeURIComponent(runId)}`,
     { method: "DELETE" }
   );
   if (!res.ok) {
-    paintCardMessage(spec, `Arm·T ${res.error || "删除失败"}`);
+    paintCardMessage(spec, `${armName(spec)} ${res.error || "删除失败"}`);
     return;
   }
   const slot = roleChoice(spec.api);
@@ -721,13 +798,14 @@ async function deleteVersion(spec, runId) {
 async function enableVersion(spec, role) {
   const runId = roleChoice(spec.api)[role] || "";
   if (!runId || pending.has(spec.api)) return;
+  const VERSION_URL = factoryUrls(spec).versions;
   const res = await apiFetch(`${VERSION_URL}/enable`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ head: spec.api, run_id: runId, suite: role }),
   });
   if (!res.ok) {
-    paintCardMessage(spec, `Arm·T ${res.error || "启用失败"}`);
+    paintCardMessage(spec, `${armName(spec)} ${res.error || "启用失败"}`);
     return;
   }
   const bag = enabledIds.get(spec.api) || { research: "", live: "" };
@@ -737,7 +815,7 @@ async function enableVersion(spec, role) {
   fillVersion(spec);
   paintCardMessage(
     spec,
-    role === "live" ? "Arm·T 已启用为 live 版本" : "Arm·T 已启用为回测版本"
+    role === "live" ? `${armName(spec)} 已启用为 live 版本` : `${armName(spec)} 已启用为回测版本`
   );
 }
 
@@ -802,8 +880,10 @@ function wireVersionDismiss() {
 }
 
 function applyHead(spec, st) {
-  const pack = packOf(st);
+  const pack = packOf(st, arm(spec));
   const busy = !!st?.fit_running || pending.has(spec.api);
+  const armPick = document.querySelector(`[data-hub-arm-select="${spec.ui}"]`);
+  if (armPick) armPick.disabled = busy;
   for (const id of [spec.fitId, spec.liveId]) {
     const btn = document.getElementById(id);
     if (btn) btn.disabled = busy;
@@ -829,7 +909,7 @@ function applyHead(spec, st) {
   if (failed) {
     const err = st?.job?.error || st?.last?.error || "拟合失败";
     paintArmState(box, "失败", "fail", { dur });
-    paintCardMessage(spec, dur ? `Arm·T ${err} · ${dur}` : `Arm·T ${err}`);
+    paintCardMessage(spec, dur ? `${armName(spec)} ${err} · ${dur}` : `${armName(spec)} ${err}`);
     return;
   }
   if (pack && pack.cs_rank_ic != null) {
@@ -837,20 +917,25 @@ function applyHead(spec, st) {
     const spent = dur ? ` · ${dur}` : "";
     paintCardMessage(
       spec,
-      `Arm·T Rank IC ${fmt3(pack.cs_rank_ic)} · ICIR ${fmt3(pack.cs_icir)}${spent}`
+      `${armName(spec)} Rank IC ${fmt3(pack.cs_rank_ic)} · ICIR ${fmt3(pack.cs_icir)}${spent}`
     );
   }
 }
 
 async function refresh() {
-  const res = await apiFetch(STATUS_URL);
-  if (!res.ok) return false;
-  const byApi = new Map(
-    (res.data?.heads || []).map((st) => [st.head, st])
+  const used = [...new Set(HEADS.map((spec) => arm(spec)))];
+  const bags = await Promise.all(
+    used.map(async (tag) => {
+      const res = await apiFetch(ARM_API[tag].status);
+      return [tag, res.ok ? res.data : null];
+    })
   );
+  const byFactory = new Map(bags);
+  if (![...byFactory.values()].some(Boolean)) return false;
   let running = false;
   for (const spec of HEADS) {
-    const st = byApi.get(spec.api);
+    const data = byFactory.get(arm(spec));
+    const st = (data?.heads || []).find((row) => row?.head === spec.api);
     if (st?.fit_running) running = true;
     if (st) applyHead(spec, st);
     void loadVersions(spec, {
@@ -882,13 +967,19 @@ async function startFit(spec, role) {
   }
   paintLive(spec, null, "拟合中");
   try {
-    const res = await apiFetch(FIT_URL, {
+    const note =
+      arm(spec) === "T"
+        ? role === "live"
+          ? "hub arm-t live"
+          : "hub arm-t research"
+        : `hub arm-${arm(spec).toLowerCase()} ${role}`;
+    const res = await apiFetch(factoryUrls(spec).fit, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         head: spec.api,
         params: recipeParams(spec, role),
-        note: role === "live" ? "hub arm-t live" : "hub arm-t research",
+        note,
       }),
     });
     if (!res.ok) throw new Error(res.error || "拟合启动失败");
@@ -906,7 +997,7 @@ async function startFit(spec, role) {
     );
     paintCardMessage(
       spec,
-      dur ? `Arm·T ${err?.message || err} · ${dur}` : `Arm·T ${err?.message || err}`
+      dur ? `${armName(spec)} ${err?.message || err} · ${dur}` : `${armName(spec)} ${err?.message || err}`
     );
     for (const id of [spec.fitId, spec.liveId]) {
       const btn = document.getElementById(id);
@@ -914,6 +1005,109 @@ async function startFit(spec, role) {
     }
   } finally {
     pending.delete(spec.api);
+  }
+}
+
+function setField(section, key, value) {
+  const el = section?.querySelector(`[data-param="${key}"]`);
+  if (el && !el.disabled) el.value = String(value);
+}
+
+function adoptDefaults(spec, fromTag, toTag) {
+  const section = sectionOf(spec.ui);
+  const prev = defaultsFor(fromTag, spec.api);
+  const next = defaultsFor(toTag, spec.api);
+  if (sectionNum(section, "lookback", prev.lookback) === prev.lookback) {
+    setField(section, "lookback", next.lookback);
+  }
+  if (sectionNum(section, "holdout_trading_days", prev.holdout) === prev.holdout) {
+    setField(section, "holdout_trading_days", next.holdout);
+  }
+}
+
+function paintArmChrome(spec) {
+  const tag = arm(spec);
+  const copy = ARM_COPY[tag];
+  const section = sectionOf(spec.ui);
+  const config = section?.querySelector(".quant-fit-params");
+  if (config) config.dataset.hubLayout = tag;
+  section?.querySelectorAll("[data-hub-fields]").forEach((el) => {
+    const want = el.getAttribute("data-hub-fields") || "";
+    el.hidden = !want.includes(tag);
+  });
+  const picked = document.querySelector(`[data-hub-arm-select="${spec.ui}"]`);
+  if (picked && picked.value !== tag) picked.value = tag;
+  const consoleBox = section?.querySelector("[data-arm-console]");
+  if (consoleBox) {
+    consoleBox.dataset.armConsole = tag;
+    const badge = consoleBox.querySelector(".yhat-tf-arm-badge");
+    if (badge) badge.textContent = tag;
+    const title = consoleBox.querySelector(".yhat-tf-arm-title strong");
+    const desc = consoleBox.querySelector(".yhat-tf-arm-title span");
+    if (title) title.textContent = copy.title;
+    if (desc) desc.textContent = copy.desc;
+  }
+  const fit = document.getElementById(spec.fitId);
+  if (fit) fit.title = `按当前配置拟合 ${copy.title}`;
+}
+
+function chooseArm(spec, raw) {
+  const next = raw === "L" || raw === "R" ? raw : "T";
+  const prev = arm(spec);
+  if (next === prev || pending.has(spec.api)) {
+    paintArmChrome(spec);
+    return;
+  }
+  adoptDefaults(spec, prev, next);
+  armOf.set(spec.api, next);
+  viewing.delete(spec.api);
+  versionLists.delete(spec.api);
+  chosen.delete(spec.api);
+  enabledIds.delete(spec.api);
+  for (const role of ["research", "live"]) {
+    const root = versionRoot(spec.ui, role);
+    if (!root) continue;
+    delete root.dataset.itemsKey;
+    delete root.dataset.value;
+  }
+  clearReplay(spec);
+  paintMetrics(spec.ui, null);
+  paintCardMessage(spec, "");
+  paintArmChrome(spec);
+  void saveArms();
+  void loadVersions(spec, { replay: true });
+  void refresh();
+}
+
+function wireArm(spec) {
+  const el = document.querySelector(`[data-hub-arm-select="${spec.ui}"]`);
+  if (!el || el.dataset.wired === "1") return;
+  el.dataset.wired = "1";
+  el.addEventListener("click", (ev) => ev.stopPropagation());
+  el.addEventListener("change", () => {
+    chooseArm(spec, String(el.value || "T").toUpperCase());
+  });
+}
+
+async function saveArms() {
+  const arms = {};
+  for (const spec of HEADS) arms[spec.api] = arm(spec);
+  await apiFetch(ARMS_URL, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ arms }),
+  });
+}
+
+async function loadArms() {
+  const res = await apiFetch(ARMS_URL);
+  const arms = res.ok ? res.data?.arms : null;
+  for (const spec of HEADS) {
+    const raw = String(arms?.[spec.api] || "T").toUpperCase();
+    const next = raw === "L" || raw === "R" ? raw : "T";
+    if (next !== "T") adoptDefaults(spec, "T", next);
+    armOf.set(spec.api, next);
+    paintArmChrome(spec);
   }
 }
 
@@ -949,6 +1143,7 @@ export function installHubArmT() {
     }
     wireVersion(spec);
     wireEnable(spec);
+    wireArm(spec);
     const gate = document.querySelector(`[data-head-summary-gate="${spec.ui}"]`);
     if (gate && !gate.dataset.armGate) {
       gate.dataset.armGate = "Rank IC —";
@@ -956,5 +1151,11 @@ export function installHubArmT() {
     }
   }
   wireVersionDismiss();
-  refresh().catch(() => schedule(12000));
+  loadArms()
+    .catch(() => {})
+    .then(() => refresh())
+    .then((ok) => {
+      if (ok === false) schedule(12000);
+    })
+    .catch(() => schedule(12000));
 }

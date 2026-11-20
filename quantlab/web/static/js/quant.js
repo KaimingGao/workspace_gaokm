@@ -1801,25 +1801,6 @@ export function initQuant(ctx) {
       const stamp = _suiteStampByHead[head] || {};
       const resOn = !!stamp.researchOn;
       const liveOn = !!stamp.liveOn;
-      let state = "idle";
-      let label = "待命";
-      if (resOn && liveOn) {
-        state = "ok";
-        label = "双套";
-      } else if (resOn) {
-        state = "warn";
-        label = "研究";
-      } else if (liveOn) {
-        state = "warn";
-        label = "执行";
-      }
-      const chip = document.querySelector(
-        `[data-head-summary-status="${head}"]`
-      );
-      if (chip) {
-        chip.dataset.state = state;
-        chip.textContent = label;
-      }
       const slots = document.querySelector(
         `[data-head-summary-slots="${head}"]`
       );
@@ -1842,7 +1823,8 @@ export function initQuant(ctx) {
     if (!grid || grid.dataset.deskBound === "1") return;
     grid.dataset.deskBound = "1";
     grid.querySelectorAll("[data-head-select]").forEach((btn) => {
-      btn.addEventListener("click", () => {
+      btn.addEventListener("click", (ev) => {
+        if (ev.target?.closest?.(".quant-hub-arm-select")) return;
         const head = btn.getAttribute("data-head-select");
         selectDeskHead(head, { scroll: true });
       });
@@ -2028,7 +2010,7 @@ export function initQuant(ctx) {
 
   function renderRemStatus(el, opts = {}) {
     if (!el) return;
-    // 四头运行条归 Arm·T，套槽状态不再盖成「仅研究」
+    // 四头运行条归所选工厂臂，套槽状态不再盖成「仅研究」
     if (armTOwnsSuiteStatus(el)) return;
     const {
       state = "idle",

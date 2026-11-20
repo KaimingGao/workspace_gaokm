@@ -490,6 +490,14 @@ def resolve_keep_hashes(
         extra.append(code)
     if len(extra) >= 2:
         keep.add(universe_hash(extra))
+    try:
+        from core.universe.feature_sets import materialize_universes
+
+        for _name, lst in materialize_universes(fetch=False):
+            if len(lst) >= 2:
+                keep.add(universe_hash(lst))
+    except Exception:  # noqa: BLE001
+        logger.debug("day cube keep hash feature sets failed", exc_info=True)
     if not keep:
         return None
     return keep
