@@ -140,6 +140,24 @@ def _count_nonfinite_targets(ys: List[float], n_rows: int) -> int:
     return n
 
 
+def complete_panel_min_obs(n_raw: int) -> int:
+    """一列至少要有这么多有限值才进候选。
+
+    短面板不少于 8。长面板不少于训练行的 1/4。
+    """
+    return max(8, int(n_raw) // 4)
+
+
+def complete_panel_min_rows(
+    n_raw: int,
+    n_features: int,
+    min_samples_over_p: int,
+) -> int:
+    """完整行下限：够解方程，并且不少于训练行的 1/4。"""
+    solvable = max(4, int(n_features) + int(min_samples_over_p))
+    return max(solvable, int(n_raw) // 4)
+
+
 def _prepare_complete_panel(
     xs: List[Dict[str, Optional[float]]],
     ys: List[float],
@@ -158,6 +176,7 @@ def _prepare_complete_panel(
     """挑选可用因子与完整行：允许多因子缺测，优先保留覆盖好的因子。
 
     剔除缺测过多的列和真常数（max−min≤eps）。不按原始标准差设下限。
+    一列至少盖住训练行的 1/4；交集仍不到 1/4 时，继续丢掉最空的列。
     另丢掉 SUMP/SUMN（及 V 对）恒等冗余，只留 SUMD/VSUMD（Ridge 路径；
     LightGBM/LambdaRank 不经此函数，L1 仍算全份额对）。
     ``impute_keys``：这些列缺测按观测均值填后再挑完整行（标准化后 z=0），
@@ -181,8 +200,7 @@ def _prepare_complete_panel(
     if n_raw < 4:
         return None, None, [], feature_names[:], meta
 
-    # 缺测门槛封顶，避免短面板把列剔光
-    min_obs = max(8, min(n_raw // 4, 40))
+    min_obs = complete_panel_min_obs(n_raw)
     from core.signal.factors.sum_identity import (
         drop_redundant_sum_share_names,
         prep_meta_excluded,
@@ -244,7 +262,7 @@ def _prepare_complete_panel(
         ]
         n = len(rows_idx)
         p = len(active)
-        if n < max(4, p + min_samples_over_p):
+        if n < complete_panel_min_rows(n_raw, p, min_samples_over_p):
             miss = sorted(
                 (
                     sum(

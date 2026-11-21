@@ -2154,7 +2154,10 @@ def _prepare_complete_matrix(
     min_samples_over_p: int = 3,
     eps: float = 1e-6,
 ) -> Tuple[Optional[np.ndarray], Optional[np.ndarray], List[str], List[str], Dict[str, Any]]:
-    """与 ``_prepare_complete_panel`` 同一套剔除：稀疏、常数、覆盖。"""
+    """与 ``_prepare_complete_panel`` 同一套剔除：稀疏、常数、覆盖。
+
+    一列至少盖住训练行的 1/4；交集仍不到 1/4 时，继续丢掉最空的列。
+    """
     n_raw = int(y.shape[0])
     meta: Dict[str, Any] = {
         "raw_sample_count": n_raw,
@@ -2168,7 +2171,9 @@ def _prepare_complete_matrix(
 
     finite = np.isfinite(X)
     y_finite = np.isfinite(np.asarray(y, dtype=np.float64))
-    min_obs = max(8, min(n_raw // 4, 40))
+    from core.research.factor_ols_fit import complete_panel_min_obs, complete_panel_min_rows
+
+    min_obs = complete_panel_min_obs(n_raw)
     from core.signal.factors.sum_identity import (
         drop_redundant_sum_share_names,
         prep_meta_excluded,
@@ -2201,7 +2206,7 @@ def _prepare_complete_matrix(
         rows_idx = np.flatnonzero(mask)
         n = int(rows_idx.size)
         p = len(active)
-        if n < max(4, p + min_samples_over_p):
+        if n < complete_panel_min_rows(n_raw, p, min_samples_over_p):
             miss = sorted(
                 (int((~finite[:, index[name]]).sum()), name) for name in active
             )

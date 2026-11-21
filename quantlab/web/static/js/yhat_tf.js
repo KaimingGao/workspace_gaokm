@@ -756,9 +756,9 @@ function numOrNull(raw) {
   return Number.isFinite(n) ? n : null;
 }
 
-/** 轮次 Holdout 探针，不是该臂结束。结束行是 ArmL / ArmT seed= 或对比表。 */
+/** 轮次探针，不是该臂结束。结束行是 ArmL / ArmT seed=。旧日志仍写 holdout。 */
 function isEpochHoldoutProbe(line) {
-  return /^transformer\s+ep=\d+\/\d+\s+holdout\b/.test(line);
+  return /^transformer\s+ep=\d+\/\d+\s+(?:holdout|probe)\b/.test(line);
 }
 
 /** 本次日志里该臂走到哪一步。完成行一出现就定状态，不跟另一臂对齐。 */
@@ -802,8 +802,10 @@ export function liveArmFromLog(lines) {
     }
     const ic = s.match(/rankIC=(\S+)/);
     if (!ic) continue;
-    const icir = s.match(/ICIR=(\S+)/);
+    const icir = s.match(/(?:^|\s)ICIR=(\S+)/);
+    const rankIcir = s.match(/(?:^|\s)rankICIR=(\S+)/);
     const hit = s.match(/sign_hit=(\S+)/);
+    const ndcg = s.match(/ndcg30=(\S+)/);
     const top = s.match(/(?:topY|cs_top_mean_y)=(\S+)/);
     const vals = [
       numOrNull(ic[1]),
@@ -818,7 +820,9 @@ export function liveArmFromLog(lines) {
       success: true,
       cs_rank_ic: vals[0],
       cs_icir: vals[1],
+      cs_rank_icir: rankIcir ? numOrNull(rankIcir[1]) : null,
       sign_hit: vals[2],
+      cs_ndcg_30: ndcg ? numOrNull(ndcg[1]) : null,
       cs_top_mean_y: vals[3],
       elapsed_sec: sec ? numOrNull(sec[1]) : null,
     };
@@ -1003,6 +1007,7 @@ function rawLogLines(raw) {
 function renderContrast(root, st, metrics) {
   const box = root.querySelector("[data-fit-contrast]");
   if (!box) return;
+  const head = root.getAttribute("data-fit-info-for") || st?.head || "";
   const params = st?.job?.params || st?.last?.params || null;
   const logs = splitFitLog(st?.log_tail);
   // arms_metrics 恒为 dict；空 {} 在 JS 里 truthy，不能盖住 metrics.arms
@@ -1062,9 +1067,16 @@ function renderContrast(root, st, metrics) {
       state.clock = elapsedClock(st.job.started_at);
     }
     renderArmState(stateEl, state);
+    const rankHead = head === "oo_rank" || head === "tc_rank";
     setMetric(tag, "ic", fmtKpi3(pack?.cs_rank_ic));
     setMetric(tag, "icir", fmtKpi3(pack?.cs_icir));
-    setMetric(tag, "hit", fmtPct(pack?.sign_hit));
+    const hitEl = box.querySelector(`[data-arm-metric="${tag}:hit"]`);
+    const hitLab = hitEl?.parentElement?.querySelector("span");
+    if (hitLab) {
+      hitLab.textContent = rankHead ? "NDCG@30" : "命中";
+      hitLab.title = rankHead ? "Holdout 日均 NDCG@30" : "样本外方向命中率";
+    }
+    setMetric(tag, "hit", rankHead ? fmtKpi3(pack?.cs_ndcg_30) : fmtPct(pack?.sign_hit));
     setMetric(tag, "topy", fmtKpi3(pack?.cs_top_mean_y));
     const own = logs[tag];
     // Arm·T 运行台显示这次日志全文。按臂拆行只用来判断训练状态。

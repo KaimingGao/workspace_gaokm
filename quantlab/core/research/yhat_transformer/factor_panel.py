@@ -660,16 +660,34 @@ def align_seq_and_factor(
     return seq_out, fac_out
 
 
+def _trading_index(bars: Sequence[dict]) -> Dict[str, int]:
+    """按日期去重后的下标。停牌缺日不会占位，相邻两根的下标差就是间隔的交易日数。"""
+    found: List[str] = []
+    seen = set()
+    for bar in bars or []:
+        if not isinstance(bar, dict):
+            continue
+        day = str(bar.get("date") or bar.get("trade_date") or "")[:10]
+        if len(day) < 10 or day in seen:
+            continue
+        seen.add(day)
+        found.append(day)
+    found.sort()
+    return {day: i for i, day in enumerate(found)}
+
+
 def sequence_from_factor_panel(
     panel: FactorPanel,
     stock_bars: Mapping[str, Sequence[dict]],
     *,
     seq_len: int = 20,
+    with_age: bool = True,
 ) -> Any:
     """决策日 T 的序列是同一只股票的因子行 ``[T-L … T-1]``，列与这份面板一致。
 
     列宽就是因子 core / full 裁完后的宽：oo 65 / 222，开盘 τc 61 / 218。
-    gap 仍是今开/昨收 − 1，不进这 L 列。非有限值写成 0。
+    ``with_age`` 时再附一列 ``age_td`` = 该行距决策日的交易日数 / L。
+    gap 仍是今开/昨收 − 1，不进这 L 列。非有限值留着，训练时用训练列中位数填。
     """
     from core.research.yhat_transformer.seq_dataset import SeqPanel, gaps_by_decision
 
@@ -677,7 +695,12 @@ def sequence_from_factor_panel(
     L = max(5, int(seq_len or 20))
     F = int(panel.X.shape[1])
     names = tuple(str(n) for n in panel.feature_names)
+    if with_age:
+        names = names + ("age_td",)
     gaps = gaps_by_decision(stock_bars)
+    age_index = {
+        str(code): _trading_index(bars) for code, bars in (stock_bars or {}).items()
+    }
     by_code: Dict[str, List[int]] = {}
     for i, code in enumerate(panel.codes):
         by_code.setdefault(str(code), []).append(i)
@@ -707,7 +730,8 @@ def sequence_from_factor_panel(
             plans.append((code, dedup[k], window))
 
     n = len(plans)
-    X = np.zeros((n, L, F), dtype=np.float32)
+    width = F + (1 if with_age else 0)
+    X = np.zeros((n, L, width), dtype=np.float32)
     gap = np.zeros((n,), dtype=np.float32)
     y = np.zeros((n,), dtype=np.float32)
     dates: List[str] = []
@@ -715,9 +739,23 @@ def sequence_from_factor_panel(
     src = panel.X
     for row, (code, dest, window) in enumerate(plans):
         block = np.array(src[window], dtype=np.float32, copy=True)
-        np.nan_to_num(block, copy=False, nan=0.0, posinf=0.0, neginf=0.0)
-        X[row] = block
         decision = str(panel.dates[dest])[:10]
+        if with_age:
+            aged = np.empty((L, width), dtype=np.float32)
+            aged[:, :F] = block
+            index = age_index.get(code) or {}
+            i_dec = index.get(decision)
+            for step, src_i in enumerate(window):
+                token_day = str(panel.dates[src_i])[:10]
+                i_tok = index.get(token_day)
+                if i_dec is None or i_tok is None or i_dec <= i_tok:
+                    age = float(L - step) / float(L)
+                else:
+                    age = float(i_dec - i_tok) / float(L)
+                aged[step, F] = np.float32(age)
+            X[row] = aged
+        else:
+            X[row] = block
         gap[row] = np.float32(gaps[(code, decision)])
         y[row] = np.float32(panel.y[dest])
         dates.append(decision)

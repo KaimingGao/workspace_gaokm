@@ -325,6 +325,79 @@ class TestOoFiniteLabels(unittest.TestCase):
         self.assertTrue(math.isnan(as_float(float("inf"))))
         self.assertFalse(finite_xy(1.0, float("inf")))
 
+class TestPrepareMatrixSparseCoverage(unittest.TestCase):
+    def test_mostly_empty_column_does_not_shrink_rows(self) -> None:
+        """多数日子为空的列应剔除，不能把训练行收成那几天。"""
+        from core.research.oo_model_compact import _prepare_matrix
+
+        n = 200
+        x = np.zeros((n, 3), dtype=np.float64)
+        x[:, 0] = np.linspace(0.0, 1.0, n)
+        x[:, 1] = np.linspace(1.0, 2.0, n)
+        x[:, 2] = np.nan
+        x[:45, 2] = np.linspace(0.0, 1.0, 45)
+        y = np.linspace(-1.0, 1.0, n)
+        x_c, y_c, active, _ex, meta = _prepare_matrix(x, y, ["dense_a", "dense_b", "sparse"])
+        self.assertEqual(active, ["dense_a", "dense_b"])
+        self.assertIn("sparse", meta["dropped_sparse"])
+        self.assertEqual(meta["complete_sample_count"], n)
+        self.assertEqual(y_c.shape[0], n)
+        self.assertEqual(x_c.shape, (n, 2))
+
+    def test_thin_intersection_drops_emptiest_column(self) -> None:
+        """两列各自过了 1/4，交集仍不到 1/4 时丢掉更空的那列。"""
+        from core.research.oo_model_compact import _prepare_matrix
+
+        n = 200
+        x = np.full((n, 2), np.nan, dtype=np.float64)
+        x[:120, 0] = np.linspace(0.0, 1.0, 120)
+        x[80:, 1] = np.linspace(0.0, 1.0, 120)
+        y = np.linspace(-1.0, 1.0, n)
+        _x_c, y_c, active, _ex, meta = _prepare_matrix(x, y, ["left", "right"])
+        self.assertEqual(len(active), 1)
+        self.assertIn(active[0], ("left", "right"))
+        self.assertEqual(meta["complete_sample_count"], 120)
+        self.assertEqual(y_c.shape[0], 120)
+        self.assertTrue(meta["dropped_for_coverage"])
+
+    def test_dict_panel_and_keepall_matrix_drop_the_same_sparse_column(self) -> None:
+        """字典面板和 τc 矩阵与 ŷ_oo 矩阵用同一道 1/4 门槛。"""
+        from core.research.factor_ols_fit import _prepare_complete_panel
+        from core.research.panel_matrix import _prepare_complete_matrix
+
+        n = 200
+        rows = []
+        for i in range(n):
+            rows.append(
+                {
+                    "dense_a": float(i),
+                    "dense_b": float(i) + 1.0,
+                    "sparse": float(i) if i < 45 else None,
+                }
+            )
+        ys = [float(i) for i in range(n)]
+        _xs, _ys, active, _ex, meta = _prepare_complete_panel(
+            rows, ys, ["dense_a", "dense_b", "sparse"]
+        )
+        self.assertEqual(active, ["dense_a", "dense_b"])
+        self.assertIn("sparse", meta["dropped_sparse"])
+        self.assertEqual(meta["complete_sample_count"], n)
+
+        x = np.zeros((n, 3), dtype=np.float64)
+        x[:, 0] = np.linspace(0.0, 1.0, n)
+        x[:, 1] = np.linspace(1.0, 2.0, n)
+        x[:, 2] = np.nan
+        x[:45, 2] = np.linspace(0.0, 1.0, 45)
+        y = np.linspace(-1.0, 1.0, n)
+        _x_c, y_c, active_m, _ex_m, meta_m = _prepare_complete_matrix(
+            x, y, ["dense_a", "dense_b", "sparse"]
+        )
+        self.assertEqual(active_m, ["dense_a", "dense_b"])
+        self.assertIn("sparse", meta_m["dropped_sparse"])
+        self.assertEqual(meta_m["complete_sample_count"], n)
+        self.assertEqual(y_c.shape[0], n)
+
+
 class TestPrepareMatrixRowSlice(unittest.TestCase):
     def test_row_pos_column_fill_matches_direct_slice(self) -> None:
         """按列写入的训练矩阵须与先切行再升 float64 一致，含缺测行剔除。"""

@@ -69,19 +69,17 @@ UI 入口：`/yhat-t`（**Transformer 工厂**；旧 `/yhat-tf` 重定向）。�
 
 ## 3. 双支路晚融合
 
-实现：`core/research/yhat_transformer/model.py` 的 `SeqFactorTransformer`。两条支路各自算完，只在最后一层线性头之前拼接。序列编码器看不到因子，因子 MLP 也看不到序列；中间没有交叉注意力。
+实现：`core/research/yhat_transformer/model.py` 的 `SeqFactorTransformer`。两条支路各自算完，只在最后一层线性头之前拼接。序列编码器看不到因子，因子 MLP 也看不到序列；中间没有交叉注意力。arch=2 在投影后加固定正弦位置编码（位置 0 是最旧的一天），并另附一列 `age_td`（距决策日的交易日数 / L）。已落盘的 arch=1 没有位置编码，加载时不能迁进 arch=2。
 
 ```text
-x_seq (B, L, F) ── Linear(F→d_model) ── Pre-LN Encoder × nlayers
-                                      └── 末步 h[:, -1, :] (B, d_model)
-gap   (B,)     ────────────────────────── concat ── seq_h (B, d_model+1)
-                                                              \
-x_fac (B, d_factor) ── LayerNorm ── Linear ── GELU ── Dropout ── fac_h (B, fh)
-                                                              /
-                                    cat ── LayerNorm ── Linear ── ŷ (B,)
+arch=2
+x_seq (B, L, F+1) ── Linear ── sin PE ── Pre-LN Encoder × nlayers
+                                              └── 末步 (B, d_model)
+x_fac (B, d_factor) ── Linear ── GELU ── Dropout ── fac_h (B, fh)
+                         LayerNorm(末步 ∥ fac_h) ── 拼 gap ── Linear ── ŷ
 ```
 
-标量头没有激活。回归头外面用 SmoothL1，预测为正且实现为负的样本再计一次；排序头外面用 LambdaRank（日内减均值），网络本身不包 softmax / sigmoid。
+标量头没有激活。回归头外面用逐点 SmoothL1；排序头外面用 LambdaRank，不减日内均值。网络本身不包 softmax / sigmoid。arch=1 的因子支路仍带输入 LayerNorm，gap 在融合 LayerNorm 之内。
 
 ### 3.1 序列支路
 
@@ -89,11 +87,11 @@ x_fac (B, d_factor) ── LayerNorm ── Linear ── GELU ── Dropout �
 
 | 步 | 张量 | 说明 |
 |--|--|--|
-| 输入 | `(B, L, F)` | L = 决策日前 L 日。`seq_core` / `seq_full` 的 F 就是这一头因子 core / full（oo 65/222，开盘 τc 61/218） |
-| 投影 | `(B, L, d_model)` | 一层 `Linear`。**不加位置编码**，时间顺序只靠 token 排列和末步池化 |
+| 输入 | `(B, L, F)`，arch=2 为 `F+1` | L = 决策日前 L 日。F 是这一头因子 core / full（oo 65/222，开盘 τc 61/218）。arch=2 末列是 `age_td` |
+| 投影 | `(B, L, d_model)` | 一层 `Linear`，再加正弦位置编码。arch=1 不加 |
 | 编码 | 同形 | `TransformerEncoder` × `nlayers`。每层 Pre-LN（`norm_first=True`）：自注意力残差，再 GELU 前馈残差；`batch_first=True`。无 padding mask，窗口内全注意力 |
 | 池化 | `(B, d_model)` | 只取末步 `h[:, -1, :]`，不做均值池化、不设 CLS |
-| 缺口 | `(B, d_model+1)` | `gap` 是今开/昨收 − 1 的原始标量，**不进编码器**，拼在末步后面。缺省时填 0 |
+| 缺口 | 不进编码器 | `gap` 是今开/昨收 − 1 的原始标量。arch=2 在融合 LayerNorm 之后再拼；arch=1 拼在末步上，和因子隐层一起进 LayerNorm。缺省时填 0 |
 
 前馈宽度 `dim_feedforward = max(64, d_model×2)`。`d_model` 必须能被 `nhead` 整除。进 `Linear` 之前的 1%/99% 分位 clip 在训练预处理里做，不在这个模块里。
 
@@ -102,7 +100,8 @@ x_fac (B, d_factor) ── LayerNorm ── Linear ── GELU ── Dropout �
 截面向量，不是序列。列已经过 L2 立方 CS-z（见 §5.3）。
 
 ```text
-(B, d_factor) → LayerNorm → Linear(d_factor → fh) → GELU → Dropout → (B, fh)
+arch=2: (B, d_factor) → Linear(d_factor → fh) → GELU → Dropout → (B, fh)
+arch=1: (B, d_factor) → LayerNorm → Linear → GELU → Dropout → (B, fh)
 ```
 
 `fh = max(16, factor_hidden)`，desk 上 `factor_hidden` 对齐 `d_model`。只有这一层隐层，没有按因子各出一条系数。
@@ -110,14 +109,15 @@ x_fac (B, d_factor) ── LayerNorm ── Linear ── GELU ── Dropout �
 ### 3.3 融合头
 
 ```text
-(B, d_model + 1 + fh) → LayerNorm → Linear(· → 1) → squeeze → (B,)
+arch=2: LayerNorm(序列末步 ∥ 因子隐层) → 拼 gap → Linear → (B,)
+arch=1: LayerNorm(序列末步 ∥ gap ∥ 因子隐层) → Linear → (B,)
 ```
 
-默认 `d_model=64`、`fh=64` 时，融合维是 **129**（64 维序列末步 + 1 维 gap + 64 维因子隐层）。
+默认 `d_model=64`、`fh=64` 时，线性头输入仍是 **129**（64 维序列末步 + 64 维因子隐层 + 1 维 gap）。arch=2 的 LayerNorm 不覆盖 gap。
 
 | 参数 | 默认（CLI / desk） | 说明 |
 |--|--|--|
-| `d_seq_in` | 因子 core / full 列宽 | oo 65/222，开盘 τc 61/218；旧 seq8/16/32/64 与旧列宽权重保持当时列宽 |
+| `d_seq_in` | 因子列宽；arch=2 再加 `age_td` | oo 65/222，开盘 τc 61/218；arch=2 为 66/223 与 62/219。旧 seq8/16/32/64 与旧列宽权重保持当时列宽 |
 | `d_factor` | 裁列后宽 | 必填；core / full 只改这一维 |
 | `d_model` | **64** | 须被 `nhead` 整除 |
 | `nhead` | 4 | 每头 `d_model / nhead` |
@@ -151,7 +151,7 @@ x_fac (B, d_factor) ── LayerNorm ── Linear ── GELU ── Dropout �
 | 缓存 | `data/experiments/yhat_transformer/cache/seq_*.npz` |
 | workers | `SEQ_PANEL_WORKERS` 默认 4；股票 &lt;16 则 1 |
 
-`seq_core` / `seq_full` 不再是 16 / 64 列价量统计。每一天用这一头因子 core 或 full 的同一套列：oo 是 65 / 222，开盘 τc 是 61 / 218。决策日 T 的序列是该股票因子行 `[T−L … T−1]`，决策日当天的因子向量仍走因子支路。序列档和因子档各自选择，可以一个 core、一个 full。旧 `seq8` / `seq16` / `seq32` / `seq64` 只用于已落盘权重，列宽仍是 8 / 16 / 32 / 64。已经训好的旧列宽权重仍按原列宽加载：开盘 τc 补回分钟常数，oo 的 `alpha_th` / 尾盘 / 资金流补回 50。
+`seq_core` / `seq_full` 不再是 16 / 64 列价量统计。每一天用这一头因子 core 或 full 的同一套列：oo 是 65 / 222，开盘 τc 是 61 / 218。决策日 T 的序列是该股票因子行 `[T−L … T−1]`，决策日当天的因子向量仍走因子支路。序列档和因子档各自选择，可以一个 core、一个 full。旧 `seq8` / `seq16` / `seq32` / `seq64` 只用于已落盘权重，列宽仍是 8 / 16 / 32 / 64。已经训好的旧列宽权重仍按原列宽加载：开盘 τc 补回分钟常数，oo 的 `alpha_th` / 尾盘 / 资金流补回 50。arch=2 的序列在因子列之后加 `age_td`。序列里的非有限值用训练行逐列中位数填上，再做 1%/99% clip；中位数写入 `seq_clip.x_median`。因子支路仍是截面 z 之后把非有限值写成 0。
 
 ---
 
@@ -207,13 +207,13 @@ x_fac (B, d_factor) ── LayerNorm ── Linear ── GELU ── Dropout �
 | **seed** | 固定 **42** |
 | **epochs** | 默认 **12**；跑满，不提前停 |
 | **保存** | 最后一个 epoch 的权重 |
-| **eval** | 每个 epoch 结束后用 Holdout 做一次 `no_grad` 测试（Rank IC / hit / Top10% y；排序头另打 NDCG@30）。不反传，不选权重，不改学习率日程 |
+| **eval** | 每个 epoch 用训练尾部的探针做一次 `no_grad` 测试（Rank IC / Pearson ICIR / Rank ICIR / hit / Top10% y；排序头另打 NDCG@30）。探针和拟合段之间再隔离一段与标签期限相同的交易日。Holdout 只在最后一轮权重上预测一次。不反传，不选权重，不改学习率日程 |
 | **optimizer** | AdamW，`lr=1e-3`，`weight_decay=1e-4` |
 | **LR** | cosine + warmup；`TRANSFORMER_WARMUP_STEPS` 默认 100；`min_ratio=0.01` |
 | **grad clip** | 1.0 |
 | **batch** | 默认 32；范围 16–1024 |
 | **subsample** | `t_sample_frac` 默认 **0.1**；≥1 → 不截断。点损失行级；排序头 **整日组**，一组放不进剩余名额即停。抽样只作用在训练日，Holdout 不进训练 |
-| **序列预处理** | train 行 1%/99% 分位 clip（最多 2 万行估分位） |
+| **序列预处理** | 先用训练行逐列中位数填非有限值，再按 train 行 1%/99% 分位 clip（最多 2 万行） |
 | **线程** | `TORCH_NUM_THREADS` 默认 **4**；interop=1；BLAS/OMP 仍为 1 |
 | **取数** | numpy 切片再 `as_tensor`（避免大张量高级索引 OpenMP SIGSEGV） |
 
@@ -221,16 +221,16 @@ x_fac (B, d_factor) ── LayerNorm ── Linear ── GELU ── Dropout �
 
 | task | loss | 说明 |
 |--|--|--|
-| regression（oo / tc） | `smooth_l1`（β=1） | 全样本拟合百分点，再加一次预测为正且实现为负的样本 |
-| rank（oo_rank / tc_rank） | LambdaRank | 日内减均值后只比较名次，不拟合分数数值 |
+| regression（oo / tc） | `smooth_l1`（β=1） | 逐点拟合百分点，对批取均值 |
+| rank（oo_rank / tc_rank） | LambdaRank | 只比较名次，不减日内均值，不拟合分数数值 |
 
-回归头两项都是 SmoothL1（β=1）。第二项的门槛是 0：预测大于 0 且实现收益小于 0。拟合日志写 `false_open=1`，权重 meta 记 `regression_false_open`。
+回归头是逐点 SmoothL1（β=1），对批取均值。预测和标签都是百分点。
 
-排序头标签与 Arm·L 相同：收益越高名次越大，`label_gain` 就是名次本身。权重按当前排序计算后断开梯度，只沿分数差反传。`truncation=30`，IDCG 只累加这前 30 名。权重再除以 `0.01+|分数差|`，整天 λ 质量乘 `log2(1+S)/S`（LightGBM `lambdarank_norm`）。因子支路裁 ±`LAMBDARANK_Z_CLIP`。
+排序头标签与 Arm·L 相同：收益越高名次越大，`label_gain` 就是名次本身。权重按当前排序计算后断开梯度，只沿分数差反传。`truncation=30`，IDCG 只累加这前 30 名。整天 λ 质量乘 `log2(1+S)/S`（LightGBM `lambdarank_norm`）。不再除以 `|分数差|`，也不在损失里做日内减均值。因子支路裁 ±`LAMBDARANK_Z_CLIP`。
 
 Arm·L 排序树：120 棵、`max_depth=5`、`num_leaves=32`、`subsample=0.85`、`colsample=0.9`、L2=1。
 
-排序损失只在训练日反传。Holdout 每个 epoch 另打 NDCG@30，只记日志。
+排序损失只在训练日反传。探针每个 epoch 另打 NDCG@30，只记日志。Holdout 的 NDCG@30 在最后一轮预测里算一次。
 
 ---
 
@@ -255,15 +255,19 @@ Arm·L 排序树：120 棵、`max_depth=5`、`num_leaves=32`、`subsample=0.85`�
 
 `daily_cs_ic_report` → `cs_ic` / `cs_icir`、`cs_rank_ic` / `cs_rank_icir`、`cs_top_mean_y`、`cs_ls_mean_y`；另加 `pooled_ic`、`sign_hit`（deadband **0.05**）。
 
-工厂卡与枢纽因子表同名同数：Rank IC = `cs_rank_ic`，ICIR = `cs_icir`（日频 Pearson 均值/标准差），命中 = `sign_hit`，Top10% y = `cs_top_mean_y`。三位小数。硬闸里的 ICIR 仍是 Rank ICIR（`cs_rank_icir`），不写在这张卡上。
+工厂卡与枢纽因子表同名同数：Rank IC = `cs_rank_ic`，ICIR = `cs_icir`（日频 Pearson 均值/标准差），Top10% y = `cs_top_mean_y`。回归头第三格是命中 = `sign_hit`；排序头第三格是 NDCG@30。三位小数。硬闸里的 ICIR 仍是 Rank ICIR（`cs_rank_icir`），不写在这张卡上。
 
 ### 8.2 `hard_gate_vs_baseline`（相对 Arm·L）
 
 实现：`metrics.py`。
 
-- 绝对 lift：`cs_rank_ic(T) − cs_rank_ic(L) ≥ 0.01`，**或**
-- 相对 lift：≥ **20%**
-- 若基线 Rank ICIR &gt; 0 且候选 Rank ICIR &lt; 基线 × (1 − **0.10**) → 失败（`cs_rank_icir`，不是卡片上的 Pearson ICIR）
+- 候选 `cs_rank_ic` ≤ 0 → 失败
+- 绝对 lift：`cs_rank_ic(T) − cs_rank_ic(L) ≥ 0.01`，**或**相对 lift ≥ **20%**
+- 基线 Rank ICIR &gt; 0 时，候选不得低于基线 × (1 − **0.10**)
+- 基线 Rank ICIR ≤ 0 时，候选 Rank ICIR 必须 &gt; 0
+- 非正式对照（因子不是全量、采样不是 100%、或评估窗不共享）写 `applicable=false` 且 `pass=false`
+
+惩罚用的是 `cs_rank_icir`。卡片上的 ICIR 仍是 Pearson `cs_icir`。排序头卡片第三格是 NDCG@30。
 
 Holdout 始终写 `hard_gate_vs_arm_L.T`；L 或 T 失败也写 `pass=false` + reasons。顶层展示指标优先 Arm·T；Gate 始终取 `hard_gate.T`。
 
@@ -371,3 +375,9 @@ PYTHONUNBUFFERED=1 .venv/bin/python scripts/run_yhat_transformer_holdout.py --he
 | 2026-11-20 | 四头因子明确读日线物化：oo 222、开盘 τc 218；不读分钟 322 列 |
 | 2026-11-20 | 排序头去掉日 z 保值。损失只留日内减均值后的 LambdaRank，不再写 `rank_value_weight` |
 | 2026-11-20 | 回归头在全样本 SmoothL1 之外，对预测为正、实现为负的样本再计一次。权重 meta 记 `regression_false_open` |
+| 2026-11-21 | arch=2：正弦位置编码、`age_td`、因子支路去掉输入 LayerNorm、gap 放在融合 LayerNorm 之后。序列缺失改填训练列中位数。回归错开项改为同一分母下的 2×。排序头去掉 `|分数差|` 分母。探针离开 Holdout。硬闸要求候选 Rank IC 为正，非正式对照不再 pass |
+| 2026-11-21 | 结构图、损失表与实现对齐。`false_open_weight` 记实际倍数 2。探针变量不再沿用 Holdout 的名字 |
+| 2026-11-21 | 训练函数不再接收用后即丢的 `holdout_idx`。回归损失不再接一个空的 `loss_fn` |
+| 2026-11-21 | 回归头去掉错开样本的 2 倍权重。正负样本都是 SmoothL1，预估水平不再被单边压到 0 以下 |
+| 2026-11-21 | 回归头改为真实为正、预测为负的样本权重 2（`missed_up=2`）。猜涨猜错不加罚 |
+| 2026-11-21 | 回归头回到逐点 SmoothL1。漏涨样本不再单独加权，日志和权重 meta 不再写 `missed_up_weight` |

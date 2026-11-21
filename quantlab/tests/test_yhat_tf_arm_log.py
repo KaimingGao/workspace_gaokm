@@ -9,7 +9,7 @@ import unittest
 from tests.conftest import ROOT
 
 # 与 yhat_tf.js isEpochHoldoutProbe 同一条。轮次探针带 rankIC=，不能当成结束行。
-_PROBE = re.compile(r"^transformer\s+ep=\d+/\d+\s+holdout\b")
+_PROBE = re.compile(r"^transformer\s+ep=\d+/\d+\s+(?:holdout|probe)\b")
 
 
 class TestYhatTfArmLog(unittest.TestCase):
@@ -27,7 +27,7 @@ class TestYhatTfArmLog(unittest.TestCase):
         self.assertLess(probe_at, fail_at)
         self.assertLess(probe_at, rank_at)
         self.assertIn(
-            r"/^transformer\s+ep=\d+\/\d+\s+holdout\b/",
+            r"/^transformer\s+ep=\d+\/\d+\s+(?:holdout|probe)\b/",
             src,
         )
         self.assertIn('setMetric(tag, "icir", fmtKpi3(pack?.cs_icir))', src)
@@ -44,10 +44,15 @@ class TestYhatTfArmLog(unittest.TestCase):
 
     def test_probe_lines_are_not_terminal(self):
         probe = (
+            "transformer ep=4/6 probe rankIC=0.0781 ICIR=0.4629 "
+            "rankICIR=0.2100 sign_hit=0.5386 topY=-0.0128 n=95629"
+        )
+        probe_fail = "transformer ep=3/6 probe 失败：RuntimeError: boom"
+        legacy = (
             "transformer ep=4/6 holdout rankIC=0.0781 ICIR=0.4629 "
             "sign_hit=0.5386 topY=-0.0128 n=95629"
         )
-        probe_fail = "transformer ep=3/6 holdout 失败：RuntimeError: boom"
+        self.assertIsNotNone(_PROBE.match(legacy))
         self.assertIsNotNone(_PROBE.match(probe))
         self.assertIsNotNone(_PROBE.match(probe_fail))
         for line in (

@@ -2471,7 +2471,7 @@ def _arm_metrics_slice(pack: Any) -> Optional[Dict[str, Any]]:
     if not isinstance(pack, dict) or not pack.get("success"):
         return None
     out: Dict[str, Any] = {}
-    for k in ("cs_rank_ic", "cs_ic", "cs_icir", "cs_rank_icir", "sign_hit", "cs_top_mean_y", "n", "n_test", "n_train", "n_features", "n_eval"):
+    for k in ("cs_rank_ic", "cs_ic", "cs_icir", "cs_rank_icir", "sign_hit", "cs_ndcg_30", "cs_top_mean_y", "n", "n_test", "n_train", "n_features", "n_eval"):
         if pack.get(k) is not None:
             out[k] = pack.get(k)
     note = pack.get("note")

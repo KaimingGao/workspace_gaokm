@@ -142,12 +142,14 @@ def hard_gate_vs_baseline(
     ci = cand.get("cs_rank_icir")
     reasons: List[str] = []
     if b is None or c is None:
-        return {"pass": False, "reasons": ["missing cs_rank_ic"]}
+        return {"pass": False, "applicable": True, "reasons": ["missing cs_rank_ic"]}
     try:
         bf = float(b)
         cf = float(c)
     except (TypeError, ValueError):
-        return {"pass": False, "reasons": ["non-finite cs_rank_ic"]}
+        return {"pass": False, "applicable": True, "reasons": ["non-finite cs_rank_ic"]}
+    if cf <= 0.0:
+        reasons.append(f"cand cs_rank_ic {cf:.4f} <= 0")
     abs_ok = (cf - bf) >= float(min_rank_ic_lift)
     rel_ok = False
     if abs(bf) > 1e-9:
@@ -158,16 +160,21 @@ def hard_gate_vs_baseline(
         reasons.append(
             f"rank_ic lift {cf - bf:+.4f} < max(abs={min_rank_ic_lift}, rel={min_rel_lift})"
         )
-    if bi is not None and ci is not None:
+    if bi is None or ci is None:
+        reasons.append("missing cs_rank_icir")
+    else:
         try:
             bif = float(bi)
             cif = float(ci)
             if bif > 0 and cif < bif * (1.0 - float(icir_tol)):
                 reasons.append(f"rank_icir worsened {cif:.4f} < {bif:.4f}*(1-{icir_tol})")
+            elif bif <= 0 and cif <= 0:
+                reasons.append(f"rank_icir {cif:.4f} <= 0 while baseline <= 0")
         except (TypeError, ValueError):
-            pass
+            reasons.append("non-finite cs_rank_icir")
     return {
         "pass": not reasons,
+        "applicable": True,
         "reasons": reasons,
         "base_cs_rank_ic": bf,
         "cand_cs_rank_ic": cf,

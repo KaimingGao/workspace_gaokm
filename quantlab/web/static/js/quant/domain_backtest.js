@@ -366,7 +366,14 @@ export function installBacktest(q) {
       const enter = Number.isFinite(n) ? `${(n * 100).toFixed(2)}%` : "—";
       const psBit = p.price_space_gate === false ? " · 日分价关" : "";
       const role = String(p.score_model_role || "").toLowerCase() === "live" ? "执行" : "研究";
-      return `lb${lb} · ${clock} · ${lotB}元 · w${wt}/${wn} · 入场${enter}${psBit} · ${role} · ${cost}`;
+      const pool =
+        String(p.feature_set || "") === "pool"
+          ? "大池"
+          : String(p.feature_set || "") === "hs300"
+            ? "沪深300"
+            : "";
+      const poolBit = pool ? ` · ${pool}` : "";
+      return `lb${lb} · ${clock}${poolBit} · ${lotB}元 · w${wt}/${wn} · 入场${enter}${psBit} · ${role} · ${cost}`;
     }
     // 仅兼容旧日报冻结摘要（研究 Top-K 独立腿）
     return `K${p.top_k ?? "—"} · h${p.horizon_days ?? "—"} · ${cost}`;
@@ -399,6 +406,7 @@ export function installBacktest(q) {
     };
     if (desk) {
       if (req.score_model_role != null) applyScoreModelRole("quant-score-model-role", req.score_model_role);
+      if (req.feature_set != null && req.feature_set !== "") applyFeatureSet(req.feature_set);
       if (req.fill_clock != null) setVal("quant-fill-clock", clampFillClock(req.fill_clock));
       if (req.initial_cash != null) setName("pm_initial_cash", req.initial_cash);
       if (req.lot_base_amount != null) setName("pm_lot_base_amount", req.lot_base_amount);
@@ -873,6 +881,7 @@ export function installBacktest(q) {
           score_backend: p.score_backend,
           t0_score_model_role: readScoreModelRole("paper-t0-score-model-role"),
           fill_clock: p.fill_clock,
+          feature_set: p.feature_set,
           initial_cash: p.initial_cash,
           lot_base_amount: p.lot_base_amount,
           lot_strong_amount: p.lot_strong_amount,
@@ -893,6 +902,22 @@ export function installBacktest(q) {
     }
     restoreFillClock(prefs.fill_clock);
     return true;
+  }
+
+  function readFeatureSet() {
+    const el = document.getElementById("quant-feature-set");
+    const v = String((el && el.value) || "hs300").toLowerCase();
+    const next = v === "pool" ? "pool" : "hs300";
+    if (el && el.value !== next) el.value = next;
+    return next;
+  }
+
+  function applyFeatureSet(raw) {
+    const el = document.getElementById("quant-feature-set");
+    if (!el || raw == null || raw === "") return;
+    const v = String(raw).trim().toLowerCase();
+    if (v === "pool" || v === "大池") el.value = "pool";
+    else if (v === "hs300" || v === "csi300" || v === "沪深300" || v === "000300") el.value = "hs300";
   }
 
   function readScoreModelRole(id) {
@@ -933,6 +958,7 @@ export function installBacktest(q) {
     return {
       lookback,
       score_model_role: readScoreModelRole("quant-score-model-role"),
+      feature_set: readFeatureSet(),
       score_backend: "ridge",
       horizon_days: 1,
       exclude_st: true,
@@ -1380,11 +1406,13 @@ export function installBacktest(q) {
       ? String(cash / 10000).replace(/\.0$/, "")
       : "20";
     const roleLbl = p.score_model_role === "live" ? "执行" : "研究";
+    const poolLbl = p.feature_set === "pool" ? "大池" : "沪深300";
     const days = Number(p.lookback);
     return [
       Number.isFinite(days) && days > 0 ? `${Math.round(days)}日` : "",
       p.fill_clock || "",
       roleLbl,
+      poolLbl,
       `本金${cashWan}万`,
     ]
       .filter(Boolean)
@@ -1441,6 +1469,7 @@ export function installBacktest(q) {
       const {
         lookback,
         score_model_role,
+        feature_set,
         score_backend,
         exclude_st,
         min_avg_amount_pctile,
@@ -1471,6 +1500,7 @@ export function installBacktest(q) {
       const ctx = portfolioRunContextLabel({
         lookback,
         score_model_role,
+        feature_set,
         fill_clock,
         initial_cash,
       });
@@ -1481,6 +1511,7 @@ export function installBacktest(q) {
       const payload = {
         lookback,
         score_model_role,
+        feature_set,
         score_backend,
         apply_costs: true,
         fetch_fundamentals: false,
@@ -2480,6 +2511,13 @@ export function installBacktest(q) {
     });
   }
 
+  function wireReplayFeatureSet() {
+    const el = document.getElementById("quant-feature-set");
+    if (!el || el.dataset.wired === "1") return;
+    el.dataset.wired = "1";
+    el.addEventListener("change", () => persistReplayDeskPrefs());
+  }
+
   hydrateT0BtLastLeg1Slider();
   wireT0SectionFold();
   wireReplayT0Pool();
@@ -2487,6 +2525,7 @@ export function installBacktest(q) {
   wireReplayFillClock();
   wireReplayPriceSpaceGate();
   wireReplayModelRole();
+  wireReplayFeatureSet();
   if (typeof window !== "undefined") {
     window.addEventListener("quantlab-replay-desk-persist", () => persistReplayDeskPrefs());
   }

@@ -98,6 +98,7 @@ def _holdout_is_full_sample(holdout_trading_days: Any) -> bool:
 def _eval_pack(preds, ys, metas) -> Dict[str, Any]:
     from core.research.yhat_transformer.metrics import (
         daily_cs_ic_report,
+        mean_daily_ndcg,
         pooled_pearson,
         sign_hit,
     )
@@ -105,6 +106,7 @@ def _eval_pack(preds, ys, metas) -> Dict[str, Any]:
     out = daily_cs_ic_report(preds, ys, metas)
     out["pooled_ic"] = pooled_pearson(preds, ys)
     out["sign_hit"] = sign_hit(preds, ys)
+    out["cs_ndcg_30"] = mean_daily_ndcg(preds, ys, metas, k=30)
     out["n"] = len(ys)
     return out
 
@@ -1483,7 +1485,7 @@ def _try_save_transformer(state: Dict[str, Any], meta: Dict[str, Any]) -> None:
         print(f"  ArmT 权重未保存：{exc}", flush=True)
 
 
-def _run_arm_t(seq, fac, train_idx, test_idx, args) -> Dict[str, Any]:
+def _run_arm_t(seq, fac, train_idx, test_idx, args, probe_idx=None) -> Dict[str, Any]:
     """Arm·T：序列 Transformer ∥ 因子支路；固定 seed=42 只训一轮。
 
     因子支路与 Arm·L 同：全面板 ``cs_z_matrix_prefer_cube``（L2 截面 CS-z）。
@@ -1577,6 +1579,14 @@ def _run_arm_t(seq, fac, train_idx, test_idx, args) -> Dict[str, Any]:
                 "error": str(loaded.get("error") or "还没有大池预训练权重"),
                 "elapsed_sec": round(time.time() - t0, 2),
             }
+        pre_meta = loaded.get("meta") if isinstance(loaded.get("meta"), dict) else {}
+        if int(pre_meta.get("arch") or 1) != 2:
+            return {
+                "arm": "T_transformer",
+                "success": False,
+                "error": "预训练权重是 arch=1，不能微调进 arch=2",
+                "elapsed_sec": round(time.time() - t0, 2),
+            }
         init_state = loaded.get("state_dict")
         print(
             f"  ArmT finetune from {loaded.get('pretrain_run_id')}",
@@ -1599,8 +1609,9 @@ def _run_arm_t(seq, fac, train_idx, test_idx, args) -> Dict[str, Any]:
         device=args.device,
         max_train_rows=max_tr,
         loss=getattr(args, "loss", "smooth_l1"),
-        holdout_idx=te_ii,
+        probe_idx=probe_idx,
         init_state=init_state,
+        arch=2,
         )
     except ValueError as exc:
         return {
@@ -1627,12 +1638,13 @@ def _run_arm_t(seq, fac, train_idx, test_idx, args) -> Dict[str, Any]:
         nlayers=args.nlayers,
         factor_hidden=args.mlp_hidden,
         device=args.device,
+        arch=2,
     )
     m = _eval_pack(preds.tolist(), te_y, te_metas)
     m["seed"] = seed
     m["elapsed_sec"] = round(time.time() - t0, 2)
     m["n_params"] = report.get("n_params")
-    m["holdout_by_epoch"] = list(report.get("holdout_by_epoch") or [])
+    m["probe_by_epoch"] = list(report.get("probe_by_epoch") or [])
     print(
         f"  ArmT seed={seed} {_arm_done_bits(m)} "
         f"{m['elapsed_sec']}s rss={_rss_mb()}",
@@ -1652,14 +1664,16 @@ def _run_arm_t(seq, fac, train_idx, test_idx, args) -> Dict[str, Any]:
         "dropout_infer": 0.0,
         "loss": str(getattr(args, "loss", "") or ""),
         "seed": int(seed),
+        "arch": 2,
+        "position_encoding": "sin",
+        "factor_trunk": "linear_gelu_dropout",
+        "gap_after_fusion_ln": True,
         "seq_clip": report.get("seq_clip"),
         "z_clip": z_clip,
         **span,
     }
     if report.get("lambdarank_truncation") is not None:
         weight_meta["lambdarank_truncation"] = int(report["lambdarank_truncation"])
-    if report.get("regression_false_open"):
-        weight_meta["regression_false_open"] = True
     _try_save_transformer(state, weight_meta)
     return {
         "arm": "T_transformer",
@@ -1681,12 +1695,17 @@ def _fmt_metric(v: Any) -> str:
 
 
 def _arm_done_bits(m: Dict[str, Any]) -> str:
-    """完成行与枢纽卡片同名：Rank IC、ICIR（日频 Pearson）、命中、Top10% y。"""
+    """完成行：Rank IC、Pearson ICIR（ICIR=）、Rank ICIR、命中、Top10% y。"""
+    ndcg = ""
+    if m.get("cs_ndcg_30") is not None:
+        ndcg = f" ndcg30={_fmt_metric(m.get('cs_ndcg_30'))}"
     return (
         f"rankIC={_fmt_metric(m.get('cs_rank_ic'))} "
         f"ICIR={_fmt_metric(m.get('cs_icir'))} "
+        f"rankICIR={_fmt_metric(m.get('cs_rank_icir'))} "
         f"sign_hit={_fmt_metric(m.get('sign_hit'))} "
         f"topY={_fmt_metric(m.get('cs_top_mean_y'))}"
+        f"{ndcg}"
     )
 
 
@@ -1698,6 +1717,7 @@ def _metric_row(tag: str, pack: Dict[str, Any]) -> Dict[str, Any]:
         "cs_ic": pack.get("cs_ic"),
         "cs_icir": pack.get("cs_icir"),
         "sign_hit": pack.get("sign_hit"),
+        "cs_ndcg_30": pack.get("cs_ndcg_30"),
         "cs_top_mean_y": pack.get("cs_top_mean_y"),
         "n": pack.get("n"),
         "success": pack.get("success"),
@@ -1710,10 +1730,20 @@ def _relative_hard_gates(
     gate_fn,
     *,
     factory: str,
+    formal: bool = True,
 ) -> Optional[Dict[str, Any]]:
-    """LT 双臂才写相对硬闸。单臂工厂返回 None。"""
+    """LT 双臂才写相对硬闸。单臂工厂返回 None。非正式对照不写 pass=true。"""
     if factory != "LT":
         return None
+    if not formal:
+        return {
+            "T": {
+                "pass": False,
+                "applicable": False,
+                "lift": None,
+                "reasons": ["非正式对照：需要全量因子、采样 100%、共享评估窗"],
+            }
+        }
     base = summary.get("arm_L") if (summary.get("arm_L") or {}).get("success") else None
     pack_t = summary.get("arm_T") if isinstance(summary.get("arm_T"), dict) else {}
     if base and pack_t.get("success"):
@@ -1722,6 +1752,7 @@ def _relative_hard_gates(
         return {
             "T": {
                 "pass": False,
+                "applicable": True,
                 "lift": None,
                 "reasons": ["baseline missing: Arm·L 失败或无指标"],
             }
@@ -1730,6 +1761,7 @@ def _relative_hard_gates(
         return {
             "T": {
                 "pass": False,
+                "applicable": True,
                 "lift": None,
                 "reasons": [
                     f"Arm·T 失败：{pack_t.get('error') or '无指标'}"
@@ -1741,6 +1773,7 @@ def _relative_hard_gates(
     return {
         "T": {
             "pass": False,
+            "applicable": True,
             "lift": None,
             "reasons": ["Arm·L 与 Arm·T 均无成功指标"],
         }
@@ -1813,6 +1846,45 @@ def arml_keep_train_day(
     if start and ds < start:
         return False
     return True
+
+
+def carve_probe_days(
+    train_days: Sequence[str],
+    *,
+    horizon: int,
+    probe_days: int = 20,
+    min_probe: int = 5,
+    min_fit_days: int = 3,
+) -> Tuple[List[str], List[str], List[str]]:
+    """从训练日尾部切出探针。返回 (拟合日, 探针前隔离, 探针日)。
+
+    训练日已经停在 Holdout 隔离之前。这里再留一段同样长度的隔离，
+    避免拟合标签落到探针里。训练日不足、容纳不下最短探针时，探针为空，拟合日原样返回。
+    """
+    days: List[str] = []
+    seen = set()
+    for raw in train_days or []:
+        day = str(raw)[:10]
+        if len(day) < 10 or day in seen:
+            continue
+        seen.add(day)
+        days.append(day)
+    h = max(0, int(horizon or 0))
+    n = len(days)
+    room = n - h - int(min_fit_days)
+    if room < int(min_probe):
+        return days, [], []
+    probe_n = min(int(probe_days), room)
+    if probe_n < int(min_probe):
+        return days, [], []
+    probe = days[-probe_n:]
+    if h:
+        embargo = days[-(probe_n + h) : -probe_n]
+        fit = days[: -(probe_n + h)]
+    else:
+        embargo = []
+        fit = days[:-probe_n]
+    return fit, embargo, probe
 
 
 def label_horizon_days_for_head(head_id: str, horizon_days: int) -> int:
@@ -2558,14 +2630,37 @@ def _run_holdout(args: argparse.Namespace) -> int:
             seq_c.dates,
             calendar_dates=shared_cal if shared_cal else None,
         )
+        fit_days, probe_embargo, probe_days = carve_probe_days(
+            list(meta.get("train_days") or []),
+            horizon=label_horizon_days_for_head(
+                head_spec.id, getattr(args, "horizon_days", 1)
+            ),
+        )
+        if probe_days:
+            fit_set = set(fit_days)
+            probe_set = set(probe_days)
+            probe_idx = [
+                i for i in tr if str(seq_c.dates[i])[:10] in probe_set
+            ]
+            tr = [i for i in tr if str(seq_c.dates[i])[:10] in fit_set]
+        else:
+            probe_idx = []
+            print("ArmT 探针跳过：训练日不足", flush=True)
         summary["split_T"] = {
-            "fit_end": meta.get("fit_end"),
+            "fit_end": fit_days[-1] if fit_days else meta.get("fit_end"),
             "eval_start": meta.get("eval_start"),
             "n_train": len(tr),
             "n_test": len(te),
+            "n_probe": len(probe_idx),
+            "n_probe_days": len(probe_days),
+            "probe_start": probe_days[0] if probe_days else None,
+            "probe_end": probe_days[-1] if probe_days else None,
+            "probe_embargo": list(probe_embargo),
         }
         print(
-            f"ArmT 切分 train={len(tr)} test={len(te)} "
+            f"ArmT 切分 train={len(tr)} probe={len(probe_idx)} test={len(te)} "
+            f"probe={summary['split_T']['probe_start'] or '—'}…"
+            f"{summary['split_T']['probe_end'] or '—'} "
             f"eval_start={meta.get('eval_start')} rss={_rss_mb()}",
             flush=True,
         )
@@ -2576,7 +2671,9 @@ def _run_holdout(args: argparse.Namespace) -> int:
             if full_sample and not te:
                 print("ArmT Holdout=0 全样本训练，无评估窗", flush=True)
             try:
-                summary["arm_T"] = _run_arm_t(seq_c, fac_c, tr, te, args)
+                summary["arm_T"] = _run_arm_t(
+                    seq_c, fac_c, tr, te, args, probe_idx=probe_idx
+                )
             except Exception as exc:  # noqa: BLE001
                 import traceback
 
@@ -2695,14 +2792,16 @@ def _run_holdout(args: argparse.Namespace) -> int:
             table.append(_metric_row(tag, summary[key]))
     summary["comparison"] = table
     # 单臂工厂无页内相对闸；gates 必须在此赋值，后面的打印不能碰未绑定局部变量
-    gates = _relative_hard_gates(summary, gate_fn, factory=factory)
+    formal = bool((summary.get("parity") or {}).get("formal"))
+    gates = _relative_hard_gates(summary, gate_fn, factory=factory, formal=formal)
     summary["hard_gate_vs_arm_L"] = gates
     summary["gate"] = head_spec.gate if factory == "LT" else None
     summary["rss_mb_end"] = _rss_mb()
 
     print("\n=== 对比 ===", flush=True)
     print(
-        f"{'arm':<12} {'Rank IC':>8} {'ICIR':>8} {'命中':>8} {'Top10% y':>8}",
+        f"{'arm':<12} {'Rank IC':>8} {'RankICIR':>8} {'Pearson':>8} "
+        f"{'命中':>8} {'NDCG@30':>8} {'Top10% y':>8}",
         flush=True,
     )
     for r in table:
@@ -2712,8 +2811,10 @@ def _run_holdout(args: argparse.Namespace) -> int:
         print(
             f"{r['arm']:<12} "
             f"{(r.get('cs_rank_ic') if r.get('cs_rank_ic') is not None else float('nan')):>8.3f} "
+            f"{(r.get('cs_rank_icir') if r.get('cs_rank_icir') is not None else float('nan')):>8.3f} "
             f"{(r.get('cs_icir') if r.get('cs_icir') is not None else float('nan')):>8.3f} "
             f"{(r.get('sign_hit') if r.get('sign_hit') is not None else float('nan')):>8.3f} "
+            f"{(r.get('cs_ndcg_30') if r.get('cs_ndcg_30') is not None else float('nan')):>8.3f} "
             f"{(r.get('cs_top_mean_y') if r.get('cs_top_mean_y') is not None else float('nan')):>8.3f}",
             flush=True,
         )

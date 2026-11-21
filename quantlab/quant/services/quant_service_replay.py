@@ -12,11 +12,25 @@ _OO_FIT_LOCK = threading.Lock()
 _OO_FIT_RUNNING = False
 
 
+def _pool_label(source: object) -> str:
+    token = str(source or "")
+    if token == "hs300":
+        return "沪深300"
+    if token == "pool":
+        return "大池"
+    return "名单"
+
+
 def resolve_replay_candidates(
     codes: Optional[Sequence[str]] = None,
+    feature_set: Optional[str] = None,
 ) -> Dict[str, Any]:
-    """调仓回测候选：显式 codes，否则沪深300。``include_only`` 仍可收成指定名单。"""
-    from core.validation_universe import load_validation_universe, resolve_validation_codes
+    """调仓回测候选。
+
+    显式 codes 优先。否则用 ``feature_set`` 那一套截面（``pool`` 大池、``hs300`` 沪深300），
+    与回测中心物化截面同一套。未指定或无法识别时用沪深300。
+    """
+    from core.universe.feature_sets import codes_for_feature_set, normalize_feature_set
 
     if codes:
         cleaned = [str(c).strip() for c in codes if str(c).strip()]
@@ -27,27 +41,22 @@ def resolve_replay_candidates(
             "source": "explicit",
         }
 
-    uni = load_validation_universe()
-    include = [str(c).strip() for c in (uni.get("include_only") or []) if str(c).strip()]
-    if include:
-        return resolve_validation_codes(watching_codes=[], universe=uni)
-
-    from core.universe.feature_sets import codes_for_feature_set
-
-    hs = codes_for_feature_set("hs300", fetch=False)
-    if len(hs) < 50:
+    token = normalize_feature_set(feature_set) or "hs300"
+    picked = codes_for_feature_set(token, fetch=False)
+    min_n = 50 if token == "hs300" else 2
+    if len(picked) < min_n:
         return {
             "ok": False,
-            "error": "沪深300成分未就绪",
+            "error": "沪深300成分未就绪" if token == "hs300" else "大池未就绪",
             "codes": [],
             "count": 0,
-            "source": "hs300",
+            "source": token,
         }
     return {
         "ok": True,
-        "codes": list(hs),
-        "count": len(hs),
-        "source": "hs300",
+        "codes": list(picked),
+        "count": len(picked),
+        "source": token,
     }
 
 
@@ -85,6 +94,7 @@ class QuantReplayMixin:
         price_space_gate: Optional[bool] = None,
         score_model_role: Optional[str] = None,
         score_backend: Optional[str] = None,
+        feature_set: Optional[str] = None,
         progress_cb: Optional[Any] = None,
         cancel_cb: Optional[Any] = None,
     ) -> Dict[str, Any]:
@@ -115,18 +125,21 @@ class QuantReplayMixin:
         if _cancelled():
             return {"success": False, "error": "已取消", "cancelled": True}
 
-        _emit("解析候选…" if codes else "解析沪深300…")
-        resolved = resolve_replay_candidates(codes)
+        from core.universe.feature_sets import normalize_feature_set
+
+        pinned = normalize_feature_set(feature_set)
+        _emit("解析候选…" if codes else f"解析{_pool_label(pinned or 'hs300')}…")
+        resolved = resolve_replay_candidates(codes, feature_set=feature_set)
         if not resolved.get("ok", True) and resolved.get("error"):
             return {"success": False, "error": resolved["error"], "universe": resolved}
         candidates = list(resolved.get("codes") or [])
         if not candidates:
             return {
                 "success": False,
-                "error": resolved.get("error") or "沪深300成分为空",
+                "error": resolved.get("error") or f"{_pool_label(resolved.get('source'))}成分为空",
                 "universe": resolved,
             }
-        pool_name = "沪深300" if resolved.get("source") == "hs300" else "名单"
+        pool_name = _pool_label(resolved.get("source"))
 
         fit_meta: Dict[str, Any] = {
             "unrestricted": True,
@@ -346,9 +359,10 @@ class QuantReplayMixin:
 
         from core.universe.feature_sets import feature_set_scope
 
+        scope_name = str(resolved.get("source") or "")
         score_scope = (
-            feature_set_scope("hs300")
-            if resolved.get("source") == "hs300"
+            feature_set_scope(scope_name)
+            if scope_name in ("hs300", "pool")
             else nullcontext()
         )
         try:
@@ -439,6 +453,7 @@ class QuantReplayMixin:
             "price_space_gate": gate_on,
             "score_model_role": role,
             "score_backend": backend,
+            "feature_set": scope_name if scope_name in ("hs300", "pool") else (pinned or ""),
             "score_axis_note": (
                 "引擎=paper_replay：每个交易日 09:30 rank_lots"
                 f"（成交 {clock} 5m · 初始 {cash / 10000:g} 万 · fuse={FORMULA_OO_FUSE} · "
@@ -490,7 +505,7 @@ class QuantReplayMixin:
                 bench_bars = stock_bars
                 pool_label = None
                 if bench_code.lower() in POOL_BENCH_ALIASES:
-                    bench_label = "沪深300等权" if resolved.get("source") == "hs300" else "名单等权"
+                    bench_label = f"{pool_name}等权"
                     _emit(f"挂基准（{bench_label}）…")
                     bench_bars, bench_meta = resolve_tier_a_benchmark_bars(
                         stock_bars,

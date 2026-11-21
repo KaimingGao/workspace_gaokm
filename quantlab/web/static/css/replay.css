@@ -356,6 +356,11 @@ body[data-page="replay"] .replay-model-field #paper-t0-score-model-role {
   min-width: 4.5rem;
 }
 
+body[data-page="replay"] .replay-pool-field #quant-feature-set {
+  width: 5.5rem;
+  min-width: 5.5rem;
+}
+
 /* 做 T 回测前缀滑条：对齐研究台 quant-tau-end-slider 语汇 */
 body[data-page="replay"] .replay-t0-tau-end-slider {
   display: inline-flex;

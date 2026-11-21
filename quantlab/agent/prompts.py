@@ -49,7 +49,7 @@ QUANT_TASK_ENUM = (
 QUANT_TASK_ROUTES = (
     ("daily_summary", "量化日报/报告摘要"),
     ("cross_section", "横截面排序/Top N"),
-    ("portfolio_backtest", "沪深300组合历史回测"),
+    ("portfolio_backtest", "股票池组合历史回测"),
     ("weight_suggest", "因子 IC 权重建议"),
     ("threshold_suggest", "stance 阈值 OOS 校准"),
     ("interpret", "量化日报 AI 解读"),

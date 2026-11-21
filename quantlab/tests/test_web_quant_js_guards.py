@@ -1499,7 +1499,17 @@ class TestWebQuantJsGuards(unittest.TestCase):
         )
         self.assertLess(
             replay.find('id="quant-score-model-role"'),
+            replay.find('id="quant-feature-set"'),
+        )
+        self.assertLess(
+            replay.find('id="quant-feature-set"'),
             replay.find('id="quant-portfolio-run"'),
+        )
+        self.assertIn('quant-pro-field-label">股票池</span>', replay)
+        self.assertIn('<option value="pool">大池</option>', replay)
+        self.assertIn(
+            '<option value="hs300" selected>沪深300</option>',
+            replay[replay.find('id="quant-feature-set"') :],
         )
         self.assertNotIn('id="quant-score-backend"', replay)
         self.assertNotIn(">ŷ头</span>", replay)
@@ -1840,6 +1850,9 @@ class TestWebQuantJsGuards(unittest.TestCase):
         self.assertIn("paper-t0-score-model-role", bt_js)
         self.assertIn('id === "paper-t0-score-model-role" ? "live"', bt_js)
         self.assertIn("quant-score-model-role", bt_js)
+        self.assertIn("function readFeatureSet", bt_js)
+        self.assertIn("feature_set: readFeatureSet()", bt_js)
+        self.assertIn("quant-feature-set", bt_js)
         self.assertIn("readPriceSpaceGate", bt_js)
         self.assertIn("price_space_gate", bt_js)
         self.assertIn("readReplayLots", bt_js)
@@ -2192,7 +2205,8 @@ class TestWebQuantJsGuards(unittest.TestCase):
         self.assertNotIn("默认 100", trades_js)
         self.assertNotIn("rank < top 50%", trades_js)
         self.assertNotIn("rank&lt;N", trades_js)
-        self.assertIn("当日沪深300截面名次", trades_js)
+        self.assertIn("ŷ_oo_rank 当日截面名次", trades_js)
+        self.assertNotIn("当日沪深300截面名次", trades_js)
         self.assertIn("1=相对分最高", trades_js)
         self.assertIn("_ooRankOrdinalDisplay", trades_js)
         self.assertIn("旧回测为相对分或缺池大小，请重跑", trades_js)

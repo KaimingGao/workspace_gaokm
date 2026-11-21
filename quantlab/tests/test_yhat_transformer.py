@@ -547,13 +547,14 @@ class TestYhatSeqPanel(unittest.TestCase):
             feature_names=["c0", "c1", "c2"],
         )
         seq = sequence_from_factor_panel(fac, {"000001": bars}, seq_len=5)
-        self.assertEqual(seq.X.shape, (len(dates) - 5, 5, width))
-        self.assertEqual(seq.feature_names, ("c0", "c1", "c2"))
+        self.assertEqual(seq.X.shape, (len(dates) - 5, 5, width + 1))
+        self.assertEqual(seq.feature_names, ("c0", "c1", "c2", "age_td"))
         self.assertEqual(seq.dates[0], dates[5])
-        expected = raw[:5].copy()
-        expected[2, 1] = 0.0
-        np.testing.assert_allclose(seq.X[0], expected)
-        self.assertFalse(np.allclose(seq.X[0, -1], raw[5]))
+        self.assertTrue(np.isnan(seq.X[0, 2, 1]))
+        np.testing.assert_allclose(seq.X[0, :, :width], raw[:5], equal_nan=True)
+        self.assertAlmostEqual(float(seq.X[0, -1, -1]), 1.0 / 5.0, places=5)
+        self.assertAlmostEqual(float(seq.X[0, 0, -1]), 1.0, places=5)
+        self.assertFalse(np.allclose(seq.X[0, -1, :width], raw[5], equal_nan=True))
 
     def test_window_equals_vector_at(self):
         """窗口行必须等于当日 _vector_at，不能因为只算一次而改值。"""
@@ -692,6 +693,28 @@ class TestYhatModelSmoke(unittest.TestCase):
                 d_seq_in=8, d_factor=2, d_model=64, nhead=3, nlayers=1, factor_hidden=16
             )
 
+    def test_arch2_prefix_order_changes_output(self):
+        import torch
+
+        from core.research.yhat_transformer.model import SeqFactorTransformer
+
+        torch.manual_seed(0)
+        kw = dict(d_seq_in=4, d_factor=5, d_model=16, nhead=2, nlayers=1, factor_hidden=16)
+        x = torch.randn(2, 6, 4)
+        g = torch.randn(2)
+        f = torch.randn(2, 5)
+        order = [1, 3, 0, 2, 4, 5]
+        new = SeqFactorTransformer(arch=2, **kw).eval()
+        old = SeqFactorTransformer(arch=1, **kw).eval()
+        y_new = new(x, g, f)
+        y_new_perm = new(x[:, order, :], g, f)
+        self.assertFalse(torch.allclose(y_new, y_new_perm, atol=1e-4))
+        y_old = old(x, g, f)
+        y_old_perm = old(x[:, order, :], g, f)
+        self.assertTrue(torch.allclose(y_old, y_old_perm, atol=1e-3))
+        with self.assertRaises(RuntimeError):
+            new.load_state_dict(old.state_dict(), strict=True)
+
     def test_arm_t_holdout_each_epoch_does_not_pick_weights(self):
         from core.research.yhat_transformer.seq_dataset import SeqPanel
         from core.research.yhat_transformer.train import train_seq_factor_transformer
@@ -714,8 +737,8 @@ class TestYhatModelSmoke(unittest.TestCase):
             feature_names=("a", "b", "c", "d"),
         )
         fac = rng.randn(n, 3).astype(np.float32)
-        train_idx = list(range(48))
-        holdout_idx = np.asarray(list(range(48, n)), dtype=np.int64)
+        train_idx = list(range(42))
+        probe_idx = list(range(42, 48))
         _state, report = train_seq_factor_transformer(
             panel,
             fac,
@@ -727,15 +750,20 @@ class TestYhatModelSmoke(unittest.TestCase):
             epochs=2,
             batch_size=16,
             seed=0,
-            holdout_idx=holdout_idx,
+            probe_idx=probe_idx,
         )
-        rows = report.get("holdout_by_epoch") or []
+        rows = report.get("probe_by_epoch") or []
         self.assertEqual([r["epoch"] for r in rows], [1, 2])
-        self.assertTrue(all(int(r["n"]) == len(holdout_idx) for r in rows))
-        self.assertTrue(all(r["cs_rank_ic"] is not None for r in rows))
+        self.assertTrue(all(int(r["n"]) == len(probe_idx) for r in rows))
+        self.assertTrue(all(r.get("cs_top_mean_y") is not None for r in rows))
+        self.assertNotIn("holdout_by_epoch", report)
         self.assertNotIn("n_val", report)
         self.assertNotIn("best_val_loss", report)
         self.assertEqual(report.get("n_train"), len(train_idx))
+        self.assertEqual(report.get("arch"), 2)
+        self.assertNotIn("false_open_weight", report)
+        self.assertNotIn("missed_up_weight", report)
+        self.assertTrue(all("cs_icir" in r and "cs_rank_icir" in r for r in rows))
 
     def test_configure_torch_threads_default_four(self):
         import os
@@ -767,9 +795,9 @@ class TestYhatModelSmoke(unittest.TestCase):
             _resolve_loss,
         )
 
-        self.assertEqual(_resolve_loss("lambdarank")[0], "lambdarank")
-        self.assertEqual(_resolve_loss("mse")[0], "smooth_l1")
-        self.assertEqual(_resolve_loss("huber")[0], "smooth_l1")
+        self.assertEqual(_resolve_loss("lambdarank"), "lambdarank")
+        self.assertEqual(_resolve_loss("mse"), "smooth_l1")
+        self.assertEqual(_resolve_loss("huber"), "smooth_l1")
         y = torch.tensor([0.0, 1.0, 3.0, 8.0])
         aligned = torch.tensor([0.0, 1.0, 2.0, 3.0], requires_grad=True)
         flipped = torch.tensor([3.0, 2.0, 1.0, 0.0], requires_grad=True)
@@ -795,13 +823,15 @@ class TestYhatModelSmoke(unittest.TestCase):
         self.assertGreater(float(head), 0.0)
         self.assertFalse(torch.allclose(full, head, atol=1e-5))
 
-        # 分数已经拉开的逆序，梯度应小于贴在一起的逆序。
+        # 反方向的大间隔保持梯度，不小于贴在一起的逆序。
         y3 = torch.tensor([0.0, 1.0, 2.0])
         close = torch.tensor([1.0, 0.0, 2.0], requires_grad=True)
         far = torch.tensor([50.0, -50.0, 2.0], requires_grad=True)
         _lambdarank_group_loss(close, y3).backward()
         _lambdarank_group_loss(far, y3).backward()
-        self.assertLess(float(far.grad[0].abs()), float(close.grad[0].abs()))
+        self.assertGreaterEqual(
+            float(far.grad[0].abs()), float(close.grad[0].abs()) * 0.5
+        )
 
     def test_lambdarank_large_cross_section_keeps_gradient(self):
         """A 股一日 ~1500 只时，loss 和分数梯度不能被 pair 平均打成 0。"""
@@ -822,48 +852,24 @@ class TestYhatModelSmoke(unittest.TestCase):
         if float(y[worst]) > float(y.median()):
             self.assertLess(float(pred.grad[worst]), 0.0)
 
-    def test_regression_loss_penalizes_false_opens(self):
-        """预测为正、实现为负的样本比全样本 SmoothL1 多计一次。"""
+    def test_regression_loss_is_smooth_l1(self):
+        """回归头就是 SmoothL1。漏涨和猜涨猜错都按同一权重。"""
         import torch
 
-        from core.research.yhat_transformer.train import (
-            _regression_batch_loss,
-            _resolve_loss,
-        )
+        from core.research.yhat_transformer.train import _regression_batch_loss
 
-        _, loss_fn = _resolve_loss("smooth_l1")
+        loss_fn = torch.nn.SmoothL1Loss(beta=1.0)
         y = torch.tensor([-0.8, 0.5, 0.4, -0.3])
         pred = torch.tensor([0.4, 0.3, -0.2, -0.5], requires_grad=True)
+        mixed = _regression_batch_loss(pred, y)
         plain = loss_fn(pred, y)
-        mixed = _regression_batch_loss(pred, y, loss_fn)
-        self.assertGreater(float(mixed.detach()), float(plain.detach()))
+        self.assertTrue(torch.allclose(mixed, plain))
         mixed.backward()
-
         pred_plain = pred.detach().clone().requires_grad_(True)
         loss_fn(pred_plain, y).backward()
-        # 预测高于实现，梯度为正。下降步减去它，误开闸的分数被多压一次。
-        self.assertGreater(float(pred.grad[0]), float(pred_plain.grad[0]))
-        self.assertGreater(float(pred.grad[0]), 0.0)
-        self.assertTrue(
-            torch.allclose(pred.grad[1:], pred_plain.grad[1:], atol=1e-6)
-        )
-
-        y_ok = torch.tensor([0.2, 0.5, -0.4, -0.3])
-        pred_ok = torch.tensor([0.4, 0.3, -0.2, -0.5])
-        self.assertTrue(
-            torch.allclose(
-                _regression_batch_loss(pred_ok, y_ok, loss_fn),
-                loss_fn(pred_ok, y_ok),
-            )
-        )
-        y_edge = torch.tensor([0.0, -0.5])
-        pred_edge = torch.tensor([0.4, 0.0])
-        self.assertTrue(
-            torch.allclose(
-                _regression_batch_loss(pred_edge, y_edge, loss_fn),
-                loss_fn(pred_edge, y_edge),
-            )
-        )
+        self.assertTrue(torch.allclose(pred.grad, pred_plain.grad, atol=1e-6))
+        empty = torch.empty(0)
+        self.assertEqual(float(_regression_batch_loss(empty, empty)), 0.0)
 
     def test_rank_loss_is_order_only(self):
         """排序损失只看序。整段平移不改变损失。"""
@@ -1498,6 +1504,65 @@ class TestArmLLiveAligned(unittest.TestCase):
         train_m.assert_not_called()
 
 
+class TestArmTGateAndProbe(unittest.TestCase):
+    def test_gate_sign_and_rank_icir(self):
+        from core.research.yhat_transformer.metrics import hard_gate_vs_baseline
+
+        def gate(bf, cf, bi, ci):
+            return hard_gate_vs_baseline(
+                {"cs_rank_ic": bf, "cs_rank_icir": bi},
+                {"cs_rank_ic": cf, "cs_rank_icir": ci},
+            )
+
+        self.assertFalse(gate(-0.04, -0.03, 0.40, 0.40)["pass"])
+        self.assertTrue(gate(0.05, 0.07, 0.50, 0.48)["pass"])
+        self.assertFalse(gate(0.10, 0.112, 0.50, 0.40)["pass"])
+        self.assertTrue(gate(-0.02, 0.03, -0.10, 0.20)["pass"])
+
+    def test_probe_days_stay_out_of_fit_and_each_other(self):
+        from datetime import date, timedelta
+
+        from scripts.run_yhat_transformer_holdout import carve_probe_days
+
+        days = [(date(2024, 1, 2) + timedelta(days=i)).isoformat() for i in range(50)]
+        fit, embargo, probe = carve_probe_days(days, horizon=1)
+        self.assertEqual(len(probe), 20)
+        self.assertEqual(embargo, [days[-21]])
+        self.assertEqual(probe[0], days[-20])
+        self.assertEqual(fit[-1], days[-22])
+        self.assertFalse(set(fit) & set(probe))
+        self.assertFalse(set(fit) & set(embargo))
+        self.assertFalse(set(probe) & set(embargo))
+        short = days[:8]
+        fit_short, embargo_short, probe_short = carve_probe_days(short, horizon=1)
+        self.assertEqual(probe_short, [])
+        self.assertEqual(embargo_short, [])
+        self.assertEqual(fit_short, short)
+
+    def test_seq_nan_imputes_train_median(self):
+        from core.research.yhat_factory_backtest import apply_seq_clip
+        from core.research.yhat_transformer.train import _impute_seq_median
+
+        X = np.array([[[1.0], [np.nan]], [[3.0], [5.0]]], dtype=np.float32)
+        med = _impute_seq_median(X, [0, 1], seed=0)
+        self.assertEqual(med, [3.0])
+        self.assertEqual(float(X[0, 1, 0]), 3.0)
+        filled = np.array([[[np.nan]]], dtype=np.float32)
+        gap = np.zeros((1,), dtype=np.float32)
+        apply_seq_clip(
+            filled,
+            gap,
+            {
+                "x_median": [3.0],
+                "x_lo": [-10.0],
+                "x_hi": [10.0],
+                "gap_lo": -1.0,
+                "gap_hi": 1.0,
+            },
+        )
+        self.assertEqual(float(filled[0, 0, 0]), 3.0)
+
+
 class TestRelativeHardGates(unittest.TestCase):
     def test_single_arm_factory_returns_none(self):
         from scripts.run_yhat_transformer_holdout import _relative_hard_gates
@@ -1524,6 +1589,20 @@ class TestRelativeHardGates(unittest.TestCase):
         self.assertIsInstance(gates, dict)
         self.assertFalse(gates["T"]["pass"])
         self.assertIn("baseline missing", gates["T"]["reasons"][0])
+
+    def test_informal_lt_is_not_applicable(self):
+        from scripts.run_yhat_transformer_holdout import _relative_hard_gates
+
+        summary = {
+            "arm_L": {"success": True, "cs_rank_ic": 0.01, "cs_rank_icir": 0.2},
+            "arm_T": {"success": True, "cs_rank_ic": 0.05, "cs_rank_icir": 0.3},
+        }
+        gates = _relative_hard_gates(
+            summary, lambda _a, _b: {"pass": True}, factory="LT", formal=False
+        )
+        self.assertFalse(gates["T"]["pass"])
+        self.assertFalse(gates["T"]["applicable"])
+        self.assertIn("非正式对照", gates["T"]["reasons"][0])
 
 
 class TestHoldoutSystemExitDesk(unittest.TestCase):

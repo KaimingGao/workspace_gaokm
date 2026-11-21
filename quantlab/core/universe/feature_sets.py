@@ -2,7 +2,7 @@
 
 L1 按票存，两套共用。L2 的 μ/σ 按名单哈希分开。模型中心和回测中心用
 ``QUANTLAB_FEATURE_SET`` 选择读哪一套；不设时仍读当前观察池。
-历史回测的调仓在本线程用 ``feature_set_scope("hs300")``，不改进程环境。
+历史回测的调仓在本线程用 ``feature_set_scope`` 钉所选截面（默认沪深300），不改进程环境。
 """
 
 from __future__ import annotations

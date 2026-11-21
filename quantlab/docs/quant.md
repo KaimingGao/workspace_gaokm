@@ -449,7 +449,7 @@ open(t) ──y_τ(t)──► close(t) ──隔夜──► open(t+1)
 
 **调仓回测 ŷ_oo / ŷ_τc=LightGBM**；Horizon τ30…90 已并入主卡双训（见 §4.3d）。
 
-**股票分档已下线。** 研究枢纽不再跑可预测性 A/B/C。历史回测的调仓对沪深300打分成交；回测中心按所选物化截面；live 调仓对观察池全池打分。都不再按档收缩可买集，也不再把档外持仓强制清掉。排序头训练宇宙同样是整池；新落盘 `train_universe=pool`。旧报告上的 `tier_a` 只作审计，新戳会摘掉档位字段。
+**股票分档已下线。** 研究枢纽不再跑可预测性 A/B/C。历史回测的调仓按所选股票池打分成交（大池或沪深300，与回测中心物化截面同一套）；live 调仓对观察池全池打分。都不再按档收缩可买集，也不再把档外持仓强制清掉。排序头训练宇宙同样是整池；新落盘 `train_universe=pool`。旧报告上的 `tier_a` 只作审计，新戳会摘掉档位字段。
 
 ### 4.2 τ 打分链（层 2 · 残差头挂载）
 
@@ -583,11 +583,11 @@ score_stock(code) 续——
 产品回测与 live Follow 同一套 **rank_lots**：按手数开/加/清仓（未过入场清仓，无「持」）。历史成交用 5 分钟 K（回测时间 09:30–10:00）；live 窗跟独立「启动时间」`live_fill_clock`（可含 09:25）。  
 权建议 OOS / WF 默认走轻量 `topk_oos_curve`；完整引擎在 `legacy/topk_backtest`（`full_engine=True` / 单测），**不进 `/replay`**。
 
-成功回测落盘 `data/last_portfolio_backtest.json`。打开 `/replay` 时 `GET /api/quant/last-portfolio-backtest` 恢复 KPI / 净值 / 分票贡献 / 成交账，**不重跑**；点「跑回测」才重算（默认后台 Job，进度条带日期 / 日序号 / 沪深300只数）。前端轮询：进度停滞 >25 分钟才判超时（墙钟上限 6 小时）；刷新可挂回仍在跑 / 已 `done` 的任务。**表单以「保存」为准**（权重/门槛/手数写入交易执行覆盖；本金/回测窗/模型本页记住；回测 `fill_clock` 与 live `live_fill_clock` 分立），刷新不用上次回测请求盖掉已存配置。日报摘要仍走 `summarize_portfolio_backtest`，不覆盖这份落盘。
+成功回测落盘 `data/last_portfolio_backtest.json`。打开 `/replay` 时 `GET /api/quant/last-portfolio-backtest` 恢复 KPI / 净值 / 分票贡献 / 成交账，**不重跑**；点「跑回测」才重算（默认后台 Job，进度条带日期 / 日序号 / 股票池只数）。前端轮询：进度停滞 >25 分钟才判超时（墙钟上限 6 小时）；刷新可挂回仍在跑 / 已 `done` 的任务。**表单以「保存」为准**（权重/门槛/手数写入交易执行覆盖；本金/回测窗/模型/股票池本页记住；回测 `fill_clock` 与 live `live_fill_clock` 分立），刷新不用上次回测请求盖掉已存配置。日报摘要仍走 `summarize_portfolio_backtest`，不覆盖这份落盘。
 
-**日线加载**：沪深300日 K 经 `load_portfolio_stock_bars` **单连接批量**读 `bars.db`（可 `max_bars` 截尾）；勿用多线程并发扫同一库。进度拆成「读本地日线 → 日线已就绪 → 过滤宇宙 → 准备成交参数」。剔 ST 只用观察池已存名（`watchlist_names`），**不**逐只 `get_quote`；缺名则保留。
+**日线加载**：所选股票池日 K 经 `load_portfolio_stock_bars` **单连接批量**读 `bars.db`（可 `max_bars` 截尾）；勿用多线程并发扫同一库。进度拆成「读本地日线 → 日线已就绪 → 过滤宇宙 → 准备成交参数」。剔 ST 只用观察池已存名（`watchlist_names`），**不**逐只 `get_quote`；缺名则保留。
 
-**开盘日打分缓存**（`data/cache/replay_scores/`，schema **v8**）：按沪深300**代码集合** + 研究/执行套模型**内容**指纹分目录（含 oo_rank / tc_rank，故 `zscore_universe` / `tier_codes` 变更会换 `run_key`），每日 `_score_open_day` 另存该日开盘信息集指纹（昨收窗**全量** bar 屑 + **今开**；开跑预计算、顺序回测滑动窗）。缓存行含 **ŷ、oo_rank / τc_rank**；小名单另可带 ŷ/rank **因子组成**（全池批量打分跳过 pred_contrib，成交/续持 tip 在 plan 后懒补，不依赖缓存里有组成）。09:30 命中整包复用；勿在命中后再单独重挂 τc_rank。v7 只写了 τc_rank、v6 只有名次，不读。**命中不重写**；miss 或指纹变了才 `save_day`。改 fuse / 手数 / 本金 / 融合权重、或日线 tip 多一天再跑，历史日可复用；换模型内容、换沪深300成分、改某日窗内任意 K、改 `max_window`、改分档可打分集则 miss / 新 `run_key`。`fill_clock≠09:30` 时走 `refresh_tau_heads_after_prefix`（前缀 ŷ_τc + 重挂 τc_rank，z 缩可交易；不进缓存）。`QUANTLAB_REPLAY_SCORE_CACHE=0` 关闭。写入新 `run_key` 时自动裁剪：同 schema 默认保留最近 20 个目录（`QUANTLAB_REPLAY_SCORE_CACHE_KEEP`，`0`=不裁剪），并删除更旧 schema（如 `v5/`）。
+**开盘日打分缓存**（`data/cache/replay_scores/`，schema **v8**）：按所选股票池**代码集合** + 研究/执行套模型**内容**指纹分目录（含 oo_rank / tc_rank，故 `zscore_universe` / `tier_codes` 变更会换 `run_key`），每日 `_score_open_day` 另存该日开盘信息集指纹（昨收窗**全量** bar 屑 + **今开**；开跑预计算、顺序回测滑动窗）。缓存行含 **ŷ、oo_rank / τc_rank**；小名单另可带 ŷ/rank **因子组成**（全池批量打分跳过 pred_contrib，成交/续持 tip 在 plan 后懒补，不依赖缓存里有组成）。09:30 命中整包复用；勿在命中后再单独重挂 τc_rank。v7 只写了 τc_rank、v6 只有名次，不读。**命中不重写**；miss 或指纹变了才 `save_day`。改 fuse / 手数 / 本金 / 融合权重、或日线 tip 多一天再跑，历史日可复用；换模型内容、换股票池成分、改某日窗内任意 K、改 `max_window`、改分档可打分集则 miss / 新 `run_key`。`fill_clock≠09:30` 时走 `refresh_tau_heads_after_prefix`（前缀 ŷ_τc + 重挂 τc_rank，z 缩可交易；不进缓存）。`QUANTLAB_REPLAY_SCORE_CACHE=0` 关闭。写入新 `run_key` 时自动裁剪：同 schema 默认保留最近 20 个目录（`QUANTLAB_REPLAY_SCORE_CACHE_KEEP`，`0`=不裁剪），并删除更旧 schema（如 `v5/`）。
 
 **一日分数包三态**（禁止第三处偷偷 `apply_*`）：
 

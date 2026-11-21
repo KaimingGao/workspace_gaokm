@@ -1257,9 +1257,23 @@ def run_factory_backtest(
 
 
 def apply_seq_clip(X: np.ndarray, gap: np.ndarray, clip: Optional[Mapping[str, Any]]) -> None:
-    """按训练时留下的 1%/99% 界裁序列。原地修改调用方自己的副本。"""
+    """先按训练列中位数填非有限值，再按 1%/99% 界裁。原地修改调用方自己的副本。"""
     if not isinstance(clip, Mapping):
         return
+    med = clip.get("x_median")
+    if med is not None:
+        try:
+            med_a = np.asarray(med, dtype=np.float32)
+        except (TypeError, ValueError):
+            med_a = None
+        if med_a is not None and med_a.shape[-1:] == X.shape[-1:]:
+            bad = ~np.isfinite(X)
+            if bool(bad.any()):
+                fill = np.broadcast_to(
+                    med_a.reshape((1,) * (X.ndim - 1) + (int(med_a.shape[0]),)),
+                    X.shape,
+                )
+                X[bad] = np.asarray(fill)[bad]
     try:
         lo = np.asarray(clip.get("x_lo"), dtype=np.float32)
         hi = np.asarray(clip.get("x_hi"), dtype=np.float32)
@@ -1441,6 +1455,8 @@ def _factor_seq_panel(
     feat_set: str,
     seq_len: int,
     full: Any,
+    *,
+    with_age: bool = False,
 ) -> Any:
     """core / full 序列：决策日前 L 日的因子列，宽与这一头的因子档相同。"""
     from core.research.yhat_transformer.factor_panel import (
@@ -1458,7 +1474,9 @@ def _factor_seq_panel(
             aoo_core_only=family == "oo",
             atc_core_only=family == "tc",
         )
-    return sequence_from_factor_panel(src, stock_bars, seq_len=int(seq_len))
+    return sequence_from_factor_panel(
+        src, stock_bars, seq_len=int(seq_len), with_age=bool(with_age)
+    )
 
 
 def _full_factor_panel(stock_bars: Mapping[str, Sequence[dict]], head: str):
@@ -1552,6 +1570,7 @@ def _predict_matrix(bundle: Mapping[str, Any], X: np.ndarray, seq, gap) -> np.nd
         nhead=int(meta.get("nhead") or 4),
         nlayers=int(meta.get("nlayers") or 3),
         factor_hidden=int(meta.get("factor_hidden") or meta.get("d_model") or 64),
+        arch=int(meta.get("arch") or 1),
     )
 
 
@@ -1750,7 +1769,7 @@ def score_open_window(
         )
         if int(getattr(seq, "n", 0) or 0) <= 0:
             raise ValueError("序列面板为空")
-    panels: Dict[Tuple[str, bool, str], Any] = {}
+    panels: Dict[Tuple[str, bool, str, bool], Any] = {}
     scores: Dict[str, Dict[Tuple[str, str], float]] = {}
     for head in HEADS:
         spec = specs.get(head) or {}
@@ -1758,7 +1777,8 @@ def score_open_window(
         pack = str(meta.get("factor_pack") or "")
         head_backend = head_backends[head]
         aligned = head_backend == "transformer"
-        key = (pack or head, aligned, feat_set if factor_seq else "")
+        with_age = int(meta.get("arch") or 1) >= 2
+        key = (pack or head, aligned, feat_set if factor_seq else "", with_age)
         if key not in panels:
             if aligned and factor_seq:
                 family = _head_family(head)
@@ -1777,7 +1797,9 @@ def score_open_window(
                         aoo_core_only=family == "oo",
                         atc_core_only=family == "tc",
                     )
-                seq_h = _factor_seq_panel(stock_bars, head, feat_set, seq_len, full)
+                seq_h = _factor_seq_panel(
+                    stock_bars, head, feat_set, seq_len, full, with_age=with_age
+                )
                 if int(getattr(seq_h, "n", 0) or 0) <= 0:
                     raise ValueError("序列面板为空")
                 from core.research.yhat_transformer.factor_panel import (
@@ -1991,8 +2013,9 @@ def score_enabled_replay_heads(
             meta = spec.get("meta") if isinstance(spec.get("meta"), dict) else {}
             pack = str(meta.get("factor_pack") or "")
             transformer = str(spec.get("backend") or "") == "transformer"
+            with_age = int(meta.get("arch") or 1) >= 2
             key = (
-                f"{pack or head}|{feat_set}|{_head_family(head)}"
+                f"{pack or head}|{feat_set}|{_head_family(head)}|age={int(with_age)}"
                 if transformer and factor_seq
                 else (pack or head)
             )
@@ -2015,7 +2038,12 @@ def score_enabled_replay_heads(
                             atc_core_only=family == "tc",
                         )
                     seq_h = _factor_seq_panel(
-                        stock_bars, head, feat_set, seq_len, full
+                        stock_bars,
+                        head,
+                        feat_set,
+                        seq_len,
+                        full,
+                        with_age=with_age,
                     )
                     from core.research.yhat_transformer.factor_panel import (
                         align_seq_and_factor,

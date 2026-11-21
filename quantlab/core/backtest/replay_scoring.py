@@ -538,7 +538,7 @@ def _attach_open_yhat_heads(
                     day_key = str(it.get("as_of") or it.get("date") or "")[:10]
                     if len(day_key) >= 10:
                         break
-            # L2 目录键必须是物化时的完整截面（历史回测为沪深300）；
+            # L2 目录键必须是物化时的完整截面（本线程钉的大池或沪深300）；
             # score_codes 可能是分档子集，不能拿去 universe_hash。
             cube_codes = None
             try:

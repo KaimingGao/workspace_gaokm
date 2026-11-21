@@ -26,6 +26,11 @@ class PaperReplayBacktestRequest(BaseModel):
         description="调仓打分头：仅 ridge（影子树头已下线；传入 tree 会被忽略）。",
         max_length=16,
     )
+    feature_set: str = Field(
+        default="hs300",
+        description="调仓股票池：pool=大池（当前观察池截面）；hs300=沪深300。空或无法识别按沪深300。与回测中心物化截面同一套。",
+        max_length=16,
+    )
     apply_costs: bool = True
     fetch_fundamentals: Optional[bool] = False
     exclude_st: bool = True

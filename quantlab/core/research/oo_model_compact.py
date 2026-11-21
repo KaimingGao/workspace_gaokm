@@ -20,7 +20,12 @@ logger = logging.getLogger(__name__)
 # 每批结束后关掉进程，把该批的字典堆还给系统。默认 4 进程 × 批内在途≤进程数。
 _POOL_BATCH = 24
 
-from core.research.factor_ols_fit import _qr_solve_np, clamp_ridge_lambda
+from core.research.factor_ols_fit import (
+    _qr_solve_np,
+    clamp_ridge_lambda,
+    complete_panel_min_obs,
+    complete_panel_min_rows,
+)
 from core.signal.factors.alpha_oo import (
     alpha_oo_core_raw_names,
     is_alpha_oo_core_raw_key,
@@ -1037,6 +1042,7 @@ def _prepare_matrix(
 
     ``row_pos`` 指定训练行。按列取值，避免先把全部列复制成训练子矩阵。
     剔除缺测过多的列和真常数，不按原始标准差设下限。
+    一列至少要盖住训练行的 1/4；交集仍不到 1/4 时，继续丢掉最空的列。
     """
     if row_pos is not None:
         y = np.asarray(y, dtype=np.float64)[row_pos]
@@ -1052,7 +1058,7 @@ def _prepare_matrix(
     if n_raw < 4:
         return None, None, [], feature_names[:], meta
 
-    min_obs = max(8, min(n_raw // 4, 40))
+    min_obs = complete_panel_min_obs(n_raw)
     name_j = {n: i for i, n in enumerate(feature_names)}
     from core.signal.factors.sum_identity import (
         drop_redundant_sum_share_names,
@@ -1082,7 +1088,7 @@ def _prepare_matrix(
         rows_idx = np.flatnonzero(rows_mask)
         n = int(rows_idx.size)
         p = len(active)
-        if n < max(4, p + min_samples_over_p):
+        if n < complete_panel_min_rows(n_raw, p, min_samples_over_p):
             miss = sorted(
                 (
                     int((~np.isfinite(_take_column(x, row_pos, name_j[name]))).sum()),

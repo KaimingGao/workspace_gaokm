@@ -280,11 +280,18 @@ function paintMetrics(ui, pack) {
   const section = sectionOf(ui);
   const box = section?.querySelector(".quant-recipe-console .yhat-tf-arm-metrics");
   if (box) {
+    const rankHead = ui === "oo_rank" || ui === "tc_rank";
+    const slots = box.querySelectorAll(":scope > div");
+    const hitLab = slots[2]?.querySelector("span");
+    if (hitLab) {
+      hitLab.textContent = rankHead ? "NDCG@30" : "命中";
+      hitLab.title = rankHead ? "Holdout 日均 NDCG@30" : "样本外方向命中率";
+    }
     const cells = box.querySelectorAll("strong");
     const values = [
       fmt3(pack?.cs_rank_ic),
       fmt3(pack?.cs_icir),
-      fmtHit(pack?.sign_hit),
+      rankHead ? fmt3(pack?.cs_ndcg_30) : fmtHit(pack?.sign_hit),
       fmt3(pack?.cs_top_mean_y),
     ];
     cells.forEach((el, i) => {

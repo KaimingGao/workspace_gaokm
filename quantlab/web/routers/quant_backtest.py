@@ -142,6 +142,7 @@ def _portfolio_backtest_kwargs(body: PaperReplayBacktestRequest) -> Dict[str, An
         "price_space_gate": body.price_space_gate,
         "score_model_role": body.score_model_role,
         "score_backend": _normalize_score_backend(body.score_backend),
+        "feature_set": body.feature_set,
     }
 
 @router.post("/api/quant/portfolio-backtest")

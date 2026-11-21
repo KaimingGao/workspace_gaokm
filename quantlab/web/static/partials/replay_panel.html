@@ -65,6 +65,16 @@
             <option value="live">执行</option>
           </select>
         </label>
+        <label
+          class="platform-field quant-pro-field replay-lookback-field replay-pool-field"
+          title="回测候选用哪一套已物化截面，打分也读同一套。大池是数据中心观察池；沪深300是固定成分。须与对应模型的拟合截面一致。"
+        >
+          <span class="quant-pro-field-label">股票池</span>
+          <select id="quant-feature-set" aria-label="股票池">
+            <option value="pool">大池</option>
+            <option value="hs300" selected>沪深300</option>
+          </select>
+        </label>
         <input type="hidden" id="quant-min-amount-pctile" value="" />
         <input type="hidden" id="quant-benchmark-code" value="pool" />
         <button type="button" id="quant-portfolio-run" class="dialog-btn">跑回测</button>
@@ -283,7 +293,7 @@
           ></div>
         </div>
         <p id="quant-portfolio-legend" class="quant-sub">
-          每个交易日 fill_clock 对沪深300按 fuse 调仓（基准 τ→open[T+1]）；过入场后买序按 rank_score；手数看上方入场/强档金额（按成交价换算整手，不够一手则跳过；单票市值不超过强档×120%）。横轴为本次全部交易日。
+          每个交易日 fill_clock 对所选股票池按 fuse 调仓（基准 τ→open[T+1]）；过入场后买序按 rank_score；手数看上方入场/强档金额（按成交价换算整手，不够一手则跳过；单票市值不超过强档×120%）。横轴为本次全部交易日。
         </p>
         <div id="quant-bt-stock-contrib" class="replay-stock-contrib" hidden aria-label="分票贡献"></div>
         <div id="quant-bt-trades" class="quant-weight-table-wrap" aria-label="成交流水"></div>
