@@ -23,10 +23,10 @@ class TestDailyService(unittest.TestCase):
 
             svc = DailyRunService(paper=PaperService(path=os.path.join(tmp, "paper.json")))
             out = svc.run(paper_run=True, eval_mock=True)
-        self.assertFalse(out["ok"])
+        self.assertTrue(out["ok"])
         self.assertTrue(out["eval_ok"])
-        paper_step = next(s for s in out["steps"] if s["name"] == "paper")
-        self.assertEqual(paper_step.get("code"), "paper_not_initialized")
+        paper_step = next(s for s in out["steps"] if s["name"] == "paper_run")
+        self.assertTrue(paper_step.get("skipped"))
 
 class TestDailyRunCli(unittest.TestCase):
     def test_cli_eval_mock(self):

@@ -330,8 +330,8 @@ class TestMainCallersUseService(unittest.TestCase):
         orch = Path(ROOT, "core/paper/rebalance/orchestrator.py").read_text(
             encoding="utf-8"
         )
-        self.assertIn("holding_rules", orch)
-        self.assertIn("run_daily_cycle", orch)
+        self.assertIn("已下线", orch)
+        self.assertNotIn("run_daily_cycle", orch)
         self.assertNotIn("from core.signal.score_stock import score_stock", orch)
         self.assertNotIn("from core.signal.cross_section import rank_cross_section", orch)
         self.assertNotIn("from core.signal.cluster.rank import rank_cluster_pools", orch)

@@ -8,7 +8,6 @@ const COMMANDS = [
   { id: "nav-replay", label: "前往 · 历史回测", hint: "/replay", href: "/replay", keywords: "回测 回溯 绩效 grid 做T" },
   { id: "nav-data", label: "前往 · 数据中心", hint: "/data", href: "/data", keywords: "数据 日K 日线 5m 分钟 物化 补齐 强更 新闻 舆情 观察池 重建 对齐 只数" },
   { id: "nav-quant", label: "前往 · 研究枢纽", hint: "/quant", href: "/quant", keywords: "研究 因子 ic ols 运维 日报 hub" },
-  { id: "nav-platform", label: "前往 · 平台", hint: "/platform", href: "/platform", keywords: "调度 日更 平台 系统设置" },
   {
     id: "nav-yhat-t",
     label: "前往 · 模型中心 Arm·T",

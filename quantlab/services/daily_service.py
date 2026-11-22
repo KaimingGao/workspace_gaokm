@@ -209,39 +209,14 @@ class DailyRunService:
                     failures.append(f"paper_rebalance: {msg}")
 
         if paper_run or paper_buy:
-            try:
-                if not self.paper.exists():
-                    raise FileNotFoundError(
-                        "纸面账户未初始化，请先在 Web「纸面」中点击「初始化」，"
-                        "或执行: python3 research/paper_run.py --init"
-                    )
-                result = self.paper.run(simulate_buy=bool(paper_buy))
-                steps.append(
-                    {
-                        "name": "paper_buy" if paper_buy else "paper_run",
-                        "ok": True,
-                        "observation_pool_count": result.get("observation_pool_count"),
-                        "new_trades": len(result.get("new_trades") or []),
-                        "sell_trades": len(result.get("sell_trades") or []),
-                        "equity": (result.get("summary") or {}).get("equity"),
-                    }
-                )
-            except FileNotFoundError as e:
-                msg = str(e)
-                steps.append(
-                    {
-                        "name": "paper",
-                        "ok": False,
-                        "error": msg,
-                        "code": "paper_not_initialized",
-                    }
-                )
-                failures.append(f"paper: {msg}")
-            except Exception as e:
-                logger.exception('unexpected error in run')
-                msg = str(e)
-                steps.append({"name": "paper", "ok": False, "error": msg, "code": "paper_error"})
-                failures.append(f"paper: {msg}")
+            steps.append(
+                {
+                    "name": "paper_buy" if paper_buy else "paper_run",
+                    "ok": True,
+                    "skipped": True,
+                    "reason": "持仓规则日循环已下线。开盘调仓在交易执行。",
+                }
+            )
 
         if eval_mock:
             report = self.evals.run(use_mock=True, with_agent=False, save=True)
@@ -334,7 +309,10 @@ class DailyRunService:
             "failures": failures[:30],
             "eval_ok": any(s.get("name") == "eval_mock" and s.get("ok") for s in steps),
             "paper_ok": any(
-                s.get("name") in ("paper_run", "paper_buy") and s.get("ok") for s in steps
+                s.get("name") in ("paper_run", "paper_buy")
+                and s.get("ok")
+                and not s.get("skipped")
+                for s in steps
             ),
         }
         self._save_last_run(

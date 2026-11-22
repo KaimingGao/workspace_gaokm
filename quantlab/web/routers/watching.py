@@ -111,7 +111,7 @@ async def watching_insights(
 ) -> Dict[str, Any]:
     """观察研究摘要（评分/超额等）。放到线程池，避免堵住 Web 事件循环。
 
-    ``offline_only`` 默认 true：只用本地仓。UI 恒传 true；写仓走增量补齐 Job。
+    ``offline_only`` 默认 true：只用本地仓。UI 恒传 true。日 K / 5m 补齐在数据中心。
     """
     import asyncio
 

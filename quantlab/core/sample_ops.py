@@ -604,7 +604,7 @@ def densify_paper_snapshots(
         "changed": True,
         "added": need,
         "count": len(merged),
-        "note": "插值日更仅供 KPI 演示；真实曲线仍靠 paper_daily。",
+        "note": "插值日更仅供 KPI 演示；真实曲线靠交易执行开盘调仓落账。",
     }
 
 
@@ -626,7 +626,7 @@ def prune_densified_snapshots(
         "changed": bool(removed),
         "removed": removed,
         "count": len(kept),
-        "note": "已剔除 densified；请继续真实 paper_daily 积累。",
+        "note": "已剔除 densified；请用交易执行开盘调仓积累真实净值。",
     }
 
 
@@ -791,9 +791,9 @@ def _status_hints(
             f"空财务 {fund.get('empty')} 只：补拉或移出验证宇宙（empty_codes）"
         )
     if snap_n < 20:
-        hints.append("连续 paper_daily（densify 仅演示）")
+        hints.append("净值点不足：靠交易执行开盘调仓积累（densify 仅演示）")
     elif densified_n > snap_n * 0.5:
-        hints.append("纸面快照过半为 densified，应用真实日更替换")
+        hints.append("纸面快照过半为 densified，应用开盘调仓的真实净值替换")
     if int(rb.get("block_count") or 0) and not rb.get("labeled_count"):
         hints.append("POST /api/paper/risk-blocks/annotate 标注 risk_block outcome")
     elif int(rb.get("labeled_count") or 0) < 20 and int(rb.get("block_count") or 0):

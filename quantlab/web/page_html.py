@@ -32,7 +32,6 @@ _PAGE_TITLES = {
     "strategy": "市场先验",
     "replay": "历史回测",
     "follow": "交易执行",
-    "platform": "平台",
     "yhat_l": "模型中心 · Arm·L",
     "yhat_t": "模型中心 · Arm·T",
     "yhat_r": "模型中心 · Arm·R",
@@ -48,7 +47,6 @@ _PANEL_CLASS = {
     "strategy": "quant-panel",
     "replay": "quant-panel",
     "follow": "quant-panel",
-    "platform": "quant-panel",
     "yhat_l": "quant-panel",
     "yhat_t": "quant-panel",
     "yhat_r": "quant-panel",
@@ -345,7 +343,7 @@ def _panel(name: str) -> str:
 
 
 def _side_nav(active: str) -> str:
-    """左侧导航（仪表盘 + 七业务）；AI 不占侧栏（顶栏 / ⌘K）。"""
+    """左侧导航（仪表盘 + 六业务）；AI 不占侧栏（顶栏 / ⌘K）。"""
 
     def item(page: str, href: str, label: str, sub: str, eid: str = "") -> str:
         is_on = active == page
@@ -367,7 +365,6 @@ def _side_nav(active: str) -> str:
             item("follow", "/follow", "交易执行", "调仓 · 做T执行", "btn-follow"),
             item("replay", "/replay", "历史回测", "调仓回测 · 做T回测", "btn-replay"),
             item("quant", "/quant", "研究枢纽", "因子 · 横截面 · 日报", "btn-quant"),
-            item("platform", "/platform", "平台", "调度 · 日更", "btn-settings"),
         ]
     )
     return f"""    <aside class="side-nav" aria-label="主导航">

@@ -71,7 +71,7 @@ python3 run_web.py
 | 入口 | `run_web.py` → FastAPI `web/app.py` |
 | 页面 | `web/static/`（对话 UI） |
 | API | `POST /api/chat`、`GET /api/paper*`、`GET/POST /api/evals/*`、`GET /api/usage`、`GET /api/health` |
-| 侧栏 | **仪表盘 · 市场先验 · 观察台 · 数据中心 · 交易执行 · 历史回测 · 研究枢纽 · 平台**；顶栏是 AI 抽屉（⌘K）。`/paper` 重定向到交易执行；`/strategy` 重定向到 `/market-prior` |
+| 侧栏 | **仪表盘 · 市场先验 · 观察台 · 数据中心 · 交易执行 · 历史回测 · 研究枢纽**；顶栏是 AI 抽屉（⌘K）。`/paper` 重定向到交易执行；`/strategy` 重定向到 `/market-prior`；`/platform` 重定向到 `/follow` |
 | 会话 | 请求头 `X-Session-Id`（前端存 localStorage） |
 | 端口 | 环境变量 `WEB_HOST`（默认 127.0.0.1）、`WEB_PORT`（默认 8000） |
 | 热重载 | 默认 **关**（`WEB_RELOAD=0`）。开发改 py 时设 `WEB_RELOAD=1`；热重载会中断纸面后台任务，确认调仓时勿触发。纸面/网格/对话 job 落盘 `data/jobs/*.json` |
@@ -184,7 +184,7 @@ README 仅列最常用命令；以下脚本按需调用：
 | 脚本 | 用途 |
 |------|------|
 | `python3 research/watching_run.py --init` / `--refresh` / `--show` | 从 `watching.example.json` 生成 `watching.json`（已存在则拒绝覆盖）/ 按 `sources` 刷新（空 `sources` 只补名称）/ 查看 |
-| `python3 research/paper_run.py --init` / `--run` | 模拟账户初始化 / 运行 |
+| `python3 research/paper_run.py --init` / `--status` | 模拟账户初始化 / 查看。`--run` 已下线 |
 | `python3 research/cross_section_run.py --limit 10` | 横截面回测 |
 | `python3 research/t0_backtest_run.py --code 茅台 --json` | 底仓做T模拟 |
 | `python3 research/sample_ops_run.py status` / `ingest-history` | 样本运营：TTM / 财务 history / 快照覆盖 |
@@ -291,7 +291,7 @@ Web 研究枢纽可查看子目录 README；无 LLM 时「AI 解读」可走 `PO
 
 **量化报告分享**：归档报告列表含 `share_url`（如 `/api/quant/reports/quant_daily_YYYYMMDD.html`），由 API 取出（需 Web 服务运行中）。
 
-侧栏对应关系：观察台维护观察池成员并建仓；交易执行看净值、持仓和调仓；历史回测跑组合回测；数据中心在概览定观察池只数并对齐，并写日 K、5m、新闻舆情、物化；研究枢纽做拟合；平台跑纸面日更（按钮「运行日更」）。预设与调度详见 [quant-ops.md](quant-ops.md)。
+侧栏对应关系：观察台维护观察池成员并建仓；交易执行看净值、持仓和开盘调仓；历史回测跑组合回测；数据中心在概览定观察池只数并对齐，并写日 K、5m、新闻舆情、物化；研究枢纽做拟合。预设与调度详见 [quant-ops.md](quant-ops.md)。
 
 ## 扩展新 Skill（约定）
 

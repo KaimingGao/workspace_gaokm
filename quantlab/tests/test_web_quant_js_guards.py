@@ -340,9 +340,6 @@ class TestWebQuantJsGuards(unittest.TestCase):
         self.assertIn("JOB_RESTART_INTERRUPT_ERR", minute_js)
         self.assertIn("sawOwnJob || jobId", bars_js)
         self.assertIn("sawOwnJob || jobId", minute_js)
-        topup_js0 = self._read("web", "static", "js", "data_warehouse_topup.js")
-        self.assertIn("jobRestartInterruptMessage", topup_js0)
-        self.assertNotIn("已结束但未返回结果", topup_js0)
         self.assertNotIn("日 K 任务已结束但未返回结果", bars_js)
         self.assertNotIn("5m 任务已结束但未返回结果", minute_js)
         self.assertNotIn("Force sync", bars_js)
@@ -959,15 +956,9 @@ class TestWebQuantJsGuards(unittest.TestCase):
         self.assertNotIn("installDataOfflineToggle", watching_js)
         offline_js = self._read("web", "static", "js", "data_offline.js")
         self.assertIn('return "offline_only=1"', offline_js)
-        self.assertIn("增量补齐", offline_js)
-        topup_js = self._read("web", "static", "js", "data_warehouse_topup.js")
-        self.assertIn("ensureWarehouseTopup", topup_js)
-        self.assertIn("/api/quant/bars/refresh", topup_js)
-        self.assertIn("/api/quant/minute/refresh", topup_js)
-        self.assertIn('mode: "topup"', topup_js)
-        self.assertIn("BARS_WATCHING_LIMIT", topup_js)
-        self.assertIn("BARS_DAILY_LOOKBACK", topup_js)
-        self.assertIn("clampBarsWatchingLimit", topup_js)
+        self.assertNotIn("installDataOfflineToggle", offline_js)
+        self.assertNotIn("getDataOfflineOnly", offline_js)
+        self.assertNotIn("ensureWarehouseTopup", offline_js)
         params_js = self._read("web", "static", "js", "quant", "params.js")
         self.assertIn("export const BARS_DAILY_LOOKBACK = 1060", params_js)
         self.assertIn("export const MODEL_FIT_LIMIT = 1600", params_js)
@@ -977,7 +968,6 @@ class TestWebQuantJsGuards(unittest.TestCase):
         self.assertNotIn("runMaterializeJob", bars_ui_js)
         self.assertNotIn("quant-bars-auto-materialize", bars_ui_js)
         self.assertNotIn("lookback: 1000", bars_ui_js)
-        self.assertNotIn("lookback: 1000", topup_js)
         mat_js = self._read("web", "static", "js", "quant", "materialize_ui.js")
         self.assertNotIn("export async function runMaterializeJob", mat_js)
         self.assertNotIn("export async function runTauMaterializeJob", mat_js)
@@ -1188,11 +1178,19 @@ class TestWebQuantJsGuards(unittest.TestCase):
         self.assertNotIn('id="quant-materialize-tau-clocks"', quant_html)
         self.assertNotIn('id="quant-materialize-tau-grid"', quant_html)
         follow = self._read("web", "static", "partials", "follow_panel.html")
-        self.assertIn('id="follow-data-offline"', follow)
+        self.assertNotIn('id="follow-data-offline"', follow)
+        self.assertNotIn("仅本地仓", follow)
+        self.assertNotIn("纸面模拟", follow)
+        self.assertNotIn("无实盘", follow)
+        self.assertNotIn('id="paper-cost-model"', follow)
+        self.assertNotIn("follow-head-actions", follow)
         paper_js = self._read("web", "static", "js", "paper.js")
         self.assertIn("offlineOnlyQuery", paper_js)
-        self.assertIn("installDataOfflineToggle", paper_js)
-        self.assertIn("ensureWarehouseTopup", paper_js)
+        self.assertNotIn("installDataOfflineToggle", paper_js)
+        self.assertNotIn("ensureWarehouseTopup", paper_js)
+        self.assertNotIn("getDataOfflineOnly", paper_js)
+        self.assertNotIn('id="paper-cost-model"', paper_js)
+        self.assertNotIn("/api/paper/cost-model", paper_js)
         self.assertIn("bindHost", paper_js)
         self.assertIn("fetchHoldingScoresWithRetry", paper_js)
         self.assertIn("applyHoldingsScorePack", paper_js)
@@ -1221,8 +1219,8 @@ class TestWebQuantJsGuards(unittest.TestCase):
         self.assertIn("data-hold-chg-code", hold_tip_js)
         rb = self._read("web", "static", "js", "paper", "cluster_rebalance.js")
         self.assertIn("offline_only: true", rb)
-        self.assertIn("ensureWarehouseTopup", rb)
-        self.assertIn("getDataOfflineOnly", rb)
+        self.assertNotIn("ensureWarehouseTopup", rb)
+        self.assertNotIn("getDataOfflineOnly", rb)
         self.assertIn("open_replay: true", rb)
         self.assertNotIn('fillAction === "wait_clock"', rb)
         self.assertNotIn('fillAction === "miss_window"', rb)
@@ -5852,7 +5850,7 @@ class TestWebQuantJsGuards(unittest.TestCase):
             r"\.quant-head h2\s*\{[^}]*font-size:\s*16px",
             msg="leftover 16px page title",
         )
-        for name in ("strategy", "watching", "follow", "replay", "quant", "platform"):
+        for name in ("strategy", "watching", "follow", "replay", "quant"):
             page_css = self._read("web", "static", "css", f"{name}.css")
             self.assertNotRegex(
                 page_css,
@@ -5866,11 +5864,10 @@ class TestWebQuantJsGuards(unittest.TestCase):
             )
         follow = self._read("web", "static", "css", "follow.css")
         self.assertNotIn("padding: 0 0 16px", follow)
-        self.assertNotRegex(
-            follow,
-            r"\.follow-desk-badge\s*\{[^}]*border-radius:\s*999px",
-            msg="follow desk badge must not be a 22/24px pill",
-        )
+        self.assertNotIn("follow-desk-badge", follow)
+        self.assertNotIn("follow-desk-guard", follow)
+        self.assertNotIn("follow-cost-model", follow)
+        self.assertNotIn("follow-head-actions", follow)
 
     def test_quant_replay_body_does_not_leak_typography(self):
         """页级字号/圆角不得写到 body，否则切页时侧栏/顶栏会跟着变。"""

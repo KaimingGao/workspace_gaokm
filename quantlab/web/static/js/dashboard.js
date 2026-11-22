@@ -357,7 +357,7 @@ function renderMarketContext(ctx) {
       sub: ctx.computed_at ? ctx.computed_at.slice(0, 16) : "—",
       cls: stale,
       tip:
-        "盘前上下文最近一次计算/展示时间。需刷新时请点「刷新 ingest」或等 paper_daily 自动拉取（过期约 18h）。非盘中 tick。",
+        "盘前上下文最近一次计算/展示时间。需刷新时请点「刷新 ingest」（过期约 18h）。非盘中 tick。",
     },
   ];
 

@@ -126,7 +126,7 @@ score_bars → sub_scores（特征）
 
 **ŷ_τ 模型共用、决策不重复**：调仓侧为买入闸 / fuse 成分；做 T 侧为 ŷ_τ*→ŷ_τw 选腿。细则见 [rebalance-logic.md](rebalance-logic.md) · [t0-logic.md](t0-logic.md) · [§2.5](#25-双层-predictedscoreŷoo-ŷτ)。
 
-实现：`core/execution.resolve_effective_execution` · `run_daily_cycle` / `POST /api/paper/run` · `core/t0/` · Web 规则在 `/replay`、落账在 `/follow`。纸面 `simulate_buys` / 建仓预演 `plan_buy_codes` 见 `core/paper/`。
+实现：`core/execution.resolve_effective_execution` · 交易执行开盘调仓 `rank_lots` · `core/t0/` · Web 规则在 `/replay`、落账在 `/follow`。`POST /api/paper/run` 已下线。纸面 `simulate_buys` / 建仓预演 `plan_buy_codes` 见 `core/paper/`。
 
 ### 代码模块索引
 
@@ -653,12 +653,12 @@ UI 横轴：权益/日收益按**交易日**；解读时勿与「ŷ 决策日」
 
 ```mermaid
 flowchart TD
-  subgraph daily [日更 · 不改 β]
-    B[刷新日线 / watching] --> C[paper_daily 调仓循环]
+  subgraph daily [开盘 · 不改 β]
+    B[刷新日线 / watching] --> C[交易执行自动调仓]
   end
   subgraph human [人审执行]
-    C --> V[交易执行：预演]
-    V --> X[确认调仓 · 纸面成交]
+    C --> V[交易执行：手动执行]
+    V --> X[确认落账 · 纸面成交]
   end
 ```
 
@@ -666,8 +666,7 @@ flowchart TD
 
 | 时刻 | 任务 | 改 β？ |
 |------|------|--------|
-| ~16:30 | advisor / paper 相关 | 否 |
-| ~16:35 | `paper_daily` | 否（可 demote + 刷新簿） |
+| 开盘窗 | 交易执行自动调仓（rank_lots） | 否 |
 | ~17:00 | `daily_quant` 日报等 | 否 |
 | 人择时 | 训练 / 启用 ŷ 头 | **是** |
 

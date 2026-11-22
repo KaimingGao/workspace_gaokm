@@ -298,7 +298,7 @@ flowchart TD
 |----|------|
 | **M1.1 DataService 收口** | **已落地**：`get_quote/bars/fundamentals/news/spot`；quant/paper/research 经 DataService |
 | **ports adapter 注入** | **已落地**：`adapters.bind` → `core.ports.registry`；实现一律来自 `adapters.*`（skills 仅 shim） |
-| **M1.2 观察池覆盖率** | **已落地**：`core/data/coverage.py` · `bars_warmup` / `paper_daily` 汇总 + 出站 |
+| **M1.2 观察池覆盖率** | **已落地**：`core/data/coverage.py` · `bars_warmup` 汇总 + 出站。收盘 `paper_daily` 不再汇总 |
 | **M1.3 基本面/资讯快照缓存** | **已落地**：`data/store/fundamentals|news` · `non_pit` · `fundamentals_warmup` |
 | **M1.4 观察池日线增量** | **已落地**：`merge_bars_by_date` · `fetch_daily_bars(incremental=True)` |
 | 复权多策略 `qfq\|hfq\|raw` | **D2 已落地**：`get_bars(adjust=)` · 缓存 `adjust_policy` 防混用；hfq 不可用回退 |
@@ -325,7 +325,7 @@ flowchart TD
 
 ### 采集运维
 
-- `POST /api/schedule/run` kinds：`bars_warmup` · `minute_warmup`（5m 预热 · 只走新浪 · 2 并发 · 开工间隔 2s）· `spot_refresh`（可串联行业补全）· `sector_map_enrich` · `fundamentals_warmup`（默认 ingest 真实 history）· `paper_daily` · `validation_prepare` · `sentiment_scan`
+- `POST /api/schedule/run` kinds：`bars_warmup` · `minute_warmup`（5m 预热 · 只走新浪 · 2 并发 · 开工间隔 2s）· `spot_refresh`（可串联行业补全）· `sector_map_enrich` · `fundamentals_warmup`（默认 ingest 真实 history）· `validation_prepare` · `sentiment_scan`。`paper_daily` 已拒绝。
 - Web 分钟强更：`POST /api/quant/minute/refresh` · `GET /api/quant/minute/status` · Job `GET /api/jobs/minute-refresh`
 - 验证宇宙卫生：`GET /api/ops/validation-hygiene` · `POST /api/ops/validation-prepare`
 - 舆情 as_of：`GET /api/ops/sentiment-as-of?code=&as_of=`

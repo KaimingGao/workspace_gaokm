@@ -105,16 +105,10 @@ const { createHoldingsIslandController } = await import(
 const { createClusterRebalanceController } = await import(
   `./paper/cluster_rebalance.js?v=${encodeURIComponent(_EXEC_V)}`
 );
-import {
-  getDataOfflineOnly,
-  installDataOfflineToggle,
-  offlineOnlyQuery,
-} from "./data_offline.js";
+import { offlineOnlyQuery } from "./data_offline.js";
 const { rebalanceDataFoot, t0DataFoot } = await import(
   `./data_policy.js?v=${encodeURIComponent(_EXEC_V)}`
 );
-import { ensureWarehouseTopup } from "./data_warehouse_topup.js";
-import { BARS_WATCHING_LIMIT } from "./quant/params.js";
 const { waitPaperJob: waitPaperJobPoll } = await import(
   `./paper/job_poll.js?v=${encodeURIComponent(_EXEC_V)}`
 );
@@ -601,21 +595,6 @@ export function initPaper(ctx) {
         showPortfolioChart();
       } catch (err) {
         setTradeStatus(String(err.message || err), { error: true, target: "paper-fund-status" });
-      }
-    });
-  }
-
-  const costModelSel = document.getElementById("paper-cost-model");
-  if (costModelSel && costModelSel.dataset.wired !== "1") {
-    costModelSel.dataset.wired = "1";
-    costModelSel.addEventListener("change", async () => {
-      try {
-        setTradeStatus("切换成本模型…");
-        await postPaperTrade("/api/paper/cost-model", {
-          cost_model: costModelSel.value,
-        });
-      } catch (err) {
-        setTradeStatus(String(err.message || err), { error: true });
       }
     });
   }
@@ -1745,33 +1724,12 @@ export function initPaper(ctx) {
     renderT0WorkerDetail(lastAccountData);
   }
 
-  async function prepareFollowWarehouse({ force = false } = {}) {
-    if (getDataOfflineOnly()) return { ok: true, skipped: true };
-    try {
-      return await ensureWarehouseTopup({
-        force,
-        watchingLimit: BARS_WATCHING_LIMIT,
-        onStatus: (msg) =>
-          setHoldingsLoadStatus(msg || "增量补齐本地仓…", { busy: true }),
-      });
-    } catch (err) {
-      const msg = String((err && err.message) || err || "增量补齐失败");
-      setHoldingsLoadStatus(msg, { error: true });
-      throw err;
-    }
-  }
-
   async function enrichHoldingsScores() {
     if (holdingsScoreEnrichPromise) return holdingsScoreEnrichPromise;
     holdingsScoreEnrichPromise = (async () => {
       setHoldingsLoadStatus("补 ŷ（缓存）…", { busy: true });
       try {
-        // 写仓与读分并行：topup 不挡 ŷ 展示
-        const topupPromise = getDataOfflineOnly()
-          ? Promise.resolve(null)
-          : prepareFollowWarehouse({ force: false }).catch(() => null);
         let { ok, data, error } = await fetchHoldingScoresWithRetry();
-        await topupPromise;
         if (!ok) {
           setHoldingsLoadStatus(error || "补 ŷ 失败", { error: true });
           return;
@@ -1883,10 +1841,9 @@ export function initPaper(ctx) {
   }
 
   function syncFollowDataPolicyFoots() {
-    const off = getDataOfflineOnly();
     const reb = document.getElementById("follow-rebalance-data-foot");
     if (reb) {
-      const t = rebalanceDataFoot(off);
+      const t = rebalanceDataFoot();
       reb.textContent = t;
       reb.title = t;
     }
@@ -1898,20 +1855,6 @@ export function initPaper(ctx) {
     }
   }
   syncFollowDataPolicyFoots();
-
-  installDataOfflineToggle(document.getElementById("follow-data-offline"), {
-    onChange: (offlineOnly) => {
-      syncFollowDataPolicyFoots();
-      (async () => {
-        try {
-          if (!offlineOnly) await prepareFollowWarehouse({ force: true });
-        } catch (_) {
-          /* status already set */
-        }
-        enrichHoldingsScores().catch(() => {});
-      })();
-    },
-  });
 
   async function loadPaper(opts = {}) {
     const quiet = !!(opts && opts.quiet);
@@ -2013,10 +1956,8 @@ export function initPaper(ctx) {
     const mainEl = document.getElementById("paper-main");
     paperInitialized = !!data.initialized;
     const costNote = document.getElementById("follow-cost-note");
-    const costSelect = document.getElementById("paper-cost-model");
     const stratHidden = document.getElementById("paper-strategy");
     const model = data.cost_model || (data.summary && data.summary.cost_model) || "zero";
-    if (costSelect && costSelect.value !== model) costSelect.value = model;
     const sid = data.strategy_id ? String(data.strategy_id) : "";
     if (sid && stratHidden && stratHidden.value !== sid) stratHidden.value = sid;
     if (costNote) {
@@ -2498,15 +2439,13 @@ export function initPaper(ctx) {
     btnPaper.addEventListener("click", () => openPaperDialog());
   }
 
-  if (document.getElementById("paper-init") || document.getElementById("paper-run") || document.getElementById("paper-adjust")) {
+  if (document.getElementById("paper-init") || document.getElementById("paper-adjust")) {
     const opsStatusEl =
       document.getElementById("paper-path-matrix-status") ||
       document.getElementById("paper-ops-load-status");
     let opsStatusTimer = null;
     const runBtns = [
-      "paper-run",
       "paper-adjust",
-      "paper-daily",
       "paper-init",
     ]
       .map((id) => document.getElementById(id))
@@ -2618,172 +2557,6 @@ export function initPaper(ctx) {
     });
     }
 
-    async function runPaper(simulateBuy, { dryRun = false } = {}) {
-      setPaperBusy(true);
-      const strategy =
-        document.getElementById("paper-strategy")?.value || "short_conservative";
-      showProgress(
-        1,
-        dryRun ? "手动预演…" : simulateBuy ? "启动模拟买入…" : "启动跑一日…"
-      );
-      try {
-        const res = await fetch("/api/paper/run", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            simulate_buy: simulateBuy,
-            background: true,
-            strategy: strategy,
-            dry_run: !!dryRun,
-          }),
-        });
-        const data = await res.json().catch(() => ({}));
-        if (!res.ok) throw new Error(data.detail || res.statusText);
-        if (!data.ok && data.error) throw new Error(data.error);
-        
-        let result;
-        if (data.background && data.job && data.job.id) {
-          // 后台模式，等待任务完成
-          const job = await waitPaperJob(data.job.id);
-          result = job.result || {};
-        } else {
-          // 同步模式，直接使用返回结果
-          result = data;
-        }
-        const n = result.observation_pool_count;
-        const buyTrades = result.new_trades || [];
-        const sellTrades = result.sell_trades || [];
-        const rebalanceReport = result.rebalance_report || [];
-        const cashImpact = result.cash_impact || null;
-        const riskGate = result.risk_gate || null;
-        const riskBudgetSkips = result.risk_budget_skips || [];
-        const dualScore = result.dual_score || null;
-        const emptyReason = result.empty_reason || null;
-        const minScore = result.min_score;
-        const priorSkipN = riskBudgetSkips.filter((s) => s && s.sentiment_prior).length;
-        const marketSkipN = riskBudgetSkips.filter((s) => s && s.market_prior).length;
-        const opsReport =
-          result.ops_report ||
-          (result.data_quality || result.risk_blocks || result.cost_model
-            ? {
-                strategy_id: result.strategy_id,
-                strategy_version: result.strategy_version,
-                cost_model: result.cost_model,
-                data_quality: result.data_quality,
-                risk_blocks: result.risk_blocks,
-                monitor_alerts: result.monitor_alerts,
-                buys_blocked: result.buys_blocked,
-                fallback_count: (result.data_quality || {}).fallback_count,
-              }
-            : null);
-
-        let resultText = dryRun
-          ? `预演完成 · 评分 ${n} 只`
-          : `完成 · 评分 ${n} 只`;
-        if (buyTrades.length > 0) {
-            resultText += ` · 加仓 ${buyTrades.length} 只`;
-        }
-        if (sellTrades.length > 0) {
-            resultText += ` · 减仓 ${sellTrades.length} 只`;
-        }
-        const marketTrimN = sellTrades.filter((t) => t && t.market_prior).length;
-        if (marketTrimN > 0) {
-            resultText += ` · 市场缩仓 ${marketTrimN}`;
-        }
-        if (priorSkipN > 0) {
-            resultText += ` · 舆情跳过 ${priorSkipN}`;
-        }
-        if (marketSkipN > 0) {
-            resultText += ` · 市场跳过 ${marketSkipN}`;
-        }
-        if (riskGate && riskGate.ok === false) {
-            resultText += " · 风控拦截加仓";
-        }
-        const fb = Number((opsReport && opsReport.fallback_count) || 0);
-        if (fb > 0) {
-            resultText += ` · 数据降级 ${fb} 只`;
-        }
-        if (buyTrades.length === 0 && sellTrades.length === 0) {
-            resultText += dryRun ? " · 预演无调仓" : " · 无调仓操作";
-            if (emptyReason) {
-              const lab = emptyReasonLabel(emptyReason);
-              if (lab) resultText += ` · ${lab}`;
-            }
-        }
-        if (!dryRun && result.note) {
-            resultText += ` · ${result.note}`;
-        } else if (!dryRun && result.fill_action === "staged") {
-            resultText += " · 已挂次日开盘单";
-        }
-
-        setPaperMetaText(resultText);
-        showProgress(100, (document.getElementById("follow-meta")||document.getElementById("paper-meta")||{}).textContent || "");
-        if (!dryRun) {
-          dismissRebalancePreview();
-          await loadPaper({ quiet: true });
-          if (typeof ctx.reloadWatching === "function") {
-            try {
-              await ctx.reloadWatching();
-            } catch (_) {}
-          }
-        } else if (simulateBuy && rebalanceReport.length > 0) {
-          renderRebalanceReport(rebalanceReport, {
-            preview: true,
-            cashImpact,
-            riskGate,
-            opsReport,
-            riskBudgetSkips,
-            dualScore,
-            emptyReason,
-            minScore,
-            fuseEnter: result.fuse_enter ?? minScore,
-            emptyDetail: result.empty_detail || null,
-            marketContext: result.market_context,
-          });
-        } else if (simulateBuy) {
-          renderRebalanceReport([], {
-            preview: true,
-            cashImpact,
-            riskGate,
-            opsReport,
-            riskBudgetSkips,
-            dualScore,
-            emptyReason,
-            minScore,
-            fuseEnter: result.fuse_enter ?? minScore,
-            emptyDetail: result.empty_detail || null,
-            marketContext: result.market_context,
-          });
-          setPaperMetaText(
-            resultText + (riskGate && riskGate.ok === false ? "" : " · 无可执行变动")
-          );
-        } else if (opsReport) {
-          const section = document.getElementById("paper-rebalance-section");
-          if (section) section.hidden = false;
-          renderOpsReport(opsReport, { forceShow: true });
-        }
-        setTimeout(hideProgress, 1200);
-        return result;
-      } catch (err) {
-        hideProgress();
-        throw err;
-      } finally {
-        setPaperBusy(false);
-      }
-    }
-
-    const paperRunBtn = document.getElementById("paper-run");
-    if (paperRunBtn) {
-    paperRunBtn.addEventListener("click", async (e) => {
-      e.preventDefault();
-      try {
-        await runPaper(false);
-      } catch (err) {
-        setPaperMetaText(String(err.message || err));
-      }
-    });
-    }
-
     const clusterRebalanceUi = createClusterRebalanceController({
       setPaperBusy,
       showProgress,
@@ -2808,49 +2581,6 @@ export function initPaper(ctx) {
         await followClusterRef.runWatchingMatrixPreview();
       } catch (err) {
         setPaperMetaText(String(err.message || err));
-      }
-    });
-    }
-
-    const paperDailyBtn = document.getElementById("paper-daily");
-    if (paperDailyBtn) {
-    paperDailyBtn.addEventListener("click", async (e) => {
-      e.preventDefault();
-      const includePaper = paperInitialized;
-      setPaperMetaText(includePaper
-        ? "每日任务运行中（观察池 + checklist）…"
-        : "模拟账户未初始化，仅运行 golden checklist…");
-      setPaperBusy(true);
-      showProgress(8, (document.getElementById("follow-meta")||document.getElementById("paper-meta")||{}).textContent || "");
-      try {
-        const data = await runDaily({
-          paperRun: includePaper,
-          paperBuy: false,
-          evalMock: true,
-          evalAgent: false,
-        });
-        const steps = formatDailySteps(data);
-        if (!includePaper && data.eval_ok) {
-          setPaperMetaText(`checklist 完成（已跳过纸面）· ${steps}`);
-        } else if (data.ok) {
-          setPaperMetaText(`每日任务完成 · ${steps}`);
-        } else {
-          const paperStep = (data.steps || []).find((s) => s.code === "paper_not_initialized");
-          setPaperMetaText(paperStep
-            ? `${paperStep.error} · ${steps}`
-            : `部分失败 · ${steps || data.error || ""}`);
-        }
-        showProgress(100, (document.getElementById("follow-meta")||document.getElementById("paper-meta")||{}).textContent || "");
-        if (includePaper) await loadPaper({ quiet: true });
-        else {
-          paperInitialized = false;
-        }
-        setTimeout(hideProgress, 1200);
-      } catch (err) {
-        hideProgress();
-        setPaperMetaText(String(err.message || err));
-      } finally {
-        setPaperBusy(false);
       }
     });
     }

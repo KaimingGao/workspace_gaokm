@@ -434,19 +434,12 @@ class TestWebApi(unittest.TestCase):
             path = os.path.join(tmp, "paper.json")
             deps.paper = PaperService(path)
             self.client.post("/api/paper/init")
-            with patch("services.paper_service.run_daily_cycle") as mock_run:
-                mock_run.return_value = {
-                    "signals": 2,
-                    "trades": 0,
-                    "equity": 100000.0,
-                }
-                res = self.client.post(
-                    "/api/paper/run",
-                    json={"simulate_buy": False},
-                )
-            self.assertEqual(res.status_code, 200)
-            self.assertTrue(res.json()["ok"])
-            mock_run.assert_called_once()
+            res = self.client.post(
+                "/api/paper/run",
+                json={"simulate_buy": False},
+            )
+            self.assertEqual(res.status_code, 410)
+            self.assertIn("已下线", res.json().get("detail") or "")
 
     def test_paper_init_conflict(self):
         if self.client is None:

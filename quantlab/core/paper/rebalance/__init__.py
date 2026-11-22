@@ -1,7 +1,7 @@
 """纸面调仓工具再导出。
 
 Follow / 日报 ``paper.rebalance()`` 走观察池 ``rank_lots``。
-日循环 ``/api/paper/run`` 走 ``orchestrator`` 的持仓规则。
+持仓规则日循环（``/api/paper/run`` · ``orchestrator``）已下线，不再成交。
 横截面 TopK 调仓链（``simulate_cross_section_rebalance`` / λ 闸）已删除。
 """
 

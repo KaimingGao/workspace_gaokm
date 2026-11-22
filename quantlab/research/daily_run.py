@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""每日自动化：纸面观察池 + 可选 golden checklist（供 cron / launchd 调用）。"""
+"""每日自动化：开盘 rank_lots、量化报告与 golden checklist（供 cron / launchd 调用）。"""
 
 
 import argparse
@@ -24,8 +24,8 @@ def main(argv=None) -> int:
         choices=sorted(DAILY_PRESETS.keys()),
         help="任务组合：advisor | quant | full",
     )
-    parser.add_argument("--paper-run", action="store_true", help="跑纸面观察池并记快照")
-    parser.add_argument("--paper-buy", action="store_true", help="纸面 run + 模拟买入")
+    parser.add_argument("--paper-run", action="store_true", help="已下线：持仓规则日循环，只记跳过")
+    parser.add_argument("--paper-buy", action="store_true", help="已下线：持仓规则日循环，只记跳过")
     parser.add_argument("--eval-mock", action="store_true", help="离线 golden checklist（mock）")
     parser.add_argument("--eval-agent", action="store_true", help="全量 Agent 回归（需 LLM）")
     parser.add_argument("--quant-report", action="store_true", help="量化 IC + TopK 摘要报告")

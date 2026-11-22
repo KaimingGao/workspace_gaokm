@@ -31,7 +31,7 @@ class PaperRebalanceRequest(BaseModel):
     )
     offline_only: bool = Field(
         default=True,
-        description="true=日线/分钟/指数只用本地仓；UI 恒传 true（可拉远端先走增量补齐写仓）",
+        description="true=日线/分钟/指数只用本地仓；UI 恒传 true",
     )
     strategy: Optional[str] = Field(
         default=None,
@@ -259,7 +259,7 @@ class PaperT0AutoRequest(BaseModel):
     enabled: Optional[bool] = None
     schedule: Optional[str] = Field(
         default=None,
-        description="cron 链式触发：after_close | with_paper_daily（Follow UI 已移除，默认 after_close）",
+        description="自动做 T 时刻。after_close 为现行值；with_paper_daily 仅兼容旧 paper.json，收盘链式触发已下线",
     )
     run_now: bool = Field(default=False, description="立即执行（落账）")
     dry_run: bool = Field(default=False, description="run_now 时仅预演")

@@ -80,7 +80,7 @@ def _append_schedule_from_file(events: List[Dict[str, Any]]) -> None:
             ts=last.get("finished_at") or last.get("ts") or "",
             title=f"调度 {last.get('kind') or 'job'}",
             detail=last.get("note") or last.get("error") or "",
-            href="/platform#platform-schedule-section",
+            href="/follow",
         )
     )
 
@@ -138,7 +138,7 @@ def build_audit_timeline(*, limit: int = 40) -> Dict[str, Any]:
                         if last.get("monitor_alerts")
                         else ""
                     ),
-                    href="/platform#platform-schedule-section",
+                    href="/follow",
                 )
             )
     except Exception as exc:
@@ -177,7 +177,7 @@ def build_audit_timeline(*, limit: int = 40) -> Dict[str, Any]:
                         f"{spec.get('version') or '—'}"
                     ),
                     detail=promo.get("note") or "",
-                    href="/platform",
+                    href="/market-prior",
                 )
             )
     except (OSError, TypeError, AttributeError, ValueError) as exc:

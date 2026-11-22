@@ -374,9 +374,9 @@ flowchart LR
 | 3 | 因子挖掘与模型 | ~62% | 线性可解释 + IC/权重/草稿晋升；NN 仅研究轨 |
 | 4 | 组合优化与风控 | ~70% | 分数预算 + risk_parity_lite + 暴露矩阵 + 原因码/outcome；仍缺完整 QP |
 | 5 | 历史回测验证 | ~85% | OOS/regime 分桶/WF/成本/Brinson lite/信号成交对照 |
-| 6 | 部署与迭代 | ~55% | 纸面日更 + 滚动 IC + 出站告警 + 人审晋升；无 OMS |
+| 6 | 部署与迭代 | ~55% | 开盘调仓 + 滚动 IC + 出站告警 + 人审晋升；无 OMS。收盘日更已下线 |
 
-**当前焦点**：DC/FM/RK 主干已落地（见 [能力地图](#能力地图六大模块) · [architecture.md](architecture.md)）。继续真实 `paper_daily`、财务预热与闸门勾选；**评估是否立项 N6** 见本章末「N6 真·实盘准入备忘」。**不冲 OMS / 全市场数仓**。
+**当前焦点**：DC/FM/RK 主干已落地（见 [能力地图](#能力地图六大模块) · [architecture.md](architecture.md)）。收盘 `paper_daily` 已下线；净值来自交易执行开盘调仓。继续财务预热与闸门勾选；**评估是否立项 N6** 见本章末「N6 真·实盘准入备忘」。**不冲 OMS / 全市场数仓**。
 
 ### P0 落地状态（2026-07）
 
@@ -404,7 +404,7 @@ flowchart LR
 
 | 项 | 状态 | 落点 |
 |----|------|------|
-| `paper_daily` 定时 | **已落地** | `scripts/daily_paper.sh` · launchd 示例 · `POST /api/schedule/run` · `GET /api/schedule/last` |
+| `paper_daily` 定时 | **已下线** | 收盘日循环与 `scripts/daily_paper.sh` 已删除。开盘调仓在交易执行 |
 | 监控告警进 UI | **已落地** | 横截面 ops_report 接线 `assess_strategy_health`；平台/交易执行展示告警 |
 | 告警→建议→promote | **已落地** | feedback `monitor_alerts`；研究枢纽 `POST /api/feedback/suggest`；`POST /api/strategy/promote`（无页面按钮） |
 
@@ -426,7 +426,7 @@ flowchart LR
 | 分数风险预算 + 高波缩放 | **已落地** | `core/risk/budget.py`；默认 `score_budget`；五问「仓位预算」 |
 | 撮合近似（T+1 / 板别涨跌停 / 跌停延后卖 / 滑点档） | **已落地** | `matching.resolve_exit_index` · 单票/TopK `skipped_limit_exit` / `exit_deferred` |
 | 收益归因（个股/行业/选股超额） | **已落地** | `core/backtest/attribution` · 组合回测 `attribution` · 回溯页指标卡 |
-| 告警出站 | **已落地** | `core/alert_outbound` · `paper_daily` → `data/alerts/` · 可选 `QUANTLAB_ALERT_WEBHOOK` |
+| 告警出站 | **已落地** | `core/alert_outbound` · 可选 `QUANTLAB_ALERT_WEBHOOK`。收盘 `paper_daily` 不再触发 |
 
 粗估：相对专业对照约 **~70%～78%**；仍缺完整数仓/QP/交易所级撮合；财务 PIT 为最小路径。**N6 实盘有意推迟**（策略验证成熟后另立项）。能力地图见上文 [能力地图](#能力地图六大模块)；北极星公式见 [产品北极星](#产品北极星)。
 
@@ -465,7 +465,7 @@ N1 DataQuality → N2 FactorLab → N3 PortfolioRisk → N4 BacktestOOS → N5 P
 N2 ──offline──► research/ml artifact ──promote only──► N5
 ```
 
-**锁定取舍**：生产 Alpha 仍为 `score_bars` 线性加权；NN 不得直连生产 `score`；不接券商 OMS，N5 用纸面日更 + 监控代替「部署」。
+**锁定取舍**：生产 Alpha 仍为 `score_bars` 线性加权；NN 不得直连生产 `score`；不接券商 OMS，N5 用交易执行开盘调仓 + 监控代替「部署」。
 
 达成度细节见上文 [达成度评估（2026-07）](#达成度评估202607)；P0–P3 实现规划与下一程见 [北极星实现规划](#北极星实现规划p0p3)。
 
@@ -596,12 +596,12 @@ StrategySpec（如 `short_conservative` + 成本模型 `simple_cn`）把信号�
     → ② 历史回测：验证规则（Top-K / WF / 成本）
     → ③ 交易执行：纸面落地（手管仓 · 策略调仓 · 可选做 T）
     → ④ 市场先验：M prior 人审写盘
-    → ⑤ 交易执行：北极星拟合 · 平台：告警 · 审计
+    → ⑤ 交易执行：北极星拟合 · 告警 · 审计
 ```
 
 **(1)(2) 落在第 ③ 步**；②④⑤ 常「有能力、少感知」。UI 应用短引导把回测与晋升接在调仓/做 T 之后，而不是在交易页堆更多旋钮。
 
-常被忽略但仍可用的能力：观察评分/倾向与建仓流水；组合回测与参数扫描/导出；策略 IC·草稿·promote；纸面日更与调仓五问；账户风控（只数/单票/行业/回撤）；手动加减仓与成本模型；告警→建议（不写盘）；AI 解读（不改 `score`/`stance`）；`/ws/live` 与命令面板。
+常被忽略但仍可用的能力：观察评分/倾向与建仓流水；组合回测与参数扫描/导出；策略 IC·草稿·promote；开盘调仓与调仓五问；账户风控（只数/单票/行业/回撤）；手动加减仓与成本模型；告警→建议（不写盘）；AI 解读（不改 `score`/`stance`）；`/ws/live` 与命令面板。收盘纸面日更已下线。
 
 Web 文案与页面落点见 [quant-ui · 用户心智与验证闭环](quant-ui.md#用户心智与验证闭环)。
 
@@ -771,7 +771,7 @@ data/*.json   → 配置与账本落盘
 | P4.2 日线本地缓存 | `data/store/` · [component/data.md](component/data.md) |
 | P4.3 回测报告扩展 | 基准/分层/参数扫描；`/replay` 产品回测 |
 | P4.4 信号可复现 evals | `evals/run_repro.py` |
-| P5.1 纸面账户 + 日更 | `core/paper/` · [quant-ops.md](quant-ops.md) `paper_daily` |
+| P5.1 纸面账户 + 开盘调仓 | `core/paper/` · 交易执行自动调仓。收盘 `paper_daily` 已下线 |
 | P5.2 Web 净值曲线 | `/follow` · `/dashboard` |
 | P5.3 规则 stance + LLM 只解释 | `compute_buy_stance`；不得改写 `stance_label` |
 

@@ -8,7 +8,7 @@ from quant.ops.daily_presets import resolve_daily_preset
 
 PRESET_EXPECTATIONS: Dict[str, Dict[str, bool]] = {
     "advisor": {
-        "paper_run": True,
+        "paper_run": False,
         "eval_mock": True,
         "quant_report": False,
         "paper_rebalance": False,
@@ -26,7 +26,7 @@ PRESET_EXPECTATIONS: Dict[str, Dict[str, bool]] = {
         "export_quant_report": True,
     },
     "full": {
-        "paper_run": True,
+        "paper_run": False,
         "eval_mock": True,
         "quant_report": True,
         "paper_rebalance": False,

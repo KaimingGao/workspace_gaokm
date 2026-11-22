@@ -526,23 +526,13 @@ class TestP2PaperOpsLoop(unittest.TestCase):
         self.assertIn("patch", out)
         self.assertFalse(out.get("auto_apply"))
 
-    def test_run_schedule_paper_daily_kind(self):
+    def test_run_schedule_paper_daily_retired(self):
         from core.schedule_jobs import run_schedule
 
-        fake = {
-            "ok": True,
-            "kind": "paper_daily",
-            "monitor_alerts": [],
-            "strategy_id": "short_conservative",
-            "cost_model": "simple_cn",
-            "data_quality": {},
-            "risk_blocks": [],
-        }
-        with patch("core.platform.schedule_jobs.run_paper_daily", return_value=fake) as mocked:
-            out = run_schedule("paper_daily", simulate_buy=False, strategy="short_conservative")
-        mocked.assert_called_once()
-        self.assertTrue(out.get("ok"))
+        out = run_schedule("paper_daily", simulate_buy=False, strategy="short_conservative")
+        self.assertFalse(out.get("ok"))
         self.assertEqual(out.get("kind"), "paper_daily")
+        self.assertIn("已下线", out.get("error") or "")
 
 if __name__ == "__main__":
     unittest.main()

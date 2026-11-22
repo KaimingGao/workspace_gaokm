@@ -10,27 +10,8 @@
       ·
       <a class="follow-hero-link" href="#follow-north-star">北极星</a>
       ·
-      <span id="follow-cost-note" title="成交按现价；可切换成本模型">零成本假设</span>
+      <span id="follow-cost-note" title="成交按现价，不计佣金、滑点与印花税">零成本假设</span>
     </p>
-  </div>
-  <div class="dashboard-head-actions quant-head-actions follow-head-actions">
-    <label
-      class="paper-t0-toggle data-offline-toggle"
-      title="关：不触发增量补齐；ŷ 读已物化特征（名单与现价/浮盈不受此开关）"
-    >
-      <input type="checkbox" id="follow-data-offline" role="switch" />
-      <span class="paper-t0-toggle-track" aria-hidden="true"></span>
-      <span class="data-offline-toggle-text paper-t0-toggle-text">仅本地仓</span>
-    </label>
-    <span class="quant-desk-badge follow-desk-badge" title="纸面模拟不写实盘；晋升 Strategy 后可申请实盘对接">纸面模拟</span>
-    <span class="follow-desk-guard" title="本页仅模拟账户；Promote 后才可对接实盘">无实盘</span>
-    <label class="follow-cost-model-field follow-cost-model-hero">
-      <span>成本</span>
-      <select id="paper-cost-model" class="follow-strategy-select" title="模拟成交成本模型">
-        <option value="zero">零成本</option>
-        <option value="simple_cn">A股简化</option>
-      </select>
-    </label>
   </div>
 </div>
 
@@ -271,8 +252,8 @@
     <section class="dashboard-section quant-section follow-rebalance-section" id="follow-section-rebalance" aria-labelledby="follow-section-rebalance-title" aria-label="策略调仓">
       <header class="dashboard-section-head quant-section-head follow-section-head">
         <h3 id="follow-section-rebalance-title" class="dashboard-section-title">策略调仓</h3>
-        <p class="dashboard-section-desc quant-section-desc" id="follow-rebalance-data-foot" title="ŷ 读已物化特征；可拉远端先增量补齐；落账价走行情；缺特征去物化">
-          ŷ 读物化特征 · 可拉远端→增量补齐 · 落账价行情 · ≠ 做T
+        <p class="dashboard-section-desc quant-section-desc" id="follow-rebalance-data-foot" title="ŷ 读已物化特征；落账价走行情；缺特征去数据中心物化">
+          ŷ 读物化特征 · 落账价行情 · ≠ 做T
         </p>
       </header>
       <div class="dashboard-card quant-pro-card follow-ops-card follow-rebalance-run-card" id="follow-fold-rebalance-run">
@@ -449,7 +430,7 @@
         <summary class="quant-secondary-fold-sum follow-secondary-fold-sum">
           <h3 id="follow-section-t0-title" class="dashboard-section-title">做 T</h3>
           <p class="dashboard-section-desc quant-section-desc" id="follow-t0-data-foot" title="选向用会话快照ŷ；路径用5m仓；Worker可拉最新5m；现价盯盘行情">
-            选向ŷ：回测/预演用各日会话快照（≠持仓实时分） · 路径5m：数据中心仓 / 页头可拉远端增量补齐（L0） · Worker/落账可拉最新5m · 现价盯盘走行情
+            选向ŷ：回测/预演用各日会话快照（≠持仓实时分） · 路径5m：数据中心仓 · Worker/落账可拉最新5m · 现价盯盘走行情
           </p>
         </summary>
       <div class="dashboard-card quant-pro-card follow-ops-card follow-t0-run-card" id="follow-fold-t0-run">

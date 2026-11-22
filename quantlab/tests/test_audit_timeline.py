@@ -57,7 +57,7 @@ class TestAuditTimeline(unittest.TestCase):
         self.assertRegex(kinds["decision"]["ts"], r"^\d{4}-\d{2}-\d{2}T")
         self.assertRegex(kinds["schedule"]["ts"], r"^\d{4}-\d{2}-\d{2}T")
         self.assertNotIn("href", kinds["decision"])
-        self.assertEqual(kinds["schedule"]["href"], "/platform#platform-schedule-section")
+        self.assertEqual(kinds["schedule"]["href"], "/follow")
 
     def test_clear_timeline_logs_keeps_promote(self):
         from web.audit_timeline import clear_audit_timeline_logs

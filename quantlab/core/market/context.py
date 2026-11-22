@@ -131,7 +131,7 @@ def ensure_pre_market_context(
     lookback: int = 30,
     stale_hours: float = 18.0,
 ) -> Dict[str, Any]:
-    """若快照过期则自动 ingest；供 paper_daily / 刷簿前调用。"""
+    """若快照过期则自动 ingest。配置键仍叫 ``auto_ingest_on_paper_daily``。"""
     try:
         from core.signal.config import load_signal_config
 

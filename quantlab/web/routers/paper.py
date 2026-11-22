@@ -31,7 +31,7 @@ def paper_status(lite: bool = False) -> Dict[str, Any]:
 @router.get("/api/paper/holding-scores")
 
 def paper_holding_scores(offline_only: bool = True) -> Dict[str, Any]:
-    """持仓 ŷ：默认仅本地仓。UI 恒传 offline_only=true；可拉远端先走增量补齐。"""
+    """持仓 ŷ：只读已物化特征。UI 恒传 offline_only=true。"""
     try:
         from core.signal.score_display import json_safe
 
@@ -221,22 +221,9 @@ def paper_cost_model(body: PaperCostModelRequest) -> Dict[str, Any]:
 @router.post("/api/paper/run")
 
 def paper_run(body: PaperRunRequest) -> Dict[str, Any]:
-    try:
-        if body.background:
-            return deps.paper.start_run_job(
-                simulate_buy=body.simulate_buy,
-                strategy=body.strategy,
-                dry_run=body.dry_run,
-            )
-        return deps.paper.run(
-            simulate_buy=body.simulate_buy,
-            strategy=body.strategy,
-            dry_run=body.dry_run,
-        )
-    except FileNotFoundError as e:
-        raise HTTPException(status_code=404, detail=str(e)) from e
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e)) from e
+    """持仓规则日循环已下线。开盘调仓走 ``/api/paper/rebalance``。"""
+    _ = body
+    raise HTTPException(status_code=410, detail="持仓规则日循环已下线。开盘调仓在交易执行。")
 
 @router.get("/api/paper/job")
 

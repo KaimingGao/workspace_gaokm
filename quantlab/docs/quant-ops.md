@@ -58,29 +58,20 @@ bash scripts/daily_advisor.sh
 bash scripts/daily_quant.sh
 bash scripts/daily_quant_paper.sh
 bash scripts/daily_full.sh
-bash scripts/daily_paper.sh   # P2 / N5：paper_daily（五问 + DecisionRecord + 衰减告警）
 ```
 
-环境变量（`daily_paper.sh`）：
-
-| 变量 | 默认 | 说明 |
-|------|------|------|
-| `PAPER_DAILY_SIMULATE_BUY` | `0` | `1` 时日更模拟买入 |
-| `PAPER_DAILY_STRATEGY` | `short_conservative` | 策略 ID |
+收盘 `paper_daily` / `scripts/daily_paper.sh` 已下线。开盘调仓在交易执行（自动调仓 worker）。
 
 **Web / API**：
 
 - `GET /api/daily/presets` — 列出 preset 与 flags
 - `POST /api/daily/run` — body 可传 `{ "preset": "quant" }`；显式 flag 会覆盖 preset 对应项
 - `GET /api/daily/last` — 上次任务摘要（`data/daily_last_run.json`）
-- `POST /api/schedule/run` — `{ "kind": "paper_daily", "strategy": "short", "simulate_buy": false }`
-- `GET /api/schedule/last` — 上次调度摘要（`data/schedule_last_run.json`，含五问字段）
+- `GET /api/schedule/last` — 上次调度摘要（`data/schedule_last_run.json`）。`kind=paper_daily` 已拒绝。
 
-`POST /api/daily/run` 且 `preset: "quant"` 即每日量化。平台 **「运行日更」** 等价于 `kind: "paper_daily"`。
+`POST /api/daily/run` 且 `preset: "quant"` 即每日量化（研究日报，不是开盘调仓）。
 
-**P2 演示闭环**：纸面日更告警 → 研究枢纽 `POST /api/feedback/suggest` → 人审 `POST /api/strategy/promote` → 再回测/纸面。
-
-**P23 日更预设**：`advisor` / `quant` / `full` / `quant_paper` 走 `POST /api/daily/run` 或 `research/daily_run.py --preset`。Web 上纸面日更在平台「运行日更」。
+**P23 日更预设**：`advisor` / `quant` / `full` / `quant_paper` 走 `POST /api/daily/run` 或 `research/daily_run.py --preset`。
 
 ---
 
@@ -96,12 +87,6 @@ bash scripts/daily_paper.sh   # P2 / N5：paper_daily（五问 + DecisionRecord 
 
 ```cron
 0 17 * * 1-5 cd /path/to/quantlab && bash scripts/daily_quant.sh >> data/logs/daily-quant.log 2>&1
-```
-
-工作日 16:35 跑纸面日更（P2）：
-
-```cron
-35 16 * * 1-5 cd /path/to/quantlab && bash scripts/daily_paper.sh >> data/logs/paper-daily.log 2>&1
 ```
 
 可选周末 Agent 回归（需 `DASHSCOPE_API_KEY`）：

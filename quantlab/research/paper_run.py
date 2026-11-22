@@ -16,8 +16,6 @@ from core.paper import (  # noqa: E402
     init_from_example,
     load_paper,
     mark_to_market,
-    run_daily_cycle,
-    save_paper,
 )
 
 
@@ -25,7 +23,7 @@ def main(argv=None) -> int:
     parser = argparse.ArgumentParser(description="QuantLab 纸面账户")
     parser.add_argument("--path", default=DEFAULT_PAPER_PATH, help="paper.json 路径")
     parser.add_argument("--init", action="store_true", help="从 paper.example.json 初始化")
-    parser.add_argument("--run", action="store_true", help="跑持仓/观察 signal 并记快照")
+    parser.add_argument("--run", action="store_true", help="已下线：持仓规则日循环")
     parser.add_argument(
         "--simulate-buy",
         action="store_true",
@@ -51,26 +49,8 @@ def main(argv=None) -> int:
         return 1
 
     if args.run:
-        result = run_daily_cycle(paper, simulate_buy=args.simulate_buy)
-        save_paper(paper, args.path)
-        if args.json:
-            print(json.dumps(result, ensure_ascii=False, indent=2))
-        else:
-            print(f"观察池 {result['observation_pool_count']} 只")
-            for s in result.get("top_signals") or []:
-                print(
-                    f"  - {s.get('stock_name')}({s.get('stock_code')}): "
-                    f"score={s.get('score')} reject={s.get('hard_reject')}"
-                )
-            if result.get("new_trades"):
-                print(f"纸面买入 {len(result['new_trades'])} 笔")
-            sm = result.get("summary") or {}
-            print(
-                f"净值 equity={sm.get('equity')} "
-                f"pnl={sm.get('total_pnl_pct')}% "
-                f"positions={sm.get('position_count')}"
-            )
-        return 0
+        print("持仓规则日循环已下线。开盘调仓在交易执行。")
+        return 2
 
     if args.status or not any([args.run, args.init]):
         summary = mark_to_market(paper)

@@ -145,18 +145,4 @@ export function initTheme() {
       });
   }
 
-  // /platform 高亮侧栏「平台」
-  try {
-    const u = new URL(window.location.href);
-    if (u.pathname.indexOf("/platform") === 0) {
-      document.querySelectorAll(".side-nav-item").forEach((a) => a.classList.remove("active"));
-      const s = document.getElementById("btn-settings");
-      if (s) {
-        s.classList.add("active");
-        s.setAttribute("aria-current", "page");
-      }
-    }
-  } catch (_) {
-    /* ignore */
-  }
 }

@@ -160,7 +160,7 @@ def compute_realization(
             "backtest_span": diag["backtest_span"],
             "note": (
                 f"纸面按日净值 {len(paper_pts)} 日、回测曲线 {len(bt_pts)} 日；"
-                f"至少各需 {_MIN_ALIGN + 1} 日。请每日 paper_daily，并在回溯页跑组合回测落盘曲线。"
+                f"至少各需 {_MIN_ALIGN + 1} 日。请用交易执行开盘调仓积累净值，并在历史回测落盘曲线。"
             ),
         }
 

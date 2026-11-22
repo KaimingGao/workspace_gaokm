@@ -33,7 +33,7 @@
   → Domain Facade (DS/SS/BS) → core → ports → adapters.bind
 ```
 
-Web 主路径：观察建仓 → 确认调仓（`run_daily_cycle`）→ 轮询 **`GET /api/jobs/paper`**（兼容 `/api/paper/job`）→ 回溯 QuantService。
+Web 主路径：观察建仓 → 交易执行开盘调仓（`rank_lots` / `POST /api/paper/rebalance`）。`POST /api/paper/run` 已 410。
 
 ## 4. 做得对的地方
 

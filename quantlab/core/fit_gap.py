@@ -331,7 +331,7 @@ def _append_rebalance_freq_hint(
             {
                 "code": "rebalance_freq",
                 "level": "info",
-                "message": "调仓/持有周期不同会导致路径分化；对齐 horizon 与纸面日更频率再比 Corr",
+                "message": "调仓/持有周期不同会导致路径分化；对齐 horizon 与开盘调仓频率再比 Corr",
             }
         )
 

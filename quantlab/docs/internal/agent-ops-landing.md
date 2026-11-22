@@ -115,7 +115,7 @@ Agent（编排旁路）
 |------|----------|------------|
 | 五问结构 | `build_ops_report` · `paper.last_ops_report` · UI `formatOpsReportHtml` | **无** Skill 读取 |
 | 建仓预演→确认 | `POST /api/watching/sync-paper/preview` + confirm | **未**挂 Agent |
-| 日循环 dry_run | `POST /api/paper/run` `{dry_run:true}` | **未**挂 |
+| 日循环 dry_run | `POST /api/paper/run` 已 410 | 已下线 |
 | 策略调仓 dry_run | `POST /api/paper/rebalance` `{dry_run:true\|open_replay}` | **未**挂 |
 | risk_block | `GET /api/paper/risk-blocks` · annotate | **未**挂 |
 | 监控健康 | `quant(task=health)` · `assess_strategy_health` | 部分可用 |

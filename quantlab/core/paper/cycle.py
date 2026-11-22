@@ -1,4 +1,4 @@
-"""纸面调仓 / 日循环流水线（从 paper.py 拆出，降低单文件集中度）。"""
+"""旧持仓规则日循环。产品入口已拒绝调用；开盘调仓走 rank_lots。"""
 
 import logging
 from typing import Any, Dict, List

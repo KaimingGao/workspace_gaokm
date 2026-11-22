@@ -11,7 +11,7 @@ const TAB_HREF = {
   strategy: { href: "/market-prior", label: "去市场先验" },
   replay: { href: "/replay", label: "去历史回测" },
   quant: { href: "/quant", label: "去研究枢纽" },
-  platform: { href: "/platform", label: "去平台" },
+  platform: { href: "/follow", label: "去交易执行" },
   reply: { href: "/watching", label: "去观察台" },
 };
 

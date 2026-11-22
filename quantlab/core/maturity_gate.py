@@ -124,7 +124,7 @@ def _fit_gate(ns, add) -> None:
             if rz.get("tracking_error_pct") is not None
             else ""
         ),
-        action="持续 paper_daily + 回溯页 Top-K 落盘曲线，对齐日期后再看 Corr/TE",
+        action="交易执行开盘调仓积累净值，并在历史回测落盘曲线，对齐日期后再看 Corr/TE",
     )
     corr = rz.get("corr")
     te = rz.get("tracking_error_pct")
@@ -159,7 +159,7 @@ def _ops_gate(snaps: dict, ttm: dict, add) -> None:
         and int(snaps.get("densified_count") or 0)
         <= int(snaps.get("count") or 0) * 0.5,
         f"snapshots={snaps.get('count')} densified={snaps.get('densified_count')}",
-        action="运行纸面日更；必要时 prune-densified",
+        action="交易执行开盘调仓落账；必要时 prune-densified",
     )
     add(
         "ops",
@@ -302,7 +302,7 @@ def _y_track_gate(snaps: dict, add) -> None:
         snap_count >= 5,
         f"paper snapshots={snap_count}（软阈值≥5 交易日净值点）",
         severity="soft",
-        action="平台/交易页运行纸面日更，积累真实净值序列",
+        action="交易执行开盘自动调仓落账，积累真实净值序列",
     )
 
 

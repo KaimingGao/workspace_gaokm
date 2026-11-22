@@ -37,9 +37,8 @@
 | 模式 | 枚举 | 适用场景 | 卖出逻辑 | 买入逻辑 |
 |------|------|----------|----------|----------|
 | **rank_lots** | live 观察池 · 回测所选股票池 | **生产主路径** | 未过入场、缺 y_oo_fuse 或 hard_reject 清仓 | fuse>fuse入场后按 rank_score 买，缺分才按 fuse；过 fuse强买 lot_strong_amount，否则 lot_base_amount |
-| **持仓规则** | `holding_rules` | 逐票规则引擎 | 单票信号扫描驱动卖出 | 按规则引擎加仓 |
 
-live 与历史回测统一走 `rank_lots`（`watching_matrix` / `backtest_paper_replay`）。
+`holding_rules` 收盘日循环已下线，不再成交。live 与历史回测只走 `rank_lots`（`watching_matrix` / `backtest_paper_replay`）。
 
 ---
 
@@ -68,7 +67,7 @@ live 与历史回测统一走 `rank_lots`（`watching_matrix` / `backtest_paper_
 | `fusion_w_oc` | 0.4（回测）/ live 随启动时间建议 | ŷ_τc 头权重（键名历史遗留 `oc`）；Follow 滑条右端 |
 | `cash_floor` | 0 | 不留现金地板。现金不够该手则缩到整百（最少一手）；仍买不起才跳过。强档买不下先试基础手数。 |
 | `holdings_mv_cap` | 150_000 | **live** 持仓市值上限；本笔将超则跳过该买。历史回测为 0（不限） |
-| `max_positions` | 策略限额 | 仅持仓规则日循环 / 风控仍可读；**rank_lots 开/加不再用它截断** |
+| `max_positions` | 策略限额 | 风控健康度仍可读；**rank_lots 开/加不用它截断**。收盘日循环已不再用它卖出 |
 | 初始现金（回测） | 200_000 | 历史回测默认本金，表单可改；不留地板 |
 
 配置写在 `execution.rebalance_timing.rank_lots`（仍认旧键 `path_matrix`）。
@@ -227,7 +226,7 @@ core/
 ├── paper/
 │   ├── rebalance/
 │   │   ├── __init__.py             # 再导出 match / turnover / force_trim / 配置
-│   │   ├── orchestrator.py         # 日循环 holding_rules（Follow 不走这里）
+│   │   ├── orchestrator.py         # 持仓规则日循环已拒绝，不写账
 │   │   ├── watching_matrix.py      # 观察池 live：算分 + rank_lots
 │   │   ├── rank_lots.py            # 生产调仓：τc y_oo_fuse · 已保存金额换手
 │   │   ├── auto_worker.py          # 09:30–10:00 自动调仓（Web 进程守护）
@@ -237,7 +236,7 @@ core/
 │   │   ├── turnover.py             # 换手预算
 │   │   ├── cash_reserve.py         # 现金保留
 │   │   └── match.py                # 涨跌停/停牌匹配
-│   ├── cycle.py                    # 日循环流水线（holding_rules）
+│   ├── cycle.py                    # 旧日循环库；产品入口已不再调用
 │   ├── exec.py                     # simulate_sells / simulate_buys
 │   ├── costs.py                    # 成本模型
 │   ├── tplus1.py                   # T+1 可卖批次

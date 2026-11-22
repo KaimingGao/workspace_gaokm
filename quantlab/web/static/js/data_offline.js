@@ -1,80 +1,8 @@
 /**
- * 交易执行页头：是否允许显式增量补齐写本地仓。
- * 观察台不再提供这只开关，ŷ 读取仍固定 offline_only=1。
- *
- * localStorage ``quantlab.data_offline_only``：缺省 ``1``（仅本地仓）。
- * - 开（仅本地仓）：不触发增量补齐；ŷ 读已物化特征
- * - 关（可拉远端）：先走数据中心同源「增量补齐」写日K/5m；ŷ 读已物化特征
- *
- * ŷ 读取永远 ``offline_only=1``（见 offlineOnlyQuery）；禁止评分旁路拉网落盘。
- * 不含：观察名单维护、现价/浮盈行情、做T Worker 盯盘。
+ * 观察台与交易执行的 ŷ 读取固定 offline_only=1。
+ * 日 K / 5m 补齐只在数据中心。禁止评分旁路拉网落盘。
  */
 
-const _V = (typeof window !== "undefined" && window.__ASSET_V__) || "dev";
-const { OFFLINE_TOGGLE_TITLE_OFF, OFFLINE_TOGGLE_TITLE_ON } = await import(
-  `./data_policy.js?v=${encodeURIComponent(_V)}`
-);
-
-export const DATA_OFFLINE_KEY = "quantlab.data_offline_only";
-
-/** @returns {boolean} true=仅本地仓（不触发增量补齐） */
-export function getDataOfflineOnly() {
-  try {
-    const raw = localStorage.getItem(DATA_OFFLINE_KEY);
-    if (raw == null || raw === "") return true;
-    const s = String(raw).trim().toLowerCase();
-    if (s === "0" || s === "false" || s === "no" || s === "off") return false;
-    return true;
-  } catch (_) {
-    return true;
-  }
-}
-
-/** @param {boolean} on */
-export function setDataOfflineOnly(on) {
-  try {
-    localStorage.setItem(DATA_OFFLINE_KEY, on ? "1" : "0");
-  } catch (_) {
-    /* ignore */
-  }
-}
-
-/**
- * 绑定 checkbox[role=switch]；变更时写 localStorage，并可选回调。
- * UI：亮色 checked =「可拉远端」；暗色 unchecked =「仅本地仓」。
- * @param {HTMLInputElement|null} input
- * @param {{ onChange?: (offlineOnly: boolean) => void }} [opts]
- */
-export function installDataOfflineToggle(input, opts = {}) {
-  if (!input) return { get: getDataOfflineOnly, set: setDataOfflineOnly };
-  const syncUi = () => {
-    const offlineOnly = getDataOfflineOnly();
-    // 亮色 = 可拉远端（允许增量补齐）
-    const remoteOn = !offlineOnly;
-    input.checked = remoteOn;
-    input.setAttribute("aria-checked", remoteOn ? "true" : "false");
-    const label = input.closest("label");
-    const text = label?.querySelector(".data-offline-toggle-text");
-    if (text) text.textContent = offlineOnly ? "仅本地仓" : "可拉远端";
-    label?.setAttribute(
-      "title",
-      offlineOnly ? OFFLINE_TOGGLE_TITLE_ON : OFFLINE_TOGGLE_TITLE_OFF
-    );
-  };
-  syncUi();
-  input.addEventListener("change", () => {
-    const offlineOnly = !input.checked;
-    setDataOfflineOnly(offlineOnly);
-    syncUi();
-    if (typeof opts.onChange === "function") opts.onChange(offlineOnly);
-  });
-  return { get: getDataOfflineOnly, set: setDataOfflineOnly, syncUi };
-}
-
-/**
- * ŷ / insights / 持仓分 / 预演调仓：读已物化特征，不旁路拉网。
- * 写仓请走 ``ensureWarehouseTopup``（可拉远端时）。
- */
 export function offlineOnlyQuery() {
   return "offline_only=1";
 }

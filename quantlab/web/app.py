@@ -149,20 +149,14 @@ def index() -> RedirectResponse:
 def chat_page(tab: str | None = None) -> RedirectResponse:
     """全屏对话已下线：统一走顶栏 AI 抽屉（⌘K）；旧书签重定向。"""
     if tab == "platform":
-        return RedirectResponse(url="/platform", status_code=302)
+        return RedirectResponse(url="/follow", status_code=302)
     return RedirectResponse(url="/watching", status_code=302)
 
 
 @app.get("/platform")
-def platform_page() -> HTMLResponse:
-    """平台：纸面日更；不复用全屏对话壳层。"""
-    return HTMLResponse(
-        render_tool_html("platform"),
-        headers={
-            "Cache-Control": "no-store, no-cache, must-revalidate",
-            "Pragma": "no-cache",
-        },
-    )
+def platform_page() -> RedirectResponse:
+    """收盘纸面日更已下线。开盘调仓在交易执行。"""
+    return RedirectResponse(url="/follow", status_code=302)
 
 
 @app.get("/data")

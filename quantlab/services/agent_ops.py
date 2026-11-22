@@ -182,8 +182,8 @@ class AgentOpsService:
             return {
                 "success": False,
                 "task": "ops_snapshot",
-                "error": "尚无 last_ops_report：请先跑日更/调仓（paper_daily 或预演）后再解释五问。",
-                "hint": "可先 ops(task=rebalance_preview, path=holding_cycle) 或页面日更。",
+                "error": "尚无 last_ops_report：请先在交易执行做一次调仓预演或落账后再解释五问。",
+                "hint": "交易执行 · 手动执行，或开盘自动调仓落账。",
             }
         compact = _compact_ops_report(ops)
         risk_tail = self._risk_block_tail(paper, limit=int(params.get("risk_limit") or 8))

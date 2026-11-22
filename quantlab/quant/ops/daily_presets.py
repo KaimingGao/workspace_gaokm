@@ -12,8 +12,8 @@ PRESET_FLAG_ALIASES: Dict[str, str] = {
 DAILY_PRESETS: Dict[str, Dict[str, Any]] = {
     "advisor": {
         "label": "投顾日常",
-        "description": "纸面观察池 + 离线 golden checklist（工作日收盘后推荐）",
-        "paper_run": True,
+        "description": "离线 golden checklist（持仓规则日循环已下线）",
+        "paper_run": False,
         "paper_buy": False,
         "eval_mock": True,
         "eval_agent": False,
@@ -40,8 +40,8 @@ DAILY_PRESETS: Dict[str, Dict[str, Any]] = {
     },
     "full": {
         "label": "全量日常",
-        "description": "投顾 + 量化（不含纸面调仓与 Agent 回归）",
-        "paper_run": True,
+        "description": "投顾 checklist + 量化（不含旧日循环、纸面调仓与 Agent 回归）",
+        "paper_run": False,
         "paper_buy": False,
         "eval_mock": True,
         "eval_agent": False,

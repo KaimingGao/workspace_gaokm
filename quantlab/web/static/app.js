@@ -70,8 +70,6 @@ const ctx = {
   refreshHealth: null,
   applyQuantArtifact: null,
   reloadPaper: null,
-  openPlatformPanel: null,
-  reloadPlatform: null,
 };
 
 function safeInit(name, fn) {
@@ -110,16 +108,14 @@ if (ctx.refreshHealth) {
 async function bootWorkspace() {
   const __perfT0 = typeof performance !== "undefined" ? performance.now() : Date.now();
 
-  const [paperMod, quantMod, platformMod] = await Promise.all([
+  const [paperMod, quantMod] = await Promise.all([
     loadModule("paper", `./js/paper.js?v=${V}`),
     loadModule("quant", `./js/quant.js?v=${V}`),
-    loadModule("platform", `./js/platform.js?v=${V}`),
   ]);
 
   const failed = [];
   if (!paperMod) failed.push("paper");
   if (!quantMod) failed.push("quant");
-  if (!platformMod) failed.push("platform");
 
   if (paperMod && PAPER_PAGES.has(page)) {
     safeInit("paper", () => paperMod.initPaper(ctx));
@@ -135,13 +131,6 @@ async function bootWorkspace() {
   if (page === "dashboard") {
     const dashboardMod = await loadModule("dashboard", `./js/dashboard.js?v=${V}`);
     if (dashboardMod) safeInit("dashboard", () => dashboardMod.initDashboard(ctx));
-  }
-  if (page === "platform") {
-    if (platformMod) safeInit("platform", () => platformMod.initPlatform(ctx));
-    // 平台页默认加载日更
-    if (typeof ctx.openPlatformPanel === "function") {
-      await ctx.openPlatformPanel().catch((err) => console.error("[QuantLab] openPlatformPanel", err));
-    }
   }
   if (page === "yhat_l" || page === "yhat_t" || page === "yhat_r" || page === "yhat_bt") {
     const yhatTfMod = await loadModule("yhat_tf", `./js/yhat_tf.js?v=${V}`);

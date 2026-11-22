@@ -1,8 +1,5 @@
 /** Paper · 观察池 09:30 开盘预估分复现（不含开仓/加仓，不写账）。 */
 
-import { getDataOfflineOnly } from "../data_offline.js";
-import { ensureWarehouseTopup } from "../data_warehouse_topup.js";
-import { BARS_WATCHING_LIMIT } from "../quant/params.js";
 import {
   ensureSessionOpenL2,
   isSessionOpenMaterializeRequired,
@@ -32,7 +29,7 @@ export function createClusterRebalanceController(deps) {
       body: JSON.stringify({
         dry_run: true,
         open_replay: true,
-        // ŷ / 日K·5m 永远只读本地；写仓已由 ensureWarehouseTopup 显式完成
+        // ŷ / 日K·5m 只读本地仓；补数在数据中心
         offline_only: true,
       }),
     });
@@ -42,30 +39,8 @@ export function createClusterRebalanceController(deps) {
 
   async function runWatchingMatrixPreview() {
     setPaperBusy(true);
-    const allowTopup = !getDataOfflineOnly();
-    showProgress(
-      1,
-      allowTopup
-        ? "09:30 开盘复现（增量补齐后只读）…"
-        : "09:30 开盘复现（仅本地仓）…"
-    );
+    showProgress(1, "09:30 开盘复现…");
     try {
-      if (allowTopup) {
-        showProgress(1, "增量补齐观察池日K·5m…");
-        try {
-          await ensureWarehouseTopup({
-            force: false,
-            watchingLimit: BARS_WATCHING_LIMIT,
-            onStatus: (msg) => showProgress(1, msg || "增量补齐…"),
-          });
-        } catch (topupErr) {
-          setPaperMetaText(
-            String((topupErr && topupErr.message) || topupErr || "增量补齐失败")
-          );
-          /* 仍继续只读预演，便于看到缺仓拒分 */
-        }
-        showProgress(1, "09:30 开盘复现（读已物化特征）…");
-      }
       let { res, data } = await postOpenReplay();
       if (
         (!res.ok || data.success === false || data.ok === false) &&
