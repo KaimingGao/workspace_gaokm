@@ -2325,6 +2325,16 @@ class TestYhatTfPageWiring(unittest.TestCase):
         self.assertIn("width: auto", menu_css)
         self.assertNotIn("28rem", menu_css)
         self.assertNotIn("max(100%", menu_css)
+        run_out = css.split(
+            ".quant-pro-card-body.yhat-tf-run-output {", 1
+        )[1].split("}", 1)[0]
+        self.assertIn("minmax(0, 1fr)", run_out)
+        self.assertIn("min-width: 0", run_out)
+        tech = css.split("\n.yhat-tf-tech {", 1)[1].split("}", 1)[0]
+        self.assertIn("min-width: 0", tech)
+        tech_pre = css.split(".yhat-tf-tech-body .yhat-tf-cli,", 1)[1].split("}", 1)[0]
+        self.assertIn("min-width: 0", tech_pre)
+        self.assertIn("max-width: 100%", tech_pre)
 
 
 if __name__ == "__main__":

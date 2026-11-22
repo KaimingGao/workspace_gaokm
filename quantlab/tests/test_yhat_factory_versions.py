@@ -47,6 +47,7 @@ def _last(**extra):
         "head": "oo",
         "metrics": {
             "cs_rank_ic": 0.042,
+            "mse": 6.5,
             "arm": "T",
             "arms": {"T": {"success": True, "cs_rank_ic": 0.042}},
             "splits": {"T": {"n_train": 10, "n_test": 4, "eval_start": "2026-01-02"}},
@@ -95,7 +96,7 @@ class TestYhatFactoryVersions(unittest.TestCase):
         self.assertEqual(research_on["enabled_id"], "oo-research-p7")
         self.assertEqual(live_on["enabled_id"], "")
 
-    def test_pretrain_archive_keeps_rank_ic(self):
+    def test_pretrain_archive_uses_mse(self):
         with tempfile.TemporaryDirectory() as td:
             last_path = os.path.join(td, "last_status.json")
             with mock.patch("core.research.yhat_tf_desk.YHAT_TF_DIR", td), mock.patch(
@@ -107,7 +108,8 @@ class TestYhatFactoryVersions(unittest.TestCase):
                     archive_factory_run("oo", job=job, last=_last(), status="done")
                 listed = list_factory_versions("oo", factory="T")
         label = listed["items"][0]["label"]
-        self.assertIn("RankIC 0.042", label)
+        self.assertIn("MSE 6.500", label)
+        self.assertNotIn("RankIC", label)
         self.assertIn("预训练", label)
 
     def test_live_suite_stays_out_of_research_list(self):
@@ -152,6 +154,70 @@ class TestYhatFactoryVersions(unittest.TestCase):
             "11-16 01:02 · RankIC 0.042 · L",
         )
 
+    def test_rank_head_label_keeps_rank_ic(self):
+        with tempfile.TemporaryDirectory() as td:
+            last_path = os.path.join(td, "last_status.json")
+            with mock.patch("core.research.yhat_tf_desk.YHAT_TF_DIR", td), mock.patch(
+                "core.research.yhat_tf_desk.YHAT_TF_LAST_PATH", last_path
+            ):
+                job = _job("oo_rank-1")
+                job["head"] = "oo_rank"
+                with factory_scope("L"):
+                    archive_factory_run(
+                        "oo_rank",
+                        job=job,
+                        last=_last(metrics={"cs_rank_ic": 0.098, "mse": 9.0, "arm": "L"}),
+                        status="done",
+                    )
+                listed = list_factory_versions("oo_rank", factory="L")
+        label = listed["items"][0]["label"]
+        self.assertIn("RankIC 0.098", label)
+        self.assertNotIn("MSE", label)
+        self.assertTrue(label.endswith(" · L"))
+
+    def test_old_regression_label_swaps_rank_ic_for_mse(self):
+        with tempfile.TemporaryDirectory() as td:
+            last_path = os.path.join(td, "last_status.json")
+            with mock.patch("core.research.yhat_tf_desk.YHAT_TF_DIR", td), mock.patch(
+                "core.research.yhat_tf_desk.YHAT_TF_LAST_PATH", last_path
+            ):
+                last = _last()
+                last["metrics"] = {"cs_rank_ic": 0.042, "arm": "T"}
+                with factory_scope("T"):
+                    vid = archive_factory_run("oo", job=_job("oo-old"), last=last, status="done")
+                    snap = os.path.join(td, "versions", "oo", f"{vid}.json")
+                    with open(snap, encoding="utf-8") as handle:
+                        doc = json.load(handle)
+                    doc["metrics"]["mse"] = 6.641899
+                    doc["badges"].pop("mse", None)
+                    with open(snap, "w", encoding="utf-8") as handle:
+                        json.dump(doc, handle)
+                    index = os.path.join(td, "versions", "oo", "index.json")
+                    with open(index, encoding="utf-8") as handle:
+                        bag = json.load(handle)
+                    bag["items"][0]["label"] = "11-16 01:02 · RankIC 0.042"
+                    bag["items"][0]["badges"].pop("mse", None)
+                    with open(index, "w", encoding="utf-8") as handle:
+                        json.dump(bag, handle)
+                listed = list_factory_versions("oo", factory="T")
+                bare = _last()
+                bare["metrics"] = {"cs_rank_ic": 0.01, "arm": "T"}
+                with factory_scope("T"):
+                    bare_id = archive_factory_run("tc", job=_job("tc-bare"), last=bare, status="done")
+                    index = os.path.join(td, "versions", "tc", "index.json")
+                    with open(index, encoding="utf-8") as handle:
+                        bag = json.load(handle)
+                    bag["items"][0]["label"] = "11-16 01:02 · RankIC 0.010"
+                    with open(index, "w", encoding="utf-8") as handle:
+                        json.dump(bag, handle)
+                kept = list_factory_versions("tc", factory="T")
+        self.assertEqual(bare_id, "tc-bare-p7")
+        self.assertEqual(
+            listed["items"][0]["label"],
+            "11-16 01:02 · MSE 6.642 · T",
+        )
+        self.assertEqual(kept["items"][0]["label"], "11-16 01:02 · RankIC 0.010 · T")
+
     def test_archive_list_preview_and_same_id_overwrites(self):
         with tempfile.TemporaryDirectory() as td:
             last_path = os.path.join(td, "last_status.json")
@@ -175,7 +241,8 @@ class TestYhatFactoryVersions(unittest.TestCase):
                 listed = list_factory_versions("oo", factory="T")
                 self.assertTrue(listed["success"])
                 self.assertEqual(len(listed["items"]), 1)
-                self.assertIn("RankIC 0.042", listed["items"][0]["label"])
+                self.assertIn("MSE 6.500", listed["items"][0]["label"])
+                self.assertNotIn("RankIC", listed["items"][0]["label"])
                 self.assertTrue(listed["items"][0]["label"].endswith(" · T"))
                 self.assertNotIn("10%", listed["items"][0]["label"])
                 self.assertNotIn("core", listed["items"][0]["label"])

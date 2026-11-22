@@ -41,7 +41,7 @@ TASK = "oo_rank"
 DEFAULT_MIN_NAMES = 8
 DEFAULT_TOPK_TRACK = 10
 DEFAULT_NDCG_K = 10
-# 历史：曾与 /replay 绝对名次闸对齐；入场已改看 oo_tc_score_* 相对分
+# 名次闸看当天整数名次（默认 <6 / 强档 <12），不看相对分。
 DEFAULT_GATE_N = 10
 DEFAULT_GATE_STRONG_N = 100
 # Gate 日度聚合：至少几天、winsor 两端各裁比例（抑制单日极端）

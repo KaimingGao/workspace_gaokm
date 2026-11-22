@@ -79,8 +79,6 @@ class QuantReplayMixin:
         fusion_w_oc: Optional[float] = None,
         fuse_enter: Optional[float] = None,
         fuse_strong: Optional[float] = None,
-        fusion_w_oo_rank: Optional[float] = None,
-        fusion_w_tc_rank: Optional[float] = None,
         y_oo_gt0: Optional[bool] = None,
         y_τc_gt0: Optional[bool] = None,
         morph_gate_enabled: Optional[bool] = None,
@@ -285,14 +283,7 @@ class QuantReplayMixin:
         clock = clamp_replay_fill_clock(fill_clock, REPLAY_FILL_CLOCK)
         gate_on = True if price_space_gate is None else bool(price_space_gate)
         from core.t0.config import coerce_cfg_bool
-        from core.paper.rebalance.rank_lots import rank_fusion_weights_from_cfg
 
-        w_oo_rank, w_tc_rank = rank_fusion_weights_from_cfg(
-            {
-                "fusion_w_oo_rank": fusion_w_oo_rank,
-                "fusion_w_tc_rank": fusion_w_tc_rank,
-            }
-        )
         # y_*>0：四头闸；旧 y_τc_gt0 并入 y_oo_gt0
         y_oo_gt0_b = False if y_oo_gt0 is None else bool(coerce_cfg_bool(y_oo_gt0, False))
         if y_τc_gt0 is not None and coerce_cfg_bool(y_τc_gt0, False):
@@ -377,8 +368,6 @@ class QuantReplayMixin:
                     cash_floor=REPLAY_CASH_FLOOR,
                     fusion_w_oo=w_oo,
                     fusion_w_oc=w_τc,
-                    fusion_w_oo_rank=w_oo_rank,
-                    fusion_w_tc_rank=w_tc_rank,
                     fuse_enter=enter,
                     fuse_strong=strong,
                     y_oo_gt0=y_oo_gt0_b,
@@ -438,8 +427,6 @@ class QuantReplayMixin:
             "cash_floor": REPLAY_CASH_FLOOR,
             "fusion_w_oo": w_oo,
             "fusion_w_oc": w_τc,
-            "fusion_w_oo_rank": w_oo_rank,
-            "fusion_w_tc_rank": w_tc_rank,
             "fuse_enter": enter,
             "fuse_strong": strong,
             "y_oo_gt0": y_oo_gt0_b,

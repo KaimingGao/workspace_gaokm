@@ -2,25 +2,13 @@
   <div class="dashboard-head-text quant-head-text">
     <p class="dashboard-eyebrow">Watch Desk</p>
     <h2>观察台</h2>
-    <p id="watching-page-meta" class="dashboard-meta quant-meta">观察池 · ŷ：读已物化特征 · 现价/浮盈仍行情 · 写仓=增量补齐</p>
+    <p id="watching-page-meta" class="dashboard-meta quant-meta">观察池 · ŷ：读已物化特征 · 现价/浮盈仍行情</p>
     <p class="dashboard-section-desc watching-head-path">
       本页维护名单 → ŷ 读物化特征 → 行情列独立 →
       <a class="watching-hero-link" href="/data">日K·5m</a>
       ·
       <a class="watching-hero-link" href="/follow">纸面调仓/做T</a>
     </p>
-  </div>
-  <div class="dashboard-head-actions quant-head-actions watching-head-actions">
-    <label
-      class="paper-t0-toggle data-offline-toggle"
-      title="关：不触发增量补齐；ŷ 读已物化特征（名单与现价/浮盈不受此开关）"
-    >
-      <input type="checkbox" id="watching-data-offline" role="switch" />
-      <span class="paper-t0-toggle-track" aria-hidden="true"></span>
-      <span class="data-offline-toggle-text paper-t0-toggle-text">仅本地仓</span>
-    </label>
-    <span class="quant-desk-badge watching-desk-badge" title="长期观察名单；从此建仓进入模拟账户">观察池</span>
-    <span class="watching-desk-guard" title="本页仅维护名单与开仓；加减仓在交易执行">无实盘</span>
   </div>
 </div>
 
@@ -105,7 +93,13 @@
           aria-live="polite"
           hidden
         ></p>
-        <div class="dashboard-card-tools quant-pro-card-tools watching-card-tools"></div>
+        <div class="dashboard-card-tools quant-pro-card-tools watching-card-tools">
+          <label class="watching-hs300-toggle" title="开：观察名单只显示沪深300成分；关：显示全部观察名单">
+            <input type="checkbox" id="watching-hs300-only" role="switch" aria-label="只显示沪深300" checked />
+            <span class="watching-hs300-toggle-track" aria-hidden="true"></span>
+            <span class="watching-hs300-toggle-text">沪深300</span>
+          </label>
+        </div>
       </div>
       <div class="quant-pro-card-body watching-card-body watching-watchlist-body">
         <div class="quant-control-band quant-pro-control-band watching-control-band" id="watching-search-wrap">

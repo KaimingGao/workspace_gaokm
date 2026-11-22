@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import logging
 from contextvars import ContextVar
-from typing import Any, Callable, Collection, Dict, List, Optional, Sequence, Tuple
+from typing import Any, Callable, Collection, Dict, List, Mapping, Optional, Sequence, Tuple
 
 from core.backtest.replay_contrib import _fpx
 from core.backtest.replay_fill import clamp_replay_fill_clock
@@ -130,6 +130,67 @@ def _arm_score_source(table: Mapping[str, Any], head: str) -> str:
     if fac == "R":
         return "arm_r"
     return "transformer"
+
+
+_RANK_SCORE_KEYS = ("y_oo_rank_score", "y_tc_rank_score")
+
+
+def replay_rank_blend(table: Optional[Mapping[str, Any]]) -> str:
+    """历史回测买序与回测中心同一规则。只看已启用的两条排序头。"""
+    src = table if isinstance(table, Mapping) else {}
+    heads = {str(h) for h in (src.get("heads") or [])}
+    if "oo_rank" not in heads or "tc_rank" not in heads:
+        return "raw"
+    cards = src.get("cards") if isinstance(src.get("cards"), Mapping) else {}
+    oo = cards.get("oo_rank") if isinstance(cards.get("oo_rank"), Mapping) else {}
+    tc = cards.get("tc_rank") if isinstance(cards.get("tc_rank"), Mapping) else {}
+    from core.research.yhat_factory_backtest import rank_blend_for_backends
+
+    return rank_blend_for_backends(str(oo.get("backend") or ""), str(tc.get("backend") or ""))
+
+
+def snapshot_rank_scores(items: Sequence[dict]) -> Dict[str, Dict[str, Any]]:
+    snap: Dict[str, Dict[str, Any]] = {}
+    for it in items or []:
+        if not isinstance(it, dict):
+            continue
+        code = str(it.get("stock_code") or "").strip()
+        if not code:
+            continue
+        snap[code] = {key: it.get(key) for key in _RANK_SCORE_KEYS}
+    return snap
+
+
+def restore_rank_scores(rows: Sequence[dict], snap: Mapping[str, Mapping[str, Any]]) -> None:
+    """计划用完分位后，把模型原始分写回明细。名次 1..n 不动。"""
+    if not snap:
+        return
+    for row in rows or []:
+        if not isinstance(row, dict):
+            continue
+        code = str(row.get("stock_code") or "").strip()
+        saved = snap.get(code)
+        if saved is None:
+            continue
+        for key, value in saved.items():
+            if value is None:
+                row.pop(key, None)
+            else:
+                row[key] = value
+
+
+def apply_replay_day_rank_blend(
+    items: Sequence[dict],
+    table: Optional[Mapping[str, Any]],
+) -> Optional[Dict[str, Dict[str, Any]]]:
+    """后端不同时把当日 ``y_*_rank_score`` 换成分位，返回原始分快照。同后端不改。"""
+    if replay_rank_blend(table) != "day_rank":
+        return None
+    snap = snapshot_rank_scores(items)
+    from core.research.yhat_factory_backtest import stamp_day_ranks
+
+    stamp_day_ranks([{"scored": list(items or [])}], blend="day_rank")
+    return snap
 
 
 def stamp_replay_arm_day(items: Sequence[dict], table: Mapping[str, Any], day: str) -> None:

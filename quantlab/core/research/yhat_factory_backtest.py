@@ -455,7 +455,7 @@ def check_mix(specs: Sequence[Mapping[str, Any]]) -> Dict[str, Any]:
     if window_start > window_end:
         raise ValueError("四头评测窗没有交集")
     lookback = _max_lookback(ordered)
-    rank_blend = "raw" if backends["oo_rank"] == backends["tc_rank"] else "day_rank"
+    rank_blend = rank_blend_for_backends(backends["oo_rank"], backends["tc_rank"])
     seq_src = tf[0] if tf else ordered[0]
     seq_params = seq_src.get("fit_params") if isinstance(seq_src.get("fit_params"), dict) else {}
     picks = " · ".join(f"{head} {factories[head]}" for head in HEADS)
@@ -1718,6 +1718,15 @@ def _scores_for_head(
         code = str(panel.codes[row_i])
         out[(code, dates[row_i])] = val
     return out
+
+
+def rank_blend_for_backends(oo_backend: str, tc_backend: str) -> str:
+    """两条排序头同一后端用原始分；后端都有且不同时用当日分位。缺一头保持原始分。"""
+    oo = str(oo_backend or "").strip()
+    tc = str(tc_backend or "").strip()
+    if not oo or not tc or oo == tc:
+        return "raw"
+    return "day_rank"
 
 
 def stamp_day_ranks(days: Sequence[Mapping[str, Any]], *, blend: str) -> None:

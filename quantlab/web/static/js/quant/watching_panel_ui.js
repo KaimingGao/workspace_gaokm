@@ -34,8 +34,50 @@ export function buildWatchingNameByCode(wl, names) {
   return map;
 }
 
-export function watchingPoolMetaText(wlLen, paperN, maxSize) {
-  return `观察 ${wlLen} 只 · 已持 ${paperN}/${wlLen} · 上限 ${maxSize || "—"}`;
+export function watchingPoolMetaText(wlLen, paperN, maxSize, note) {
+  const base = `观察 ${wlLen} 只 · 已持 ${paperN}/${wlLen} · 上限 ${maxSize || "—"}`;
+  const extra = String(note || "").trim();
+  return extra ? `${base} · ${extra}` : base;
+}
+
+export const WATCHING_HS300_KEY = "quantlab.watching_hs300_only_v2";
+
+/** 成分与观察代码对齐到 6 位数字；带后缀的代码取末 6 位。 */
+export function watchingHs300CodeKey(code) {
+  const text = String(code || "").trim();
+  const digits = text.replace(/\D/g, "");
+  if (digits.length >= 6) return digits.slice(-6);
+  return text;
+}
+
+/** 没存过选择时默认打开。只有明确关掉才显示全部观察名单。 */
+export function readWatchingHs300Only(raw) {
+  if (raw == null || String(raw).trim() === "") return true;
+  const s = String(raw).trim().toLowerCase();
+  if (s === "0" || s === "false" || s === "no" || s === "off") return false;
+  return true;
+}
+
+/**
+ * 开启且成分就绪（≥50）时，只留沪深300里的行。成分没就绪则整表照旧，applied=false。
+ * @param {Array<{code?: string}>} rows
+ * @param {Iterable<string>|null|undefined} hs300Codes
+ * @param {boolean} enabled
+ */
+export function filterWatchingRowsToHs300(rows, hs300Codes, enabled) {
+  const list = Array.isArray(rows) ? rows : [];
+  if (!enabled) return { rows: list, applied: false, ready: true };
+  const set = new Set();
+  for (const code of hs300Codes || []) {
+    const key = watchingHs300CodeKey(code);
+    if (key) set.add(key);
+  }
+  if (set.size < 50) return { rows: list, applied: false, ready: false };
+  return {
+    rows: list.filter((row) => set.has(watchingHs300CodeKey(row && row.code))),
+    applied: true,
+    ready: true,
+  };
 }
 
 /** @param {{ pool?: number|string|null, held?: number|string|null, maxSize?: number|string|null, buyPct?: number|null, n?: number|null, eodMu?: number|null, eodMed?: number|null, eodN?: number|null }} opts */
@@ -65,7 +107,11 @@ export function applyWatchingOverviewKpis(opts = {}) {
     set(
       "watching-kpi-pool",
       pool == null ? "—" : pool,
-      maxSize != null ? `上限 ${maxSize}` : "观察池",
+      opts.poolSub != null
+        ? opts.poolSub
+        : maxSize != null
+          ? `上限 ${maxSize}`
+          : "观察池",
       pool == null
     );
     const countEl = document.getElementById("watching-holdings-count");

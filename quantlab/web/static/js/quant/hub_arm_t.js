@@ -474,7 +474,10 @@ function renderVersionMenu(menu, items, currentId, enabledId) {
     stamp.textContent = parts.stamp;
     const metric = document.createElement("span");
     metric.className = "yhat-tf-version-metric";
-    const ic = parts.meta.find((bit) => bit.startsWith("RankIC")) || "";
+    const ic =
+      parts.meta.find((bit) => bit.startsWith("MSE")) ||
+      parts.meta.find((bit) => bit.startsWith("RankIC")) ||
+      "";
     metric.textContent = ic;
     const chips = document.createElement("span");
     chips.className = "yhat-tf-version-meta";

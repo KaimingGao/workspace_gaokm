@@ -422,6 +422,42 @@ class TestP9Quant(unittest.TestCase):
         self.assertTrue(report["success"])
         self.assertGreaterEqual(len(report["factors"]), 8)
 
+class TestWatchingHs300Api(unittest.TestCase):
+    def test_hs300_codes_come_from_local_cache(self):
+        from fastapi.testclient import TestClient
+
+        import web.app as web_app
+
+        codes = [f"{i:06d}" for i in range(1, 61)]
+        with patch(
+            "core.universe.feature_sets.load_csi300_codes", return_value=codes
+        ) as load:
+            client = TestClient(web_app.app)
+            r = client.get("/api/watching/hs300")
+        self.assertEqual(r.status_code, 200)
+        body = r.json()
+        self.assertTrue(body.get("ok"))
+        self.assertTrue(body.get("ready"))
+        self.assertEqual(body.get("count"), 60)
+        self.assertEqual(body.get("codes"), codes)
+        load.assert_called_once_with(fetch=False)
+
+    def test_hs300_not_ready_when_cache_is_short(self):
+        from fastapi.testclient import TestClient
+
+        import web.app as web_app
+
+        with patch(
+            "core.universe.feature_sets.load_csi300_codes", return_value=["600519"]
+        ):
+            client = TestClient(web_app.app)
+            r = client.get("/api/watching/hs300")
+        self.assertEqual(r.status_code, 200)
+        body = r.json()
+        self.assertFalse(body.get("ready"))
+        self.assertEqual(body.get("count"), 1)
+
+
 class TestWatchingQuotesApi(unittest.TestCase):
     def test_placeholder_shape(self):
         from web.routers.watching import _quotes_placeholder

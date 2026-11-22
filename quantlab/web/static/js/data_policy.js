@@ -6,7 +6,7 @@
  * 「刷新」必须写清产物；现价/浮盈另属行情层，不受页头仓写开关约束。
  *
  * 写仓收敛：数据中心「增量补齐（L0）」日常 /「强更日 K（L0）」「强更 5m（L0）」兜底；
- * 观察台/交易执行「可拉远端」= 触发同源增量补齐，ŷ 仍只读本地。
+ * 交易执行页头「可拉远端」= 触发同源增量补齐，ŷ 仍只读本地。观察台没有这只开关。
  */
 
 /** @typedef {{ id: string, name: string, write: string, read: string }} DataArtifact */
@@ -54,13 +54,6 @@ export function offlineToggleTitle(on) {
   return on ? OFFLINE_TOGGLE_TITLE_ON : OFFLINE_TOGGLE_TITLE_OFF;
 }
 
-/** 页头一句：当前分数数据政策 */
-export function scoresPolicyLine(offlineOnly = true) {
-  return offlineOnly
-    ? "ŷ：读已物化特征 · 现价/浮盈仍行情"
-    : "ŷ：增量补齐（L0）写仓后读物化特征 · 现价/浮盈行情";
-}
-
 /** 策略调仓区脚注 */
 export function rebalanceDataFoot(offlineOnly = true) {
   const score = offlineOnly
@@ -89,11 +82,4 @@ export function minuteHubFoot() {
 /** 数据中心日线区补充 */
 export function dayBarsHubFoot() {
   return "下游：ŷ_oo / 分组 OLS · ≠ 5m；日常增量补齐（L0） · 仓坏用强更日 K（L0）；本区不改名单";
-}
-
-/** 观察台页头路径说明 */
-export function watchingPathHint() {
-  return (
-    "名单在本页维护 · 日K/5m：数据中心或页头「可拉远端」增量补齐（L0） · ŷ 读物化特征 · 行情列独立"
-  );
 }

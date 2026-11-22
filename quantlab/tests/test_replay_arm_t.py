@@ -269,5 +269,111 @@ class TestReplayArmRole(unittest.TestCase):
             self.assertEqual(_bars_for_replay_score(bars), bars)
 
 
+class TestReplayRankBlend(unittest.TestCase):
+    def _items(self):
+        return [
+            {
+                "stock_code": "A",
+                "y_oo": 2.0,
+                "y_τc": 2.0,
+                "y_oo_rank_score": 100.0,
+                "y_tc_rank_score": 0.0,
+            },
+            {
+                "stock_code": "B",
+                "y_oo": 2.0,
+                "y_τc": 2.0,
+                "y_oo_rank_score": 10.0,
+                "y_tc_rank_score": 9.0,
+            },
+            {
+                "stock_code": "C",
+                "y_oo": 2.0,
+                "y_τc": 2.0,
+                "y_oo_rank_score": 0.0,
+                "y_tc_rank_score": 8.0,
+            },
+        ]
+
+    def _table(self, oo_backend, tc_backend):
+        return {
+            "heads": ["oo", "tc", "oo_rank", "tc_rank"],
+            "cards": {
+                "oo_rank": {"backend": oo_backend},
+                "tc_rank": {"backend": tc_backend},
+            },
+        }
+
+    def _plan_order(self, items):
+        from core.paper.rebalance.rank_lots import plan_rank_lot_day
+
+        out = plan_rank_lot_day(
+            scored=items,
+            holdings=[],
+            cash=1_000_000,
+            prices={"A": 10.0, "B": 10.0, "C": 10.0},
+            cfg={
+                "fuse_enter": 0.01,
+                "fuse_strong": 0.02,
+                "cash_floor": 0.0,
+                "top_k": 5,
+                "oo_rank_max": None,
+                "t0_sell_blocks": {},
+            },
+        )
+        return [row["stock_code"] for row in out["buys"]], out
+
+    def test_same_backend_keeps_raw_buy_order(self) -> None:
+        from core.backtest.replay_scoring import (
+            apply_replay_day_rank_blend,
+            replay_rank_blend,
+        )
+
+        items = self._items()
+        table = self._table("lightgbm", "lightgbm")
+        self.assertEqual(replay_rank_blend(table), "raw")
+        self.assertIsNone(apply_replay_day_rank_blend(items, table))
+        order, _plan = self._plan_order(items)
+        self.assertEqual(order, ["A", "B", "C"])
+        self.assertEqual(items[0]["y_oo_rank_score"], 100.0)
+
+    def test_different_backends_buy_by_day_percentile_then_restore_raw(self) -> None:
+        from core.backtest.replay_scoring import (
+            apply_replay_day_rank_blend,
+            replay_rank_blend,
+            restore_rank_scores,
+        )
+
+        items = self._items()
+        table = self._table("lightgbm", "ridge")
+        self.assertEqual(replay_rank_blend(table), "day_rank")
+        snap = apply_replay_day_rank_blend(items, table)
+        self.assertIsNotNone(snap)
+        self.assertEqual(items[0]["y_oo_rank"], 1)
+        self.assertEqual(items[1]["y_oo_rank"], 2)
+        self.assertAlmostEqual(items[0]["y_oo_rank_score"], 1.0)
+        self.assertAlmostEqual(items[1]["y_tc_rank_score"], 1.0)
+        order, plan = self._plan_order(items)
+        self.assertEqual(order, ["B", "A", "C"])
+        restore_rank_scores(items, snap)
+        restore_rank_scores(plan["buys"], snap)
+        self.assertEqual(items[0]["y_oo_rank_score"], 100.0)
+        self.assertEqual(items[1]["y_tc_rank_score"], 9.0)
+        self.assertEqual(items[0]["y_oo_rank"], 1)
+        by = {row["stock_code"]: row for row in plan["buys"]}
+        self.assertEqual(by["A"]["y_oo_rank_score"], 100.0)
+        self.assertEqual(by["B"]["y_tc_rank_score"], 9.0)
+
+    def test_missing_rank_head_stays_raw(self) -> None:
+        from core.backtest.replay_scoring import replay_rank_blend
+
+        table = {
+            "heads": ["oo_rank"],
+            "cards": {"oo_rank": {"backend": "lightgbm"}},
+        }
+        self.assertEqual(replay_rank_blend(table), "raw")
+        self.assertEqual(replay_rank_blend(None), "raw")
+
+
 if __name__ == "__main__":
     unittest.main()

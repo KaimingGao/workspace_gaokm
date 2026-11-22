@@ -52,18 +52,6 @@ class PaperReplayBacktestRequest(BaseModel):
         le=1.0,
         description="y_oo_fuse 中 ŷ_τc 权重",
     )
-    fusion_w_oo_rank: Optional[float] = Field(
-        default=None,
-        ge=0.0,
-        le=1.0,
-        description="已下线。读入忽略；买序 rank_score 固定 0.6/0.4。",
-    )
-    fusion_w_tc_rank: Optional[float] = Field(
-        default=None,
-        ge=0.0,
-        le=1.0,
-        description="已下线。读入忽略；买序 rank_score 固定 0.6/0.4。",
-    )
     fuse_enter: Optional[float] = Field(
         default=None,
         ge=0.0,

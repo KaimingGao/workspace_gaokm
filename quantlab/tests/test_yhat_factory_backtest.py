@@ -86,8 +86,6 @@ def _cfg():
         "lot_strong_amount": 10000,
         "fusion_w_oo": 0.6,
         "fusion_w_oc": 0.4,
-        "fusion_w_oo_rank": 0.6,
-        "fusion_w_tc_rank": 0.4,
         "cash_floor": 0,
         "y_oo_gt0": False,
         "oo_rank_max": 6,

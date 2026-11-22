@@ -124,8 +124,6 @@ def _portfolio_backtest_kwargs(body: PaperReplayBacktestRequest) -> Dict[str, An
         "benchmark_code": body.benchmark_code,
         "fusion_w_oo": body.fusion_w_oo,
         "fusion_w_oc": body.fusion_w_oc,
-        "fusion_w_oo_rank": body.fusion_w_oo_rank,
-        "fusion_w_tc_rank": body.fusion_w_tc_rank,
         "fuse_enter": body.fuse_enter,
         "fuse_strong": body.fuse_strong,
         # y_*>0；旧 y_τc_gt0 并入后不转发

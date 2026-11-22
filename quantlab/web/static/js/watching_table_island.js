@@ -139,7 +139,7 @@ export async function mountWatchingTableIsland(host, options = {}) {
 
   const api = mountVirtualTable(host, {
     columns: COLS,
-    emptyText: "暂无观察",
+    emptyText: options.emptyText || "暂无观察",
     rowHeight: 50,
     initialSort: options.initialSort,
     compare,

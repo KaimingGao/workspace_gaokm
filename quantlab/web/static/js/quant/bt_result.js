@@ -643,6 +643,8 @@ export function buildPortfolioBacktestSummaryText(data) {
         })` +
         (bench.ann_ir != null ? ` · IR ${bench.ann_ir}` : "")
       : "";
+  const blendNote =
+    data.params?.rank_blend === "day_rank" ? " · 买序 · 当日名次" : "";
   const text =
     `标的 ${(data.loaded_stocks || []).length}` +
     (data.request?.lookback != null || data.params?.lookback != null
@@ -650,7 +652,7 @@ export function buildPortfolioBacktestSummaryText(data) {
       : "") +
     ` · 交易日 ${data.params?.trade_days ?? data.params?.common_dates ?? "—"} · 交易 ${m.trade_count} · 累计 ${m.total_return_pct}% · 胜率 ${m.win_rate_pct}% · 成本 ${
       costModel === "simple_cn" ? "A股简化" : costModel
-    }${data.params?.neutralize ? ` · 中性化 ${data.params?.neutralized_rebalances || 0} 次` : ""}${fundNote}${oosNote}${regimeNote}${dqNote}${costCmpNote}${attrNote}${pitNote}${auditNote}${matchNote}${scoreAxisNote}${engNote}${cashNote}${dropNote}${icNote}${benchNote}${sessNote}`;
+    }${data.params?.neutralize ? ` · 中性化 ${data.params?.neutralized_rebalances || 0} 次` : ""}${fundNote}${oosNote}${regimeNote}${dqNote}${costCmpNote}${attrNote}${pitNote}${auditNote}${matchNote}${scoreAxisNote}${engNote}${cashNote}${dropNote}${icNote}${benchNote}${sessNote}${blendNote}`;
   return { text, warn: !!oosFailed };
 }
 

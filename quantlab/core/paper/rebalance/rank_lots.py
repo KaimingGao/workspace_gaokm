@@ -249,65 +249,6 @@ def _cfg_fuse_threshold(cfg: Optional[dict], key: str, default: float) -> float:
     d = cfg if isinstance(cfg, dict) else {}
     return coerce_fuse_threshold(d.get(key), default)
 
-DEFAULT_OO_TC_SCORE_MIN = 0.3
-DEFAULT_OO_TC_SCORE_STRONG_MIN = 0.3
-
-
-def _coerce_oo_tc_score_min(
-    raw: Any,
-    *,
-    default: Optional[float],
-    missing_default: Optional[float],
-) -> Optional[float]:
-    """rank 阈值（合成 rank_score）：None/空=关；缺键用 missing_default；有限数裁到 [-5, 5]。"""
-    if raw is _SCORE_KEY_MISSING:
-        return missing_default
-    if raw in (None, False):
-        return None
-    if isinstance(raw, str):
-        s = raw.strip()
-        if s == "" or s.lower() in {"null", "none", "nan", "undefined"}:
-            return None
-        raw = s
-    try:
-        v = float(raw)
-    except (TypeError, ValueError):
-        return default
-    if v != v or v in (float("inf"), float("-inf")):
-        return default
-    return max(-5.0, min(5.0, float(v)))
-
-
-_SCORE_KEY_MISSING = object()
-
-
-def oo_tc_score_min_from_cfg(cfg: Optional[dict]) -> Optional[float]:
-    """入场 rank 阈值：须 rank_score ≥ 阈值（不是 y_oo / y_τc；UI 默认 0.3）。
-
-    rank_score = w_oo_rank·y_oo_rank_score + w_τc_rank·y_tc_rank_score。
-    缺键=0.3；显式 None/空=关。两头相对分都缺不拦。
-    """
-    d = cfg if isinstance(cfg, dict) else {}
-    if "oo_tc_score_min" not in d:
-        return DEFAULT_OO_TC_SCORE_MIN
-    return _coerce_oo_tc_score_min(
-        d.get("oo_tc_score_min"),
-        default=DEFAULT_OO_TC_SCORE_MIN,
-        missing_default=DEFAULT_OO_TC_SCORE_MIN,
-    )
-
-
-def oo_tc_score_strong_min_from_cfg(cfg: Optional[dict]) -> Optional[float]:
-    """强档 rank 阈值（合成 rank_score，不是 y_oo / y_τc）。缺键=0.3；显式 None/空=关。"""
-    d = cfg if isinstance(cfg, dict) else {}
-    if "oo_tc_score_strong_min" not in d:
-        return DEFAULT_OO_TC_SCORE_STRONG_MIN
-    return _coerce_oo_tc_score_min(
-        d.get("oo_tc_score_strong_min"),
-        default=DEFAULT_OO_TC_SCORE_STRONG_MIN,
-        missing_default=DEFAULT_OO_TC_SCORE_STRONG_MIN,
-    )
-
 
 def _rank_from_item(
     item: Optional[dict],
@@ -437,45 +378,6 @@ def combined_rank_score(
     if tc is None:
         return float(oo)
     return float(w_oo) * float(oo) + float(w_tc) * float(tc)
-
-
-def _oo_tc_score_skip(
-    item: Optional[dict],
-    thr: Optional[float],
-    cfg: Optional[dict] = None,
-) -> Optional[str]:
-    """rank 阈值：合成 rank_score 须 ≥ thr（不是 y_oo / y_τc）。thr 空不拦；两侧都缺不拦。"""
-    if thr is None:
-        return None
-    try:
-        thr_f = float(thr)
-    except (TypeError, ValueError):
-        return None
-    if thr_f != thr_f or thr_f in (float("inf"), float("-inf")):
-        return None
-    oo, tc = _rank_score_from_item(item)
-    if oo is None and tc is None:
-        return None
-    score = combined_rank_score(item, cfg)
-    if score is None:
-        return None
-    w_oo, w_tc = rank_fusion_weights_from_cfg(cfg)
-    parts: List[str] = []
-    if oo is not None:
-        parts.append(f"oo_rank={oo:.4f}")
-    else:
-        parts.append("oo_rank=缺")
-    if tc is not None:
-        parts.append(f"τc_rank={tc:.4f}")
-    else:
-        parts.append("τc_rank=缺")
-    parts.append(f"rank_score={float(score):.4f}")
-    if float(score) < thr_f:
-        return (
-            f"{' '.join(parts)} "
-            f"(w={w_oo:.2f}/{w_tc:.2f}) 须≥{thr_f:g} 未过入场"
-        )
-    return None
 
 
 def _rank_pos(raw: Any) -> Optional[int]:
@@ -654,21 +556,6 @@ def _display_enter_skip_reason(
         if label:
             return f"{label} 未过入场"
         return text
-    if "oo_rank" in text or "τc_rank" in text or "rank_score" in text:
-        score = combined_rank_score(item, cfg_d)
-        oo, tc = _rank_score_from_item(item)
-        if score is not None or oo is not None or tc is not None:
-            bits = []
-            if oo is not None:
-                bits.append(f"oo_rank={oo:.4f}")
-            if tc is not None:
-                bits.append(f"τc_rank={tc:.4f}")
-            if score is not None:
-                bits.append(f"rank_score={score:.4f}")
-            return f"{' '.join(bits)} 未过入场"
-        _rank, _n, label = _entry_rank_from_item(item)
-        if label:
-            return f"{label} 未过入场"
     return text
 
 

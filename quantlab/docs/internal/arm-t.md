@@ -330,6 +330,7 @@ PYTHONUNBUFFERED=1 .venv/bin/python scripts/run_yhat_transformer_holdout.py --he
 
 | 日期 | 说明 |
 |--|--|
+| 2026-11-22 | 回归头版本名用 Holdout MSE。排序头仍是 RankIC。已有归档在快照里有 MSE 时，列表显示换成 MSE |
 | 2026-11-22 | 训练函数改为 `train_arm_t` / `predict_arm_t`。去掉 SmoothL1 旁路、`mlp_hidden` 和因子支路参数。权重键不变 |
 | 2026-11-22 | 模型类由 `SeqFactorTransformer` 改名为 `ArmTModel`。权重键不变 |
 | 2026-11-22 | 默认序列改为 60 日。前馈改为 `4×d_model`。回归头改回 MSE。AdamW 衰减改为 1e-3；bias 与 LayerNorm.weight 为 0 |

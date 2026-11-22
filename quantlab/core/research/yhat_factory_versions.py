@@ -209,16 +209,23 @@ def _holdout_days(params: Optional[Dict[str, Any]]) -> Optional[int]:
         return None
 
 
-def _rank_ic(metrics: Optional[Dict[str, Any]]) -> Optional[float]:
+_REGRESSION_HEADS = frozenset({"oo", "tc"})
+
+
+def _finite_metric(metrics: Optional[Dict[str, Any]], key: str) -> Optional[float]:
     if not isinstance(metrics, dict):
         return None
     try:
-        ic = float(metrics.get("cs_rank_ic"))
+        value = float(metrics.get(key))
     except (TypeError, ValueError):
         return None
-    if ic != ic:
+    if value != value:
         return None
-    return ic
+    return value
+
+
+def _rank_ic(metrics: Optional[Dict[str, Any]]) -> Optional[float]:
+    return _finite_metric(metrics, "cs_rank_ic")
 
 
 def _badges(
@@ -236,6 +243,7 @@ def _badges(
             "factor": _factor_tag(head, params),
             "failed": status == "error",
             "cs_rank_ic": None,
+            "mse": None,
         }
     parity = last.get("parity") if isinstance(last, dict) and isinstance(last.get("parity"), dict) else {}
     gate_pass = None
@@ -254,6 +262,7 @@ def _badges(
         "factor": _factor_tag(head, params),
         "failed": status == "error",
         "cs_rank_ic": _rank_ic(metrics),
+        "mse": _finite_metric(metrics, "mse"),
     }
 
 
@@ -264,8 +273,21 @@ def _short_stamp(raw: Any) -> str:
     return s[:16]
 
 
+def _metric_token(head: str, badges: Dict[str, Any]) -> str:
+    """回归头写 Holdout MSE。排序头写 RankIC。"""
+    if head in _REGRESSION_HEADS:
+        mse = badges.get("mse")
+        if isinstance(mse, (int, float)) and mse == mse:
+            return f"MSE {float(mse):.3f}"
+        return ""
+    ic = badges.get("cs_rank_ic")
+    if isinstance(ic, (int, float)) and ic == ic:
+        return f"RankIC {float(ic):.3f}"
+    return ""
+
+
 def _shown_label(label: str, factory: str = "") -> str:
-    """版本名只留时间、RankIC、状态，末尾补 R/L/T。"""
+    """版本名只留时间、回归头 MSE 或排序头 RankIC、状态，末尾补 R/L/T。"""
     drop = {"core", "full", "l2", "lambdarank"}
     kept = []
     for bit in str(label or "").split(" · "):
@@ -280,8 +302,50 @@ def _shown_label(label: str, factory: str = "") -> str:
     return " · ".join(kept)
 
 
+def _stored_mse(head: str, item: Dict[str, Any]) -> Optional[float]:
+    """回归头列表用的 MSE。徽章没有时读归档快照。"""
+    badges = item.get("badges") if isinstance(item.get("badges"), dict) else {}
+    mse = _finite_metric(badges, "mse")
+    if mse is not None:
+        return mse
+    vid = _check_version_id(item.get("id"))
+    if not vid:
+        return None
+    snap = _read_json(_snap_path(head, vid))
+    metrics = snap.get("metrics") if isinstance(snap, dict) else None
+    return _finite_metric(metrics if isinstance(metrics, dict) else None, "mse")
+
+
+def _display_label(head: str, item: Dict[str, Any], factory: str) -> str:
+    """回归头有 MSE 时，把标识里的 RankIC 换成 MSE。没有 MSE 的旧档保持原样。"""
+    shown = _shown_label(str(item.get("label") or ""), factory)
+    if head not in _REGRESSION_HEADS:
+        return shown
+    mse = _stored_mse(head, item)
+    if mse is None:
+        return shown
+    token = f"MSE {float(mse):.3f}"
+    bits = [bit.strip() for bit in shown.split(" · ") if bit.strip()]
+    out: List[str] = []
+    placed = False
+    for bit in bits:
+        if bit.startswith("RankIC") or bit.startswith("MSE"):
+            if not placed:
+                out.append(token)
+                placed = True
+            continue
+        out.append(bit)
+    if not placed:
+        if out and out[-1] in {"R", "L", "T"}:
+            out.insert(-1, token)
+        else:
+            out.append(token)
+    return " · ".join(out)
+
+
 def _label(
     *,
+    head: str,
     started_at: Any,
     status: str,
     badges: Dict[str, Any],
@@ -292,9 +356,9 @@ def _label(
         return " · ".join(bits)
     if status == "partial":
         bits.append("部分完成")
-    ic = badges.get("cs_rank_ic")
-    if isinstance(ic, (int, float)):
-        bits.append(f"RankIC {float(ic):.3f}")
+    token = _metric_token(head, badges)
+    if token:
+        bits.append(token)
     if badges.get("formal"):
         bits.append("正式")
     elif badges.get("gate_pass") is True:
@@ -498,7 +562,12 @@ def archive_factory_run(
         "status": st,
         "action": action,
         "label": _pretrain_label(
-            _label(started_at=started_at or finished_at, status=st, badges=badges),
+            _label(
+                head=h,
+                started_at=started_at or finished_at,
+                status=st,
+                badges=badges,
+            ),
             params,
         ),
         "badges": badges,
@@ -617,7 +686,7 @@ def list_factory_versions(
             return {"success": False, "ok": False, "error": str(exc), "items": []}
         items = _filter_suite(_with_holdout(h, _stamp_weights_ref(h, _read_index(h))), suite)
         for it in items:
-            it["label"] = _shown_label(str(it.get("label") or ""), _factory())
+            it["label"] = _display_label(h, it, _factory())
         role = str(suite or "").strip().lower()
         enabled_id = _enabled_map(h).get(role, "")
         if enabled_id and not any(str(it.get("id") or "") == enabled_id for it in items):

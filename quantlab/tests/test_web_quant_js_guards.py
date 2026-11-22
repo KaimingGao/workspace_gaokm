@@ -905,8 +905,18 @@ class TestWebQuantJsGuards(unittest.TestCase):
         self.assertNotIn("(1 − D/L)×100", panel)
 
         watching = self._read("web", "static", "partials", "watching_panel.html")
-        self.assertIn('id="watching-data-offline"', watching)
-        self.assertIn("仅本地仓", watching)
+        self.assertIn('id="watching-hs300-only"', watching)
+        self.assertIn("只显示沪深300", watching)
+        self.assertIn('aria-label="只显示沪深300" checked', watching)
+        self.assertLess(
+            watching.find('id="watching-main-actions"'),
+            watching.find('id="watching-hs300-only"'),
+        )
+        self.assertNotIn("watching-head-actions", watching)
+        self.assertNotIn("watching-desk-badge", watching)
+        self.assertNotIn("watching-desk-guard", watching)
+        self.assertNotIn('id="watching-data-offline"', watching)
+        self.assertNotIn("仅本地仓", watching)
         self.assertIn("ŷ_oo 截面分布", watching)
         self.assertIn('id="watching-yhat-hist-wrap"', watching)
         self.assertNotIn("ŷ_trade 截面分布", watching)
@@ -933,18 +943,20 @@ class TestWebQuantJsGuards(unittest.TestCase):
             "data_offline.js",
             self._read("web", "static", "js", "quant", "domain_watching.js"),
         )
-        self.assertIn(
+        self.assertNotIn(
             "data_warehouse_topup.js",
-            self._read("web", "static", "js", "quant", "domain_watching.js"),
+            watching_js,
         )
-        self.assertIn(
-            "ensureWarehouseTopup",
-            self._read("web", "static", "js", "quant", "domain_watching.js"),
-        )
+        self.assertNotIn("ensureWarehouseTopup", watching_js)
+        self.assertNotIn("getDataOfflineOnly", watching_js)
+        self.assertNotIn("prepareWatchingWarehouse", watching_js)
         self.assertIn(
             "offlineOnlyQuery",
-            self._read("web", "static", "js", "quant", "domain_watching.js"),
+            watching_js,
         )
+        self.assertIn("/api/watching/hs300", watching_js)
+        self.assertIn("filterWatchingRowsToHs300", watching_js)
+        self.assertNotIn("installDataOfflineToggle", watching_js)
         offline_js = self._read("web", "static", "js", "data_offline.js")
         self.assertIn('return "offline_only=1"', offline_js)
         self.assertIn("增量补齐", offline_js)
@@ -1246,6 +1258,12 @@ class TestWebQuantJsGuards(unittest.TestCase):
         self.assertIn("没有次日开盘不计", replay)
         self.assertIn("按 fuse 调仓", replay)
         self.assertIn("买序按 rank_score", replay)
+        bt_result = self._read("web", "static", "js", "quant", "bt_result.js")
+        self.assertIn('rank_blend === "day_rank"', bt_result)
+        self.assertIn("买序 · 当日名次", bt_result)
+        bt_js = self._read("web", "static", "js", "quant", "domain_backtest.js")
+        self.assertIn("function replayBlendBit", bt_js)
+        self.assertIn("买序 · 当日名次", bt_js)
         self.assertNotIn("ŷ_oo残", replay)
         self.assertNotIn("分数仍是 09:30 开盘信息集", replay)
         self.assertIn("截至该钟的 5m 前缀重算", replay)
@@ -5528,8 +5546,10 @@ class TestWebQuantJsGuards(unittest.TestCase):
         self.assertNotIn('Math.min(num("y_t90_enter_alt", 0), 0.7)', ui)
         self.assertNotIn("r_tau_enter", ui)
         self.assertNotIn("r_tau_enter_alt", ui)
-        # 旧键 fusion_w_tc 已退役；fusion_w_tc_rank 是新 rank 权，允许出现
+        # 买序权已固定 0.6/0.4，不再进页面配置
         self.assertNotIn('"fusion_w_tc":', ui)
+        self.assertNotIn("fusion_w_oo_rank", ui)
+        self.assertNotIn("fusion_w_tc_rank", ui)
         self.assertNotIn("fusion_w_tc,", ui)
         self.assertNotIn("residual_w_oc", ui)
         self.assertNotIn("residual_w_mode", ui)

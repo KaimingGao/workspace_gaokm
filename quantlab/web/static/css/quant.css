@@ -14811,8 +14811,12 @@ body[data-page="yhat_bt"] {
 }
 
 
+/* 技术详情里的 CLI / JSON 不换行。列宽锁在卡片里，长行在 pre 内横滚，不把页面撑宽。 */
 .quant-page.yhat-tf-page .dashboard-card.quant-pro-card > .quant-pro-card-body.yhat-tf-run-output {
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  min-width: 0;
+  max-width: 100%;
   gap: 0;
   padding: 0 var(--ytf-pad-x) 12px;
   background: var(--surface);
@@ -14881,10 +14885,10 @@ body[data-page="yhat_bt"] {
 .yhat-tf-pre {
   display: block;
   box-sizing: border-box;
+  width: 100%;
   max-width: 100%;
-  overflow: scroll;
-  overflow-x: scroll;
-  overflow-y: scroll;
+  min-width: 0;
+  overflow: auto;
   white-space: pre;
   word-break: normal;
   overflow-wrap: normal;
@@ -15542,19 +15546,31 @@ body[data-page="yhat_bt"] .yhat-tf-page .yhat-tf-run-cta.dialog-btn.primary:disa
   margin-top: 4px;
   padding-top: 10px;
   border-top: 1px solid var(--ytf-line);
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
 }
 
 .yhat-tf-tech-body {
   display: flex;
   flex-direction: column;
-  align-items: flex-start;
+  align-items: stretch;
   gap: 8px;
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
   padding-top: 8px;
+}
+
+.yhat-tf-tech-body > .dialog-btn {
+  align-self: flex-start;
 }
 
 .yhat-tf-tech-body .yhat-tf-cli,
 .yhat-tf-tech-body .yhat-tf-pre {
   width: 100%;
+  max-width: 100%;
+  min-width: 0;
   margin: 0;
 }
 

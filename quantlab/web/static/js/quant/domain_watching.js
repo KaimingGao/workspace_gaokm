@@ -1,8 +1,4 @@
-import { apiFetch } from "../api_client.js";
-import { getDataOfflineOnly, installDataOfflineToggle, offlineOnlyQuery } from "../data_offline.js";
-import { scoresPolicyLine } from "../data_policy.js";
-import { ensureWarehouseTopup } from "../data_warehouse_topup.js";
-import { BARS_WATCHING_LIMIT } from "./params.js";
+import { offlineOnlyQuery } from "../data_offline.js";
 import { renderLineChart } from "../lw_charts.js";
 import { fmtScore, fmtTableScore, scoreCls, resolveFuseScore, resolveEodScore } from "../paper/fmt.js";
 import { watchingNameFromEl, applyWatchingNameEl } from "./names.js";
@@ -43,6 +39,10 @@ import {
   formatRefreshStats,
   buildWatchingNameByCode,
   watchingPoolMetaText,
+  WATCHING_HS300_KEY,
+  watchingHs300CodeKey,
+  readWatchingHs300Only,
+  filterWatchingRowsToHs300,
   applyWatchingOverviewKpis,
   watchingQuantListHtml,
   watchingPanelShellFlags,
@@ -83,50 +83,148 @@ export function installWatching(q) {
     state.watchingSortDir = "desc";
   }
 
-  function syncWatchingDataPolicyMeta() {
-    const meta = document.getElementById("watching-page-meta");
-    if (meta) {
-      meta.textContent = `观察池 · ${scoresPolicyLine(getDataOfflineOnly())} · 写仓=增量补齐`;
-    }
-  }
-
-  async function prepareWatchingWarehouse({ force = false } = {}) {
-    if (getDataOfflineOnly()) return { ok: true, skipped: true };
+  function getWatchingHs300Only() {
     try {
-      return await ensureWarehouseTopup({
-        force,
-        watchingLimit: BARS_WATCHING_LIMIT,
-        onStatus: (msg) =>
-          setWatchingRefreshStatus(msg || "增量补齐本地仓…", {
-            busy: true,
-            owner: "insights",
-          }),
-      });
-    } catch (err) {
-      const msg = String((err && err.message) || err || "增量补齐失败");
-      setWatchingRefreshStatus(msg, { error: true, owner: "insights" });
-      throw err;
+      return readWatchingHs300Only(localStorage.getItem(WATCHING_HS300_KEY));
+    } catch (_) {
+      return true;
     }
   }
 
-  installDataOfflineToggle(document.getElementById("watching-data-offline"), {
-    onChange: (offlineOnly) => {
-      syncWatchingDataPolicyMeta();
+  function setWatchingHs300Only(on) {
+    try {
+      localStorage.setItem(WATCHING_HS300_KEY, on ? "1" : "0");
+    } catch (_) {
+      /* ignore */
+    }
+  }
+
+  function installWatchingHs300Toggle(input) {
+    if (!input) return;
+    const syncUi = () => {
+      const on = getWatchingHs300Only();
+      input.checked = on;
+      input.setAttribute("aria-checked", on ? "true" : "false");
+    };
+    syncUi();
+    input.addEventListener("change", () => {
+      setWatchingHs300Only(!!input.checked);
+      syncUi();
+      const expand = !input.checked;
       (async () => {
         try {
-          if (!offlineOnly) await prepareWatchingWarehouse({ force: true });
+          await ensureWatchingHs300Codes();
         } catch (_) {
-          /* status already set */
+          /* 成分没拉到时整表照旧 */
         }
-        try {
-          fillWatchingInsights();
-        } catch (_) {
-          /* fill may not be ready on first tick */
-        }
+        publishWatchingHs300View({ refetch: expand, announce: true });
       })();
-    },
-  });
-  syncWatchingDataPolicyMeta();
+    });
+  }
+
+  installWatchingHs300Toggle(document.getElementById("watching-hs300-only"));
+
+  function ensureWatchingHs300Codes() {
+    if (state.watchingHs300Ready && state.watchingHs300Set) {
+      return Promise.resolve(state.watchingHs300Set);
+    }
+    if (state.watchingHs300Load) return state.watchingHs300Load;
+    state.watchingHs300Load = fetch("/api/watching/hs300")
+      .then((r) => r.json())
+      .then((data) => {
+        const codes = Array.isArray(data && data.codes) ? data.codes : [];
+        const set = new Set(codes.map(watchingHs300CodeKey).filter(Boolean));
+        state.watchingHs300Set = set;
+        state.watchingHs300Ready = !!(data && data.ready) && set.size >= 50;
+        return set;
+      })
+      .catch(() => {
+        state.watchingHs300Load = null;
+        state.watchingHs300Ready = false;
+        state.watchingHs300Set = new Set();
+        return state.watchingHs300Set;
+      });
+    return state.watchingHs300Load;
+  }
+
+  function snapshotWatchingGridIntoSource() {
+    const grid = state.watchingGrid;
+    const by = state.watchingSourceByCode;
+    if (!grid || !by || typeof grid.getData !== "function") return;
+    for (const row of grid.getData() || []) {
+      const code = String((row && row.code) || "").trim();
+      if (!code || !by.has(code)) continue;
+      by.set(code, { ...row, code });
+    }
+  }
+
+  function orderedWatchingSourceRows() {
+    const by = state.watchingSourceByCode;
+    if (!by) return [];
+    return (state.watchingSourceOrder || [])
+      .map((code) => by.get(code))
+      .filter(Boolean);
+  }
+
+  function rememberWatchingSourceRows(rows) {
+    const list = Array.isArray(rows) ? rows : [];
+    state.watchingSourceOrder = list
+      .map((row) => String((row && row.code) || "").trim())
+      .filter(Boolean);
+    state.watchingSourceByCode = new Map(
+      list.filter((row) => row && row.code).map((row) => [String(row.code), row])
+    );
+  }
+
+  function publishWatchingHs300View({ refetch = false, announce = false } = {}) {
+    snapshotWatchingGridIntoSource();
+    const all = orderedWatchingSourceRows();
+    if (!all.length) return;
+    const view = filterWatchingRowsToHs300(
+      all,
+      state.watchingHs300Set,
+      getWatchingHs300Only()
+    );
+    const watchTable = document.getElementById("watching-watchlist-table");
+    if (
+      state.watchingGrid &&
+      state.watchingGridReady &&
+      typeof state.watchingGrid.setRows === "function"
+    ) {
+      state.watchingGrid.setRows(view.rows);
+      updateWatchingPickCount();
+      syncWatchingSelectAllState();
+    } else if (watchTable) {
+      renderWatchingWatchTableFallback(view.rows);
+    }
+    const shown = view.applied ? view.rows : all;
+    const held = shown.filter((row) => row && row.onPaper).length;
+    const note = view.applied
+      ? "沪深300"
+      : getWatchingHs300Only() && !view.ready
+        ? "沪深300未就绪"
+        : "";
+    setPoolMeta(watchingPoolMetaText(shown.length, held, state.watchingMaxSize, note));
+    applyWatchingOverviewKpis({
+      pool: shown.length,
+      held,
+      maxSize: state.watchingMaxSize,
+      poolSub: view.applied ? `沪深300 · 名单 ${all.length}` : undefined,
+    });
+    paintWatchingYhatHist();
+    if (announce && getWatchingHs300Only() && !view.ready) {
+      setWatchingRefreshStatus("沪深300成分未就绪，暂显示全部观察名单", {
+        error: true,
+        owner: "panel",
+      });
+    } else if (announce && view.applied && !view.rows.length) {
+      setWatchingRefreshStatus("当前观察名单里没有沪深300成分", { owner: "panel" });
+    }
+    if (refetch && !view.applied) {
+      fillWatchingQuotes().catch(() => {});
+      fillWatchingInsights().catch(() => {});
+    }
+  }
 
   function collectWatchingYhatItems() {
     const insightBy = state.watchingInsightByCode || {};
@@ -601,14 +699,6 @@ export function installWatching(q) {
         );
       } catch (_) {}
     };
-    setWatchingRefreshStatus("正在加载评分…", { busy: true, owner: "insights" });
-    try {
-      await prepareWatchingWarehouse({ force: false });
-      if (gen !== state.watchingInsightsGen) return;
-    } catch (_) {
-      if (gen !== state.watchingInsightsGen) return;
-      /* 增量失败仍打开观察表，便于对照缺仓票 */
-    }
     setWatchingRefreshStatus("正在加载评分…", { busy: true, owner: "insights" });
 
     const applyInsightItems = (items) => {
@@ -1346,6 +1436,7 @@ export function installWatching(q) {
       ...buildWatchingNameByCode(wl, names),
     };
     const paperN = wl.filter((c) => paperCodes.has(String(c))).length;
+    state.watchingMaxSize = uni.max_size;
     setPoolMeta(watchingPoolMetaText(wl.length, paperN, uni.max_size));
     applyWatchingOverviewKpis({
       pool: wl.length,
@@ -1361,7 +1452,11 @@ export function installWatching(q) {
     if (els.quantWatchingList) {
       els.quantWatchingList.innerHTML = watchingQuantListHtml(wl, names, escapeHtml);
     }
-    if (wl.length) {
+    const visibleN =
+      state.watchingGrid && state.watchingGridReady
+        ? (state.watchingGrid.getData() || []).length
+        : wl.length;
+    if (visibleN) {
       // quotes 会接管忙碌条；先交还 panel owner
       setWatchingRefreshStatus("正在拉取屏内行情…", { busy: true, owner: "quotes" });
       // 行情优先；舆情徽章稍后补，避免与行情抢线程池导致前端 20s 超时
@@ -1371,6 +1466,8 @@ export function installWatching(q) {
           fillWatchingSentiment().catch(() => {});
         });
       fillWatchingInsights().catch(() => {});
+    } else if (wl.length && getWatchingHs300Only()) {
+      setWatchingRefreshStatus("当前观察名单里没有沪深300成分", { owner: "panel" });
     } else {
       setWatchingRefreshStatus("", { owner: "panel" });
     }
@@ -1660,6 +1757,7 @@ export function installWatching(q) {
     state.watchingInsightsGen = (state.watchingInsightsGen || 0) + 1;
     state.watchingInsightByCode = {};
     if (!wl.length) {
+      rememberWatchingSourceRows([]);
       watchTable.innerHTML = `<p class="watching-table-empty">暂无观察 · 上方搜索加入</p>`;
       hideWatchingNewsDetail();
       updateWatchingPickCount();
@@ -1734,6 +1832,14 @@ export function installWatching(q) {
       });
     }
     const rows = Array.from(rowByCode.values());
+    rememberWatchingSourceRows(rows);
+    await ensureWatchingHs300Codes();
+    const hs300View = filterWatchingRowsToHs300(
+      rows,
+      state.watchingHs300Set,
+      getWatchingHs300Only()
+    );
+    const shown = hs300View.rows;
     try {
       const V =
         (typeof window !== "undefined" && window.__ASSET_V__) || "dev";
@@ -1746,6 +1852,7 @@ export function installWatching(q) {
         initialSort: state.watchingSortKey
           ? [{ column: state.watchingSortKey, dir: state.watchingSortDir === "asc" ? "asc" : "desc" }]
           : [],
+        emptyText: hs300View.applied ? "当前名单没有沪深300成分" : "暂无观察",
       });
       grid.on("sortChanged", (sorters) => {
         const s = Array.isArray(sorters) && sorters.length ? sorters[0] : null;
@@ -1756,20 +1863,20 @@ export function installWatching(q) {
           persistWatchingSort();
         }
       });
-      grid.setRows(rows);
+      grid.setRows(shown);
       state.watchingGrid = grid;
       state.watchingGridReady = true;
       void ensureFitTierMap(watchTable);
       updateWatchingPickCount();
       syncWatchingSelectAllState();
-      paintWatchingYhatHist();
+      publishWatchingHs300View();
     } catch (err) {
       console.warn("[watching] 虚拟表挂载失败，回退原生表", err);
       state.watchingGrid = null;
       state.watchingGridReady = false;
-      renderWatchingWatchTableFallback(rows);
+      renderWatchingWatchTableFallback(shown);
       void ensureFitTierMap(watchTable);
-      paintWatchingYhatHist();
+      publishWatchingHs300View();
     }
   }
 

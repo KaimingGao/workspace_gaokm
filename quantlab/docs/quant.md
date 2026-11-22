@@ -494,7 +494,7 @@ score_stock(code) 续——
 | 训练窗 | 允许 **100～1060** 交易日；默认 **700** |
 | Holdout | 卡头 **1～60** 交易日，默认 **20**；拟合按该值切分 |
 | 训练 | `POST /api/quant/oo-rank` 拟合写 last report（单头 LambdaRank）；标签为日截面 **稠密名次** ``0..n-1``；鲁棒默认：truncation=100、截面 z 裁 ±3、min_leaf=50、num_leaves=16、L2=5（API/UI 同默认）；人审「启用研究 / 启用执行」写入槽（须有 booster；旧 Ridge 顶层戳若同窗已有 LambdaRank 包，重新启用即可改写，不重训；无包则拒晋级），不重训 |
-| 回测 / live | 加载已启用模型（无 backend 开关），打相对分再编名次写入 `y_oo_rank`；成交明细 **oo_rank** 列。过门槛后买序按 `oo_rank_score`。`oo_rank_max` 开则未过强档另须 `max(oo_rank, τc_rank) < N`（不是 y_oo / y_τc）；fuse 过强档改看 `oo_rank_strong_max`。排序头截面 z **只吃全池 L2**（不进批现算；缺 Cube 跳过写分）。名次写全池。旧落盘 `train_universe` / `zscore_universe=tier_a` 只审计，新戳强制 `pool` |
+| 回测 / live | 加载已启用模型（无 backend 开关），打相对分再编名次写入 `y_oo_rank`；成交明细 **oo_rank** 列。过门槛后买序按 `oo_rank_score`。历史回测在两条排序头后端不同时，先把两路相对分换成当日分位再加权，计划后明细仍写原始分；live 保持原始分。`oo_rank_max` 开则未过强档另须 `max(oo_rank, τc_rank) < N`（不是 y_oo / y_τc）；fuse 过强档改看 `oo_rank_strong_max`。排序头截面 z **只吃全池 L2**（不进批现算；缺 Cube 跳过写分）。名次写全池。旧落盘 `train_universe` / `zscore_universe=tier_a` 只审计，新戳强制 `pool` |
 | OOS | **Gate lift / Gate y%**（主；研究用 `rank < N`，默认 10/100，不是调仓名次 6/12）/ **NDCG@K** / TopK；**IC** / **ICIR** / **Rank IC** 仅对照 |
 
 实现：`core/research/oo_rank_panel.py` · `core/research/oo_rank_lambdarank.py`。

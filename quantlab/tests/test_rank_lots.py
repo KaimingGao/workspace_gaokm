@@ -1040,7 +1040,7 @@ class TestPlanRankLotDay(unittest.TestCase):
     def test_display_enter_skip_reason_uses_raw_fuse_and_score(self):
         from core.paper.rebalance.rank_lots import _display_enter_skip_reason
 
-        cfg = {"fuse_enter": 0.01, "oo_tc_score_min": 0.3}
+        cfg = {"fuse_enter": 0.01}
         # 原始过线、先验后不过：原因写原始 fuse，不写假不等式。
         self.assertEqual(
             _display_enter_skip_reason(
@@ -1050,19 +1050,6 @@ class TestPlanRankLotDay(unittest.TestCase):
                 decided="fuse=0.950%<1% 未过入场",
             ),
             "fuse=1.050% 未过入场",
-        )
-        # rank 阈值：写 oo_rank / τc_rank 相对分（不是 y_oo / y_τc）。
-        self.assertEqual(
-            _display_enter_skip_reason(
-                {
-                    "y_oo_rank_score": 0.25,
-                    "y_tc_rank_score": 0.4,
-                },
-                cfg,
-                rs_raw=0.02,
-                decided="oo_rank=0.2500 τc_rank=0.4000 rank_score=0.3100 须≥0.3 未过入场",
-            ),
-            "oo_rank=0.2500 τc_rank=0.4000 rank_score=0.3100 未过入场",
         )
 
     def test_held_fail_enter_exits(self):
@@ -1803,12 +1790,9 @@ class TestEnterGates(unittest.TestCase):
                 rs=0.02,
             )
         )
-        # 买序权重不改名次门槛
         cfg_tc = self._cfg(
             oo_rank_max=6,
             fuse_strong=0.05,
-            fusion_w_oo_rank=0.0,
-            fusion_w_tc_rank=1.0,
         )
         self.assertIsNotNone(
             rank_lot_enter_skip_reason(

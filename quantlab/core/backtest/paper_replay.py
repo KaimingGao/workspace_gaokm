@@ -107,6 +107,9 @@ from core.backtest.replay_scoring import (
     push_replay_arm_heads,
     refresh_tau_heads_after_prefix,
     rescore_replay_y_τc_at_clock,  # 门面 re-export（单测 / 冻结 API；见 pyproject F401）
+    apply_replay_day_rank_blend,
+    replay_rank_blend,
+    restore_rank_scores,
     stamp_replay_arm_day,
     stamp_tau_prefix_misses,
 )
@@ -176,8 +179,6 @@ def backtest_paper_replay(
     fuse_strong: Optional[float] = None,
     fusion_w_oo: Optional[float] = None,
     fusion_w_oc: Optional[float] = None,
-    fusion_w_oo_rank: Optional[float] = None,
-    fusion_w_tc_rank: Optional[float] = None,
     include_session_day: bool = True,
     session_quotes: Optional[Dict[str, dict]] = None,
     session_now: Optional[datetime] = None,
@@ -200,8 +201,9 @@ def backtest_paper_replay(
     """策略调仓历史回测：四头用枢纽所选臂已启用的工厂开盘权重；ŷ_τ30…90 仍走套槽。按调仓钟 5m 价成交。
 
     ``score_backend`` 恒为 ridge（影子树头已下线）；传入 tree 会被忽略。
-    ŷ_oo_rank / ŷ_τc_rank 有模型时按当日截面编成 1..n 名次透传到成交行；
-    过入场后买序按 rank_score=0.6·y_oo_rank_score+0.4·y_tc_rank_score（固定，不进配置）。
+    ŷ_oo_rank / ŷ_τc_rank 有模型时按当日截面编成 1..n 名次透传到成交行。
+    过入场后买序按 rank_score（固定 0.6/0.4，不进配置）。两条排序头后端不同时，
+    计划前把相对分换成当日分位，计划后明细仍写模型原始分。live 不走这一步。
     ``tradable_codes`` 给定时：主头与排序头截面 z 仍用整池；ŷ 与名次只写这份名单。
     产品排序头拟合固定全池；旧落盘 ``train_universe`` / ``zscore_universe=tier_a`` 仅审计，打分不缩 z。
     ``oo_rank_max`` 开则未过强档时另须 max(oo_rank, τc_rank) < N（缺省 6；None=关）。
@@ -285,6 +287,7 @@ def backtest_paper_replay(
                 raise
             logger.exception("replay factory arm table failed")
             arm_table = {"heads": [], "runs": {}, "by_day": {}, "suite": ""}
+    replay_blend = replay_rank_blend(arm_table)
 
     tc_rank_doc = None
     if scores_by_date is not None or arm_table is None:
@@ -472,12 +475,7 @@ def backtest_paper_replay(
         lot_base_amount,
         lot_strong_amount,
     )
-    w_oo_rank, w_tc_rank = rank_fusion_weights_from_cfg(
-        {
-            "fusion_w_oo_rank": fusion_w_oo_rank,
-            "fusion_w_tc_rank": fusion_w_tc_rank,
-        }
-    )
+    w_oo_rank, w_tc_rank = rank_fusion_weights_from_cfg()
     from core.t0.config import coerce_cfg_bool
 
     paper = _default_paper(
@@ -500,8 +498,6 @@ def backtest_paper_replay(
         "holdings_mv_cap": 0.0,
         "fusion_w_oo": w_oo,
         "fusion_w_oc": w_τc,
-        "fusion_w_oo_rank": w_oo_rank,
-        "fusion_w_tc_rank": w_tc_rank,
         "y_oo_gt0": bool(y_star),
         "morph_gate_enabled": (
             False
@@ -529,8 +525,6 @@ def backtest_paper_replay(
     rl_cfg["lot_strong_amount"] = lot_strong_n
     rl_cfg["fusion_w_oo"] = w_oo
     rl_cfg["fusion_w_oc"] = w_τc
-    rl_cfg["fusion_w_oo_rank"] = w_oo_rank
-    rl_cfg["fusion_w_tc_rank"] = w_tc_rank
     rl_cfg["fuse_enter"] = enter
     rl_cfg["fuse_strong"] = strong
     rl_cfg["y_oo_gt0"] = replay_lots["y_oo_gt0"]
@@ -834,6 +828,11 @@ def backtest_paper_replay(
         cash = float(paper.get("cash") or 0)
         start_snap = _holding_snap(paper.get("holdings") or [])
         fill_px_map = {**sell_prices, **prices}
+        rank_score_snap = (
+            apply_replay_day_rank_blend(scored, arm_table)
+            if replay_blend == "day_rank"
+            else None
+        )
         with paper_replay_context(
             as_of=day,
             batch_query=_make_fill_batch_query(fill_px_map, date_maps, dates, day),
@@ -852,6 +851,10 @@ def backtest_paper_replay(
                 sentiment_clock="09:30",
                 sentiment_align="publish",
             )
+            if rank_score_snap:
+                restore_rank_scores(scored, rank_score_snap)
+                for bucket in ("buys", "sells", "skips"):
+                    restore_rank_scores(plan.get(bucket) or [], rank_score_snap)
             ms = plan.get("morph_stamp") if isinstance(plan.get("morph_stamp"), dict) else {}
             if ms:
                 n_a1 = int(ms.get("n_a1") or 0)
@@ -1186,10 +1189,15 @@ def backtest_paper_replay(
     from core.signal.yhat_windows import FORMULA_OO_FUSE
 
     fuse_enter = rl_cfg.get("fuse_enter")
+    buy_note = (
+        "后按当日分位加权买，明细仍是原始分"
+        if replay_blend == "day_rank"
+        else "后按 rank_score 买，缺相对分才按 fuse"
+    )
     note = (
         f"引擎={ENGINE_ID}：每个交易日 y_oo_fuse={FORMULA_OO_FUSE}，{fill_note}；{oc_note}；"
         f"fuse 权 w_oo={w_oo:g} w_τc={w_τc:g}；未过入场则已持仓清仓；"
-        f"fuse 过入场（fuse入场={fuse_enter}）后按 y_oo_rank 买，缺名次才按 fuse"
+        f"fuse 过入场（fuse入场={fuse_enter}）{buy_note}"
         f"（开加上限=名单 {top_k} 只，现金不够则停），"
         f"每笔 {int(rl_cfg.get('lot_base_amount') or REPLAY_AMOUNT_BASE)} 元；"
         f"不留现金地板；T+1；成本={cost_model}；≠ topk_research。"
@@ -1255,6 +1263,7 @@ def backtest_paper_replay(
             "scores_injected": scores_by_date is not None,
             "arm_t_runs": (arm_table or {}).get("runs") or {},
             "arm_t_suite": (arm_table or {}).get("suite") or "",
+            "rank_blend": replay_blend,
             "score_cache": score_cache_stats,
             "yhat_source": "research",
             "model_role": "research",

@@ -477,10 +477,14 @@ export function installBacktest(q) {
     }
   }
 
-  function markReplayRestored(at) {
+  function replayBlendBit(data) {
+    return data?.params?.rank_blend === "day_rank" ? " · 买序 · 当日名次" : "";
+  }
+
+  function markReplayRestored(at, data) {
     const meta = document.getElementById("replay-meta");
     if (meta) {
-      meta.textContent = `历史验证 · rank_lots（${readFillClock()} 5m）· 上次结果 ${at} · 刷新未重跑`;
+      meta.textContent = `历史验证 · rank_lots（${readFillClock()} 5m）${replayBlendBit(data)} · 上次结果 ${at} · 刷新未重跑`;
     }
   }
 
@@ -516,7 +520,7 @@ export function installBacktest(q) {
         (data.benchmark && data.benchmark.ok && data.benchmark.equity_curve) || null,
         (data.benchmark && data.benchmark.benchmark_label) || null
       );
-      markReplayRestored(at);
+      markReplayRestored(at, data);
     } catch (_) {
       /* ignore */
     }
@@ -1346,6 +1350,13 @@ export function installBacktest(q) {
 
   function applyLivePortfolioResult(data, elapsed) {
     clearPortfolioRunContext();
+    if (isReplayDesk()) {
+      const meta = document.getElementById("replay-meta");
+      if (meta) {
+        const clock = data?.params?.fill_clock || readFillClock();
+        meta.textContent = `历史验证 · rank_lots（${clock} 5m）${replayBlendBit(data)} · 非实盘`;
+      }
+    }
     const summary = buildPortfolioBacktestSummaryText(data);
     const elapsedBit = elapsed ? ` · 耗时 ${elapsed}` : "";
     writePortfolioSummary(`${summary.text}${elapsedBit}`, { error: !!summary.warn });

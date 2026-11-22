@@ -68,6 +68,16 @@ def watching_get() -> Dict[str, Any]:
     return deps.quant.read_watching()
 
 
+@router.get("/api/watching/hs300")
+def watching_hs300() -> Dict[str, Any]:
+    """沪深300成分（本地缓存，不在请求里打外网）。观察台用来筛名单。"""
+    from core.universe.feature_sets import load_csi300_codes
+
+    codes = load_csi300_codes(fetch=False)
+    ready = len(codes) >= 50
+    return {"ok": True, "ready": ready, "count": len(codes), "codes": codes}
+
+
 @router.get("/api/watching/search")
 def watching_search(q: str = "", limit: int = 8) -> Dict[str, Any]:
     try:
