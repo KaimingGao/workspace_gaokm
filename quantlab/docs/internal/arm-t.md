@@ -1,6 +1,6 @@
 # Arm·T 技术方案
 
-研究轨 **Scheme LT**（LightGBM vs Transformer）的右臂：双支路晚融合（序列 Transformer ∥ 因子 MLP）。对照左臂 **Arm·L**（现网 LightGBM · 全量）。`live_allowed=False`，不写生产 score。
+研究轨 **Scheme LT**（LightGBM vs Transformer）的右臂：序列 Transformer。对照左臂 **Arm·L**（现网 LightGBM · 全量）。`live_allowed=False`，不写生产 score。旧结构权重不再加载。
 
 UI 入口：`/yhat-t`（**Transformer 工厂**；旧 `/yhat-tf` 重定向）。契约见 [quant-ui.md · 模型中心](../quant-ui.md#yhat-t--yhat-l-模型中心双工厂)。  
 长期拆分（工厂拟合 vs 枢纽注册 live/回测）见 **[model-factory-hub.md](model-factory-hub.md)**。跑次版本在 `live/yhat_t/versions/{head}/`（Arm·L 为 `yhat_l`）；选中只回看参数、指标和日志。删除只去掉该条归档和日志副本，不改磁盘上的当前拟合，不写 live。若删掉的是概览正在指示的那次失败，概览不再显示这次失败；列表里还有版本时，改看剩下的最新一条。
@@ -11,17 +11,17 @@ UI 入口：`/yhat-t`（**Transformer 工厂**；旧 `/yhat-tf` 重定向）。�
 
 | | **Arm·L** | **Arm·T** |
 |--|--|--|
-| 模型 | 现网 LightGBM / LambdaRank | `SeqFactorTransformer` |
-| 输入 | 因子面板全量列 | 日线短序列 + gap +（可裁列的）因子支路 |
-| 样本 | **固定全量**（对齐 live） | 默认相对训练段 **10% subsample** |
+| 模型 | 现网 LightGBM / LambdaRank | `ArmTModel` |
+| 输入 | 因子面板全量列 | 因子序列（默认 60 步，末步是决策日）+ gap |
+| 样本 | **固定全量**（对齐 live） | 默认相对训练段 **100%**（不截断；可调低） |
 | 角色 | Holdout **硬闸基线** | 候选；须过相对 L 的 CS rank IC 硬门 |
-| 归一 | live `fit_*_lgb_matrix` 或立方 CS-z | 因子支路同 **L2 立方截面 CS-z**；序列侧 train 分位 clip |
+| 归一 | live `fit_*_lgb_matrix` 或立方 CS-z | 序列因子列走 **L2 立方截面 CS-z**；`age_td` 与 gap 不参与 |
 
 一次 Holdout 只训一个 head（`oo` / `tc` / `oo_rank` / `tc_rank`）。`/yhat-t` 只跑 Arm·T，`/yhat-l` 只跑 Arm·L；双臂只留在 CLI `--factory LT`。seed=42。
 
 晋级边界（页面草稿/晋级已下线；正式对照与 live 禁令仍有效，见 [model-factory-hub.md](model-factory-hub.md)）：
 
-> 正式对照须 `gate_pass` + T full 因子 + T 采样 100% + 共享评测；**禁止 live / active**。工作配置随拟合意图隐式同步，不再暴露「存草稿 / 晋级研究」。
+> 正式对照须 `gate_pass` + 序列 full + T 采样 100% + 共享评测；**禁止 live / active**。工作配置随拟合意图隐式同步，不再暴露「存草稿 / 晋级研究」。
 
 ---
 
@@ -29,7 +29,9 @@ UI 入口：`/yhat-t`（**Transformer 工厂**；旧 `/yhat-tf` 重定向）。�
 
 ```text
 日线 bars (lookback)
-    ├─ build_seq_panel  → SeqPanel  X(N,L,F), gap(N,), y, dates, codes
+    ├─ 旧列宽 build_seq_panel → SeqPanel  X(N,L,F), gap(N,), y, dates, codes
+    ├─ seq_core / seq_full：sequence_from_factor_panel → 窗口视图
+    │     因子行只存一份，样本是 [T−(L−1) … T] 共 L 个行号，另附 age_td。不展开 (N,L,F)
     └─ build_factor_panel → FactorPanel 全量 (aoo_full / atc_full)  ← Arm·L 用这份
             │
             ▼
@@ -46,9 +48,9 @@ UI 入口：`/yhat-t`（**Transformer 工厂**；旧 `/yhat-tf` 重定向）。�
             ├─ Arm·L：全量 fac 训；OOS 缩到 shared_keys
             │
             └─ Arm·T：_run_arm_t
-                      cs_z_matrix_prefer_cube(fac, clock="open")  ← 剩下的面板缺立方即失败
-                      train_seq_factor_transformer (seed=42)
-                      predict_seq_factor_transformer on holdout
+                      cs_z_factor_sequence(seq, clock="open")  ← 序列因子列；缺立方即失败
+                      train_arm_t (seed=42)
+                      predict_arm_t on holdout
             │
             ▼
     daily_cs_ic_report / sign_hit → hard_gate_vs_baseline(L, T)
@@ -59,7 +61,7 @@ UI 入口：`/yhat-t`（**Transformer 工厂**；旧 `/yhat-tf` 重定向）。�
 
 **关键不变量**
 
-1. 因子面板 **先建全量**：Arm·L 对齐 live；core / full 只在 Arm·T 开跑前裁列。构建日志按当前臂写明谁用全量、T 裁成哪一包，T 单臂不标成 Arm·L。
+1. 因子面板 **先建全量**：Arm·L 对齐 live；Arm·T 只按序列档 `seq_core` / `seq_full` 裁列，再切成含决策日的窗口。构建日志按当前臂写明谁用全量、T 裁成哪一包，T 单臂不标成 Arm·L。
 2. Gate / OOS 用 **seq∩fac 共享键** 与同一 `eval_start`，避免 L/T 评测窗错位。
 3. Arm·L 训练仍可吃共享日历末端之前的全量 fac 早期日（含 seq 尚未覆盖的日）。
 4. `align_seq_and_factor`：同 `(code,date)` 标签偏差 > `1e-3` 时以 **seq.y 覆盖 fac.y**。
@@ -67,65 +69,44 @@ UI 入口：`/yhat-t`（**Transformer 工厂**；旧 `/yhat-tf` 重定向）。�
 
 ---
 
-## 3. 双支路晚融合
+## 3. 模型
 
-实现：`core/research/yhat_transformer/model.py` 的 `SeqFactorTransformer`。两条支路各自算完，只在最后一层线性头之前拼接。序列编码器看不到因子，因子 MLP 也看不到序列；中间没有交叉注意力。arch=2 在投影后加固定正弦位置编码（位置 0 是最旧的一天），并另附一列 `age_td`（距决策日的交易日数 / L）。已落盘的 arch=1 没有位置编码，加载时不能迁进 arch=2。
+实现：`core/research/yhat_transformer/model.py` 的 `ArmTModel`。只有序列编码器。末步做 LayerNorm，再拼 gap，线性头出标量。没有因子 MLP。
 
 ```text
-arch=2
 x_seq (B, L, F+1) ── Linear ── sin PE ── Pre-LN Encoder × nlayers
-                                              └── 末步 (B, d_model)
-x_fac (B, d_factor) ── Linear ── GELU ── Dropout ── fac_h (B, fh)
-                         LayerNorm(末步 ∥ fac_h) ── 拼 gap ── Linear ── ŷ
+                                            └── 末步 LayerNorm ── 拼 gap ── Linear ── ŷ
 ```
 
-标量头没有激活。回归头外面用逐点 SmoothL1；排序头外面用 LambdaRank，不减日内均值。网络本身不包 softmax / sigmoid。arch=1 的因子支路仍带输入 LayerNorm，gap 在融合 LayerNorm 之内。
+标量头没有激活。回归头外面用逐点 MSE；排序头外面用 LambdaRank，不减日内均值。网络本身不包 softmax / sigmoid。
 
-### 3.1 序列支路
+### 3.1 编码器
 
 `SeqTransformer.encode`，`with_head=False`（不建未使用的死头）。
 
 | 步 | 张量 | 说明 |
 |--|--|--|
-| 输入 | `(B, L, F)`，arch=2 为 `F+1` | L = 决策日前 L 日。F 是这一头因子 core / full（oo 65/222，开盘 τc 61/218）。arch=2 末列是 `age_td` |
-| 投影 | `(B, L, d_model)` | 一层 `Linear`，再加正弦位置编码。arch=1 不加 |
+| 输入 | `(B, L, F+1)` | `seq_len` L 就是进编码器的步数，末步是决策日。F 是这一头因子 core / full（oo 65/222，开盘 τc 61/218），末列是 `age_td`，当天为 0 |
+| 投影 | `(B, L, d_model)` | 一层 `Linear`，再对每一个位置加正弦位置编码，包括决策日。位置 0 是最旧一天 |
 | 编码 | 同形 | `TransformerEncoder` × `nlayers`。每层 Pre-LN（`norm_first=True`）：自注意力残差，再 GELU 前馈残差；`batch_first=True`。无 padding mask，窗口内全注意力 |
 | 池化 | `(B, d_model)` | 只取末步 `h[:, -1, :]`，不做均值池化、不设 CLS |
-| 缺口 | 不进编码器 | `gap` 是今开/昨收 − 1 的原始标量。arch=2 在融合 LayerNorm 之后再拼；arch=1 拼在末步上，和因子隐层一起进 LayerNorm。缺省时填 0 |
+| 缺口 | 不进编码器 | `gap` 是今开/昨收 − 1 的原始标量。末步 LayerNorm 之后再拼。缺省时填 0 |
 
-前馈宽度 `dim_feedforward = max(64, d_model×2)`。`d_model` 必须能被 `nhead` 整除。进 `Linear` 之前的 1%/99% 分位 clip 在训练预处理里做，不在这个模块里。
+前馈宽度 `dim_feedforward = max(64, d_model×4)`。`d_model` 必须能被 `nhead` 整除。因子列的截面 z 在训练预处理里做，不在这个模块里。`age_td` 与 gap 不进这套 z。
 
-### 3.2 因子支路
+### 3.2 输出头
 
-截面向量，不是序列。列已经过 L2 立方 CS-z（见 §5.3）。
-
-```text
-arch=2: (B, d_factor) → Linear(d_factor → fh) → GELU → Dropout → (B, fh)
-arch=1: (B, d_factor) → LayerNorm → Linear → GELU → Dropout → (B, fh)
-```
-
-`fh = max(16, factor_hidden)`，desk 上 `factor_hidden` 对齐 `d_model`。只有这一层隐层，没有按因子各出一条系数。
-
-### 3.3 融合头
-
-```text
-arch=2: LayerNorm(序列末步 ∥ 因子隐层) → 拼 gap → Linear → (B,)
-arch=1: LayerNorm(序列末步 ∥ gap ∥ 因子隐层) → Linear → (B,)
-```
-
-默认 `d_model=64`、`fh=64` 时，线性头输入仍是 **129**（64 维序列末步 + 64 维因子隐层 + 1 维 gap）。arch=2 的 LayerNorm 不覆盖 gap。
+末步 LayerNorm，拼 gap，再 `Linear(d_model+1 → 1)`。
 
 | 参数 | 默认（CLI / desk） | 说明 |
 |--|--|--|
-| `d_seq_in` | 因子列宽；arch=2 再加 `age_td` | oo 65/222，开盘 τc 61/218；arch=2 为 66/223 与 62/219。旧 seq8/16/32/64 与旧列宽权重保持当时列宽 |
-| `d_factor` | 裁列后宽 | 必填；core / full 只改这一维 |
-| `d_model` | **64** | 须被 `nhead` 整除 |
+| `d_seq_in` | 因子列宽 + `age_td` | oo core/full 66/223，开盘 τc 62/219 |
+| `d_model` | **128** | 须被 `nhead` 整除 |
 | `nhead` | 4 | 每头 `d_model / nhead` |
-| `nlayers` | **3** | 只堆在序列支 |
-| `dim_feedforward` | `max(64, d_model×2)` | 默认 128 |
-| `factor_hidden` / `mlp_hidden` | 对齐 `d_model` | 因子支；`max(16, …)` |
-| `dropout` | 0.1 | 编码器与因子支 Dropout 共用 |
-| 融合维 `head_in` | `d_model + 1 + fh` | 默认 129 |
+| `nlayers` | **2** | 堆在编码器上 |
+| `dim_feedforward` | `max(64, d_model×4)` | 默认 512 |
+| `dropout` | 0.1 | 编码器 Dropout |
+| 头输入 | `d_model + 1` | 末步 LayerNorm 之后拼 gap |
 
 模型中心拉起的成功拟合，在 Holdout 预测之后把 CPU `state_dict` 和序列 clip 写入 `{版本号}.weights/`（`state.pt` + `meta.json`）。直接跑脚本、没有 `YHAT_FACTORY_RUN_ID` 时不写。页面回看仍只有结构、训练设置和 OOS，没有逐因子表。加载用 `load_factory_weights`。本页不写研究套 / 执行套。
 
@@ -133,29 +114,27 @@ arch=1: LayerNorm(序列末步 ∥ gap ∥ 因子隐层) → Linear → (B,)
 
 ## 4. 序列面板（PIT）
 
-实现：`seq_dataset.py`。
+序列在 `factor_panel.sequence_from_factor_panel`。`seq_dataset.py` 只留窗口视图和决策日缺口。
 
 **决策日 T**
 
-- `seq_core` / `seq_full`：序列 = 该股票因子行 `[T−L … T−1]`，列就是这一头的因子 core 或 full。决策日当天的因子向量不进序列，留在因子支路
-- 旧 `seq8|16|32|64`：序列 = 完整日 `[T−L … T−1]` 的价量统计（今收 / 今高 / 今低 / 今量不进序列）
-- 入参按日期排序。窗口内日期必须严格递增，且每一根都早于 T
-- 附加通道 `gap_t` = 今开 / 昨收 − 1（百分点），两种序列都另附这一路
+- `seq_core` / `seq_full`：序列 = 该股票因子行 `[T−(L−1) … T]`，共 L 步，列就是这一头的因子 core 或 full。末步是决策日当天，和前面每一天一起进编码器、一起加位置编码。T 之前的行仍须早于 T
+- 入参按日期排序。窗口内日期必须严格递增。只有末步等于 T
+- 附加通道 `gap_t` = 今开 / 昨收 − 1（百分点），另附在编码器之外
 - 标签 oo：`open[T+h]/open[T]−1`
 - 标签 τc：同日 `close/open−1`（本期 τ=开盘；horizon 忽略）
 
 | 项 | 默认 |
 |--|--|
-| `seq_len` L | 20（≥5） |
+| `seq_len` L | 60（5–60）。因子序列这 L 步含决策日。拟合实验卡可改，默认 60 |
 | `feat_set` | **seq_core** / **seq_full**，列宽对齐这一头的因子 core / full |
-| 缓存 | `data/experiments/yhat_transformer/cache/seq_*.npz` |
-| workers | `SEQ_PANEL_WORKERS` 默认 4；股票 &lt;16 则 1 |
+| 存储 | 窗口视图：因子行一份，样本只存 L 个行号 |
 
-`seq_core` / `seq_full` 不再是 16 / 64 列价量统计。每一天用这一头因子 core 或 full 的同一套列：oo 是 65 / 222，开盘 τc 是 61 / 218。决策日 T 的序列是该股票因子行 `[T−L … T−1]`，决策日当天的因子向量仍走因子支路。序列档和因子档各自选择，可以一个 core、一个 full。旧 `seq8` / `seq16` / `seq32` / `seq64` 只用于已落盘权重，列宽仍是 8 / 16 / 32 / 64。已经训好的旧列宽权重仍按原列宽加载：开盘 τc 补回分钟常数，oo 的 `alpha_th` / 尾盘 / 资金流补回 50。arch=2 的序列在因子列之后加 `age_td`。序列里的非有限值用训练行逐列中位数填上，再做 1%/99% clip；中位数写入 `seq_clip.x_median`。因子支路仍是截面 z 之后把非有限值写成 0。
+每一天用这一头因子 core 或 full 的同一套列：oo 是 65 / 222，开盘 τc 是 61 / 218。决策日 T 的序列是该股票因子行 `[T−(L−1) … T]`，共 L 步，末步是当天，`age_td` 为 0。权重 meta 写 `seq_through_decision=true`。列宽只由序列档决定，默认 core。`seq8` / `seq16` / `seq32` / `seq64` 已下线，草稿里遇到会改回 `seq_core`。序列在因子列之后加 `age_td`。因子列在进编码器之前走开盘立方截面 z，缺测写成 0；排序头再裁 ±`LAMBDARANK_Z_CLIP`。`age_td` 是距决策日的交易日数 / (L−1)，当天为 0，窗口最旧一天为 1，不做截面 z。gap 仍是今开/昨收 − 1，按训练行 1%/99% clip。权重 meta 写 `seq_cs_z=true`。
 
 ---
 
-## 5. 因子支路
+## 5. 因子面板
 
 实现：`factor_panel.py`。
 
@@ -172,48 +151,44 @@ arch=1: LayerNorm(序列末步 ∥ gap ∥ 因子隐层) → Linear → (B,)
 
 `assemble_oo_panels` 在非物化路径会尝试把 oo 面板落成 open 立方。面板没有 τc 列，已有 open 立方时不覆盖。截面 z 缺的是列时，报错给出本地跨度，并要求重跑日线物化补缺列的日子。
 
-### 5.2 `slice_arm_t_panel`（仅 Arm·T）
+### 5.2 `slice_arm_t_panel`（仅 Arm·T 序列档）
 
-> Arm·L 始终全量，不走这里。点了 core 但裁不窄时 **显式 ValueError**，避免静默退回全量。
+> Arm·L 始终全量，不走这里。序列档选了 core 但裁不窄时 **显式 ValueError**，避免静默退回全量。
 
-| Head | desk 默认 | CLI | Arm·T 列宽 |
-|--|--|--|--|
-| oo / oo_rank | `full_aoo=False` | 无 `--full-aoo` | **aoo_core**（GAP+YK+LAG 消融） |
-| oo / oo_rank | `full_aoo=True` | `--full-aoo` | aoo_full |
-| tc / tc_rank | `full_atc=True` | 默认 | **atc_full** |
-| tc / tc_rank | `full_atc=False` | `--atc-core` | atc_core（GAP+YK+LAG） |
+新训练的列宽看 `seq_feat_set`：`seq_core` 或 `seq_full`。默认 `seq_core`（oo 65，开盘 τc 61）。`full_aoo` / `full_atc` 仍写在拟合参数里，给 Arm·L 和没有 `seq_feat_set` 的旧草稿，不改变编码器输入。
 
 裁列只改列宽，**不改** CS-z 路径。
 
 ### 5.3 CS-z（与 Arm·L 对齐）
 
-`_run_arm_t` 内：
+`_run_arm_t` 内，只标准化序列里的因子列：
 
-1. `fac.X` 拷出 float64 后置空面板，减轻峰值 RSS
-2. `cs_z_matrix_prefer_cube(..., clock="open")`
+1. 读完因子列数后清空 `fac.X`，减轻峰值 RSS。因子矩阵不进模型
+2. `cs_z_factor_sequence`：开盘立方，早于立方起点的行写 0。`age_td` 不参与
 3. 排序头再裁 ±`LAMBDARANK_Z_CLIP`（对齐 LambdaRank）；回归头不裁
-4. 非有限值 → 0（截面均值），压 float32 进 Transformer。缺测在这一步之前保持 NaN，不先写成原始 0
+4. 非有限值 → 0。缺立方报 `MaterializeRequired`，不做列标准化回退
 
-训练函数内 **不再** 做训练段列标准化。
+训练函数内 **不再** 做训练段列标准化。截面 z 之后的序列因子列也不再做 1%/99% clip。
 
 ---
 
 ## 6. 训练协议
 
-实现：`train.py` · `train_seq_factor_transformer`；编排：`_run_arm_t`。
+实现：`train.py` · `train_arm_t`；编排：`_run_arm_t`。
 
 | 项 | 行为 |
 |--|--|
 | **seed** | 固定 **42** |
-| **epochs** | 默认 **12**；跑满，不提前停 |
+| **epochs** | 默认 **20**；跑满，不提前停 |
 | **保存** | 最后一个 epoch 的权重 |
-| **eval** | 每个 epoch 用训练尾部的探针做一次 `no_grad` 测试（Rank IC / Pearson ICIR / Rank ICIR / hit / Top10% y；排序头另打 NDCG@30）。探针和拟合段之间再隔离一段与标签期限相同的交易日。Holdout 只在最后一轮权重上预测一次。不反传，不选权重，不改学习率日程 |
-| **optimizer** | AdamW，`lr=1e-3`，`weight_decay=1e-4` |
-| **LR** | cosine + warmup；`TRANSFORMER_WARMUP_STEPS` 默认 100；`min_ratio=0.01` |
+| **eval** | 每个 epoch 在 Holdout 上做一次 `no_grad` 测试。排序头打 Rank IC / Pearson ICIR / Rank ICIR / NDCG@30 / Top10% y。回归头同一行再打 MSE。训练日用到 Holdout 隔离之前的全部交易日。不反传，不选权重，不改学习率日程 |
+| **曲线** | 步日志和每个 epoch 追加 `{head}_fit.curve.jsonl`（`YHAT_FIT_CURVE`）。运行台卡片下面画两张图，各自有坐标轴。训练损失左轴是步均 `avg`，底轴是 step。Holdout 左轴是 Rank IC；排序头右轴是 NDCG@30，回归头右轴是 MSE；底轴是 epoch。跑完随版本归档。只显示，不选权重 |
+| **optimizer** | AdamW，`weight_decay=1e-3`。`bias` 与 LayerNorm 的 `weight` 为 0。初始学习率见下 |
+| **LR** | cosine + warmup；`TRANSFORMER_WARMUP_STEPS` 默认 100；`min_ratio=0.01`。沪深300从头训练的峰值是 **1e-4**，暖机后到这个值，再余弦降到 1e-6。大池预训练峰值仍是 **1e-3**。两段连着训时，微调段改用 1e-4。页面没有这个旋钮；草稿里的 1e-3 / 1e-4 随截面换。请求里写明的其它学习率保留 |
 | **grad clip** | 1.0 |
-| **batch** | 默认 32；范围 16–1024 |
-| **subsample** | `t_sample_frac` 默认 **0.1**；≥1 → 不截断。点损失行级；排序头 **整日组**，一组放不进剩余名额即停。抽样只作用在训练日，Holdout 不进训练 |
-| **序列预处理** | 先用训练行逐列中位数填非有限值，再按 train 行 1%/99% 分位 clip（最多 2 万行） |
+| **batch** | 默认 2048；范围 16–4096 |
+| **subsample** | `t_sample_frac` 默认 **1**（不截断）；小于 1 才抽训练日。点损失行级；排序头 **整日组**，一组放不进剩余名额即停。抽样只作用在训练日，Holdout 不进训练 |
+| **序列预处理** | 因子列：开盘立方截面 z，缺测写 0；排序头再裁 ±`LAMBDARANK_Z_CLIP`。`age_td` 不做 z。gap 按 train 行 1%/99% clip。因子序列不展开成 `(N,L,F)` |
 | **线程** | `TORCH_NUM_THREADS` 默认 **4**；interop=1；BLAS/OMP 仍为 1 |
 | **取数** | numpy 切片再 `as_tensor`（避免大张量高级索引 OpenMP SIGSEGV） |
 
@@ -221,16 +196,16 @@ arch=1: LayerNorm(序列末步 ∥ gap ∥ 因子隐层) → Linear → (B,)
 
 | task | loss | 说明 |
 |--|--|--|
-| regression（oo / tc） | `smooth_l1`（β=1） | 逐点拟合百分点，对批取均值 |
+| regression（oo / tc） | `mse` | 百分点上的逐点均方 |
 | rank（oo_rank / tc_rank） | LambdaRank | 只比较名次，不减日内均值，不拟合分数数值 |
 
-回归头是逐点 SmoothL1（β=1），对批取均值。预测和标签都是百分点。
+回归头是逐点 MSE，对批取均值。预测和标签都是百分点。`bias` 与 LayerNorm 的 weight 不衰减。
 
-排序头标签与 Arm·L 相同：收益越高名次越大，`label_gain` 就是名次本身。权重按当前排序计算后断开梯度，只沿分数差反传。`truncation=30`，IDCG 只累加这前 30 名。整天 λ 质量乘 `log2(1+S)/S`（LightGBM `lambdarank_norm`）。不再除以 `|分数差|`，也不在损失里做日内减均值。因子支路裁 ±`LAMBDARANK_Z_CLIP`。
+排序头标签与 Arm·L 相同：收益越高名次越大，`label_gain` 就是名次本身。权重按当前排序计算后断开梯度，只沿分数差反传。`truncation=30`，IDCG 只累加这前 30 名。整天 λ 质量乘 `log2(1+S)/S`（LightGBM `lambdarank_norm`）。不再除以 `|分数差|`，也不在损失里做日内减均值。序列因子列裁 ±`LAMBDARANK_Z_CLIP`。
 
 Arm·L 排序树：120 棵、`max_depth=5`、`num_leaves=32`、`subsample=0.85`、`colsample=0.9`、L2=1。
 
-排序损失只在训练日反传。探针每个 epoch 另打 NDCG@30，只记日志。Holdout 的 NDCG@30 在最后一轮预测里算一次。
+排序损失只在训练日反传。每个 epoch 的 Holdout 测试另打 NDCG@30，只记日志。训练结束后的完成行再打一次同一份最后权重的 Holdout。
 
 ---
 
@@ -240,12 +215,12 @@ Arm·L 排序树：120 棵、`max_depth=5`、`num_leaves=32`、`subsample=0.85`�
 
 | id | task | loss | gate | 名义 factor_pack |
 |--|--|--|--|--|
-| `oo` | regression | smooth_l1 | `cs_rank_ic` | aoo_full |
-| `tc` | regression | smooth_l1 | `cs_rank_ic` | atc_full |
+| `oo` | regression | mse | `cs_rank_ic` | aoo_full |
+| `tc` | regression | mse | `cs_rank_ic` | atc_full |
 | `oo_rank` | rank | lambdarank | `gate_lift` | aoo_full |
 | `tc_rank` | rank | lambdarank | `gate_lift` | atc_full |
 
-实际 T 列宽由 `full_aoo` / `full_atc` 决定；harden 后写成 `aoo_core|aoo_full|atc_core|atc_full`。τc 仅支持 `--tau-end 09:30`。
+实际 T 列宽由 `seq_feat_set` 决定，默认 `seq_core`。`full_aoo` / `full_atc` 仍随拟合参数留下，harden 后写成 `aoo_core|aoo_full|atc_core|atc_full`，不进编码器。τc 仅支持 `--tau-end 09:30`。
 
 ---
 
@@ -255,7 +230,9 @@ Arm·L 排序树：120 棵、`max_depth=5`、`num_leaves=32`、`subsample=0.85`�
 
 `daily_cs_ic_report` → `cs_ic` / `cs_icir`、`cs_rank_ic` / `cs_rank_icir`、`cs_top_mean_y`、`cs_ls_mean_y`；另加 `pooled_ic`、`sign_hit`（deadband **0.05**）。
 
-工厂卡与枢纽因子表同名同数：Rank IC = `cs_rank_ic`，ICIR = `cs_icir`（日频 Pearson 均值/标准差），Top10% y = `cs_top_mean_y`。回归头第三格是命中 = `sign_hit`；排序头第三格是 NDCG@30。三位小数。硬闸里的 ICIR 仍是 Rank ICIR（`cs_rank_icir`），不写在这张卡上。
+排序头卡片：Rank IC = `cs_rank_ic`，ICIR = `cs_icir`（日频 Pearson 均值/标准差），第三格 NDCG@30，Top10% y = `cs_top_mean_y`。三位小数。
+
+回归头卡片五格：MSE = Holdout 逐点 `(ŷ−y)²` 的均值，预测和实现都是百分点，不截断。Rank IC = `cs_rank_ic`，ICIR = `cs_icir`，命中 = `sign_hit`（deadband 0.05），Top10% y = `cs_top_mean_y`。Rank IC、ICIR、Top10% y 与排序头同一口径，三位小数。概览闸看 MSE。硬闸仍用 Rank IC / Rank ICIR。拟合曲线的 epoch 点只留 `rank_ic`、`ndcg30`、`mse`。
 
 ### 8.2 `hard_gate_vs_baseline`（相对 Arm·L）
 
@@ -275,7 +252,7 @@ Holdout 始终写 `hard_gate_vs_arm_L.T`；L 或 T 失败也写 `pass=false` + r
 
 须同时满足：
 
-1. T 因子全量：`full_aoo`（oo）或 `full_atc`（tc）
+1. 序列档是 full：`seq_feat_set=seq_full`。旧草稿没有这一项时，仍看 `full_aoo` / `full_atc`
 2. `t_sample_pct ≥ 99.999`（100%）
 3. `eval_shared`（共享键 + 两侧 OOS + 同 `eval_start`）
 
@@ -285,22 +262,21 @@ Holdout 始终写 `hard_gate_vs_arm_L.T`；L 或 T 失败也写 `pass=false` + r
 
 ## 9. 默认超参
 
-| 参数 | CLI / desk 默认 |
+| 参数 | CLI / desk 默认。数在 `heads.py` |
 |--|--|
-| pool / watching_limit | 800 |
-| lookback | 900（`oo_rank` desk **700**） |
+| 截面 | 沪深300（成分数写入 `pool_n`） |
+| lookback | 1000（四头相同） |
 | holdout_trading_days | 60 |
-| seq_len / seq_feat_set | 20 / seq_core |
-| d_model / nhead / nlayers | **64 / 4 / 3** |
-| mlp_hidden | = d_model |
-| dropout / epochs | 0.1 / 12 |
-| batch_size / lr | **32** / **1e-3** |
-| t_sample_pct | **10**（frac 0.1） |
+| seq_len / seq_feat_set | 60 / seq_core |
+| d_model / nhead / nlayers | **128 / 4 / 2** |
+| dropout / epochs | 0.1 / 20 |
+| batch_size / lr | **2048** / 沪深300 **1e-4**，大池 **1e-3** |
+| t_sample_pct | **100**（frac 1，不截断） |
 | device | cpu |
 | seed | **42** |
-| full_aoo / full_atc | False / True |
+| full_aoo / full_atc | True / True（不进编码器；序列档另看 `seq_feat_set`） |
 
-边界：`d_model≥16`；`nlayers 1–6`；`batch 16–1024`；`epochs 1–40`；`t_sample_pct (0.1,100]`；`d_model % nhead == 0`。
+边界：`d_model≥16`；`nlayers 1–6`；`batch 16–4096`；`epochs 1–40`；`seq_len 5–60`；`t_sample_pct (0.1,100]`；`d_model % nhead == 0`。
 
 ---
 
@@ -310,8 +286,9 @@ Holdout 始终写 `hard_gate_vs_arm_L.T`；L 或 T 失败也写 `pass=false` + r
 |--|--|
 | `scripts/run_yhat_transformer_holdout.py` | Holdout 主入口：`main` → `_run_arm_l` / `_run_arm_t` |
 | `core/research/yhat_tf_desk.py` | desk 参数、`build_holdout_argv`、子进程 env、ingest、晋级 |
-| `…/yhat_transformer/model.py` | `SeqTransformer` / `SeqFactorTransformer` |
+| `…/yhat_transformer/model.py` | `SeqTransformer` / `ArmTModel` |
 | `…/train.py` | 训练 / 推理 |
+| `…/fit_curve.py` | 拟合曲线 jsonl：步均损失、epoch Holdout |
 | `…/seq_dataset.py` | PIT 序列面板 |
 | `…/factor_panel.py` | 因子面板、`slice_arm_t_panel`、`align_seq_and_factor` |
 | `…/heads.py` / `metrics.py` | HeadSpec / 硬闸 |
@@ -329,8 +306,8 @@ PYTHONUNBUFFERED=1 .venv/bin/python scripts/run_yhat_transformer_holdout.py --he
 
 ## 11. 内存与稳定性
 
-- Arm·T：**numpy batch**；序列面板磁盘缓存；冷启动最多 4 进程建面板
-- CS-z 前释放 `fac.X`；训练前清空 seq 大数组，避免双份常驻
+- Arm·T：**numpy batch**。因子序列只存因子行加窗口行号，按 batch 取 `L` 天，不常驻 `(N, L, F)`。历史回测打分沿用这份视图
+- CS-z 前释放 `fac.X`
 - 8GB 建议：`d_model≤64`，下调 lookback / 池 / 采样%
 - 按日志阶段定位崩溃：model build / buffers / fit start / step（见 desk `_arm_t_log_has`）
 
@@ -340,12 +317,12 @@ PYTHONUNBUFFERED=1 .venv/bin/python scripts/run_yhat_transformer_holdout.py --he
 
 1. **不进生产 score**（无 promote-live / active）
 2. **不改写** 研究枢纽里 ŷ_τ30…90 的套槽模型。四头 ŷ 由枢纽选臂后读本厂版本
-3. 默认 **10%** 训练采样；L 全样本
+3. 采样可以调低；默认是 **100%**。L 始终全样本
 4. 因子 core/full **只作用于 T**
 5. Holdout 上的 epoch 指标 **不选权重**
 6. 不做多 seed 搜索（seed=42）。页内单臂；双臂只留 CLI `--factory LT`
 7. τc 仅开盘锚；不做其它 τ 网格
-8. 不写套槽模型文件，不做例行调度。本页不挂历史回测。枢纽选中 Arm·T 时，历史回测读本厂已启用的版本。离线收益在回测中心 `/yhat-bt`，成交固定 09:30。本页不再放离线回测（见 [model-factory-hub.md](model-factory-hub.md) §3.4）
+8. 不写套槽模型文件，不做例行调度。本页不挂历史回测。枢纽选中 Arm·T 时，历史回测读本厂已启用的版本。离线收益在回测中心 `/yhat-bt`，成交固定 09:30，版本列表只收研究套。本页不再放离线回测（见 [model-factory-hub.md](model-factory-hub.md) §3.4）
 
 ---
 
@@ -353,6 +330,9 @@ PYTHONUNBUFFERED=1 .venv/bin/python scripts/run_yhat_transformer_holdout.py --he
 
 | 日期 | 说明 |
 |--|--|
+| 2026-11-22 | 训练函数改为 `train_arm_t` / `predict_arm_t`。去掉 SmoothL1 旁路、`mlp_hidden` 和因子支路参数。权重键不变 |
+| 2026-11-22 | 模型类由 `SeqFactorTransformer` 改名为 `ArmTModel`。权重键不变 |
+| 2026-11-22 | 默认序列改为 60 日。前馈改为 `4×d_model`。回归头改回 MSE。AdamW 衰减改为 1e-3；bias 与 LayerNorm.weight 为 0 |
 | 2026-11-14 | 初稿：对齐 `yhat_transformer` + Holdout + desk 现行实现 |
 | 2026-11-14 | §3 补全双支路晚融合：支路张量、末步池化、gap 在编码器之外、融合头 129 维 |
 | 2026-11-15 | §4 序列窗口须严格早于 T；§5 因子缓存改为价量指纹，缺测留到 CS-z 之后再写成 0；§6 整日组抽样放不进即停 |
@@ -374,10 +354,36 @@ PYTHONUNBUFFERED=1 .venv/bin/python scripts/run_yhat_transformer_holdout.py --he
 | 2026-11-20 | 训练 batch 上限改为 1024。页面、`harden_fit_params` 和训练入口同一边界 |
 | 2026-11-20 | 四头因子明确读日线物化：oo 222、开盘 τc 218；不读分钟 322 列 |
 | 2026-11-20 | 排序头去掉日 z 保值。损失只留日内减均值后的 LambdaRank，不再写 `rank_value_weight` |
-| 2026-11-20 | 回归头在全样本 SmoothL1 之外，对预测为正、实现为负的样本再计一次。权重 meta 记 `regression_false_open` |
-| 2026-11-21 | arch=2：正弦位置编码、`age_td`、因子支路去掉输入 LayerNorm、gap 放在融合 LayerNorm 之后。序列缺失改填训练列中位数。回归错开项改为同一分母下的 2×。排序头去掉 `|分数差|` 分母。探针离开 Holdout。硬闸要求候选 Rank IC 为正，非正式对照不再 pass |
-| 2026-11-21 | 结构图、损失表与实现对齐。`false_open_weight` 记实际倍数 2。探针变量不再沿用 Holdout 的名字 |
-| 2026-11-21 | 训练函数不再接收用后即丢的 `holdout_idx`。回归损失不再接一个空的 `loss_fn` |
-| 2026-11-21 | 回归头去掉错开样本的 2 倍权重。正负样本都是 SmoothL1，预估水平不再被单边压到 0 以下 |
+| 2026-11-20 | 回归头对预测为正、实现为负的样本再计一次。权重 meta 记 `regression_false_open` |
+| 2026-11-21 | arch=2：正弦位置编码、`age_td`、因子支路去掉输入 LayerNorm、gap 放在融合 LayerNorm 之后。序列缺失改填训练列中位数。回归错开项改为同一分母下的 2×。排序头去掉 `|分数差|` 分母。硬闸要求候选 Rank IC 为正，非正式对照不再 pass |
+| 2026-11-21 | 结构图、损失表与实现对齐。`false_open_weight` 记实际倍数 2 |
+| 2026-11-21 | 回归损失不再接一个空的 `loss_fn` |
+| 2026-11-21 | 回归头去掉错开样本的 2 倍权重。预估水平不再被单边压到 0 以下 |
 | 2026-11-21 | 回归头改为真实为正、预测为负的样本权重 2（`missed_up=2`）。猜涨猜错不加罚 |
-| 2026-11-21 | 回归头回到逐点 SmoothL1。漏涨样本不再单独加权，日志和权重 meta 不再写 `missed_up_weight` |
+| 2026-11-21 | 回归头回到逐点损失。漏涨样本不再单独加权，日志和权重 meta 不再写 `missed_up_weight` |
+| 2026-11-21 | 回归头改为逐点平方误差。最后一层线性头的偏置退出权重衰减 |
+| 2026-11-21 | 回归头改为 SmoothL1 β=5。平方误差让涨跌停主导梯度，Holdout Rank IC 从约 0.07–0.09 掉到 0.02 附近 |
+| 2026-11-21 | 拟合默认对齐当前配置：训练窗 1000、d_model 256、2 层、2 epoch、采样 100%、全量因子、沪深300 |
+| 2026-11-21 | 缺字段按当前默认读：采样 100%、oo 全量因子。盘上写明的 10% 或 core 仍按原值 |
+| 2026-11-21 | 去掉训练尾部探针。每个 epoch 在 Holdout 上测一次，不选权重；这 20 个交易日回到拟合 |
+| 2026-11-21 | 回归头卡片改看斜率、截距、命中、正侧实现。两头 Holdout 对齐后另写过闸比例和过闸实现。硬闸仍用 Rank IC |
+| 2026-11-22 | 回归头运行台在斜率、截距、命中、正侧实现之后补 Rank IC 与 ICIR |
+| 2026-11-22 | 回测中心版本列表只收研究套。执行套留在枢纽执行框 |
+| 2026-11-22 | 回归头运行台去掉指标下的过闸比例和过闸实现 |
+| 2026-11-22 | 运行台卡片下面画训练损失与 Holdout 曲线。序列写在 `{head}_fit.curve.jsonl`，随版本归档 |
+| 2026-11-22 | 拟合曲线补坐标轴。损失左轴是 avg、底轴是 step；Holdout 左轴是 Rank IC，右轴是 NDCG@30 或斜率，底轴是 epoch |
+| 2026-11-22 | 因子序列不再展开成 `(N,L,F)`。窗口行号指回因子行，中位数和分位写回这份窄表，训练和历史回测都按 batch 取窗口 |
+| 2026-11-22 | 序列里的因子列改为开盘立方截面 z，与因子支路相同；`age_td` 与 gap 不做截面 z。排序头裁 ±3。旧权重无 `seq_cs_z` 仍走分位 clip |
+| 2026-11-22 | 因子序列窗口接到决策日，末步 `age_td` 为 0。权重 meta 写 `seq_through_decision`；没有这个标记的已落盘权重仍停在 T−1 |
+| 2026-11-22 | arch=3 只留序列支路，新训练不再建因子 MLP。默认 `seq_len` 改为 30。arch=1/2 权重仍按双支路加载。正式对照在写了 `seq_feat_set` 时改为要求序列 full |
+| 2026-11-22 | `seq_len` 改为进编码器的步数，含决策日。默认 30 步是 `[T−29 … T]`。末步与其余位置一起加正弦位置编码。`age_td` 分母改为 L−1 |
+| 2026-11-22 | 去掉 arch=1/2 双支路加载，以及停在 T−1 的窗口。训练和打分只走序列编码器 |
+| 2026-11-22 | 沪深300拟合的初始学习率改为 1e-4。大池预训练仍是 1e-3。脚本开跑前按截面改峰值，微调段同样是 1e-4 |
+| 2026-11-21 | 回归头副标题改为 smooth_l1。枢纽和 Arm·L / Arm·R 概览闸改看斜率。排序头仍是 Rank IC |
+| 2026-11-22 | 训练 batch 上限改为 4096。点拟合不再把 4096 收成 1024 |
+| 2026-11-22 | 回归头运行台改为 MSE、Rank IC、ICIR、命中、Top10% y。概览闸看 MSE。Holdout 曲线右轴改为 MSE |
+| 2026-11-22 | 拟合曲线 epoch 字段改为 `mse`，不再读 `slope`。去掉未再展示的过闸行和 `level_gate` |
+| 2026-11-22 | 拟合实验卡露出序列长度。默认 60，范围 5–60 |
+| 2026-11-22 | Arm·T 拟合默认改为 d_model 128、batch 2048、epochs 20。长度 60、层数 2、训练窗 1000、Holdout 60 |
+| 2026-11-22 | 这套拟合缺省收到 `heads.py`。desk、CLI、训练入口和页面用同一份 |
+| 2026-11-22 | 回测缺了序列长度或网络宽度时改用这套缺省。序列档提示改为 `[T−(L−1) … T]` |

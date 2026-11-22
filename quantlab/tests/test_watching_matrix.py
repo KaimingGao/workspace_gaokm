@@ -56,7 +56,7 @@ class TestWatchingMatrixPreview(unittest.TestCase):
                 },
             }
             with patch(
-                "core.paper.rebalance.watching_matrix._watching_codes",
+                "core.paper.rebalance.live_plan.live_execution_codes",
                 return_value=(["600000"], {"n_watch": 1, "n_total": 1}),
             ), patch(
                 "core.paper.rebalance.watching_matrix._score_pool",
@@ -98,7 +98,7 @@ class TestWatchingMatrixPreview(unittest.TestCase):
             "rules": {"max_positions": 5, "position_pct": 0.2},
         }
         with patch(
-            "core.paper.rebalance.watching_matrix._watching_codes",
+            "core.paper.rebalance.live_plan.live_execution_codes",
             return_value=(["600000"], {"n_watch": 1, "n_total": 1}),
         ), patch(
             "core.paper.rebalance.watching_matrix._score_pool",
@@ -161,7 +161,7 @@ class TestWatchingMatrixPreview(unittest.TestCase):
         rot = (10.05 / 10.0 - 1.0) * 100.0
         expect = fused - rot
         with patch(
-            "core.paper.rebalance.watching_matrix._watching_codes",
+            "core.paper.rebalance.live_plan.live_execution_codes",
             return_value=(["600000"], {"n_watch": 1, "n_total": 1}),
         ), patch(
             "core.paper.rebalance.watching_matrix._score_pool",
@@ -198,7 +198,7 @@ class TestWatchingMatrixPreview(unittest.TestCase):
             "cost_model": "zero",
         }
         with patch(
-            "core.paper.rebalance.watching_matrix._watching_codes",
+            "core.paper.rebalance.live_plan.live_execution_codes",
             return_value=(["600000"], {"n_watch": 1, "n_total": 1}),
         ), patch(
             "core.paper.rebalance.watching_matrix._score_pool",
@@ -238,7 +238,7 @@ class TestWatchingMatrixPreview(unittest.TestCase):
         }
         item = _signal_item(y_path=None, predicted_score_path=None)
         with patch(
-            "core.paper.rebalance.watching_matrix._watching_codes",
+            "core.paper.rebalance.live_plan.live_execution_codes",
             return_value=(["600000"], {"n_watch": 1, "n_total": 1}),
         ), patch(
             "core.paper.rebalance.watching_matrix._score_pool",
@@ -286,7 +286,7 @@ class TestWatchingMatrixPreview(unittest.TestCase):
             predicted_score_tau=0.2,
         )
         with patch(
-            "core.paper.rebalance.watching_matrix._watching_codes",
+            "core.paper.rebalance.live_plan.live_execution_codes",
             return_value=(
                 ["601111"],
                 {"n_watch": 1, "n_total": 1, "name_by_code": {"601111": "中国国航"}},
@@ -361,7 +361,7 @@ class TestWatchingMatrixPreview(unittest.TestCase):
             predicted_score_on=0.0,
         )
         with patch(
-            "core.paper.rebalance.watching_matrix._watching_codes",
+            "core.paper.rebalance.live_plan.live_execution_codes",
             return_value=(
                 ["601111"],
                 {"n_watch": 1, "n_total": 1, "name_by_code": {"601111": "中国国航"}},
@@ -421,7 +421,7 @@ class TestWatchingMatrixPreview(unittest.TestCase):
             "rules": {"max_positions": 5, "position_pct": 0.2},
         }
         with patch(
-            "core.paper.rebalance.watching_matrix._watching_codes",
+            "core.paper.rebalance.live_plan.live_execution_codes",
             return_value=(
                 ["601111"],
                 {"n_watch": 1, "n_total": 1, "name_by_code": {"601111": "中国国航"}},
@@ -482,7 +482,7 @@ class TestWatchingMatrixPreview(unittest.TestCase):
         )
         ok_item = _signal_item(stock_code="600000", y_path=2.5, predicted_score_path=2.5)
         with patch(
-            "core.paper.rebalance.watching_matrix._watching_codes",
+            "core.paper.rebalance.live_plan.live_execution_codes",
             return_value=(["600000", "600001"], {"n_watch": 2, "n_total": 2}),
         ), patch(
             "core.paper.rebalance.watching_matrix._score_pool",
@@ -520,7 +520,7 @@ class TestWatchingMatrixPreview(unittest.TestCase):
         }
         item = _signal_item(y_trade=3.0, predicted_score_blend=3.0)
         with patch(
-            "core.paper.rebalance.watching_matrix._watching_codes",
+            "core.paper.rebalance.live_plan.live_execution_codes",
             return_value=(["600000"], {"n_watch": 1, "n_total": 1}),
         ), patch(
             "core.paper.rebalance.watching_matrix._score_pool",
@@ -776,41 +776,6 @@ class TestWatchingMatrixUniverseFitTiers(unittest.TestCase):
         self.assertIsNone(meta.get("tradable_codes"))
         self.assertEqual(meta.get("force_exit_held"), [])
         self.assertEqual(meta.get("reason"), "tiers_retired")
-
-    def test_attach_oo_rank_passes_score_codes(self):
-        """live 分档打开时，名次只编允许档；z 仍吃整批。"""
-        from unittest.mock import patch
-
-        from core.paper.rebalance.watching_matrix import _attach_oo_rank_scores
-
-        items = [
-            {"stock_code": "A1", "sub_scores": {"mom3": 1.0}},
-            {"stock_code": "B1", "sub_scores": {"mom3": 2.0}},
-        ]
-        with patch(
-            "core.research.oo_rank_lambdarank.load_oo_rank_model",
-            return_value={"ok": True},
-        ), patch(
-            "core.research.oo_rank_lambdarank.apply_oo_rank_scores"
-        ) as apply:
-            _attach_oo_rank_scores(items, score_codes=["A1"])
-        kwargs = apply.call_args.kwargs
-        self.assertEqual(list(kwargs.get("score_codes") or []), ["A1"])
-
-    def test_attach_tc_rank_passes_score_codes(self):
-        from unittest.mock import patch
-
-        from core.paper.rebalance.watching_matrix import _attach_tc_rank_scores
-
-        items = [{"stock_code": "A1", "features_tau": {"z_τc_gap_pct": 1.0}}]
-        with patch(
-            "core.research.tc_rank.load_tc_rank_model",
-            return_value={"ok": True},
-        ), patch(
-            "core.research.tc_rank.apply_tc_rank_scores"
-        ) as apply:
-            _attach_tc_rank_scores(items, score_codes=["A1"])
-        self.assertEqual(list(apply.call_args.kwargs.get("score_codes") or []), ["A1"])
 
     def test_row_score_payload_heads_override_stale_fuse(self):
         from core.paper.rebalance.watching_matrix import _row_score_payload
@@ -1072,7 +1037,7 @@ class TestQuotePxLiveFill(unittest.TestCase):
             "cost_model": "zero",
         }
         with patch(
-            "core.paper.rebalance.watching_matrix._watching_codes",
+            "core.paper.rebalance.live_plan.live_execution_codes",
             return_value=(["600000"], {"n_watch": 1, "n_total": 1}),
         ), patch(
             "core.paper.rebalance.watching_matrix._score_pool",
@@ -1101,81 +1066,34 @@ class TestQuotePxLiveFill(unittest.TestCase):
         self.assertAlmostEqual(float(paper["holdings"][0]["cost"]), 10.05)
 
 class TestCubeHeadFormula(unittest.TestCase):
-    def test_cube_stamp_keeps_factor_terms_for_tips(self):
+    def test_live_cube_skips_suite_lightgbm_heads(self):
+        """交易执行不把套槽 LightGBM 写成 ŷ_oo / ŷ_τc。"""
         import numpy as np
 
         from core.paper.rebalance.watching_matrix import _stamp_cube_head_scores
 
         class _Cube:
-            X_raw = np.array(
-                [[1.0, 4.0, 0.0], [0.0, 1.0, 3.0]],
-                dtype=float,
-            )
-            z_mean = np.zeros(3)
-            z_std = np.ones(3)
-            names = ["mom", "liq", "size"]
+            X_raw = np.ones((2, 2))
+            z_mean = np.zeros(2)
+            z_std = np.ones(2)
+            names = ["mom", "liq"]
             codes = ["600000", "600001"]
 
-        class _Oo:
-            coefficients = {"mom": 1.0, "liq": -0.5, "size": 0.1}
-            intercept = 0.2
-            model_role = "live"
-
-        tau_doc = {
-            "model_role": "live",
-            "horizon_mode": "tau_to_close",
-            "return_model": {
-                "coefficients": {"mom": 2.0},
-                "intercept": 0.0,
-                "active_features": ["mom"],
-                "horizon_mode": "tau_to_close",
-                "y_spec": {
-                    "formula": "close[T]/price[τ]-1",
-                    "unit": "pct",
-                    "tau": "open",
-                },
-            },
-        }
         items = [{"stock_code": "600000"}, {"stock_code": "600001"}]
         with patch(
             "core.research.oo_model.load_scoring_return_model",
-            return_value=(_Oo(), {}),
-        ), patch(
+        ) as load_oo, patch(
             "core.research.tc_model.load_tau_model",
-            return_value=tau_doc,
-        ), patch(
+        ) as load_tc, patch(
             "core.research.horizon_ridge.load_ridge_model",
             return_value=None,
-        ), patch(
-            "core.paper.rebalance.path_matrix.get_path_matrix_cfg",
-            return_value={},
-        ), patch(
-            "core.signal.yhat_windows.stamp_window_scores",
-            return_value={},
         ):
-            _stamp_cube_head_scores(
-                _Cube(),
-                items,
-                explain_codes=["600000"],
-            )
-
-        kept, skipped = items
-        self.assertAlmostEqual(kept["y_oo"], -0.8, places=6)
-        self.assertAlmostEqual(skipped["y_oo"], 0.0, places=6)
-        terms = kept["score_formula_terms"]["terms"]
-        self.assertEqual([t["key"] for t in terms], ["liq", "mom", "size"])
-        self.assertAlmostEqual(terms[0]["contrib"], -2.0, places=6)
-        self.assertAlmostEqual(kept["score_formula_terms"]["total"], kept["y_oo"], places=6)
-        self.assertEqual(kept["score_model_role"], "live")
-        self.assertIs(kept["formula_terms"], kept["score_formula_terms"])
-        self.assertAlmostEqual(kept["formula_terms_tau"]["total"], 2.0, places=6)
-        self.assertEqual(kept["formula_terms_tau"]["terms"][0]["key"], "mom")
-        self.assertAlmostEqual(kept["y_τc"], 2.0, places=6)
-        # 模型标签不写回立方行：y_spec 会改 fuse 公式，live 与手动执行共用这条出分。
-        self.assertNotIn("y_spec_tau", kept)
-        self.assertNotIn("horizon_mode", kept)
-        self.assertNotIn("score_formula_terms", skipped)
-        self.assertNotIn("formula_terms_tau", skipped)
+            _stamp_cube_head_scores(_Cube(), items)
+        load_oo.assert_not_called()
+        load_tc.assert_not_called()
+        self.assertNotIn("y_oo", items[0])
+        self.assertNotIn("y_τc", items[0])
+        self.assertNotIn("score_formula_terms", items[0])
 
     def test_cube_fusion_uses_strategy_weights(self):
         """立方出分的 fuse 权跟策略 rank_lots，不落到默认 0.6/0.4。"""

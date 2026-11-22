@@ -2,6 +2,7 @@
 
 四头各拿一版工厂权重，在评测窗交集里按 09:30 开盘价走 rank_lots。
 四头可以来自 Arm·R / Arm·L / Arm·T，报告只写 live/yhat_bt。
+版本列表只收研究套。执行套留在研究枢纽。
 不调用历史回测页，不写研究套 / 执行套，不改 live，也不写三家工厂目录。
 """
 
@@ -20,13 +21,29 @@ import numpy as np
 
 from core.io_atomic import atomic_write_json
 from core.research.yhat_tf_desk import factory_scope, normalize_factory
+from core.research.yhat_transformer.heads import (
+    ARM_T_D_MODEL,
+    ARM_T_NLAYERS,
+    ARM_T_SEQ_LEN,
+)
 
 logger = logging.getLogger(__name__)
 
 HEADS: Tuple[str, ...] = ("oo", "tc", "oo_rank", "tc_rank")
 FILL_CLOCK = "09:30"
 START_CASH = 200_000.0
-_NET = ("d_model", "nhead", "nlayers", "factor_hidden")
+_NET = ("d_model", "nhead", "nlayers")
+
+
+def _saved_transformer_arch(meta: Mapping[str, Any]) -> int:
+    """现行 Arm·T 不写结构版本。缺省按现行模型。显式 1 或 2 是旧权重。"""
+    raw = meta.get("arch") if isinstance(meta, Mapping) else None
+    if raw in (None, ""):
+        return 3
+    try:
+        return int(raw)
+    except (TypeError, ValueError):
+        return 1
 _QUANTLAB = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
 _MIX = "BT"
 _ARM_ALIASES = {
@@ -356,10 +373,7 @@ def _meta_agrees(specs: Sequence[Mapping[str, Any]], key: str) -> bool:
 
 
 def _agree_seq_width(specs: Sequence[Mapping[str, Any]], message: str) -> None:
-    """旧价量序列共用一块面板，序列宽必须相同。
-
-    seq_core / seq_full 的宽跟因子族走：oo 与 τc 可以不同，同一族的两头必须相同。
-    """
+    """seq_core / seq_full 的宽跟因子族走：oo 与 τc 可以不同，同一族的两头必须相同。"""
     from core.research.yhat_transformer.seq_dataset import is_factor_seq
 
     feat = "seq_core"
@@ -381,7 +395,7 @@ def _agree_seq_width(specs: Sequence[Mapping[str, Any]], message: str) -> None:
 
 
 def _agree_arch(specs: Sequence[Mapping[str, Any]], *, message: str) -> None:
-    """d_model / nhead / nlayers / factor_hidden 在 Transformer 头之间相同。
+    """d_model / nhead / nlayers 在 Transformer 头之间相同。
 
     序列输入宽另看 ``_agree_seq_width``。
     """
@@ -396,7 +410,7 @@ def _agree_arch(specs: Sequence[Mapping[str, Any]], *, message: str) -> None:
 def check_mix(specs: Sequence[Mapping[str, Any]]) -> Dict[str, Any]:
     """四头可以来自不同工厂。因子族成对，core / full 可以不同。
 
-    序列长度、采样比例和 d_model / nhead / nlayers / factor_hidden 只在选中的 Transformer 头之间要求一致。seq_core / seq_full 的序列宽按因子族比较，oo 与 τc 可以不同。
+    序列长度、采样比例和 d_model / nhead / nlayers 只在选中的 Transformer 头之间要求一致。seq_core / seq_full 的序列宽按因子族比较，oo 与 τc 可以不同。
     两条排序头后端相同时买序用原始分；不同时用当日名次。
     """
     by_head = {str(s.get("head") or ""): s for s in specs}
@@ -513,14 +527,14 @@ def load_mix(versions: Mapping[str, Any]) -> Dict[str, Any]:
 
 
 def list_mix_catalog() -> Dict[str, Any]:
-    """三家工厂里、带权重的成功版本。每个头一份，新的在前。"""
+    """三家工厂里、带权重的研究套成功版本。执行套不进回测中心。每个头一份，新的在前。"""
     from core.research.yhat_factory_versions import list_factory_versions
 
     heads: Dict[str, List[Dict[str, Any]]] = {}
     for head in HEADS:
         rows: List[Dict[str, Any]] = []
         for arm in ("R", "L", "T"):
-            listed = list_factory_versions(head, factory=arm)
+            listed = list_factory_versions(head, factory=arm, suite="research")
             if not listed.get("success"):
                 continue
             for it in listed.get("items") or []:
@@ -1257,8 +1271,21 @@ def run_factory_backtest(
 
 
 def apply_seq_clip(X: np.ndarray, gap: np.ndarray, clip: Optional[Mapping[str, Any]]) -> None:
-    """先按训练列中位数填非有限值，再按 1%/99% 界裁。原地修改调用方自己的副本。"""
+    """先按训练列中位数填非有限值，再按 1%/99% 界裁。原地修改调用方自己的副本。
+
+    ``seq_cs_z`` 时因子列已是截面 z，缺测写 0，只裁 gap。
+    """
     if not isinstance(clip, Mapping):
+        return
+    if clip.get("seq_cs_z"):
+        from core.research.yhat_transformer.seq_dataset import fill_nonfinite_inplace
+
+        width = int(X.shape[-1])
+        fill_nonfinite_inplace(X, np.zeros((width,), dtype=np.float32))
+        try:
+            np.clip(gap, float(clip.get("gap_lo")), float(clip.get("gap_hi")), out=gap)
+        except (TypeError, ValueError):
+            return
         return
     med = clip.get("x_median")
     if med is not None:
@@ -1267,13 +1294,9 @@ def apply_seq_clip(X: np.ndarray, gap: np.ndarray, clip: Optional[Mapping[str, A
         except (TypeError, ValueError):
             med_a = None
         if med_a is not None and med_a.shape[-1:] == X.shape[-1:]:
-            bad = ~np.isfinite(X)
-            if bool(bad.any()):
-                fill = np.broadcast_to(
-                    med_a.reshape((1,) * (X.ndim - 1) + (int(med_a.shape[0]),)),
-                    X.shape,
-                )
-                X[bad] = np.asarray(fill)[bad]
+            from core.research.yhat_transformer.seq_dataset import fill_nonfinite_inplace
+
+            fill_nonfinite_inplace(X, med_a)
     try:
         lo = np.asarray(clip.get("x_lo"), dtype=np.float32)
         hi = np.asarray(clip.get("x_hi"), dtype=np.float32)
@@ -1343,13 +1366,15 @@ def align_seq_open_width(seq: Any, d_seq_in: int) -> Any:
     列序对不上时原样返回，交给后面的列宽校验。
     """
     try:
-        X = np.asarray(seq.X)
+        X = seq.X
         width = int(X.shape[-1])
+        ndim = int(X.ndim)
     except Exception:  # noqa: BLE001
         return seq
     want_n = int(d_seq_in or 0)
-    if want_n <= 0 or width == want_n or X.ndim != 3:
+    if want_n <= 0 or width == want_n or ndim != 3:
         return seq
+    X = np.asarray(X)
     from core.research.yhat_transformer.seq_dataset import SeqPanel
 
     want = _legacy_seq_names(want_n)
@@ -1458,7 +1483,7 @@ def _factor_seq_panel(
     *,
     with_age: bool = False,
 ) -> Any:
-    """core / full 序列：决策日前 L 日的因子列，宽与这一头的因子档相同。"""
+    """core / full 序列。``seq_len`` 含决策日当天。"""
     from core.research.yhat_transformer.factor_panel import (
         sequence_from_factor_panel,
         slice_arm_t_panel,
@@ -1475,8 +1500,20 @@ def _factor_seq_panel(
             atc_core_only=family == "tc",
         )
     return sequence_from_factor_panel(
-        src, stock_bars, seq_len=int(seq_len), with_age=bool(with_age)
+        src,
+        stock_bars,
+        seq_len=int(seq_len),
+        with_age=bool(with_age),
     )
+
+
+def _stamp_seq_cs_z(seq: Any, meta: Mapping[str, Any]) -> None:
+    """新权重的因子序列在进模型前做成开盘截面 z。旧权重没有这个标记。"""
+    if not meta.get("seq_cs_z"):
+        return
+    from core.research.yhat_transformer.factor_panel import cs_z_factor_sequence
+
+    cs_z_factor_sequence(seq, z_clip=meta.get("z_clip"))
 
 
 def _full_factor_panel(stock_bars: Mapping[str, Sequence[dict]], head: str):
@@ -1545,7 +1582,7 @@ def _predict_matrix(bundle: Mapping[str, Any], X: np.ndarray, seq, gap) -> np.nd
             require_complete=require_complete,
         )
     from core.research.yhat_factory_weights import load_factory_weights
-    from core.research.yhat_transformer.train import predict_seq_factor_transformer
+    from core.research.yhat_transformer.train import predict_arm_t
 
     loaded = load_factory_weights(
         str(bundle.get("head") or ""),
@@ -1558,19 +1595,16 @@ def _predict_matrix(bundle: Mapping[str, Any], X: np.ndarray, seq, gap) -> np.nd
     d_seq = int(meta.get("d_seq_in") or seq.shape[-1])
     if int(seq.shape[-1]) != d_seq:
         raise ValueError("序列特征维与权重不一致")
-    if int(X.shape[1]) != int(meta.get("d_factor") or X.shape[1]):
-        raise ValueError("因子列数与权重不一致")
-    return predict_seq_factor_transformer(
+    if _saved_transformer_arch(meta) < 3:
+        raise ValueError("旧结构权重不能加载")
+    return predict_arm_t(
         state,
         seq,
         gap,
-        X,
         list(range(n)),
-        d_model=int(meta.get("d_model") or 64),
+        d_model=int(meta.get("d_model") or ARM_T_D_MODEL),
         nhead=int(meta.get("nhead") or 4),
-        nlayers=int(meta.get("nlayers") or 3),
-        factor_hidden=int(meta.get("factor_hidden") or meta.get("d_model") or 64),
-        arch=int(meta.get("arch") or 1),
+        nlayers=int(meta.get("nlayers") or ARM_T_NLAYERS),
     )
 
 
@@ -1611,22 +1645,27 @@ def _scores_for_head(
     score_codes: Optional[Collection[str]] = None,
 ) -> Dict[Tuple[str, str], float]:
     meta = bundle.get("meta") if isinstance(bundle.get("meta"), dict) else {}
+    backend = str(bundle.get("backend") or meta.get("backend") or "")
+    if backend == "transformer" and _saved_transformer_arch(meta) < 3:
+        raise ValueError("旧结构权重不能加载")
+    sequence_only = backend == "transformer" and seq is not None
     want = [str(n) for n in (meta.get("factor_names") or [])]
-    if not want:
+    if not sequence_only and not want:
         raise ValueError(f"{bundle.get('head')} 权重缺少因子列序")
     dates = [str(d)[:10] for d in panel.dates]
     keep = _window_idx(dates, window_start, window_end)
     if not keep:
         return {}
     names = [str(n) for n in panel.feature_names]
-    X_all = take_factor_columns(np.asarray(panel.X), names, want)
     if seq is not None:
         seq = align_seq_open_width(seq, int(meta.get("d_seq_in") or 0))
-    backend = str(bundle.get("backend") or meta.get("backend") or "")
     # ŷ_oo：缺测不加项。ŷ_τc：任一入模列缺测则整行不算。排序头仍把缺测填 0。
     missing = str(meta.get("missing") or "")
     keep_missing = backend == "ridge" and missing in ("skip", "complete")
-    if keep_missing:
+    if sequence_only:
+        X = np.zeros((len(keep), 1), dtype=np.float32)
+    elif keep_missing:
+        X_all = take_factor_columns(np.asarray(panel.X), names, want)
         X = _zscore(
             X_all[keep],
             want,
@@ -1635,13 +1674,21 @@ def _scores_for_head(
             fill_missing=False,
         )
     else:
+        X_all = take_factor_columns(np.asarray(panel.X), names, want)
         X = _zscore(X_all[keep], want, [dates[i] for i in keep], meta.get("z_clip"))
     seq_rows = None
     gap_rows = None
+    window_seq = None
+    clip = meta.get("seq_clip") if isinstance(meta.get("seq_clip"), dict) else None
     if seq is not None:
-        seq_rows = np.array(seq.X, dtype=np.float32, copy=True)[keep]
-        gap_rows = np.array(seq.gap, dtype=np.float32, copy=True)[keep]
-        apply_seq_clip(seq_rows, gap_rows, meta.get("seq_clip") if isinstance(meta.get("seq_clip"), dict) else None)
+        from core.research.yhat_transformer.seq_dataset import FactorWindowView
+
+        if isinstance(seq.X, FactorWindowView):
+            window_seq = seq
+        else:
+            seq_rows = np.array(seq.X, dtype=np.float32, copy=True)[keep]
+            gap_rows = np.array(seq.gap, dtype=np.float32, copy=True)[keep]
+            apply_seq_clip(seq_rows, gap_rows, clip)
     keep_out = list(keep)
     if score_codes is not None:
         allow = {str(code).strip() for code in score_codes if str(code).strip()}
@@ -1654,6 +1701,11 @@ def _scores_for_head(
             seq_rows = seq_rows[idx]
             gap_rows = gap_rows[idx]
         keep_out = [keep[i] for i in pos]
+    if window_seq is not None:
+        rows = np.asarray(keep_out, dtype=np.int64)
+        seq_rows = window_seq.X.subset(rows)
+        gap_rows = np.array(window_seq.gap, dtype=np.float32, copy=True)[rows]
+        seq_rows.apply_saved_clip(gap_rows, clip)
     pred = _predict_matrix({**bundle, "meta": meta}, X, seq_rows, gap_rows)
     out: Dict[Tuple[str, str], float] = {}
     for pos, row_i in enumerate(keep_out):
@@ -1736,9 +1788,9 @@ def score_open_window(
     except (TypeError, ValueError):
         lookback = 120
     try:
-        seq_len = int(suite.get("seq_len") or 20)
+        seq_len = int(suite.get("seq_len") or ARM_T_SEQ_LEN)
     except (TypeError, ValueError):
-        seq_len = 20
+        seq_len = ARM_T_SEQ_LEN
     feat_set = _resolved_seq_feat(suite.get("seq_feat_set"))
     codes = _watching_pool_codes()
     if not codes:
@@ -1758,17 +1810,7 @@ def score_open_window(
     seq = None
     full_by_family: Dict[str, Any] = {}
     if any(b == "transformer" for b in head_backends.values()) and not factor_seq:
-        from core.research.yhat_transformer.seq_dataset import build_seq_panel
-
-        seq = build_seq_panel(
-            stock_bars,
-            head="oo",
-            seq_len=seq_len,
-            horizon_days=1,
-            feat_set=feat_set,
-        )
-        if int(getattr(seq, "n", 0) or 0) <= 0:
-            raise ValueError("序列面板为空")
+        raise ValueError("价量序列已下线，只用 seq_core / seq_full")
     panels: Dict[Tuple[str, bool, str, bool], Any] = {}
     scores: Dict[str, Dict[Tuple[str, str], float]] = {}
     for head in HEADS:
@@ -1777,8 +1819,21 @@ def score_open_window(
         pack = str(meta.get("factor_pack") or "")
         head_backend = head_backends[head]
         aligned = head_backend == "transformer"
-        with_age = int(meta.get("arch") or 1) >= 2
-        key = (pack or head, aligned, feat_set if factor_seq else "", with_age)
+        with_age = aligned and _saved_transformer_arch(meta) >= 2
+        through_decision = bool(meta.get("seq_through_decision"))
+        seq_z_key = (
+            (bool(meta.get("seq_cs_z")), meta.get("z_clip") if meta.get("seq_cs_z") else None)
+            if aligned and factor_seq
+            else None
+        )
+        key = (
+            pack or head,
+            aligned,
+            feat_set if factor_seq else "",
+            with_age,
+            through_decision,
+            seq_z_key,
+        )
         if key not in panels:
             if aligned and factor_seq:
                 family = _head_family(head)
@@ -1798,7 +1853,12 @@ def score_open_window(
                         atc_core_only=family == "tc",
                     )
                 seq_h = _factor_seq_panel(
-                    stock_bars, head, feat_set, seq_len, full, with_age=with_age
+                    stock_bars,
+                    head,
+                    feat_set,
+                    seq_len,
+                    full,
+                    with_age=with_age,
                 )
                 if int(getattr(seq_h, "n", 0) or 0) <= 0:
                     raise ValueError("序列面板为空")
@@ -1808,6 +1868,7 @@ def score_open_window(
 
                 seq_a, fac_a = align_seq_and_factor(seq_h, panel)
                 seq_a, fac_a = _drop_aligned_rows_without_cube(seq_a, fac_a)
+                _stamp_seq_cs_z(seq_a, meta)
                 panels[key] = (fac_a, seq_a)
             else:
                 panel = _factor_panel(stock_bars, head, pack)
@@ -1959,11 +2020,14 @@ def _bars_for_replay_score(
 
 def score_enabled_replay_heads(
     stock_bars: Mapping[str, Sequence[dict]],
+    *,
+    only_day: str = "",
 ) -> Dict[str, Any]:
     """用已启用的工厂权重给回测日线打四头。没有启用或没有权重的头不出现。
 
     ŷ_τc / ŷ_τc_rank 的序列就是开盘（本期训练只接受 tau_end 09:30）。
     某一头预估失败则这一头留空，不改去套槽。
+    ``only_day`` 只预估这一天（live 执行套）；空则打满日线里的每一天。
     """
     from scripts.run_yhat_transformer_holdout import _drop_aligned_rows_without_cube
 
@@ -1983,7 +2047,7 @@ def score_enabled_replay_heads(
         lookback = max(_fit_int(s.get("fit_params"), "lookback", 120) for s in specs)
     except ValueError:
         lookback = 120
-    seq_len = max(_fit_int(s.get("fit_params"), "seq_len", 20) for s in specs)
+    seq_len = max(_fit_int(s.get("fit_params"), "seq_len", ARM_T_SEQ_LEN) for s in specs)
     feat_set = "seq_core"
     for spec in specs:
         raw = str((spec.get("fit_params") or {}).get("seq_feat_set") or "").strip()
@@ -1996,15 +2060,7 @@ def score_enabled_replay_heads(
     seq = None
     full_by_family: Dict[str, Any] = {}
     if any(str(s.get("backend") or "") == "transformer" for s in specs) and not factor_seq:
-        from core.research.yhat_transformer.seq_dataset import build_seq_panel
-
-        seq = build_seq_panel(
-            stock_bars,
-            head="oo",
-            seq_len=seq_len,
-            horizon_days=1,
-            feat_set=feat_set,
-        )
+        raise ValueError("价量序列已下线，只用 seq_core / seq_full")
     panels: Dict[str, Any] = {}
     scored: Dict[str, Dict[Tuple[str, str], float]] = {}
     for spec in specs:
@@ -2013,9 +2069,14 @@ def score_enabled_replay_heads(
             meta = spec.get("meta") if isinstance(spec.get("meta"), dict) else {}
             pack = str(meta.get("factor_pack") or "")
             transformer = str(spec.get("backend") or "") == "transformer"
-            with_age = int(meta.get("arch") or 1) >= 2
+            with_age = transformer and _saved_transformer_arch(meta) >= 2
+            through_decision = bool(meta.get("seq_through_decision"))
+            z_bit = ""
+            if transformer and factor_seq and meta.get("seq_cs_z"):
+                z_bit = f"|csz={meta.get('z_clip')}"
             key = (
                 f"{pack or head}|{feat_set}|{_head_family(head)}|age={int(with_age)}"
+                f"|tday={int(through_decision)}{z_bit}"
                 if transformer and factor_seq
                 else (pack or head)
             )
@@ -2051,6 +2112,7 @@ def score_enabled_replay_heads(
 
                     seq_a, fac_a = align_seq_and_factor(seq_h, panel)
                     seq_a, fac_a = _drop_aligned_rows_without_cube(seq_a, fac_a)
+                    _stamp_seq_cs_z(seq_a, meta)
                     panels[key] = (fac_a, seq_a)
                 else:
                     panel = _factor_panel(stock_bars, head, pack)
@@ -2068,12 +2130,17 @@ def score_enabled_replay_heads(
             dates = [str(d)[:10] for d in fac_a.dates]
             if not dates:
                 continue
+            day_only = str(only_day or "")[:10]
+            if len(day_only) >= 10:
+                window_start = window_end = day_only
+            else:
+                window_start, window_end = min(dates), max(dates)
             scored[head] = _scores_for_head(
                 spec,
                 fac_a,
                 seq_a,
-                min(dates),
-                max(dates),
+                window_start,
+                window_end,
             )
         except Exception as exc:  # noqa: BLE001
             from core.research.materialize.consumer import MaterializeRequired

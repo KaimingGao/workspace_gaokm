@@ -61,6 +61,17 @@ export function applyExecutionToUi(exec) {
       pm.fusion_w_oc != null ? pm.fusion_w_oc : 0.1
     );
   }
+  const poolEl = document.getElementById("quant-feature-set");
+  const savedPool = String(
+    (exec &&
+      exec.rebalance_timing &&
+      ((exec.rebalance_timing.rank_lots && exec.rebalance_timing.rank_lots.feature_set) ||
+        (exec.rebalance_timing.path_matrix && exec.rebalance_timing.path_matrix.feature_set))) ||
+      ""
+  ).toLowerCase();
+  if (poolEl && (savedPool === "pool" || savedPool === "hs300")) {
+    poolEl.value = savedPool;
+  }
   const t0 = (exec && exec.t0) || {};
   applyLiveT0PrefixUi(t0.t0_last_leg1_hm || "11:00");
 }
@@ -189,7 +200,7 @@ export async function initExecutionRuleForms() {
     paperPathMatrixForm.dataset.wired = "1";
     paperPathMatrixForm.addEventListener("submit", async (e) => {
       e.preventDefault();
-      await savePathMatrix({ okMsg: "已保存 · 刷新后仍用此配置" });
+      await savePathMatrix({ okMsg: "已保存 · 交易执行按此规则和当前股票池、执行套落地" });
     });
   }
 

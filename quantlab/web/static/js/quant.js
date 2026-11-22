@@ -1718,8 +1718,8 @@ export function initQuant(ctx) {
     "transformer";
   const DESK_HEAD_GATE = _armRecipe
     ? {
-        oo: "Rank IC —",
-        tau: "Rank IC —",
+        oo: "MSE —",
+        tau: "MSE —",
         oo_rank: "Rank IC —",
         tc_rank: "Rank IC —",
       }

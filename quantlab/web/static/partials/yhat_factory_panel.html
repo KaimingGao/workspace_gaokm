@@ -87,7 +87,7 @@
     <details class="quant-primary-fold" open data-head-panel="oo">
       <summary class="quant-primary-fold-sum dashboard-section-head quant-section-head">
         <h3 id="yhat-tf-oo-title" class="dashboard-section-title">ŷ_oo</h3>
-        <p class="dashboard-section-desc quant-section-desc">open[T]→open[T+1] · SmoothL1 · Scheme LT</p>
+        <p class="dashboard-section-desc quant-section-desc">open[T]→open[T+1] · mse</p>
       </summary>
       <div class="dashboard-card quant-pro-card">
         <div class="dashboard-card-head quant-pro-card-head quant-card-head--tools quant-card-head--fit yhat-tf-run">
@@ -103,29 +103,25 @@
           <div class="quant-fit-params yhat-tf-fit-params yhat-tf-run-config" role="group" aria-label="ŷ_oo 拟合参数">
             <!--yhat-only:T-->
             <div class="yhat-tf-param-group yhat-tf-protocol" data-protocol-card data-head-pack="aoo" role="group" aria-label="实验"><div class="yhat-tf-param-label">实验</div>
-              <input type="hidden" data-param="seq_len" value="20" />
               <div class="yhat-tf-protocol-rows">
                 <div class="yhat-tf-protocol-row">
                   <span class="yhat-tf-k">序列</span>
                   <span class="yhat-tf-seq-picks yhat-tf-seg" role="radiogroup" aria-label="序列特征">
-                    <label class="yhat-tf-seq-pick" title="与这一头因子 core 同一套列，取决策日前 L 日"><input type="radio" name="seq_feat_oo" data-param-radio="seq_feat_set" value="seq_core" checked /><span>core · 65</span></label>
-                    <label class="yhat-tf-seq-pick" title="与这一头因子 full 同一套列，取决策日前 L 日"><input type="radio" name="seq_feat_oo" data-param-radio="seq_feat_set" value="seq_full" /><span>full · 222</span></label>
+                    <label class="yhat-tf-seq-pick" title="与这一头因子 core 同一套列，取 [T−(L−1) … T]，末步是决策日"><input type="radio" name="seq_feat_oo" data-param-radio="seq_feat_set" value="seq_core" checked /><span>core · 65</span></label>
+                    <label class="yhat-tf-seq-pick" title="与这一头因子 full 同一套列，取 [T−(L−1) … T]，末步是决策日"><input type="radio" name="seq_feat_oo" data-param-radio="seq_feat_set" value="seq_full" /><span>full · 222</span></label>
                   </span>
                 </div>
                 <div class="yhat-tf-protocol-row">
-                  <span class="yhat-tf-k" title="只作用于 Arm·T；Arm·L 固定全量。正式对照需选 full">T因子</span>
-                  <span class="yhat-tf-factor-picks yhat-tf-seg" role="radiogroup" aria-label="因子集">
-                    <label class="yhat-tf-seq-pick"><input type="radio" name="full_aoo_oo" data-param-radio="full_aoo" value="0" checked /><span>core · 65</span></label>
-                    <label class="yhat-tf-seq-pick"><input type="radio" name="full_aoo_oo" data-param-radio="full_aoo" value="1" /><span>full · 222</span></label>
-                  </span>
+                  <span class="yhat-tf-k">长度</span>
+                  <label class="quant-inline-num" title="进编码器的步数，含决策日。窗口是 [T−(L−1) … T]。默认 60，范围 5–60。"><input data-param="seq_len" type="number" min="5" max="60" step="1" value="60" aria-label="序列长度" /></label>
                 </div>
               </div>
             </div>
             <!--/yhat-only:T-->
             <div class="yhat-tf-hparams" role="group" aria-label="超参数">
               <div class="yhat-tf-param-group yhat-tf-param-group--data" role="group" aria-label="数据"><div class="yhat-tf-param-label">数据</div><div class="yhat-tf-param-fields">
-              <label class="quant-inline-num" title="大池是数据中心滑条上的观察池。沪深300是固定成分。Arm·T 只选沪深300时从头训练；两套都选时，先用大池预训练，再用沪深300微调。"><span>池子</span><!--yhat-only:T--><span class="yhat-tf-pool-picks yhat-tf-seg" role="group" aria-label="池子"><label class="yhat-tf-seq-pick" title="当前大观察池"><input type="checkbox" data-pool="pool" value="pool" checked /><span>大池</span></label><label class="yhat-tf-seq-pick" title="固定的沪深300成分。只选它时从头训练；与大池一起选时先预训练再微调"><input type="checkbox" data-pool="hs300" value="hs300" /><span>沪深300</span></label></span><!--/yhat-only:T--><!--yhat-only:L--><span class="yhat-tf-pool-picks yhat-tf-seg" role="radiogroup" aria-label="池子"><label class="yhat-tf-seq-pick" title="当前大观察池"><input type="radio" name="pool_set" data-pool="pool" value="pool" checked /><span>大池</span></label><label class="yhat-tf-seq-pick" title="固定的沪深300成分"><input type="radio" name="pool_set" data-pool="hs300" value="hs300" /><span>沪深300</span></label></span><!--/yhat-only:L--><!--yhat-only:R--><span class="yhat-tf-pool-picks yhat-tf-seg" role="radiogroup" aria-label="池子"><label class="yhat-tf-seq-pick" title="当前大观察池"><input type="radio" name="pool_set" data-pool="pool" value="pool" checked /><span>大池</span></label><label class="yhat-tf-seq-pick" title="固定的沪深300成分"><input type="radio" name="pool_set" data-pool="hs300" value="hs300" /><span>沪深300</span></label></span><!--/yhat-only:R--></label>
-              <label class="quant-inline-num"><span>训练窗（日）</span><input data-param="lookback" type="number" min="100" max="1200" step="10" value="900" /></label>
+              <label class="quant-inline-num" title="大池是数据中心滑条上的观察池。沪深300是固定成分。Arm·T 只选沪深300时从头训练；两套都选时，先用大池预训练，再用沪深300微调。"><span>池子</span><!--yhat-only:T--><span class="yhat-tf-pool-picks yhat-tf-seg" role="group" aria-label="池子"><label class="yhat-tf-seq-pick" title="当前大观察池"><input type="checkbox" data-pool="pool" value="pool" /><span>大池</span></label><label class="yhat-tf-seq-pick" title="固定的沪深300成分。只选它时从头训练；与大池一起选时先预训练再微调"><input type="checkbox" data-pool="hs300" value="hs300" checked /><span>沪深300</span></label></span><!--/yhat-only:T--><!--yhat-only:L--><span class="yhat-tf-pool-picks yhat-tf-seg" role="radiogroup" aria-label="池子"><label class="yhat-tf-seq-pick" title="当前大观察池"><input type="radio" name="pool_set" data-pool="pool" value="pool" checked /><span>大池</span></label><label class="yhat-tf-seq-pick" title="固定的沪深300成分"><input type="radio" name="pool_set" data-pool="hs300" value="hs300" /><span>沪深300</span></label></span><!--/yhat-only:L--><!--yhat-only:R--><span class="yhat-tf-pool-picks yhat-tf-seg" role="radiogroup" aria-label="池子"><label class="yhat-tf-seq-pick" title="当前大观察池"><input type="radio" name="pool_set" data-pool="pool" value="pool" checked /><span>大池</span></label><label class="yhat-tf-seq-pick" title="固定的沪深300成分"><input type="radio" name="pool_set" data-pool="hs300" value="hs300" /><span>沪深300</span></label></span><!--/yhat-only:R--></label>
+              <label class="quant-inline-num"><span>训练窗（日）</span><input data-param="lookback" type="number" min="100" max="1200" step="10" value="1000" /></label>
               <label class="quant-inline-num"><span>Holdout（日）</span><input data-param="holdout_trading_days" type="number" min="5" max="90" step="1" value="60" /></label>
             </div></div>
               <!--yhat-only:R-->
@@ -135,17 +131,17 @@
               <!--/yhat-only:R-->
               <!--yhat-only:T-->
               <div class="yhat-tf-param-group yhat-tf-param-group--train" role="group" aria-label="训练"><div class="yhat-tf-param-label">训练</div><div class="yhat-tf-param-fields">
-              <label class="quant-inline-num"><span>batch</span><input data-param="batch_size" type="number" min="16" max="1024" step="8" value="32" /></label>
-              <label class="quant-inline-num"><span>epochs</span><input data-param="epochs" type="number" min="1" max="40" step="1" value="12" /></label>
-              <label class="quant-inline-num" title="仅 Arm·T：相对 Holdout 训练段 subsample %；默认 10。正式对照需 100%。先切 val 再抽 train。Arm·L 仍全样本"><span>T采样%</span><input data-param="t_sample_pct" type="number" min="0.1" max="100" step="0.1" value="10" /></label>
+              <label class="quant-inline-num"><span>batch</span><input data-param="batch_size" type="number" min="16" max="4096" step="8" value="2048" /></label>
+              <label class="quant-inline-num"><span>epochs</span><input data-param="epochs" type="number" min="1" max="40" step="1" value="20" /></label>
+              <label class="quant-inline-num" title="仅 Arm·T：相对 Holdout 训练段的采样 %。默认 100，不截断。先切 Holdout 再抽训练段。Arm·L 仍全样本"><span>T采样%</span><input data-param="t_sample_pct" type="number" min="0.1" max="100" step="0.1" value="100" /></label>
             </div></div>
               <!--/yhat-only:T-->
               <!--yhat-only:T-->
               <div class="yhat-tf-param-group yhat-tf-param-group--model" role="group" aria-label="模型"><div class="yhat-tf-param-label">模型</div>
                 <div class="yhat-tf-param-fields">
-                  <label class="quant-inline-num"><span>d_model</span><input data-param="d_model" type="number" min="16" step="8" value="64" /></label>
-                  <label class="quant-inline-num"><span>layers</span><input data-param="nlayers" type="number" min="1" max="6" step="1" value="3" /></label>
-                  <label class="quant-inline-num"><span>loss</span><select data-param="loss" aria-label="loss" disabled><option value="smooth_l1" selected>smooth_l1</option></select></label>
+                  <label class="quant-inline-num"><span>d_model</span><input data-param="d_model" type="number" min="16" step="8" value="128" /></label>
+                  <label class="quant-inline-num"><span>layers</span><input data-param="nlayers" type="number" min="1" max="6" step="1" value="2" /></label>
+                  <label class="quant-inline-num"><span>loss</span><select data-param="loss" aria-label="loss" disabled><option value="mse" selected>mse</option></select></label>
                 </div>
               </div>
               <!--/yhat-only:T-->
@@ -167,10 +163,11 @@
                   <div class="yhat-tf-arm-title"><strong>Arm·L</strong><span>LightGBM · 全量</span></div>
                   <span class="yhat-tf-arm-state" data-arm-state="L" data-state="idle">待运行</span>
                 </header>
-                <div class="yhat-tf-arm-metrics">
-                  <div><span title="每日截面 Spearman 再对日平均">Rank IC</span><strong data-arm-metric="L:ic">—</strong></div>
-                  <div><span title="日频 IC 均值/标准差">ICIR</span><strong data-arm-metric="L:icir">—</strong></div>
-                  <div><span title="样本外方向命中率">命中</span><strong data-arm-metric="L:hit">—</strong></div>
+                <div class="yhat-tf-arm-metrics yhat-tf-arm-metrics--five">
+                  <div><span title="Holdout 逐点均方误差。预测和实现都是百分点，不截断">MSE</span><strong data-arm-metric="L:mse">—</strong></div>
+                  <div><span title="每日截面 Spearman 再对日平均">Rank IC</span><strong data-arm-metric="L:rankic">—</strong></div>
+                  <div><span title="日频 Pearson IC 均值/标准差">ICIR</span><strong data-arm-metric="L:csicir">—</strong></div>
+                  <div><span title="样本外方向命中率，|ŷ|&lt;0.05 个百分点不计">命中</span><strong data-arm-metric="L:hit">—</strong></div>
                   <div><span title="Holdout 日截面 ŷ 头部 10% 实现收益均值">Top10% y</span><strong data-arm-metric="L:topy">—</strong></div>
                 </div>
                 <pre class="yhat-tf-arm-log" data-arm-log="L" hidden></pre>
@@ -183,10 +180,11 @@
                   <div class="yhat-tf-arm-title"><strong>Arm·R</strong><span>Ridge · 全量</span></div>
                   <span class="yhat-tf-arm-state" data-arm-state="R" data-state="idle">待运行</span>
                 </header>
-                <div class="yhat-tf-arm-metrics">
-                  <div><span title="每日截面 Spearman 再对日平均">Rank IC</span><strong data-arm-metric="R:ic">—</strong></div>
-                  <div><span title="日频 IC 均值/标准差">ICIR</span><strong data-arm-metric="R:icir">—</strong></div>
-                  <div><span title="样本外方向命中率">命中</span><strong data-arm-metric="R:hit">—</strong></div>
+                <div class="yhat-tf-arm-metrics yhat-tf-arm-metrics--five">
+                  <div><span title="Holdout 逐点均方误差。预测和实现都是百分点，不截断">MSE</span><strong data-arm-metric="R:mse">—</strong></div>
+                  <div><span title="每日截面 Spearman 再对日平均">Rank IC</span><strong data-arm-metric="R:rankic">—</strong></div>
+                  <div><span title="日频 Pearson IC 均值/标准差">ICIR</span><strong data-arm-metric="R:csicir">—</strong></div>
+                  <div><span title="样本外方向命中率，|ŷ|&lt;0.05 个百分点不计">命中</span><strong data-arm-metric="R:hit">—</strong></div>
                   <div><span title="Holdout 日截面 ŷ 头部 10% 实现收益均值">Top10% y</span><strong data-arm-metric="R:topy">—</strong></div>
                 </div>
                 <pre class="yhat-tf-arm-log" data-arm-log="R" hidden></pre>
@@ -196,19 +194,32 @@
               <section class="yhat-tf-arm-console" data-arm-console="T">
                 <header class="yhat-tf-arm-console-head">
                   <span class="yhat-tf-arm-badge">T</span>
-                  <div class="yhat-tf-arm-title"><strong>Arm·T</strong><span>双支路晚融合</span></div>
+                  <div class="yhat-tf-arm-title"><strong>Arm·T</strong><span>序列 Transformer</span></div>
                   <span class="yhat-tf-arm-state" data-arm-state="T" data-state="idle">待运行</span>
                 </header>
-                <div class="yhat-tf-arm-metrics">
-                  <div><span title="每日截面 Spearman 再对日平均">Rank IC</span><strong data-arm-metric="T:ic">—</strong></div>
-                  <div><span title="日频 IC 均值/标准差">ICIR</span><strong data-arm-metric="T:icir">—</strong></div>
-                  <div><span title="样本外方向命中率">命中</span><strong data-arm-metric="T:hit">—</strong></div>
+                <div class="yhat-tf-arm-metrics yhat-tf-arm-metrics--five">
+                  <div><span title="Holdout 逐点均方误差。预测和实现都是百分点，不截断">MSE</span><strong data-arm-metric="T:mse">—</strong></div>
+                  <div><span title="每日截面 Spearman 再对日平均">Rank IC</span><strong data-arm-metric="T:rankic">—</strong></div>
+                  <div><span title="日频 Pearson IC 均值/标准差">ICIR</span><strong data-arm-metric="T:csicir">—</strong></div>
+                  <div><span title="样本外方向命中率，|ŷ|&lt;0.05 个百分点不计">命中</span><strong data-arm-metric="T:hit">—</strong></div>
                   <div><span title="Holdout 日截面 ŷ 头部 10% 实现收益均值">Top10% y</span><strong data-arm-metric="T:topy">—</strong></div>
                 </div>
                 <pre class="yhat-tf-arm-log" data-arm-log="T" hidden></pre>
               </section>
               <!--/yhat-only:T-->
             </div>
+            <!--yhat-only:T-->
+            <div class="yhat-tf-fit-curves" data-fit-curves hidden>
+              <figure class="yhat-tf-fit-curve">
+                <figcaption><span>训练损失</span><em data-curve-caption="loss"></em></figcaption>
+                <canvas data-curve="loss" width="480" height="128" aria-label="训练损失"></canvas>
+              </figure>
+              <figure class="yhat-tf-fit-curve" data-curve-holdout hidden>
+                <figcaption><span>Holdout</span><em data-curve-caption="holdout"></em></figcaption>
+                <canvas data-curve="holdout" width="480" height="128" aria-label="Holdout"></canvas>
+              </figure>
+            </div>
+            <!--/yhat-only:T-->
             <div class="yhat-tf-fit-verdict">
               <span class="yhat-tf-contrast-protocol" data-contrast-protocol></span>
             </div>
@@ -225,7 +236,7 @@
   <!-- ŷ_τc -->
   <section class="dashboard-section quant-section" id="yhat-tf-section-tc" data-head-section="tc" aria-labelledby="yhat-tf-tc-title" hidden>
     <details class="quant-primary-fold" open data-head-panel="tc">
-      <summary class="quant-primary-fold-sum dashboard-section-head quant-section-head"><h3 id="yhat-tf-tc-title" class="dashboard-section-title">ŷ_τc</h3><p class="dashboard-section-desc quant-section-desc">price[τ]→close[T] · SmoothL1 · Scheme LT</p></summary>
+      <summary class="quant-primary-fold-sum dashboard-section-head quant-section-head"><h3 id="yhat-tf-tc-title" class="dashboard-section-title">ŷ_τc</h3><p class="dashboard-section-desc quant-section-desc">price[τ]→close[T] · mse</p></summary>
       <div class="dashboard-card quant-pro-card">
         <div class="dashboard-card-head quant-pro-card-head quant-card-head--tools quant-card-head--fit yhat-tf-run">
           <div class="yhat-tf-run-bar">
@@ -240,29 +251,25 @@
           <div class="quant-fit-params yhat-tf-fit-params yhat-tf-run-config" role="group" aria-label="ŷ_τc 拟合参数">
             <!--yhat-only:T-->
             <div class="yhat-tf-param-group yhat-tf-protocol" data-protocol-card data-head-pack="atc" role="group" aria-label="实验"><div class="yhat-tf-param-label">实验</div>
-              <input type="hidden" data-param="seq_len" value="20" />
               <div class="yhat-tf-protocol-rows">
                 <div class="yhat-tf-protocol-row">
                   <span class="yhat-tf-k">序列</span>
                   <span class="yhat-tf-seq-picks yhat-tf-seg" role="radiogroup" aria-label="序列特征">
-                    <label class="yhat-tf-seq-pick" title="与这一头因子 core 同一套列，取决策日前 L 日"><input type="radio" name="seq_feat_tc" data-param-radio="seq_feat_set" value="seq_core" checked /><span>core · 61</span></label>
-                    <label class="yhat-tf-seq-pick" title="与这一头因子 full 同一套列，取决策日前 L 日"><input type="radio" name="seq_feat_tc" data-param-radio="seq_feat_set" value="seq_full" /><span>full · 218</span></label>
+                    <label class="yhat-tf-seq-pick" title="与这一头因子 core 同一套列，取 [T−(L−1) … T]，末步是决策日"><input type="radio" name="seq_feat_tc" data-param-radio="seq_feat_set" value="seq_core" checked /><span>core · 61</span></label>
+                    <label class="yhat-tf-seq-pick" title="与这一头因子 full 同一套列，取 [T−(L−1) … T]，末步是决策日"><input type="radio" name="seq_feat_tc" data-param-radio="seq_feat_set" value="seq_full" /><span>full · 218</span></label>
                   </span>
                 </div>
                 <div class="yhat-tf-protocol-row">
-                  <span class="yhat-tf-k" title="只作用于 Arm·T；Arm·L 固定全量。正式对照需选 full">T因子</span>
-                  <span class="yhat-tf-factor-picks yhat-tf-seg" role="radiogroup" aria-label="因子集">
-                    <label class="yhat-tf-seq-pick"><input type="radio" name="full_atc_tc" data-param-radio="full_atc" value="0" /><span>core · 61</span></label>
-                    <label class="yhat-tf-seq-pick"><input type="radio" name="full_atc_tc" data-param-radio="full_atc" value="1" checked /><span>full · 218</span></label>
-                  </span>
+                  <span class="yhat-tf-k">长度</span>
+                  <label class="quant-inline-num" title="进编码器的步数，含决策日。窗口是 [T−(L−1) … T]。默认 60，范围 5–60。"><input data-param="seq_len" type="number" min="5" max="60" step="1" value="60" aria-label="序列长度" /></label>
                 </div>
               </div>
             </div>
             <!--/yhat-only:T-->
             <div class="yhat-tf-hparams" role="group" aria-label="超参数">
               <div class="yhat-tf-param-group yhat-tf-param-group--data" role="group" aria-label="数据"><div class="yhat-tf-param-label">数据</div><div class="yhat-tf-param-fields">
-              <label class="quant-inline-num" title="大池是数据中心滑条上的观察池。沪深300是固定成分。Arm·T 只选沪深300时从头训练；两套都选时，先用大池预训练，再用沪深300微调。"><span>池子</span><!--yhat-only:T--><span class="yhat-tf-pool-picks yhat-tf-seg" role="group" aria-label="池子"><label class="yhat-tf-seq-pick" title="当前大观察池"><input type="checkbox" data-pool="pool" value="pool" checked /><span>大池</span></label><label class="yhat-tf-seq-pick" title="固定的沪深300成分。只选它时从头训练；与大池一起选时先预训练再微调"><input type="checkbox" data-pool="hs300" value="hs300" /><span>沪深300</span></label></span><!--/yhat-only:T--><!--yhat-only:L--><span class="yhat-tf-pool-picks yhat-tf-seg" role="radiogroup" aria-label="池子"><label class="yhat-tf-seq-pick" title="当前大观察池"><input type="radio" name="pool_set" data-pool="pool" value="pool" checked /><span>大池</span></label><label class="yhat-tf-seq-pick" title="固定的沪深300成分"><input type="radio" name="pool_set" data-pool="hs300" value="hs300" /><span>沪深300</span></label></span><!--/yhat-only:L--><!--yhat-only:R--><span class="yhat-tf-pool-picks yhat-tf-seg" role="radiogroup" aria-label="池子"><label class="yhat-tf-seq-pick" title="当前大观察池"><input type="radio" name="pool_set" data-pool="pool" value="pool" checked /><span>大池</span></label><label class="yhat-tf-seq-pick" title="固定的沪深300成分"><input type="radio" name="pool_set" data-pool="hs300" value="hs300" /><span>沪深300</span></label></span><!--/yhat-only:R--></label>
-              <label class="quant-inline-num"><span>训练窗（日）</span><input data-param="lookback" type="number" min="100" max="1200" step="10" value="900" /></label>
+              <label class="quant-inline-num" title="大池是数据中心滑条上的观察池。沪深300是固定成分。Arm·T 只选沪深300时从头训练；两套都选时，先用大池预训练，再用沪深300微调。"><span>池子</span><!--yhat-only:T--><span class="yhat-tf-pool-picks yhat-tf-seg" role="group" aria-label="池子"><label class="yhat-tf-seq-pick" title="当前大观察池"><input type="checkbox" data-pool="pool" value="pool" /><span>大池</span></label><label class="yhat-tf-seq-pick" title="固定的沪深300成分。只选它时从头训练；与大池一起选时先预训练再微调"><input type="checkbox" data-pool="hs300" value="hs300" checked /><span>沪深300</span></label></span><!--/yhat-only:T--><!--yhat-only:L--><span class="yhat-tf-pool-picks yhat-tf-seg" role="radiogroup" aria-label="池子"><label class="yhat-tf-seq-pick" title="当前大观察池"><input type="radio" name="pool_set" data-pool="pool" value="pool" checked /><span>大池</span></label><label class="yhat-tf-seq-pick" title="固定的沪深300成分"><input type="radio" name="pool_set" data-pool="hs300" value="hs300" /><span>沪深300</span></label></span><!--/yhat-only:L--><!--yhat-only:R--><span class="yhat-tf-pool-picks yhat-tf-seg" role="radiogroup" aria-label="池子"><label class="yhat-tf-seq-pick" title="当前大观察池"><input type="radio" name="pool_set" data-pool="pool" value="pool" checked /><span>大池</span></label><label class="yhat-tf-seq-pick" title="固定的沪深300成分"><input type="radio" name="pool_set" data-pool="hs300" value="hs300" /><span>沪深300</span></label></span><!--/yhat-only:R--></label>
+              <label class="quant-inline-num"><span>训练窗（日）</span><input data-param="lookback" type="number" min="100" max="1200" step="10" value="1000" /></label>
               <label class="quant-inline-num"><span>Holdout（日）</span><input data-param="holdout_trading_days" type="number" min="5" max="90" step="1" value="60" /></label>
               <label class="quant-inline-num" title="本期仅开盘 τ=09:30"><span>前缀</span><input data-param="tau_end" type="text" value="09:30" readonly disabled /></label>
             </div></div>
@@ -273,17 +280,17 @@
               <!--/yhat-only:R-->
               <!--yhat-only:T-->
               <div class="yhat-tf-param-group yhat-tf-param-group--train" role="group" aria-label="训练"><div class="yhat-tf-param-label">训练</div><div class="yhat-tf-param-fields">
-              <label class="quant-inline-num"><span>batch</span><input data-param="batch_size" type="number" min="16" max="1024" step="8" value="32" /></label>
-              <label class="quant-inline-num"><span>epochs</span><input data-param="epochs" type="number" min="1" max="40" step="1" value="12" /></label>
-              <label class="quant-inline-num" title="仅 Arm·T：相对 Holdout 训练段 subsample %；默认 10。正式对照需 100%。先切 val 再抽 train。Arm·L 仍全样本"><span>T采样%</span><input data-param="t_sample_pct" type="number" min="0.1" max="100" step="0.1" value="10" /></label>
+              <label class="quant-inline-num"><span>batch</span><input data-param="batch_size" type="number" min="16" max="4096" step="8" value="2048" /></label>
+              <label class="quant-inline-num"><span>epochs</span><input data-param="epochs" type="number" min="1" max="40" step="1" value="20" /></label>
+              <label class="quant-inline-num" title="仅 Arm·T：相对 Holdout 训练段的采样 %。默认 100，不截断。先切 Holdout 再抽训练段。Arm·L 仍全样本"><span>T采样%</span><input data-param="t_sample_pct" type="number" min="0.1" max="100" step="0.1" value="100" /></label>
             </div></div>
               <!--/yhat-only:T-->
               <!--yhat-only:T-->
               <div class="yhat-tf-param-group yhat-tf-param-group--model" role="group" aria-label="模型"><div class="yhat-tf-param-label">模型</div>
                 <div class="yhat-tf-param-fields">
-                  <label class="quant-inline-num"><span>d_model</span><input data-param="d_model" type="number" min="16" step="8" value="64" /></label>
-                  <label class="quant-inline-num"><span>layers</span><input data-param="nlayers" type="number" min="1" max="6" step="1" value="3" /></label>
-                  <label class="quant-inline-num"><span>loss</span><select data-param="loss" aria-label="loss" disabled><option value="smooth_l1" selected>smooth_l1</option></select></label>
+                  <label class="quant-inline-num"><span>d_model</span><input data-param="d_model" type="number" min="16" step="8" value="128" /></label>
+                  <label class="quant-inline-num"><span>layers</span><input data-param="nlayers" type="number" min="1" max="6" step="1" value="2" /></label>
+                  <label class="quant-inline-num"><span>loss</span><select data-param="loss" aria-label="loss" disabled><option value="mse" selected>mse</option></select></label>
                 </div>
               </div>
               <!--/yhat-only:T-->
@@ -305,10 +312,11 @@
                   <div class="yhat-tf-arm-title"><strong>Arm·L</strong><span>LightGBM · 全量</span></div>
                   <span class="yhat-tf-arm-state" data-arm-state="L" data-state="idle">待运行</span>
                 </header>
-                <div class="yhat-tf-arm-metrics">
-                  <div><span title="每日截面 Spearman 再对日平均">Rank IC</span><strong data-arm-metric="L:ic">—</strong></div>
-                  <div><span title="日频 IC 均值/标准差">ICIR</span><strong data-arm-metric="L:icir">—</strong></div>
-                  <div><span title="样本外方向命中率">命中</span><strong data-arm-metric="L:hit">—</strong></div>
+                <div class="yhat-tf-arm-metrics yhat-tf-arm-metrics--five">
+                  <div><span title="Holdout 逐点均方误差。预测和实现都是百分点，不截断">MSE</span><strong data-arm-metric="L:mse">—</strong></div>
+                  <div><span title="每日截面 Spearman 再对日平均">Rank IC</span><strong data-arm-metric="L:rankic">—</strong></div>
+                  <div><span title="日频 Pearson IC 均值/标准差">ICIR</span><strong data-arm-metric="L:csicir">—</strong></div>
+                  <div><span title="样本外方向命中率，|ŷ|&lt;0.05 个百分点不计">命中</span><strong data-arm-metric="L:hit">—</strong></div>
                   <div><span title="Holdout 日截面 ŷ 头部 10% 实现收益均值">Top10% y</span><strong data-arm-metric="L:topy">—</strong></div>
                 </div>
                 <pre class="yhat-tf-arm-log" data-arm-log="L" hidden></pre>
@@ -321,10 +329,11 @@
                   <div class="yhat-tf-arm-title"><strong>Arm·R</strong><span>Ridge · 全量</span></div>
                   <span class="yhat-tf-arm-state" data-arm-state="R" data-state="idle">待运行</span>
                 </header>
-                <div class="yhat-tf-arm-metrics">
-                  <div><span title="每日截面 Spearman 再对日平均">Rank IC</span><strong data-arm-metric="R:ic">—</strong></div>
-                  <div><span title="日频 IC 均值/标准差">ICIR</span><strong data-arm-metric="R:icir">—</strong></div>
-                  <div><span title="样本外方向命中率">命中</span><strong data-arm-metric="R:hit">—</strong></div>
+                <div class="yhat-tf-arm-metrics yhat-tf-arm-metrics--five">
+                  <div><span title="Holdout 逐点均方误差。预测和实现都是百分点，不截断">MSE</span><strong data-arm-metric="R:mse">—</strong></div>
+                  <div><span title="每日截面 Spearman 再对日平均">Rank IC</span><strong data-arm-metric="R:rankic">—</strong></div>
+                  <div><span title="日频 Pearson IC 均值/标准差">ICIR</span><strong data-arm-metric="R:csicir">—</strong></div>
+                  <div><span title="样本外方向命中率，|ŷ|&lt;0.05 个百分点不计">命中</span><strong data-arm-metric="R:hit">—</strong></div>
                   <div><span title="Holdout 日截面 ŷ 头部 10% 实现收益均值">Top10% y</span><strong data-arm-metric="R:topy">—</strong></div>
                 </div>
                 <pre class="yhat-tf-arm-log" data-arm-log="R" hidden></pre>
@@ -334,19 +343,32 @@
               <section class="yhat-tf-arm-console" data-arm-console="T">
                 <header class="yhat-tf-arm-console-head">
                   <span class="yhat-tf-arm-badge">T</span>
-                  <div class="yhat-tf-arm-title"><strong>Arm·T</strong><span>双支路晚融合</span></div>
+                  <div class="yhat-tf-arm-title"><strong>Arm·T</strong><span>序列 Transformer</span></div>
                   <span class="yhat-tf-arm-state" data-arm-state="T" data-state="idle">待运行</span>
                 </header>
-                <div class="yhat-tf-arm-metrics">
-                  <div><span title="每日截面 Spearman 再对日平均">Rank IC</span><strong data-arm-metric="T:ic">—</strong></div>
-                  <div><span title="日频 IC 均值/标准差">ICIR</span><strong data-arm-metric="T:icir">—</strong></div>
-                  <div><span title="样本外方向命中率">命中</span><strong data-arm-metric="T:hit">—</strong></div>
+                <div class="yhat-tf-arm-metrics yhat-tf-arm-metrics--five">
+                  <div><span title="Holdout 逐点均方误差。预测和实现都是百分点，不截断">MSE</span><strong data-arm-metric="T:mse">—</strong></div>
+                  <div><span title="每日截面 Spearman 再对日平均">Rank IC</span><strong data-arm-metric="T:rankic">—</strong></div>
+                  <div><span title="日频 Pearson IC 均值/标准差">ICIR</span><strong data-arm-metric="T:csicir">—</strong></div>
+                  <div><span title="样本外方向命中率，|ŷ|&lt;0.05 个百分点不计">命中</span><strong data-arm-metric="T:hit">—</strong></div>
                   <div><span title="Holdout 日截面 ŷ 头部 10% 实现收益均值">Top10% y</span><strong data-arm-metric="T:topy">—</strong></div>
                 </div>
                 <pre class="yhat-tf-arm-log" data-arm-log="T" hidden></pre>
               </section>
               <!--/yhat-only:T-->
             </div>
+            <!--yhat-only:T-->
+            <div class="yhat-tf-fit-curves" data-fit-curves hidden>
+              <figure class="yhat-tf-fit-curve">
+                <figcaption><span>训练损失</span><em data-curve-caption="loss"></em></figcaption>
+                <canvas data-curve="loss" width="480" height="128" aria-label="训练损失"></canvas>
+              </figure>
+              <figure class="yhat-tf-fit-curve" data-curve-holdout hidden>
+                <figcaption><span>Holdout</span><em data-curve-caption="holdout"></em></figcaption>
+                <canvas data-curve="holdout" width="480" height="128" aria-label="Holdout"></canvas>
+              </figure>
+            </div>
+            <!--/yhat-only:T-->
             <div class="yhat-tf-fit-verdict">
               <span class="yhat-tf-contrast-protocol" data-contrast-protocol></span>
             </div>
@@ -378,29 +400,25 @@
           <div class="quant-fit-params yhat-tf-fit-params yhat-tf-run-config" role="group" aria-label="ŷ_oo_rank 拟合参数">
             <!--yhat-only:T-->
             <div class="yhat-tf-param-group yhat-tf-protocol" data-protocol-card data-head-pack="aoo" role="group" aria-label="实验"><div class="yhat-tf-param-label">实验</div>
-              <input type="hidden" data-param="seq_len" value="20" />
               <div class="yhat-tf-protocol-rows">
                 <div class="yhat-tf-protocol-row">
                   <span class="yhat-tf-k">序列</span>
                   <span class="yhat-tf-seq-picks yhat-tf-seg" role="radiogroup" aria-label="序列特征">
-                    <label class="yhat-tf-seq-pick" title="与这一头因子 core 同一套列，取决策日前 L 日"><input type="radio" name="seq_feat_oo_rank" data-param-radio="seq_feat_set" value="seq_core" checked /><span>core · 65</span></label>
-                    <label class="yhat-tf-seq-pick" title="与这一头因子 full 同一套列，取决策日前 L 日"><input type="radio" name="seq_feat_oo_rank" data-param-radio="seq_feat_set" value="seq_full" /><span>full · 222</span></label>
+                    <label class="yhat-tf-seq-pick" title="与这一头因子 core 同一套列，取 [T−(L−1) … T]，末步是决策日"><input type="radio" name="seq_feat_oo_rank" data-param-radio="seq_feat_set" value="seq_core" checked /><span>core · 65</span></label>
+                    <label class="yhat-tf-seq-pick" title="与这一头因子 full 同一套列，取 [T−(L−1) … T]，末步是决策日"><input type="radio" name="seq_feat_oo_rank" data-param-radio="seq_feat_set" value="seq_full" /><span>full · 222</span></label>
                   </span>
                 </div>
                 <div class="yhat-tf-protocol-row">
-                  <span class="yhat-tf-k" title="只作用于 Arm·T；Arm·L 固定全量。正式对照需选 full">T因子</span>
-                  <span class="yhat-tf-factor-picks yhat-tf-seg" role="radiogroup" aria-label="因子集">
-                    <label class="yhat-tf-seq-pick"><input type="radio" name="full_aoo_oo_rank" data-param-radio="full_aoo" value="0" checked /><span>core · 65</span></label>
-                    <label class="yhat-tf-seq-pick"><input type="radio" name="full_aoo_oo_rank" data-param-radio="full_aoo" value="1" /><span>full · 222</span></label>
-                  </span>
+                  <span class="yhat-tf-k">长度</span>
+                  <label class="quant-inline-num" title="进编码器的步数，含决策日。窗口是 [T−(L−1) … T]。默认 60，范围 5–60。"><input data-param="seq_len" type="number" min="5" max="60" step="1" value="60" aria-label="序列长度" /></label>
                 </div>
               </div>
             </div>
             <!--/yhat-only:T-->
             <div class="yhat-tf-hparams" role="group" aria-label="超参数">
               <div class="yhat-tf-param-group yhat-tf-param-group--data" role="group" aria-label="数据"><div class="yhat-tf-param-label">数据</div><div class="yhat-tf-param-fields">
-              <label class="quant-inline-num" title="大池是数据中心滑条上的观察池。沪深300是固定成分。Arm·T 只选沪深300时从头训练；两套都选时，先用大池预训练，再用沪深300微调。"><span>池子</span><!--yhat-only:T--><span class="yhat-tf-pool-picks yhat-tf-seg" role="group" aria-label="池子"><label class="yhat-tf-seq-pick" title="当前大观察池"><input type="checkbox" data-pool="pool" value="pool" checked /><span>大池</span></label><label class="yhat-tf-seq-pick" title="固定的沪深300成分。只选它时从头训练；与大池一起选时先预训练再微调"><input type="checkbox" data-pool="hs300" value="hs300" /><span>沪深300</span></label></span><!--/yhat-only:T--><!--yhat-only:L--><span class="yhat-tf-pool-picks yhat-tf-seg" role="radiogroup" aria-label="池子"><label class="yhat-tf-seq-pick" title="当前大观察池"><input type="radio" name="pool_set" data-pool="pool" value="pool" checked /><span>大池</span></label><label class="yhat-tf-seq-pick" title="固定的沪深300成分"><input type="radio" name="pool_set" data-pool="hs300" value="hs300" /><span>沪深300</span></label></span><!--/yhat-only:L--><!--yhat-only:R--><span class="yhat-tf-pool-picks yhat-tf-seg" role="radiogroup" aria-label="池子"><label class="yhat-tf-seq-pick" title="当前大观察池"><input type="radio" name="pool_set" data-pool="pool" value="pool" checked /><span>大池</span></label><label class="yhat-tf-seq-pick" title="固定的沪深300成分"><input type="radio" name="pool_set" data-pool="hs300" value="hs300" /><span>沪深300</span></label></span><!--/yhat-only:R--></label>
-              <label class="quant-inline-num"><span>训练窗（日）</span><input data-param="lookback" type="number" min="100" max="1200" step="10" value="700" /></label>
+              <label class="quant-inline-num" title="大池是数据中心滑条上的观察池。沪深300是固定成分。Arm·T 只选沪深300时从头训练；两套都选时，先用大池预训练，再用沪深300微调。"><span>池子</span><!--yhat-only:T--><span class="yhat-tf-pool-picks yhat-tf-seg" role="group" aria-label="池子"><label class="yhat-tf-seq-pick" title="当前大观察池"><input type="checkbox" data-pool="pool" value="pool" /><span>大池</span></label><label class="yhat-tf-seq-pick" title="固定的沪深300成分。只选它时从头训练；与大池一起选时先预训练再微调"><input type="checkbox" data-pool="hs300" value="hs300" checked /><span>沪深300</span></label></span><!--/yhat-only:T--><!--yhat-only:L--><span class="yhat-tf-pool-picks yhat-tf-seg" role="radiogroup" aria-label="池子"><label class="yhat-tf-seq-pick" title="当前大观察池"><input type="radio" name="pool_set" data-pool="pool" value="pool" checked /><span>大池</span></label><label class="yhat-tf-seq-pick" title="固定的沪深300成分"><input type="radio" name="pool_set" data-pool="hs300" value="hs300" /><span>沪深300</span></label></span><!--/yhat-only:L--><!--yhat-only:R--><span class="yhat-tf-pool-picks yhat-tf-seg" role="radiogroup" aria-label="池子"><label class="yhat-tf-seq-pick" title="当前大观察池"><input type="radio" name="pool_set" data-pool="pool" value="pool" checked /><span>大池</span></label><label class="yhat-tf-seq-pick" title="固定的沪深300成分"><input type="radio" name="pool_set" data-pool="hs300" value="hs300" /><span>沪深300</span></label></span><!--/yhat-only:R--></label>
+              <label class="quant-inline-num"><span>训练窗（日）</span><input data-param="lookback" type="number" min="100" max="1200" step="10" value="1000" /></label>
               <label class="quant-inline-num"><span>Holdout（日）</span><input data-param="holdout_trading_days" type="number" min="5" max="90" step="1" value="60" /></label>
             </div></div>
               <!--yhat-only:R-->
@@ -410,16 +428,16 @@
               <!--/yhat-only:R-->
               <!--yhat-only:T-->
               <div class="yhat-tf-param-group yhat-tf-param-group--train" role="group" aria-label="训练"><div class="yhat-tf-param-label">训练</div><div class="yhat-tf-param-fields">
-              <label class="quant-inline-num"><span>batch</span><input data-param="batch_size" type="number" min="16" max="1024" step="8" value="32" /></label>
-              <label class="quant-inline-num"><span>epochs</span><input data-param="epochs" type="number" min="1" max="40" step="1" value="12" /></label>
-              <label class="quant-inline-num" title="仅 Arm·T：相对 Holdout 训练段 subsample %；默认 10。正式对照需 100%。先切 val 再抽 train。Arm·L 仍全样本"><span>T采样%</span><input data-param="t_sample_pct" type="number" min="0.1" max="100" step="0.1" value="10" /></label>
+              <label class="quant-inline-num"><span>batch</span><input data-param="batch_size" type="number" min="16" max="4096" step="8" value="2048" /></label>
+              <label class="quant-inline-num"><span>epochs</span><input data-param="epochs" type="number" min="1" max="40" step="1" value="20" /></label>
+              <label class="quant-inline-num" title="仅 Arm·T：相对 Holdout 训练段的采样 %。默认 100，不截断。先切 Holdout 再抽训练段。Arm·L 仍全样本"><span>T采样%</span><input data-param="t_sample_pct" type="number" min="0.1" max="100" step="0.1" value="100" /></label>
             </div></div>
               <!--/yhat-only:T-->
               <!--yhat-only:T-->
               <div class="yhat-tf-param-group yhat-tf-param-group--model" role="group" aria-label="模型"><div class="yhat-tf-param-label">模型</div>
                 <div class="yhat-tf-param-fields">
-                  <label class="quant-inline-num"><span>d_model</span><input data-param="d_model" type="number" min="16" step="8" value="64" /></label>
-                  <label class="quant-inline-num"><span>layers</span><input data-param="nlayers" type="number" min="1" max="6" step="1" value="3" /></label>
+                  <label class="quant-inline-num"><span>d_model</span><input data-param="d_model" type="number" min="16" step="8" value="128" /></label>
+                  <label class="quant-inline-num"><span>layers</span><input data-param="nlayers" type="number" min="1" max="6" step="1" value="2" /></label>
                   <label class="quant-inline-num"><span>loss</span><select data-param="loss" aria-label="loss" disabled><option value="lambdarank" selected>lambdarank</option></select></label>
                 </div>
               </div>
@@ -471,7 +489,7 @@
               <section class="yhat-tf-arm-console" data-arm-console="T">
                 <header class="yhat-tf-arm-console-head">
                   <span class="yhat-tf-arm-badge">T</span>
-                  <div class="yhat-tf-arm-title"><strong>Arm·T</strong><span>双支路晚融合</span></div>
+                  <div class="yhat-tf-arm-title"><strong>Arm·T</strong><span>序列 Transformer</span></div>
                   <span class="yhat-tf-arm-state" data-arm-state="T" data-state="idle">待运行</span>
                 </header>
                 <div class="yhat-tf-arm-metrics">
@@ -484,6 +502,18 @@
               </section>
               <!--/yhat-only:T-->
             </div>
+            <!--yhat-only:T-->
+            <div class="yhat-tf-fit-curves" data-fit-curves hidden>
+              <figure class="yhat-tf-fit-curve">
+                <figcaption><span>训练损失</span><em data-curve-caption="loss"></em></figcaption>
+                <canvas data-curve="loss" width="480" height="128" aria-label="训练损失"></canvas>
+              </figure>
+              <figure class="yhat-tf-fit-curve" data-curve-holdout hidden>
+                <figcaption><span>Holdout</span><em data-curve-caption="holdout"></em></figcaption>
+                <canvas data-curve="holdout" width="480" height="128" aria-label="Holdout"></canvas>
+              </figure>
+            </div>
+            <!--/yhat-only:T-->
             <div class="yhat-tf-fit-verdict">
               <span class="yhat-tf-contrast-protocol" data-contrast-protocol></span>
             </div>
@@ -515,29 +545,25 @@
           <div class="quant-fit-params yhat-tf-fit-params yhat-tf-run-config" role="group" aria-label="ŷ_τc_rank 拟合参数">
             <!--yhat-only:T-->
             <div class="yhat-tf-param-group yhat-tf-protocol" data-protocol-card data-head-pack="atc" role="group" aria-label="实验"><div class="yhat-tf-param-label">实验</div>
-              <input type="hidden" data-param="seq_len" value="20" />
               <div class="yhat-tf-protocol-rows">
                 <div class="yhat-tf-protocol-row">
                   <span class="yhat-tf-k">序列</span>
                   <span class="yhat-tf-seq-picks yhat-tf-seg" role="radiogroup" aria-label="序列特征">
-                    <label class="yhat-tf-seq-pick" title="与这一头因子 core 同一套列，取决策日前 L 日"><input type="radio" name="seq_feat_tc_rank" data-param-radio="seq_feat_set" value="seq_core" checked /><span>core · 61</span></label>
-                    <label class="yhat-tf-seq-pick" title="与这一头因子 full 同一套列，取决策日前 L 日"><input type="radio" name="seq_feat_tc_rank" data-param-radio="seq_feat_set" value="seq_full" /><span>full · 218</span></label>
+                    <label class="yhat-tf-seq-pick" title="与这一头因子 core 同一套列，取 [T−(L−1) … T]，末步是决策日"><input type="radio" name="seq_feat_tc_rank" data-param-radio="seq_feat_set" value="seq_core" checked /><span>core · 61</span></label>
+                    <label class="yhat-tf-seq-pick" title="与这一头因子 full 同一套列，取 [T−(L−1) … T]，末步是决策日"><input type="radio" name="seq_feat_tc_rank" data-param-radio="seq_feat_set" value="seq_full" /><span>full · 218</span></label>
                   </span>
                 </div>
                 <div class="yhat-tf-protocol-row">
-                  <span class="yhat-tf-k" title="只作用于 Arm·T；Arm·L 固定全量。正式对照需选 full">T因子</span>
-                  <span class="yhat-tf-factor-picks yhat-tf-seg" role="radiogroup" aria-label="因子集">
-                    <label class="yhat-tf-seq-pick"><input type="radio" name="full_atc_tc_rank" data-param-radio="full_atc" value="0" /><span>core · 61</span></label>
-                    <label class="yhat-tf-seq-pick"><input type="radio" name="full_atc_tc_rank" data-param-radio="full_atc" value="1" checked /><span>full · 218</span></label>
-                  </span>
+                  <span class="yhat-tf-k">长度</span>
+                  <label class="quant-inline-num" title="进编码器的步数，含决策日。窗口是 [T−(L−1) … T]。默认 60，范围 5–60。"><input data-param="seq_len" type="number" min="5" max="60" step="1" value="60" aria-label="序列长度" /></label>
                 </div>
               </div>
             </div>
             <!--/yhat-only:T-->
             <div class="yhat-tf-hparams" role="group" aria-label="超参数">
               <div class="yhat-tf-param-group yhat-tf-param-group--data" role="group" aria-label="数据"><div class="yhat-tf-param-label">数据</div><div class="yhat-tf-param-fields">
-              <label class="quant-inline-num" title="大池是数据中心滑条上的观察池。沪深300是固定成分。Arm·T 只选沪深300时从头训练；两套都选时，先用大池预训练，再用沪深300微调。"><span>池子</span><!--yhat-only:T--><span class="yhat-tf-pool-picks yhat-tf-seg" role="group" aria-label="池子"><label class="yhat-tf-seq-pick" title="当前大观察池"><input type="checkbox" data-pool="pool" value="pool" checked /><span>大池</span></label><label class="yhat-tf-seq-pick" title="固定的沪深300成分。只选它时从头训练；与大池一起选时先预训练再微调"><input type="checkbox" data-pool="hs300" value="hs300" /><span>沪深300</span></label></span><!--/yhat-only:T--><!--yhat-only:L--><span class="yhat-tf-pool-picks yhat-tf-seg" role="radiogroup" aria-label="池子"><label class="yhat-tf-seq-pick" title="当前大观察池"><input type="radio" name="pool_set" data-pool="pool" value="pool" checked /><span>大池</span></label><label class="yhat-tf-seq-pick" title="固定的沪深300成分"><input type="radio" name="pool_set" data-pool="hs300" value="hs300" /><span>沪深300</span></label></span><!--/yhat-only:L--><!--yhat-only:R--><span class="yhat-tf-pool-picks yhat-tf-seg" role="radiogroup" aria-label="池子"><label class="yhat-tf-seq-pick" title="当前大观察池"><input type="radio" name="pool_set" data-pool="pool" value="pool" checked /><span>大池</span></label><label class="yhat-tf-seq-pick" title="固定的沪深300成分"><input type="radio" name="pool_set" data-pool="hs300" value="hs300" /><span>沪深300</span></label></span><!--/yhat-only:R--></label>
-              <label class="quant-inline-num"><span>训练窗（日）</span><input data-param="lookback" type="number" min="100" max="1200" step="10" value="900" /></label>
+              <label class="quant-inline-num" title="大池是数据中心滑条上的观察池。沪深300是固定成分。Arm·T 只选沪深300时从头训练；两套都选时，先用大池预训练，再用沪深300微调。"><span>池子</span><!--yhat-only:T--><span class="yhat-tf-pool-picks yhat-tf-seg" role="group" aria-label="池子"><label class="yhat-tf-seq-pick" title="当前大观察池"><input type="checkbox" data-pool="pool" value="pool" /><span>大池</span></label><label class="yhat-tf-seq-pick" title="固定的沪深300成分。只选它时从头训练；与大池一起选时先预训练再微调"><input type="checkbox" data-pool="hs300" value="hs300" checked /><span>沪深300</span></label></span><!--/yhat-only:T--><!--yhat-only:L--><span class="yhat-tf-pool-picks yhat-tf-seg" role="radiogroup" aria-label="池子"><label class="yhat-tf-seq-pick" title="当前大观察池"><input type="radio" name="pool_set" data-pool="pool" value="pool" checked /><span>大池</span></label><label class="yhat-tf-seq-pick" title="固定的沪深300成分"><input type="radio" name="pool_set" data-pool="hs300" value="hs300" /><span>沪深300</span></label></span><!--/yhat-only:L--><!--yhat-only:R--><span class="yhat-tf-pool-picks yhat-tf-seg" role="radiogroup" aria-label="池子"><label class="yhat-tf-seq-pick" title="当前大观察池"><input type="radio" name="pool_set" data-pool="pool" value="pool" checked /><span>大池</span></label><label class="yhat-tf-seq-pick" title="固定的沪深300成分"><input type="radio" name="pool_set" data-pool="hs300" value="hs300" /><span>沪深300</span></label></span><!--/yhat-only:R--></label>
+              <label class="quant-inline-num"><span>训练窗（日）</span><input data-param="lookback" type="number" min="100" max="1200" step="10" value="1000" /></label>
               <label class="quant-inline-num"><span>Holdout（日）</span><input data-param="holdout_trading_days" type="number" min="5" max="90" step="1" value="60" /></label>
               <label class="quant-inline-num" title="本期仅开盘 τ=09:30"><span>前缀</span><input data-param="tau_end" type="text" value="09:30" readonly disabled /></label>
             </div></div>
@@ -548,16 +574,16 @@
               <!--/yhat-only:R-->
               <!--yhat-only:T-->
               <div class="yhat-tf-param-group yhat-tf-param-group--train" role="group" aria-label="训练"><div class="yhat-tf-param-label">训练</div><div class="yhat-tf-param-fields">
-              <label class="quant-inline-num"><span>batch</span><input data-param="batch_size" type="number" min="16" max="1024" step="8" value="32" /></label>
-              <label class="quant-inline-num"><span>epochs</span><input data-param="epochs" type="number" min="1" max="40" step="1" value="12" /></label>
-              <label class="quant-inline-num" title="仅 Arm·T：相对 Holdout 训练段 subsample %；默认 10。正式对照需 100%。先切 val 再抽 train。Arm·L 仍全样本"><span>T采样%</span><input data-param="t_sample_pct" type="number" min="0.1" max="100" step="0.1" value="10" /></label>
+              <label class="quant-inline-num"><span>batch</span><input data-param="batch_size" type="number" min="16" max="4096" step="8" value="2048" /></label>
+              <label class="quant-inline-num"><span>epochs</span><input data-param="epochs" type="number" min="1" max="40" step="1" value="20" /></label>
+              <label class="quant-inline-num" title="仅 Arm·T：相对 Holdout 训练段的采样 %。默认 100，不截断。先切 Holdout 再抽训练段。Arm·L 仍全样本"><span>T采样%</span><input data-param="t_sample_pct" type="number" min="0.1" max="100" step="0.1" value="100" /></label>
             </div></div>
               <!--/yhat-only:T-->
               <!--yhat-only:T-->
               <div class="yhat-tf-param-group yhat-tf-param-group--model" role="group" aria-label="模型"><div class="yhat-tf-param-label">模型</div>
                 <div class="yhat-tf-param-fields">
-                  <label class="quant-inline-num"><span>d_model</span><input data-param="d_model" type="number" min="16" step="8" value="64" /></label>
-                  <label class="quant-inline-num"><span>layers</span><input data-param="nlayers" type="number" min="1" max="6" step="1" value="3" /></label>
+                  <label class="quant-inline-num"><span>d_model</span><input data-param="d_model" type="number" min="16" step="8" value="128" /></label>
+                  <label class="quant-inline-num"><span>layers</span><input data-param="nlayers" type="number" min="1" max="6" step="1" value="2" /></label>
                   <label class="quant-inline-num"><span>loss</span><select data-param="loss" aria-label="loss" disabled><option value="lambdarank" selected>lambdarank</option></select></label>
                 </div>
               </div>
@@ -609,7 +635,7 @@
               <section class="yhat-tf-arm-console" data-arm-console="T">
                 <header class="yhat-tf-arm-console-head">
                   <span class="yhat-tf-arm-badge">T</span>
-                  <div class="yhat-tf-arm-title"><strong>Arm·T</strong><span>双支路晚融合</span></div>
+                  <div class="yhat-tf-arm-title"><strong>Arm·T</strong><span>序列 Transformer</span></div>
                   <span class="yhat-tf-arm-state" data-arm-state="T" data-state="idle">待运行</span>
                 </header>
                 <div class="yhat-tf-arm-metrics">
@@ -622,6 +648,18 @@
               </section>
               <!--/yhat-only:T-->
             </div>
+            <!--yhat-only:T-->
+            <div class="yhat-tf-fit-curves" data-fit-curves hidden>
+              <figure class="yhat-tf-fit-curve">
+                <figcaption><span>训练损失</span><em data-curve-caption="loss"></em></figcaption>
+                <canvas data-curve="loss" width="480" height="128" aria-label="训练损失"></canvas>
+              </figure>
+              <figure class="yhat-tf-fit-curve" data-curve-holdout hidden>
+                <figcaption><span>Holdout</span><em data-curve-caption="holdout"></em></figcaption>
+                <canvas data-curve="holdout" width="480" height="128" aria-label="Holdout"></canvas>
+              </figure>
+            </div>
+            <!--/yhat-only:T-->
             <div class="yhat-tf-fit-verdict">
               <span class="yhat-tf-contrast-protocol" data-contrast-protocol></span>
             </div>

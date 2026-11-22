@@ -26,7 +26,21 @@ from core.paths import YHAT_R_DIR as _DEFAULT_YHAT_R_DIR
 from core.paths import YHAT_R_LAST_PATH as _DEFAULT_YHAT_R_LAST
 from core.paths import YHAT_T_DIR as _DEFAULT_YHAT_T_DIR
 from core.paths import YHAT_T_LAST_PATH as _DEFAULT_YHAT_T_LAST
-from core.research.yhat_transformer.heads import get_head, head_ids, iter_heads
+from core.research.yhat_transformer.heads import (
+    ARM_T_BATCH,
+    ARM_T_BATCH_MAX,
+    ARM_T_BATCH_MIN,
+    ARM_T_D_MODEL,
+    ARM_T_EPOCHS,
+    ARM_T_HOLDOUT,
+    ARM_T_LOOKBACK,
+    ARM_T_NLAYERS,
+    ARM_T_SEQ_LEN,
+    ARM_T_SEQ_MIN,
+    get_head,
+    head_ids,
+    iter_heads,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -113,6 +127,10 @@ def _job_path(head: str, factory: Optional[str] = None) -> str:
 
 def _log_path(head: str, factory: Optional[str] = None) -> str:
     return os.path.join(_store_dir(factory), f"{head}_fit.log")
+
+
+def _fit_curve_path(head: str, factory: Optional[str] = None) -> str:
+    return os.path.join(_store_dir(factory), f"{head}_fit.curve.jsonl")
 
 
 def _log_tail(head: str, *, n_lines: int = 80) -> str:
@@ -441,8 +459,8 @@ def _scheme_blob(factory: Optional[str] = None) -> Dict[str, Any]:
             {
                 "id": "T",
                 "title": "Arm·T",
-                "alias": "双支路晚融合",
-                "desc": "SeqFactorTransformer（序列塔 ∥ 因子支）",
+                "alias": "序列 Transformer",
+                "desc": "序列 Transformer（末步出标量）",
             },
         ]
         gate = "单臂绝对指标；跨厂对照留给研究枢纽；不直连生产 score"
@@ -452,8 +470,8 @@ def _scheme_blob(factory: Optional[str] = None) -> Dict[str, Any]:
             {
                 "id": "T",
                 "title": "Arm·T",
-                "alias": "双支路晚融合",
-                "desc": "双支路晚融合（序列塔 ∥ 因子支；须过 Holdout 硬闸）",
+                "alias": "序列 Transformer",
+                "desc": "序列 Transformer（须过 Holdout 硬闸）",
             },
         ]
         gate = "Holdout CS rank IC / ICIR vs Arm·L；不直连生产 score"
@@ -502,7 +520,6 @@ _PROMOTE_PROTOCOL_KEYS = (
     "d_model",
     "nlayers",
     "nhead",
-    "mlp_hidden",
     "dropout",
     "batch_size",
     "epochs",
@@ -517,19 +534,28 @@ def compute_parity(
     *,
     eval_shared: bool = False,
 ) -> Dict[str, Any]:
-    """正式对照协议：T 全量因子 + 100% 采样 + 共享评测集。"""
+    """正式对照协议：序列用 full + 100% 采样 + 共享评测集。
+
+    写了 ``seq_feat_set`` 时看序列档是不是 full。旧草稿没有这一项时，
+    仍看 ``full_aoo`` / ``full_atc``。
+    """
     hid = str(head or "").strip().lower()
     p = params if isinstance(params, dict) else {}
-    if hid in ("tc", "tc_rank"):
+    feat = str(p.get("seq_feat_set") or "").strip()
+    if feat:
+        from core.research.yhat_transformer.seq_dataset import resolve_seq_feat_set
+
+        factor_width_match = resolve_seq_feat_set(feat) == "seq_full"
+    elif hid in ("tc", "tc_rank"):
         factor_width_match = _as_bool(p.get("full_atc", True), default=True)
     else:
-        factor_width_match = _as_bool(p.get("full_aoo", False), default=False)
+        factor_width_match = _as_bool(p.get("full_aoo", True), default=True)
     try:
-        pct = float(p.get("t_sample_pct", 10.0))
+        pct = float(p.get("t_sample_pct", 100.0))
     except (TypeError, ValueError):
-        pct = 10.0
+        pct = 100.0
     if pct != pct:
-        pct = 10.0
+        pct = 100.0
     train_sample_full = pct >= 99.999
     formal = bool(factor_width_match and train_sample_full and eval_shared)
     return {
@@ -678,40 +704,93 @@ def heads_meta() -> List[Dict[str, str]]:
     ]
 
 
+# 页面没有学习率旋钮。沪深300从头训练的峰值是 1e-4；大池预训练保持 1e-3。
+ARM_T_POOL_LR = 1e-3
+ARM_T_HS300_LR = 1e-4
+
+
+def _same_lr(value: Any, target: float) -> bool:
+    try:
+        cur = float(value)
+    except (TypeError, ValueError):
+        return False
+    if cur != cur:
+        return False
+    return abs(cur - float(target)) <= 1e-12
+
+
+def _arm_t_lr_for_fit(feature_set: str, stage: str, lr: Any) -> Optional[float]:
+    """按截面换初始学习率。显式写出的其它学习率保留。
+
+    草稿里的 1e-3 / 1e-4 是上一档默认，不是手填值，随截面换掉。
+    """
+    if normalize_factory() != "T":
+        return None
+    hs300 = str(feature_set or "") == "hs300" and stage not in ("pretrain", "chain")
+    if hs300:
+        if lr is None or _same_lr(lr, ARM_T_POOL_LR):
+            return ARM_T_HS300_LR
+        return None
+    if lr is None or _same_lr(lr, ARM_T_HS300_LR):
+        return ARM_T_POOL_LR
+    return None
+
+
+def resolve_arm_t_lr(
+    lr: Any, *, feature_set: str = "", finetune: bool = False
+) -> float:
+    """训练入口用的峰值学习率。微调段和沪深300截面用 1e-4。"""
+    universe = (
+        "hs300"
+        if finetune or str(feature_set or "").strip() == "hs300"
+        else str(feature_set or "")
+    )
+    tuned = _arm_t_lr_for_fit(universe, "", lr)
+    if tuned is not None:
+        return float(tuned)
+    try:
+        cur = float(lr)
+    except (TypeError, ValueError):
+        return float(ARM_T_POOL_LR)
+    if cur != cur:
+        return float(ARM_T_POOL_LR)
+    return cur
+
+
 def default_fit_params(head: str) -> Dict[str, Any]:
     spec = get_head(head)
     base: Dict[str, Any] = {
         "head": spec.id,
         "pool_n": 800,
-        "lookback": 900,
-        "holdout_trading_days": 60,
-        "d_model": 64,
-        "nlayers": 3,
+        "lookback": ARM_T_LOOKBACK,
+        "holdout_trading_days": ARM_T_HOLDOUT,
+        "d_model": ARM_T_D_MODEL,
+        "nlayers": ARM_T_NLAYERS,
         "nhead": 4,
-        # mlp_hidden 故意缺省：harden 按当前 d_model 对齐（避免改 d_model 仍锁旧 hidden）
         "dropout": 0.1,
-        "batch_size": 32,
-        "epochs": 12,
-        "lr": 1e-3,
-        # Arm·T 相对训练段 subsample（%）；默认 10，最大 100=不截断。Arm·L 仍全样本。
-        "t_sample_pct": 10.0,
+        "batch_size": ARM_T_BATCH,
+        "epochs": ARM_T_EPOCHS,
+        "lr": ARM_T_POOL_LR,
+        # Arm·T 相对训练段 subsample（%）；默认 100=不截断。Arm·L 仍全样本。
+        "t_sample_pct": 100.0,
         "arms": "T",
         "device": "cpu",
         "factor_pack": spec.factor_pack,
         "loss": loss_for_factory(spec),
         "seq_feat_set": "seq_core",
-        "seq_len": 20,
-        "full_aoo": False,
+        "seq_len": ARM_T_SEQ_LEN,
+        "full_aoo": spec.id in ("oo", "oo_rank"),
+        "feature_set": "hs300",
     }
+    if spec.id in ("oo", "oo_rank") and base["full_aoo"]:
+        base["factor_pack"] = "aoo_full"
     if spec.id in ("tc", "tc_rank"):
         base["tau_end"] = "09:30"
         base["full_atc"] = True
-        # 与 oo 同窗；不改 lookback / Holdout（曾误把 900/60 盖成 200/40）
-    if spec.id == "oo_rank":
-        # 排序头略缩 lookback 省内存；Holdout 天数与其它头统一 60
-        base["lookback"] = 700
+        base["full_aoo"] = False
+        # 与 oo 同窗。Holdout 仍是 60。
     # Arm·L / Arm·R 窗长跟研究枢纽：拟合 Holdout 20；oo 600 / τc 120 / 排序 700。
-    # Arm·T 仍用上面的 900/60。
+    # Arm·T 用上面的拟合缺省。L / R 在下面改窗长。
     fac_def = normalize_factory()
     if fac_def in ("L", "R"):
         base["arms"] = fac_def
@@ -720,11 +799,18 @@ def default_fit_params(head: str) -> Dict[str, Any]:
         if spec.id in ("oo", "oo_rank"):
             base["full_aoo"] = True
             base["factor_pack"] = "aoo_full"
+        base.pop("feature_set", None)
+        if fac_def == "L":
+            # 页上没有这些旋钮。沿用原来的填空值，避免和已落盘的 L 协议对不上。
+            base["d_model"] = 64
+            base["nlayers"] = 3
+            base["epochs"] = 12
+            base["t_sample_pct"] = 10.0
         if spec.id == "oo":
             base["lookback"] = 600
         elif spec.id == "tc":
             base["lookback"] = 120
-        elif spec.id == "tc_rank":
+        elif spec.id in ("oo_rank", "tc_rank"):
             base["lookback"] = 700
         if fac_def == "R":
             base["ridge_alpha"] = 1.0
@@ -732,7 +818,6 @@ def default_fit_params(head: str) -> Dict[str, Any]:
                 "d_model",
                 "nlayers",
                 "nhead",
-                "mlp_hidden",
                 "dropout",
                 "batch_size",
                 "epochs",
@@ -745,6 +830,9 @@ def default_fit_params(head: str) -> Dict[str, Any]:
                 base.pop(key, None)
     elif fac_def == "LT":
         base["arms"] = "L,T"
+    else:
+        # 默认截面是沪深300。大池在归一化时改回 ARM_T_POOL_LR。
+        base["lr"] = ARM_T_HS300_LR
     return base
 
 
@@ -758,7 +846,6 @@ _DESK_PARAM_KEYS = frozenset(
         "d_model",
         "nlayers",
         "nhead",
-        "mlp_hidden",
         "dropout",
         "batch_size",
         "epochs",
@@ -829,21 +916,22 @@ def harden_fit_params(head: str, params: Dict[str, Any]) -> tuple[Dict[str, Any]
 
     _clamp("pool_n", 800, 50, 2000, label="池")
     out["watching_limit"] = int(out["pool_n"])
-    _clamp("lookback", int(out.get("lookback") or 900), 60, 1200, label="lookback")
+    _clamp("lookback", int(out.get("lookback") or ARM_T_LOOKBACK), 60, 1200, label="lookback")
     # 0 = 执行套全样本，不抬到研究套下限 5。0 是假值，不能写进 or 默认。
-    raw_hold = out.get("holdout_trading_days", 20)
+    hold_default = 20 if normalize_factory() in ("L", "R") else ARM_T_HOLDOUT
+    raw_hold = out.get("holdout_trading_days", hold_default)
     try:
         hold_orig = int(raw_hold)
     except (TypeError, ValueError):
-        hold_orig = 20
+        hold_orig = hold_default
     if hold_orig == 0:
         out["holdout_trading_days"] = 0
     else:
-        _clamp("holdout_trading_days", 20, 5, 90, label="Holdout")
-    # d_model：不硬钳上限（曾把 256→128，表现为「点拟合就变回」）
-    _floor_int("d_model", 64, 16, label="d_model")
-    _clamp("nlayers", 3, 1, 6, label="nlayers")
-    # nhead / mlp / dropout / lr：可配置；缺省用默认（不进页面）
+        _clamp("holdout_trading_days", hold_default, 5, 90, label="Holdout")
+    # d_model：不硬钳上限。缺省用拟合常量；请求里写明的更大值保留。
+    _floor_int("d_model", ARM_T_D_MODEL, 16, label="d_model")
+    _clamp("nlayers", ARM_T_NLAYERS, 1, 6, label="nlayers")
+    # nhead / dropout / lr：可配置；缺省用默认（不进页面）
     _clamp("nhead", 4, 1, 8, label="nhead")
     d_model = int(out["d_model"])
     nhead = int(out["nhead"])
@@ -853,11 +941,7 @@ def harden_fit_params(head: str, params: Dict[str, Any]) -> tuple[Dict[str, Any]
             nh -= 1
         warns.append(f"nhead: {nhead}→{nh}（需整除 d_model={d_model}）")
         out["nhead"] = nh
-        nhead = nh
-    if "mlp_hidden" not in out or out.get("mlp_hidden") is None or out.get("mlp_hidden") == "":
-        out["mlp_hidden"] = d_model
-    else:
-        _clamp("mlp_hidden", d_model, 16, 512, label="mlp_hidden")
+    out.pop("mlp_hidden", None)
     raw_drop = out.get("dropout", 0.1)
     drop = _as_bounded_float(raw_drop, 0.1, 0.0, 0.5)
     try:
@@ -868,20 +952,20 @@ def harden_fit_params(head: str, params: Dict[str, Any]) -> tuple[Dict[str, Any]
         warns.append(f"dropout: {raw_drop}→{drop:g}")
     out["dropout"] = float(f"{drop:.6g}")
     out.pop("patience", None)
-    # 与训练入口对齐：低于 16 抬到 16，高于 1024 收到 1024。
-    _clamp("batch_size", 32, 16, 1024, label="batch")
-    _clamp("epochs", 12, 1, 40, label="epochs")
-    out["lr"] = _as_bounded_float(out.get("lr"), 1e-3, 1e-5, 1e-1)
-    # Arm·T subsample %：(0,100]；默认 10；100=不截断。旧键 max_train_rows 丢弃。
+    # 与训练入口同一边界：低于下限抬上去，高于上限收回来。
+    _clamp("batch_size", ARM_T_BATCH, ARM_T_BATCH_MIN, ARM_T_BATCH_MAX, label="batch")
+    _clamp("epochs", ARM_T_EPOCHS, 1, 40, label="epochs")
+    out["lr"] = _as_bounded_float(out.get("lr"), ARM_T_POOL_LR, 1e-5, 1e-1)
+    # Arm·T subsample %：(0,100]；默认 100=不截断。旧键 max_train_rows 丢弃。
     out.pop("max_train_rows", None)
     try:
-        pct = float(out.get("t_sample_pct", 10.0))
+        pct = float(out.get("t_sample_pct", 100.0))
     except (TypeError, ValueError):
-        pct = 10.0
-        warns.append("t_sample_pct: 无效→10")
+        pct = 100.0
+        warns.append("t_sample_pct: 无效→100")
     if pct != pct:  # NaN
-        pct = 10.0
-        warns.append("t_sample_pct: NaN→10")
+        pct = 100.0
+        warns.append("t_sample_pct: NaN→100")
     capped_pct = max(0.1, min(100.0, pct))
     if abs(capped_pct - pct) > 1e-9:
         warns.append(f"t_sample_pct: {pct}→{capped_pct:g}")
@@ -901,13 +985,24 @@ def harden_fit_params(head: str, params: Dict[str, Any]) -> tuple[Dict[str, Any]
     from core.research.yhat_transformer.seq_dataset import resolve_seq_feat_set
 
     raw_sfs = str(out.get("seq_feat_set") or "").strip()
-    sfs = resolve_seq_feat_set(raw_sfs or None)
-    if raw_sfs and raw_sfs != sfs:
+    try:
+        sfs = resolve_seq_feat_set(raw_sfs or None)
+    except ValueError:
+        warns.append(f"seq_feat_set: {raw_sfs} 已下线→seq_core")
+        sfs = "seq_core"
+    if raw_sfs and raw_sfs != sfs and not any(raw_sfs in w for w in warns):
         warns.append(f"seq_feat_set: {raw_sfs}→{sfs}")
     out["seq_feat_set"] = sfs
-    _clamp("seq_len", int(out.get("seq_len") or 20), 5, 60, label="seq_len")
+    _clamp(
+        "seq_len",
+        int(out.get("seq_len") or ARM_T_SEQ_LEN),
+        ARM_T_SEQ_MIN,
+        ARM_T_SEQ_LEN,
+        label="seq_len",
+    )
 
-    fa = _as_bool(out.get("full_aoo", False), default=False)
+    default_full_aoo = spec.id in ("oo", "oo_rank")
+    fa = _as_bool(out.get("full_aoo", default_full_aoo), default=default_full_aoo)
     # full_aoo 只属于 oo；τc 的全量/精简走 full_atc
     if spec.id in ("tc", "tc_rank") and fa:
         warns.append(f"{spec.id} 忽略 full_aoo（仅 oo/oo_rank）")
@@ -985,7 +1080,6 @@ def harden_fit_params(head: str, params: Dict[str, Any]) -> tuple[Dict[str, Any]
             "d_model",
             "nlayers",
             "nhead",
-            "mlp_hidden",
             "dropout",
             "batch_size",
             "epochs",
@@ -1061,9 +1155,9 @@ def _normalize_fit_params(head: str, params: Optional[Dict[str, Any]]) -> Dict[s
             merged["watching_limit"] = incoming.get("pool_n")
     feature_set = ""
     stage = ""
-    if incoming:
-        from core.universe.feature_sets import codes_for_feature_set, normalize_feature_set
+    from core.universe.feature_sets import codes_for_feature_set, normalize_feature_set
 
+    if incoming:
         stage = str(incoming.get("train_stage") or "").strip().lower()
         if stage not in ("pretrain", "finetune", "chain"):
             stage = ""
@@ -1081,12 +1175,26 @@ def _normalize_fit_params(head: str, params: Optional[Dict[str, Any]]) -> Dict[s
         merged["train_stage"] = stage
     elif normalize_factory() == "T":
         merged.pop("train_stage", None)
+    explicit_universe = "feature_set" in incoming or "train_stage" in incoming
+    explicit_pool = "pool_n" in incoming or "watching_limit" in incoming
+    if (
+        normalize_factory() == "T"
+        and not feature_set
+        and not explicit_universe
+        and not explicit_pool
+    ):
+        feature_set = normalize_feature_set(merged.get("feature_set"))
+    elif normalize_factory() == "T" and not explicit_universe and explicit_pool:
+        merged.pop("feature_set", None)
     if feature_set:
         merged["feature_set"] = feature_set
         chosen = codes_for_feature_set(feature_set, fetch=True)
         if len(chosen) >= 2:
             merged["pool_n"] = len(chosen)
             merged["watching_limit"] = len(chosen)
+    tuned_lr = _arm_t_lr_for_fit(feature_set, stage, merged.get("lr"))
+    if tuned_lr is not None:
+        merged["lr"] = tuned_lr
     merged["head"] = spec.id
     merged["loss"] = loss_for_factory(spec)
     hardened, _warns = harden_fit_params(spec.id, merged)
@@ -1141,14 +1249,6 @@ def build_holdout_argv(
                 str(int(p["nhead"])),
                 "--nlayers",
                 str(int(p["nlayers"])),
-                "--mlp-hidden",
-                str(
-                    int(
-                        p.get("mlp_hidden")
-                        if p.get("mlp_hidden") is not None
-                        else p["d_model"]
-                    )
-                ),
                 "--dropout",
                 f"{float(p.get('dropout') if p.get('dropout') is not None else 0.1):.6g}",
                 "--batch-size",
@@ -1160,17 +1260,17 @@ def build_holdout_argv(
                 "--seq-feat-set",
                 str(p.get("seq_feat_set") or "seq_core").strip() or "seq_core",
                 "--seq-len",
-                str(int(p.get("seq_len") or 20)),
+                str(int(p.get("seq_len") or ARM_T_SEQ_LEN)),
             ]
         )
-        lr = float(p.get("lr") or 1e-3)
+        lr = float(p["lr"]) if p.get("lr") is not None else float(ARM_T_POOL_LR)
         argv.extend(["--lr", f"{lr:.6g}"])
         try:
             pct = float(
-                p.get("t_sample_pct") if p.get("t_sample_pct") is not None else 10.0
+                p.get("t_sample_pct") if p.get("t_sample_pct") is not None else 100.0
             )
         except (TypeError, ValueError):
-            pct = 10.0
+            pct = 100.0
         pct = max(0.1, min(100.0, pct))
         argv.extend(["--t-sample-frac", f"{(pct / 100.0):.6g}"])
         if bool(p.get("full_aoo")) and spec.id in ("oo", "oo_rank"):
@@ -1738,6 +1838,12 @@ def start_holdout_fit(
         child_env[k] = "1"
     child_env["TORCH_NUM_THREADS"] = "4"
     child_env["YHAT_FACTORY_RUN_ID"] = run_id
+    if normalize_factory() == "T":
+        from core.research.yhat_transformer.fit_curve import reset_fit_curve
+
+        curve_path = _fit_curve_path(spec.id)
+        reset_fit_curve(curve_path)
+        child_env["YHAT_FIT_CURVE"] = curve_path
     if p.get("feature_set"):
         child_env["QUANTLAB_FEATURE_SET"] = str(p.get("feature_set"))
     # 用裸 fd 交接 stdout：避免 TextIOWrapper 在 with 退出时关 fd 导致子进程日志静默
@@ -1935,8 +2041,8 @@ def _coerce_slot_params(
 ) -> Optional[Dict[str, Any]]:
     """读盘槽位时规范化 params；变更时懒回写。
 
-    进行中的 job（running/starting）不回写、不改写 cli：避免用默认值
-    （如 t_sample_pct=10）覆盖「进程实际启动参数」，造成 UI 假回退。
+    进行中的 job（running/starting）不回写、不改写 cli：避免用缺省值
+    覆盖「进程实际启动参数」，造成 UI 假回退。
     """
     if not isinstance(blob, dict):
         return blob
@@ -2035,7 +2141,9 @@ def _summary_arms(last: Any) -> Dict[str, Dict[str, Any]]:
                 "cs_icir",
                 "cs_rank_icir",
                 "sign_hit",
+                "cs_ndcg_30",
                 "cs_top_mean_y",
+                "mse",
                 "success",
                 "elapsed_sec",
                 "n",
@@ -2099,18 +2207,21 @@ def _view_after_deleted_failure(
     """终态跑次已不在版本列表时，概览和拟合日志改看列表里还在的最新一条。
 
     成功和失败都一样：删掉后不再用磁盘上的 last / job / fit.log。
-    返回 ``(job, last, log_tail)``。列表里还有版本则用最新一条；一条都不剩则三者为空。
+    返回 ``(job, last, log_tail, fit_curve)``。列表里还有版本则用最新一条；一条都不剩则四者为空。
+    曲线跟这条归档走，不用磁盘上另一轮的 ``*_fit.curve.jsonl``。
     返回 None：这次跑次还在列表里，或这头还没有版本索引（归档没写成，磁盘上的上次拟合仍要显示）。
     不改磁盘上的 last / job。进行中的拟合不走这里。
     """
     from core.research.yhat_factory_versions import (
         _archive_id,
+        _curve_copy_path,
         _index_path,
         _log_copy_path,
         _read_index,
         _read_json as _read_version,
         _snap_path,
     )
+    from core.research.yhat_transformer.fit_curve import load_fit_curve
 
     index_path = _index_path(head)
     if not os.path.isfile(index_path):
@@ -2130,7 +2241,7 @@ def _view_after_deleted_failure(
             snap = doc
             break
     if snap is None:
-        return None, None, ""
+        return None, None, "", None
     action = str(snap.get("action") or "")
     if not action:
         action = (
@@ -2176,8 +2287,14 @@ def _view_after_deleted_failure(
     elif status == "partial":
         shown_job["error"] = str(snap.get("message") or "")
         shown_job["exit_hint"] = "partial"
-    log_tail = _tail_file(_log_copy_path(head, str(snap.get("run_id") or "")))
-    return shown_job, shown_last, log_tail
+    version_id = str(snap.get("run_id") or "")
+    log_tail = _tail_file(_log_copy_path(head, version_id))
+    fit_curve = (
+        load_fit_curve(_curve_copy_path(head, version_id))
+        if normalize_factory() == "T"
+        else None
+    )
+    return shown_job, shown_last, log_tail, fit_curve
 
 
 def head_status(head: str) -> Dict[str, Any]:
@@ -2211,10 +2328,13 @@ def head_status(head: str) -> Dict[str, Any]:
     elig = promote_eligibility(spec.id, last=last, draft=draft)
     # 删掉的终态跑次不再当作上次拟合，日志也改看还在列表里的版本。晋级仍看磁盘上的 last。
     view_job, view_last, view_log = job, last, None
+    replaced_curve = None
+    replaced = False
     if not running:
-        replaced = _view_after_deleted_failure(spec.id, job, last)
-        if replaced is not None:
-            view_job, view_last, view_log = replaced
+        swapped = _view_after_deleted_failure(spec.id, job, last)
+        if swapped is not None:
+            view_job, view_last, view_log, replaced_curve = swapped
+            replaced = True
     if view_log is None:
         view_action = (view_last or {}).get("action") if isinstance(view_last, dict) else None
         log_tail = (
@@ -2228,6 +2348,20 @@ def head_status(head: str) -> Dict[str, Any]:
         )
     else:
         log_tail = view_log
+    show_curve = normalize_factory() == "T"
+    if not show_curve:
+        fit_curve = None
+    elif replaced:
+        fit_curve = replaced_curve
+    elif running or view_job or (
+        isinstance(view_last, dict)
+        and view_last.get("action") in ("holdout_result", "holdout_failed")
+    ):
+        from core.research.yhat_transformer.fit_curve import load_fit_curve
+
+        fit_curve = load_fit_curve(_fit_curve_path(spec.id))
+    else:
+        fit_curve = None
     return {
         "head": spec.id,
         "label": spec.label,
@@ -2238,6 +2372,7 @@ def head_status(head: str) -> Dict[str, Any]:
         "job": without_retired_param_warnings(view_job) if isinstance(view_job, dict) else view_job,
         "fit_running": running,
         "log_tail": log_tail,
+        "fit_curve": fit_curve,
         "arms_metrics": _summary_arms(view_last),
         "has_draft": draft is not None,
         "has_research": research is not None,
@@ -2318,31 +2453,17 @@ def save_fit_draft(head: str, params: Dict[str, Any], *, note: str = "") -> Dict
 def _merge_request_over_draft(
     base: Dict[str, Any], params: Optional[Dict[str, Any]]
 ) -> Dict[str, Any]:
-    """页面/请求参数盖草稿；页面不传的自动键按规则重对齐。
-
-    ``mlp_hidden``：页面不暴露。若草稿仍是「对齐旧 d_model」的自动值，
-    随新 d_model 重对齐；显式覆盖（≠旧 d_model）保留。
-    """
+    """页面/请求参数盖草稿。"""
     if not isinstance(params, dict):
         return dict(base)
     merged = dict(base)
-    try:
-        old_d = int(base.get("d_model") or 64)
-    except (TypeError, ValueError):
-        old_d = 64
-    old_mlp = base.get("mlp_hidden")
     merged.update({k: v for k, v in params.items() if v is not None})
-    if "mlp_hidden" not in params:
-        auto = False
-        if old_mlp is None or old_mlp == "":
-            auto = True
-        else:
-            try:
-                auto = int(old_mlp) == old_d
-            except (TypeError, ValueError):
-                auto = True
-        if auto:
-            merged.pop("mlp_hidden", None)
+    merged.pop("mlp_hidden", None)
+    sent_universe = "feature_set" in params or "train_stage" in params
+    sent_pool = "pool_n" in params or "watching_limit" in params
+    if sent_pool and not sent_universe:
+        merged.pop("feature_set", None)
+        merged.pop("train_stage", None)
     return merged
 
 
@@ -2471,7 +2592,21 @@ def _arm_metrics_slice(pack: Any) -> Optional[Dict[str, Any]]:
     if not isinstance(pack, dict) or not pack.get("success"):
         return None
     out: Dict[str, Any] = {}
-    for k in ("cs_rank_ic", "cs_ic", "cs_icir", "cs_rank_icir", "sign_hit", "cs_ndcg_30", "cs_top_mean_y", "n", "n_test", "n_train", "n_features", "n_eval"):
+    for k in (
+        "cs_rank_ic",
+        "cs_ic",
+        "cs_icir",
+        "cs_rank_icir",
+        "sign_hit",
+        "cs_ndcg_30",
+        "cs_top_mean_y",
+        "mse",
+        "n",
+        "n_test",
+        "n_train",
+        "n_features",
+        "n_eval",
+    ):
         if pack.get(k) is not None:
             out[k] = pack.get(k)
     note = pack.get("note")

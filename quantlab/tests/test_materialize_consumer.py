@@ -524,7 +524,7 @@ class ConsumerCoverageTest(unittest.TestCase):
         ), patch(
             "core.research.day_cube.load_day_cube", return_value=None
         ), patch(
-            "core.paper.rebalance.watching_matrix._watching_codes",
+            "core.paper.rebalance.live_plan.live_execution_codes",
             return_value=(["000001", "000002"], {}),
         ), materialized_consumer():
             out = build_watching_insights(["000001", "000002"])
@@ -654,6 +654,9 @@ class ConsumerCoverageTest(unittest.TestCase):
         ), patch(
             "core.paper.rebalance.watching_matrix._stamp_cube_head_scores",
             side_effect=_stamp,
+        ), patch(
+            "core.paper.rebalance.live_plan.stamp_live_execution_heads",
+            return_value=False,
         ):
             scored, rejected, _cube = _score_pool_from_lake(
                 ["300750", "002594"],

@@ -9,6 +9,19 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass
 from typing import Any, Dict, Iterable, List, Optional
 
+# 训练 batch。desk 校验、训练入口、推理分块和页面 max 用同一对边界。
+ARM_T_BATCH_MIN = 16
+ARM_T_BATCH_MAX = 4096
+# 拟合缺省。desk、CLI、训练入口和页面 value 用这一套。
+ARM_T_SEQ_MIN = 5
+ARM_T_SEQ_LEN = 60
+ARM_T_D_MODEL = 128
+ARM_T_NLAYERS = 2
+ARM_T_EPOCHS = 20
+ARM_T_BATCH = 2048
+ARM_T_LOOKBACK = 1000
+ARM_T_HOLDOUT = 60
+
 
 @dataclass(frozen=True)
 class HeadSpec:
@@ -37,7 +50,7 @@ _HEADS: Dict[str, HeadSpec] = {
         factor_pack="aoo_full",
         seq_label="y_oo",
         group_key=None,
-        loss="smooth_l1",
+        loss="mse",
         gate="cs_rank_ic",
         status="holdout_ready",
         role="fuse 左端回归头",
@@ -50,7 +63,7 @@ _HEADS: Dict[str, HeadSpec] = {
         factor_pack="atc_full",
         seq_label="y_tc",
         group_key=None,
-        loss="smooth_l1",
+        loss="mse",
         gate="cs_rank_ic",
         status="holdout_ready",
         role="fuse 右端回归头（本期 τ=开盘 close/open）",
@@ -114,6 +127,16 @@ def assert_trainable(spec: HeadSpec) -> None:
 
 
 __all__ = [
+    "ARM_T_BATCH_MIN",
+    "ARM_T_BATCH_MAX",
+    "ARM_T_SEQ_MIN",
+    "ARM_T_SEQ_LEN",
+    "ARM_T_D_MODEL",
+    "ARM_T_NLAYERS",
+    "ARM_T_EPOCHS",
+    "ARM_T_BATCH",
+    "ARM_T_LOOKBACK",
+    "ARM_T_HOLDOUT",
     "HeadSpec",
     "get_head",
     "iter_heads",

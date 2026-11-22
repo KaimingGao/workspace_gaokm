@@ -510,6 +510,11 @@ export function collectPathMatrixForm(root) {
     lots.fill_clock = String(clockEl.value).replace("：", ":").trim().slice(0, 5);
   }
   lots.score_backend = "ridge";
+  const poolEl = document.getElementById("quant-feature-set");
+  if (poolEl) {
+    const pool = String(poolEl.value || "hs300").toLowerCase();
+    lots.feature_set = pool === "pool" ? "pool" : "hs300";
+  }
   return {
     lock: true,
     rebalance_timing: {

@@ -123,91 +123,103 @@ class TestRollGateHardening(unittest.TestCase):
         self.assertEqual(out["n"], 3)
         self.assertEqual(out["mean_ret"], 1.0)
 
-    def test_pool_codes_follow_watchlist(self):
+    def test_pool_codes_are_hs300_not_watching_pool(self):
         from core.research import roll_gate as rg
+        from core.universe.feature_sets import active_feature_set
 
         with mock.patch(
+            "core.universe.feature_sets.codes_for_feature_set",
+            return_value=["600000", "600001"],
+        ) as load, mock.patch(
             "core.watching.store.read_watching",
-            return_value={"watchlist": ["600000", "600001", "600002"]},
+            return_value={"watchlist": ["000001", "000002", "000003"]},
         ):
-            self.assertEqual(rg._pool_codes(), ["600000", "600001", "600002"])
+            self.assertEqual(rg._pool_codes(), ["600000", "600001"])
+        load.assert_called_once_with("hs300", fetch=False)
 
-    def test_pool_codes_empty_without_watchlist(self):
+        seen = {}
+
+        def _capture(**_kwargs):
+            seen["set"] = active_feature_set()
+            return {"success": True, "pinned": seen["set"]}
+
+        with mock.patch("core.research.roll_gate._run_roll_gate", _capture):
+            out = rg.run_roll_gate(persist=False)
+        self.assertEqual(out["pinned"], "hs300")
+        self.assertEqual(seen["set"], "hs300")
+
+    def test_pool_codes_empty_without_hs300(self):
         from core.research import roll_gate as rg
 
         with mock.patch(
-            "core.watching.store.read_watching",
-            return_value={"watchlist": []},
+            "core.universe.feature_sets.codes_for_feature_set",
+            return_value=[],
         ):
             self.assertEqual(rg._pool_codes(), [])
 
-    def test_defaults_y_and_rank_score_min(self):
-        from core.research.roll_gate import DEFAULT_RANK_SCORE_MIN, DEFAULT_Y_MIN
-
-        self.assertEqual(DEFAULT_Y_MIN, 0.5)
-        self.assertEqual(DEFAULT_RANK_SCORE_MIN, 0.5)
-
-    def test_pick_gated_requires_rank_score_above_min(self):
+    def test_defaults_y_and_rank_max(self):
         from core.research.roll_gate import (
-            DEFAULT_RANK_SCORE_MIN,
+            DEFAULT_LOOKBACK,
+            DEFAULT_RANK_MAX,
             DEFAULT_Y_MIN,
-            _pick_gated_top_n,
         )
+
+        self.assertEqual(DEFAULT_LOOKBACK, 900)
+        self.assertEqual(DEFAULT_Y_MIN, 0.3)
+        self.assertEqual(DEFAULT_RANK_MAX, 6)
+
+    def test_pick_gated_requires_y_above_min_inside_rank(self):
+        from core.research.roll_gate import DEFAULT_RANK_MAX, DEFAULT_Y_MIN, _pick_gated_top_n
 
         day = {
             "codes": ["A", "B"],
             "ys": [1.0, -0.5],
         }
-        # 相对分最高者 A=0.25 ≤ 0.5 → 空闸
-        out = _pick_gated_top_n(
-            day,
-            y_preds=[1.0, 0.5],
-            rank_preds=[0.25, 0.10],
-            y_min=DEFAULT_Y_MIN,
-            rank_score_min=DEFAULT_RANK_SCORE_MIN,
-        )
-        self.assertTrue(out["empty"])
-        self.assertEqual(out["reason"], "rank_score")
-        self.assertEqual(out["code"], "A")
-
-        # 相对分最高者 B=0.55 > 0.5 且 ŷ 过线 → 有仓
+        # 名次 1 的 ŷ=0.2 未过 0.3；名次 2 的 ŷ 过线也不入选（只在名次<6 里看 ŷ，两只都看）
+        # B ŷ=0.8 > 0.3 且名次 2 < 6 → 有仓，label=-0.5
         hit = _pick_gated_top_n(
             day,
-            y_preds=[0.1, 0.8],
-            rank_preds=[0.20, 0.55],
+            y_preds=[0.2, 0.8],
+            rank_preds=[0.9, 0.1],
             y_min=DEFAULT_Y_MIN,
-            rank_score_min=DEFAULT_RANK_SCORE_MIN,
+            rank_max=DEFAULT_RANK_MAX,
         )
         self.assertFalse(hit["empty"])
         self.assertEqual(hit["code"], "B")
-        self.assertEqual(hit["hit"], 0)  # label=-0.5
+        self.assertEqual(hit["rank"], 2)
+        self.assertEqual(hit["hit"], 0)
         self.assertEqual(hit["n_picks"], 1)
 
-    def test_pick_gated_top_n_by_rank_score(self):
-        from core.research.roll_gate import (
-            DEFAULT_RANK_SCORE_MIN,
-            DEFAULT_Y_MIN,
-            _pick_gated_top_n,
+        blocked = _pick_gated_top_n(
+            day,
+            y_preds=[0.2, 0.1],
+            rank_preds=[0.9, 0.1],
+            y_min=DEFAULT_Y_MIN,
+            rank_max=DEFAULT_RANK_MAX,
         )
+        self.assertTrue(blocked["empty"])
+        self.assertEqual(blocked["reason"], "y_gate")
+        self.assertEqual(blocked["code"], "A")
 
-        day = {
-            "codes": ["A", "B", "C", "D"],
-            "ys": [1.0, 2.0, -1.0, 0.5],
-        }
-        # A/B/C 过闸；D 分不够。top_n=2 → 按分取 A,B；等权 label=(1+2)/2
+    def test_pick_gated_drops_rank_at_or_after_max(self):
+        from core.research.roll_gate import _pick_gated_top_n
+
+        codes = ["A", "B", "C", "D", "E", "F", "G"]
+        day = {"codes": codes, "ys": [1.0, 2.0, 0.4, -1.0, 0.2, 9.0, 8.0]}
+        # 排序分 A>B>C>D>E>F>G。名次 6、7 的 F/G 即使 ŷ 很高也不入选。
+        # 名次 1–5 里 ŷ>0.3 的是 A、B、C。
         out = _pick_gated_top_n(
             day,
-            y_preds=[1.0, 0.8, 0.6, 1.0],
-            rank_preds=[0.9, 0.8, 0.7, 0.2],
-            y_min=DEFAULT_Y_MIN,
-            rank_score_min=DEFAULT_RANK_SCORE_MIN,
-            top_n=2,
+            y_preds=[1.0, 0.8, 0.6, 0.1, 0.2, 5.0, 4.0],
+            rank_preds=[0.9, 0.8, 0.7, 0.6, 0.5, 0.4, 0.3],
+            y_min=0.3,
+            rank_max=6,
         )
         self.assertFalse(out["empty"])
-        self.assertEqual(out["codes"], ["A", "B"])
-        self.assertEqual(out["n_picks"], 2)
-        self.assertEqual(out["code"], "A")
-        self.assertAlmostEqual(out["label"], 1.5)
+        self.assertEqual(out["codes"], ["A", "B", "C"])
+        self.assertEqual(out["n_picks"], 3)
+        self.assertEqual(out["rank"], 1)
+        self.assertAlmostEqual(out["label"], (1.0 + 2.0 + 0.4) / 3)
         self.assertEqual(out["hit"], 1)
 
 

@@ -1,6 +1,7 @@
 /** 模型工厂 · /yhat-l | /yhat-t | /yhat-r · 四头 Holdout；/yhat-bt 回测中心（⌘⇧K；不写 live） */
 
 import { apiFetch } from "./api_client.js";
+import { paintFitCurves } from "./fit_curves.js";
 
 const HEADS = ["oo", "tc", "oo_rank", "tc_rank"];
 /** @type {"L"|"T"|"R"} */
@@ -24,36 +25,17 @@ function schemeTitle(fallback) {
   if (pageFactory === "R") return "模型中心 · Arm·R";
   return "模型中心 · Arm·T";
 }
-const LOSS_CANON = {
-  smooth_l1: "smooth_l1",
-  huber: "smooth_l1",
-  regression: "smooth_l1",
-  mse: "smooth_l1",
-  l2: "smooth_l1",
-};
 const GATE_LABEL = {
   oo: "Arm·L",
   tc: "Arm·L",
   oo_rank: "Gate lift",
   tc_rank: "Gate lift",
 };
-const BOOL_ON = new Set(["1", "true", "yes", "on", "full"]);
-const BOOL_OFF = new Set(["0", "false", "no", "off", "core"]);
-/** 与 desk `_as_bool` 同一张表。数字跟面板列宽走，改列宽时两处一起改。 */
+/** 数字跟面板列宽走，改列宽时两处一起改。 */
 const PACK_WIDTH = {
   aoo: { core: "core · 65", full: "full · 222" },
   atc: { core: "core · 61", full: "full · 218" },
 };
-
-function asBool(raw, fallback) {
-  if (raw == null || raw === "") return fallback;
-  if (typeof raw === "boolean") return raw;
-  if (typeof raw === "number") return raw !== 0 && !Number.isNaN(raw);
-  const s = String(raw).trim().toLowerCase();
-  if (BOOL_ON.has(s)) return true;
-  if (BOOL_OFF.has(s)) return false;
-  return fallback;
-}
 
 function gateDisplay(st) {
   return (
@@ -215,25 +197,14 @@ function normalizeLoss(raw) {
   const key = String(raw || "")
     .trim()
     .toLowerCase();
-  return LOSS_CANON[key] || key || "smooth_l1";
+  if (key === "lambdarank") return "lambdarank";
+  return "mse";
 }
 
-/** Arm·L 不沿用 HeadSpec 的 Transformer 损失名。 */
-function shownLoss(head, raw) {
-  const loss = String(raw || "").trim();
-  if (pageFactory !== "L") return loss;
+/** Arm·L 回归头固定 l2，排序头固定 LambdaRank。 */
+function shownLoss(head) {
   if (head === "oo_rank" || head === "tc_rank") return "lambdarank";
-  if (
-    !loss ||
-    loss === "smooth_l1" ||
-    loss === "huber" ||
-    loss === "regression" ||
-    loss === "mse" ||
-    loss === "l2"
-  ) {
-    return "l2";
-  }
-  return loss;
+  return "l2";
 }
 
 function scrubArmLLoss(value, head) {
@@ -241,7 +212,7 @@ function scrubArmLLoss(value, head) {
   if (Array.isArray(value)) return value.map((item) => scrubArmLLoss(item, head));
   const out = {};
   for (const [key, item] of Object.entries(value)) {
-    if (key === "loss") out[key] = shownLoss(head, item);
+    if (key === "loss") out[key] = shownLoss(head);
     else if (item && typeof item === "object") out[key] = scrubArmLLoss(item, head);
     else out[key] = item;
   }
@@ -317,34 +288,6 @@ function applySeqFeatSet(panel, raw) {
   applyRadioParam(panel, "seq_feat_set", normalizeSeqFeatSet(raw));
 }
 
-function readFullAoo(panel) {
-  const pack = panel.querySelector("[data-protocol-card]")?.getAttribute("data-head-pack");
-  if (pack === "atc") return false;
-  return asBool(readRadioParam(panel, "full_aoo", "0"), false);
-}
-
-function applyFullAoo(panel, raw) {
-  const pack = panel.querySelector("[data-protocol-card]")?.getAttribute("data-head-pack");
-  if (pack === "atc") return;
-  applyRadioParam(panel, "full_aoo", asBool(raw, false) ? "1" : "0");
-}
-
-function readFullAtc(panel) {
-  const pack = panel.querySelector("[data-protocol-card]")?.getAttribute("data-head-pack");
-  if (pack !== "atc") return false;
-  return asBool(readRadioParam(panel, "full_atc", "1"), true);
-}
-
-function applyFullAtc(panel, raw) {
-  const pack = panel.querySelector("[data-protocol-card]")?.getAttribute("data-head-pack");
-  if (pack !== "atc") return;
-  applyRadioParam(panel, "full_atc", asBool(raw, true) ? "1" : "0");
-}
-
-function isFullAtc(raw) {
-  return asBool(raw, true);
-}
-
 function seqWidthTable(pack) {
   const name = String(pack || "");
   if (name === "atc" || name.startsWith("atc")) return PACK_WIDTH.atc;
@@ -363,18 +306,9 @@ function seqFeatChip(featSet, pack) {
   return table.core;
 }
 
-function factorLabel(panel) {
-  const pack = panel.querySelector("[data-protocol-card]")?.getAttribute("data-head-pack");
-  const table = pack === "atc" ? PACK_WIDTH.atc : PACK_WIDTH.aoo;
-  const on = pack === "atc" ? readFullAtc(panel) : readFullAoo(panel);
-  const tag = on ? table.full : table.core;
-  const n = Number(tag.split("·").pop());
-  return { short: tag, tag, n: Number.isFinite(n) ? n : 0 };
-}
-
 function formatTSamplePct(raw) {
   const n = Number(raw);
-  if (!Number.isFinite(n) || n <= 0) return "T采样10%";
+  if (!Number.isFinite(n) || n <= 0) return "T采样100%";
   if (n >= 100) return "T采样100%";
   const s = Number.isInteger(n) ? String(n) : String(n).replace(/\.?0+$/, "");
   return `T采样${s}%`;
@@ -384,12 +318,8 @@ function updateProtocolPreviews(panel) {
   if (!panel) return;
   const pack = panel.querySelector("[data-protocol-card]")?.getAttribute("data-head-pack");
   const f = seqFeatChip(readSeqFeatSet(panel), pack);
-  const fac = factorLabel(panel);
   const card = panel.querySelector("[data-protocol-card]");
-  if (card) {
-    card.dataset.seqDim = String(f);
-    card.dataset.factorMode = fac.tag;
-  }
+  if (card) card.dataset.seqDim = String(f);
 }
 
 function poolLabel(params) {
@@ -468,12 +398,6 @@ function readParams(head) {
   ) {
     out.seq_feat_set = readSeqFeatSet(panel);
   }
-  if (panel.querySelector('[data-param-radio="full_aoo"]')) {
-    out.full_aoo = readFullAoo(panel);
-  }
-  if (panel.querySelector('[data-param-radio="full_atc"]')) {
-    out.full_atc = readFullAtc(panel);
-  }
   const pool = readPool(panel);
   if (pool?.feature_set) out.feature_set = pool.feature_set;
   // 空字符串也要提交。漏掉时草稿里的 chain 会留下来，回写又把大池勾上。
@@ -500,12 +424,6 @@ function applyParams(head, params) {
   ) {
     applySeqFeatSet(panel, params.seq_feat_set);
   }
-  if (params.full_aoo != null) {
-    applyFullAoo(panel, params.full_aoo);
-  }
-  if (params.full_atc != null) {
-    applyFullAtc(panel, params.full_atc);
-  }
   applyPool(panel, params);
   updateProtocolPreviews(panel);
 }
@@ -518,7 +436,7 @@ function pretty(obj) {
   }
 }
 
-/** 信息窗只用「本次」拟合：进行中不展示旧 OOS；完成态认本 run 的 last.metrics */
+/** 信息窗只用「本次」拟合：进行中不展示旧 OOS；完成态认本 run 的 last.metrics。勿回退 research/draft。 */
 function currentFitMetrics(st) {
   if (st?.fit_running) return null;
   const last = st?.last;
@@ -538,28 +456,9 @@ function currentFitMetrics(st) {
   return metrics;
 }
 
-/** 仅渲染传入的本次 metrics；勿回退 research/draft，避免旧 OOS 残留 */
-function metricSummary(metrics) {
-  if (!metrics || typeof metrics !== "object") return "";
-  const entries = [
-    ["Rank IC", metrics.cs_rank_ic],
-    ["Gate lift", metrics.gate_lift],
-  ].filter(([, value]) => value != null && value !== "" && Number.isFinite(Number(value)));
-  return entries.map(([label, value]) => `${label} ${Number(value).toFixed(4)}`).join(" · ");
-}
-
 function paramChipPairs(params) {
   if (!params || typeof params !== "object") return [];
   const packName = String(params.factor_pack || "");
-  const fac = packName.startsWith("atc")
-    ? isFullAtc(params.full_atc == null ? true : params.full_atc)
-      ? "full"
-      : "core"
-    : params.full_aoo == null
-      ? ""
-      : asBool(params.full_aoo, false)
-        ? "full"
-        : "core";
   const dim = seqFeatChip(params.seq_feat_set, packName);
   const pairs = [
     ["池子", poolLabel(params)],
@@ -573,7 +472,6 @@ function paramChipPairs(params) {
   } else {
     pairs.push(
       ["序列", dim || params.seq_feat_set],
-      ["T因子", fac],
       ["d_model", params.d_model],
       ["layers", params.nlayers],
       ["batch", params.batch_size],
@@ -616,13 +514,7 @@ function renderMetaBits(el, bits) {
   }
 }
 
-function fmtIc(v) {
-  if (v == null || v === "") return "—";
-  const n = Number(v);
-  return Number.isFinite(n) ? n.toFixed(4) : "—";
-}
-
-/** 与枢纽因子表 KPI 同一位：IC / Rank IC / ICIR / Top10% y 三位。 */
+/** 卡片数字统一三位。 */
 function fmtKpi3(v) {
   if (v == null || v === "") return "—";
   const n = Number(v);
@@ -756,9 +648,9 @@ function numOrNull(raw) {
   return Number.isFinite(n) ? n : null;
 }
 
-/** 轮次探针，不是该臂结束。结束行是 ArmL / ArmT seed=。旧日志仍写 holdout。 */
-function isEpochHoldoutProbe(line) {
-  return /^transformer\s+ep=\d+\/\d+\s+(?:holdout|probe)\b/.test(line);
+/** 每个 epoch 的 Holdout 行，不是该臂结束。结束行是 ArmL / ArmT seed=。 */
+function isEpochHoldoutLine(line) {
+  return /^transformer\s+ep=\d+\/\d+\s+holdout\b/.test(line);
 }
 
 /** 本次日志里该臂走到哪一步。完成行一出现就定状态，不跟另一臂对齐。 */
@@ -770,18 +662,25 @@ export function liveArmFromLog(lines) {
     const s = String(line).trim();
     if (!s) continue;
     started = true;
-    // 每轮探针带 rankIC= / 「失败」，不能当成该臂结束；后面的 step= 仍是训练中
-    if (isEpochHoldoutProbe(s)) continue;
+    // 每轮 Holdout 带 rankIC= / 「失败」，不能当成该臂结束；后面的 step= 仍是训练中。
+    // 指标先记下来，卡片在训练中就能看到这一轮。
+    if (isEpochHoldoutLine(s)) {
+      const preview = readArmMetricPack(s);
+      if (preview) pack = preview;
+      if (phase === "idle") phase = "busy";
+      continue;
+    }
     if (/失败/.test(s)) {
       phase = "fail";
       pack = { success: false };
       continue;
     }
+    // 对比表：Rank IC、RankICIR、Pearson ICIR、命中、NDCG@30、Top10% y。
     const row = s.match(
-      /^(?:L_lightgbm|L_lambdarank|T_transformer|R_ridge)\s+(\S+)\s+(\S+)\s+(\S+)\s+(\S+)\s*$/
+      /^(?:L_lightgbm|L_lambdarank|T_transformer|R_ridge)\s+(\S+)\s+(\S+)\s+(\S+)\s+(\S+)\s+(\S+)\s+(\S+)\s*$/
     );
     if (row) {
-      const nums = [row[1], row[2], row[3], row[4]].map(numOrNull);
+      const nums = [row[1], row[2], row[3], row[4], row[5], row[6]].map(numOrNull);
       if (nums.every((n) => n == null)) {
         if (phase !== "ok") {
           phase = "fail";
@@ -793,30 +692,43 @@ export function liveArmFromLog(lines) {
       pack = {
         success: true,
         cs_rank_ic: nums[0],
-        cs_icir: nums[1],
-        sign_hit: nums[2],
-        cs_top_mean_y: nums[3],
+        cs_rank_icir: nums[1],
+        cs_icir: nums[2],
+        sign_hit: nums[3],
+        cs_ndcg_30: nums[4],
+        cs_top_mean_y: nums[5],
+        mse: pack?.mse ?? null,
         elapsed_sec: pack?.elapsed_sec ?? null,
       };
       continue;
     }
+    const packed = readArmMetricPack(s);
+    if (!packed) continue;
+    phase = "ok";
+    pack = packed;
+  }
+  if (!started) return { phase: "idle", pack: null };
+  if (phase === "idle") return { phase: "busy", pack: null };
+  return { phase, pack };
+
+  function readArmMetricPack(s) {
     const ic = s.match(/rankIC=(\S+)/);
-    if (!ic) continue;
+    if (!ic) return null;
     const icir = s.match(/(?:^|\s)ICIR=(\S+)/);
     const rankIcir = s.match(/(?:^|\s)rankICIR=(\S+)/);
     const hit = s.match(/sign_hit=(\S+)/);
     const ndcg = s.match(/ndcg30=(\S+)/);
     const top = s.match(/(?:topY|cs_top_mean_y)=(\S+)/);
+    const mse = s.match(/(?:^|\s)mse=(\S+)/);
     const vals = [
       numOrNull(ic[1]),
       icir ? numOrNull(icir[1]) : null,
       hit ? numOrNull(hit[1]) : null,
       top ? numOrNull(top[1]) : null,
     ];
-    if (vals.every((n) => n == null)) continue;
+    if (vals.every((n) => n == null)) return null;
     const sec = s.match(/([0-9]+(?:\.[0-9]+)?)s\b/);
-    phase = "ok";
-    pack = {
+    return {
       success: true,
       cs_rank_ic: vals[0],
       cs_icir: vals[1],
@@ -824,12 +736,10 @@ export function liveArmFromLog(lines) {
       sign_hit: vals[2],
       cs_ndcg_30: ndcg ? numOrNull(ndcg[1]) : null,
       cs_top_mean_y: vals[3],
+      mse: mse ? numOrNull(mse[1]) : null,
       elapsed_sec: sec ? numOrNull(sec[1]) : null,
     };
   }
-  if (!started) return { phase: "idle", pack: null };
-  if (phase === "idle") return { phase: "busy", pack: null };
-  return { phase, pack };
 }
 
 export function armStatus(st, tag, pack, live) {
@@ -869,7 +779,7 @@ function highlightPlain(text, re, paint) {
   return html;
 }
 
-const METRIC_NAME = "rankIC|ICIR|sign_hit|cs_rank_ic|cs_rank_icir|cs_top_mean_y|topY";
+const METRIC_NAME = "rankIC|ICIR|sign_hit|ndcg30|mse|cs_rank_ic|cs_rank_icir|cs_ndcg_30|cs_top_mean_y|topY";
 
 function paintPct(escaped) {
   return escaped.replace(/([+-]?\d+(?:\.\d+)?)%/g, (full, num) => {
@@ -1068,16 +978,55 @@ function renderContrast(root, st, metrics) {
     }
     renderArmState(stateEl, state);
     const rankHead = head === "oo_rank" || head === "tc_rank";
-    setMetric(tag, "ic", fmtKpi3(pack?.cs_rank_ic));
-    setMetric(tag, "icir", fmtKpi3(pack?.cs_icir));
-    const hitEl = box.querySelector(`[data-arm-metric="${tag}:hit"]`);
-    const hitLab = hitEl?.parentElement?.querySelector("span");
-    if (hitLab) {
-      hitLab.textContent = rankHead ? "NDCG@30" : "命中";
-      hitLab.title = rankHead ? "Holdout 日均 NDCG@30" : "样本外方向命中率";
+    const labs = section?.querySelectorAll(".yhat-tf-arm-metrics > div > span") || [];
+    if (rankHead) {
+      if (labs[0]) {
+        labs[0].textContent = "Rank IC";
+        labs[0].title = "每日截面 Spearman 再对日平均";
+      }
+      if (labs[1]) {
+        labs[1].textContent = "ICIR";
+        labs[1].title = "日频 IC 均值/标准差";
+      }
+      if (labs[2]) {
+        labs[2].textContent = "NDCG@30";
+        labs[2].title = "Holdout 日均 NDCG@30";
+      }
+      if (labs[3]) {
+        labs[3].textContent = "Top10% y";
+        labs[3].title = "Holdout 日截面 ŷ 头部 10% 实现收益均值";
+      }
+      setMetric(tag, "ic", fmtKpi3(pack?.cs_rank_ic));
+      setMetric(tag, "icir", fmtKpi3(pack?.cs_icir));
+      setMetric(tag, "hit", fmtKpi3(pack?.cs_ndcg_30));
+      setMetric(tag, "topy", fmtKpi3(pack?.cs_top_mean_y));
+    } else {
+      if (labs[0]) {
+        labs[0].textContent = "MSE";
+        labs[0].title = "Holdout 逐点均方误差。预测和实现都是百分点，不截断";
+      }
+      if (labs[1]) {
+        labs[1].textContent = "Rank IC";
+        labs[1].title = "每日截面 Spearman 再对日平均";
+      }
+      if (labs[2]) {
+        labs[2].textContent = "ICIR";
+        labs[2].title = "日频 Pearson IC 均值/标准差";
+      }
+      if (labs[3]) {
+        labs[3].textContent = "命中";
+        labs[3].title = "样本外方向命中率，|ŷ|<0.05 个百分点不计";
+      }
+      if (labs[4]) {
+        labs[4].textContent = "Top10% y";
+        labs[4].title = "Holdout 日截面 ŷ 头部 10% 实现收益均值";
+      }
+      setMetric(tag, "mse", fmtKpi3(pack?.mse));
+      setMetric(tag, "rankic", fmtKpi3(pack?.cs_rank_ic));
+      setMetric(tag, "csicir", fmtKpi3(pack?.cs_icir));
+      setMetric(tag, "hit", fmtPct(pack?.sign_hit));
+      setMetric(tag, "topy", fmtKpi3(pack?.cs_top_mean_y));
     }
-    setMetric(tag, "hit", rankHead ? fmtKpi3(pack?.cs_ndcg_30) : fmtPct(pack?.sign_hit));
-    setMetric(tag, "topy", fmtKpi3(pack?.cs_top_mean_y));
     const own = logs[tag];
     // Arm·T 运行台显示这次日志全文。按臂拆行只用来判断训练状态。
     const show =
@@ -1089,6 +1038,7 @@ function renderContrast(root, st, metrics) {
             ? logs.shared
             : [];
     setArmLog(box.querySelector(`[data-arm-log="${tag}"]`), show);
+    if (tag === "T") paintFitCurves(root, st?.fit_curve);
   }
 
   const tagEl = root.querySelector("[data-contrast-protocol]");
@@ -1123,21 +1073,11 @@ function armLProtocolBits(params) {
 
 function protocolTagFromParams(params) {
   if (!params || typeof params !== "object") return "";
-  const seqLen = Number(params.seq_len) || 20;
+  const seqLen = Number(params.seq_len) || 60;
   const pack = String(params.factor_pack || "");
   const f = seqFeatChip(params.seq_feat_set, pack);
-  const table = pack.startsWith("atc") ? PACK_WIDTH.atc : PACK_WIDTH.aoo;
-  const fac = pack.startsWith("atc")
-    ? isFullAtc(params.full_atc == null ? true : params.full_atc)
-      ? table.full
-      : table.core
-    : asBool(params.full_aoo, false)
-      ? table.full
-      : table.core;
-  const cap = formatTSamplePct(
-    params.t_sample_pct == null ? 10 : params.t_sample_pct
-  );
-  return `T · L${seqLen}×${f} · ${fac} · ${cap}`;
+  const cap = formatTSamplePct(params.t_sample_pct);
+  return `T · L${seqLen}×${f} · ${cap}`;
 }
 
 function fitActionLabel(st) {
@@ -1172,6 +1112,7 @@ function shownStatus(st) {
     research: null,
     fit_running: false,
     log_tail: view.log_tail || "",
+    fit_curve: view.fit_curve || null,
     arms_metrics: metrics?.arms || null,
     job: {
       run_id: view.run_id,
@@ -1328,7 +1269,7 @@ async function loadVersionList(head) {
   const seq = (viewSeq.get(`list:${head}`) || 0) + 1;
   viewSeq.set(`list:${head}`, seq);
   const { ok, data } = await apiFetch(
-    `${apiBase()}/versions?head=${encodeURIComponent(head)}`
+    `${apiBase()}/versions?head=${encodeURIComponent(head)}&suite=research`
   );
   if (seq !== viewSeq.get(`list:${head}`)) return;
   if (!ok) return;
@@ -1337,6 +1278,17 @@ async function loadVersionList(head) {
   else enabledIds.delete(head);
   fillVersionSelect(head);
   fillBacktestSelects();
+  const st = latestHeads.get(head);
+  if (
+    st &&
+    !st.fit_running &&
+    String(st.job?.suite || "") === "live" &&
+    !viewing.get(head) &&
+    !dirtyParams.has(head)
+  ) {
+    const latest = String((versionLists.get(head) || [])[0]?.id || "");
+    if (latest) void onVersionChange(head, latest);
+  }
 }
 
 function releaseViewing(head) {
@@ -1354,7 +1306,7 @@ async function onVersionDelete(head, runId) {
   const label = String(it?.label || runId);
   if (!window.confirm(`删除版本「${label}」？只去掉这条归档、日志和权重，当前拟合不动。`)) return;
   const { ok, data, error } = await apiFetch(
-    `${apiBase()}/versions?head=${encodeURIComponent(head)}&run_id=${encodeURIComponent(runId)}`,
+    `${apiBase()}/versions?head=${encodeURIComponent(head)}&run_id=${encodeURIComponent(runId)}&suite=research`,
     { method: "DELETE" }
   );
   if (!ok) {
@@ -1590,8 +1542,15 @@ function renderHeadSummary(st) {
   const gate = document.querySelector(`[data-head-summary-gate="${head}"]`);
   if (gate) {
     if (isFactorFactory()) {
-      const ic = Number(currentFitMetrics(st)?.cs_rank_ic);
-      gate.textContent = Number.isFinite(ic) ? `Rank IC ${ic.toFixed(3)}` : "绝对指标";
+      const rankHead = head === "oo_rank" || head === "tc_rank";
+      const metrics = currentFitMetrics(st);
+      if (rankHead) {
+        const ic = Number(metrics?.cs_rank_ic);
+        gate.textContent = Number.isFinite(ic) ? `Rank IC ${ic.toFixed(3)}` : "绝对指标";
+      } else {
+        const mse = Number(metrics?.mse);
+        gate.textContent = Number.isFinite(mse) ? `MSE ${mse.toFixed(3)}` : "MSE —";
+      }
     } else {
       const g =
         st?.last?.hard_gate_vs_arm_L && typeof st.last.hard_gate_vs_arm_L === "object"
@@ -1645,10 +1604,25 @@ function renderResult(st, { replay = false } = {}) {
   }
 }
 
+/** 模型中心不把已经结束的执行套跑次当成当前版本。进行中的拟合仍占住按钮。 */
+function hideFinishedExecution(st) {
+  if (!st || st.fit_running) return st;
+  if (String(st.job?.suite || "") !== "live") return st;
+  if (viewing.get(st.head)) return st;
+  return {
+    ...st,
+    last: null,
+    job: null,
+    log_tail: "",
+    arms_metrics: null,
+    fit_curve: null,
+  };
+}
+
 function renderHead(st) {
   const head = st.head;
   latestHeads.set(head, st);
-  const shown = shownStatus(st);
+  const shown = shownStatus(hideFinishedExecution(st));
   const replay = shown !== st;
   const scheme = shown.scheme || {};
   const outcome = headFitOutcome(shown);
@@ -2556,7 +2530,7 @@ export function initYhatTf(_ctx, factory = "T") {
       const t = ev.target;
       if (
         t?.matches?.(
-          '[data-param-radio="seq_feat_set"], [data-param-radio="full_aoo"], [data-param-radio="full_atc"], [data-param="seq_len"], [data-param="t_sample_pct"], [data-pool], [data-param="lookback"], [data-param="holdout_trading_days"], [data-param="ridge_alpha"]'
+          '[data-param-radio="seq_feat_set"], [data-param="seq_len"], [data-param="t_sample_pct"], [data-pool], [data-param="lookback"], [data-param="holdout_trading_days"], [data-param="ridge_alpha"]'
         )
       ) {
         updateProtocolPreviews(panel);

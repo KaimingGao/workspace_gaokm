@@ -15,6 +15,8 @@ from typing import Any, Dict, List, Mapping, Optional, Sequence, Tuple
 
 import numpy as np
 
+from core.research.yhat_transformer.heads import ARM_T_SEQ_LEN, ARM_T_SEQ_MIN
+
 logger = logging.getLogger(__name__)
 
 
@@ -680,20 +682,28 @@ def sequence_from_factor_panel(
     panel: FactorPanel,
     stock_bars: Mapping[str, Sequence[dict]],
     *,
-    seq_len: int = 20,
+    seq_len: int = ARM_T_SEQ_LEN,
     with_age: bool = True,
 ) -> Any:
-    """决策日 T 的序列是同一只股票的因子行 ``[T-L … T-1]``，列与这份面板一致。
+    """决策日 T 的序列与这份面板同一套列。
 
+    ``seq_len`` 就是进编码器的步数 L，窗口是 ``[T-(L-1) … T]``。
+    末步是当天，和前面每一天一起做位置编码。
+    ``age_td`` 当天为 0，分母是 L−1，窗口最旧一天为 1。
     列宽就是因子 core / full 裁完后的宽：oo 65 / 222，开盘 τc 61 / 218。
-    ``with_age`` 时再附一列 ``age_td`` = 该行距决策日的交易日数 / L。
-    gap 仍是今开/昨收 − 1，不进这 L 列。非有限值留着，训练时用训练列中位数填。
+    不展开成 ``(N, L, F)``。每个样本只记窗口行号，训练按 batch 再取。
+    gap 仍是今开/昨收 − 1，不进这些列。非有限值留着。
+    因子列的截面 z 由 ``cs_z_factor_sequence`` 另做，``age_td`` 不参与。
     """
-    from core.research.yhat_transformer.seq_dataset import SeqPanel, gaps_by_decision
+    from core.research.yhat_transformer.seq_dataset import (
+        FactorWindowView,
+        SeqPanel,
+        gaps_by_decision,
+    )
 
     require_factor_panel(panel)
-    L = max(5, int(seq_len or 20))
-    F = int(panel.X.shape[1])
+    tokens = max(ARM_T_SEQ_MIN, int(seq_len or ARM_T_SEQ_LEN))
+    history = tokens - 1
     names = tuple(str(n) for n in panel.feature_names)
     if with_age:
         names = names + ("age_td",)
@@ -705,7 +715,8 @@ def sequence_from_factor_panel(
     for i, code in enumerate(panel.codes):
         by_code.setdefault(str(code), []).append(i)
 
-    plans: List[Tuple[str, int, List[int]]] = []
+    groups: List[Tuple[str, np.ndarray, np.ndarray]] = []
+    n = 0
     for code, idxs in by_code.items():
         idxs.sort(key=lambda i: str(panel.dates[i])[:10])
         dedup: List[int] = []
@@ -717,58 +728,129 @@ def sequence_from_factor_panel(
             else:
                 dedup.append(i)
                 seen_day = day
-        for k in range(L, len(dedup)):
+        if len(dedup) <= history:
+            continue
+        picked: List[int] = []
+        for k in range(history, len(dedup)):
             decision = str(panel.dates[dedup[k]])[:10]
-            window = dedup[k - L : k]
-            if any(str(panel.dates[j])[:10] >= decision for j in window):
+            if any(
+                str(panel.dates[dedup[j]])[:10] >= decision
+                for j in range(k - history, k)
+            ):
                 continue
             if (code, decision) not in gaps:
                 continue
             yv = float(panel.y[dedup[k]])
             if not np.isfinite(yv):
                 continue
-            plans.append((code, dedup[k], window))
+            picked.append(k)
+        if not picked:
+            continue
+        groups.append(
+            (
+                code,
+                np.asarray(dedup, dtype=np.int32),
+                np.asarray(picked, dtype=np.int32),
+            )
+        )
+        n += len(picked)
 
-    n = len(plans)
-    width = F + (1 if with_age else 0)
-    X = np.zeros((n, L, width), dtype=np.float32)
+    values = np.asarray(panel.X, dtype=np.float32)
+    if (
+        values.dtype != np.float32
+        or not values.flags.c_contiguous
+        or not values.flags.writeable
+    ):
+        values = np.array(panel.X, dtype=np.float32, copy=True)
+    windows = np.zeros((n, tokens), dtype=np.int32)
+    age = np.zeros((n, tokens), dtype=np.float32) if with_age else None
     gap = np.zeros((n,), dtype=np.float32)
     y = np.zeros((n,), dtype=np.float32)
     dates: List[str] = []
     codes: List[str] = []
-    src = panel.X
-    for row, (code, dest, window) in enumerate(plans):
-        block = np.array(src[window], dtype=np.float32, copy=True)
-        decision = str(panel.dates[dest])[:10]
-        if with_age:
-            aged = np.empty((L, width), dtype=np.float32)
-            aged[:, :F] = block
-            index = age_index.get(code) or {}
-            i_dec = index.get(decision)
-            for step, src_i in enumerate(window):
-                token_day = str(panel.dates[src_i])[:10]
-                i_tok = index.get(token_day)
-                if i_dec is None or i_tok is None or i_dec <= i_tok:
-                    age = float(L - step) / float(L)
-                else:
-                    age = float(i_dec - i_tok) / float(L)
-                aged[step, F] = np.float32(age)
-            X[row] = aged
-        else:
-            X[row] = block
-        gap[row] = np.float32(gaps[(code, decision)])
-        y[row] = np.float32(panel.y[dest])
-        dates.append(decision)
-        codes.append(code)
+    row = 0
+    for code, dedup, picked in groups:
+        index = age_index.get(code) or {}
+        for k in picked:
+            k = int(k)
+            dest = int(dedup[k])
+            windows[row] = dedup[k - history : k + 1]
+            decision = str(panel.dates[dest])[:10]
+            if age is not None:
+                i_dec = index.get(decision)
+                for step, src_i in enumerate(windows[row]):
+                    token_day = str(panel.dates[int(src_i)])[:10]
+                    i_tok = index.get(token_day)
+                    if i_dec is None or i_tok is None or i_dec <= i_tok:
+                        age_v = float(history - step) / float(history)
+                    else:
+                        age_v = float(i_dec - i_tok) / float(history)
+                    age[row, step] = np.float32(age_v)
+            gap[row] = np.float32(gaps[(code, decision)])
+            y[row] = np.float32(panel.y[dest])
+            dates.append(decision)
+            codes.append(code)
+            row += 1
+    view = FactorWindowView(values, windows, age, names)
+    view.value_dates = [str(d)[:10] for d in panel.dates]
     return SeqPanel(
-        X=X,
+        X=view,
         gap=gap,
         y=y,
         dates=dates,
         codes=codes,
-        seq_len=L,
+        seq_len=tokens,
         feature_names=names,
     )
+
+
+def cs_z_factor_sequence(seq: Any, *, z_clip: Any = None) -> None:
+    """序列里的因子列改成开盘截面 z，与开盘因子截面同一套立方。
+
+    ``age_td`` 不参与。早于第一份可读立方的行写成 0。已做过的视图直接返回。
+    ``z_clip`` 大于 0 时再裁到 ±z_clip，排序头与 Arm·L 对齐。
+    """
+    from core.research.materialize.cube_z import (
+        cs_z_matrix_prefer_cube,
+        first_readable_cube_day,
+    )
+    from core.research.yhat_transformer.seq_dataset import FactorWindowView
+
+    view = getattr(seq, "X", None)
+    if not isinstance(view, FactorWindowView) or view.cs_z:
+        return
+    values = view.values
+    dates = [str(d)[:10] for d in (view.value_dates or [])]
+    names = [str(n) for n in view.feature_names if str(n) != "age_td"]
+    if values.ndim != 2 or len(dates) != int(values.shape[0]) or len(names) != int(values.shape[1]):
+        raise ValueError(
+            "序列因子行和日期对不上，不能做截面 z："
+            f"values={getattr(values, 'shape', None)} dates={len(dates)} names={len(names)}"
+        )
+    start, _skipped = first_readable_cube_day("open")
+    start = str(start or "")[:10]
+    keep: List[int] = []
+    early: List[int] = []
+    for i, day in enumerate(dates):
+        if len(start) >= 10 and day < start:
+            early.append(i)
+        else:
+            keep.append(i)
+    if early:
+        values[np.asarray(early, dtype=np.int64)] = np.float32(0.0)
+    if keep:
+        ix = np.asarray(keep, dtype=np.int64)
+        block = np.array(values[ix], dtype=np.float64, copy=True)
+        z = cs_z_matrix_prefer_cube(block, names, [dates[i] for i in keep], clock="open")
+        try:
+            clip = float(z_clip) if z_clip is not None else 0.0
+        except (TypeError, ValueError):
+            clip = 0.0
+        if clip > 0.0:
+            z = np.clip(z, -clip, clip)
+        z = np.where(np.isfinite(z), z, 0.0)
+        values[ix] = np.asarray(z, dtype=np.float32)
+    view.cs_z = True
 
 
 __all__ = [
@@ -780,4 +862,5 @@ __all__ = [
     "slice_arm_t_panel",
     "align_seq_and_factor",
     "sequence_from_factor_panel",
+    "cs_z_factor_sequence",
 ]

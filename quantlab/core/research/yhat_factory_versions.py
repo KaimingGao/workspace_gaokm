@@ -1,6 +1,6 @@
 """模型工厂跑次版本：Arm·L / Arm·T 各自归档，不接 suite ``model_versions``。
 
-选中历史版只回看参数、指标和日志。删除去掉该条归档、日志副本和权重目录。不写 live，也不改磁盘上的 last / job。已从列表删掉的终态跑次不再当作上次拟合，拟合日志改看列表里还在的最新一条。
+选中历史版只回看参数、指标、曲线和日志。删除去掉该条归档、日志副本、曲线副本和权重目录。不写 live，也不改磁盘上的 last / job。已从列表删掉的终态跑次不再当作上次拟合，拟合日志改看列表里还在的最新一条。
 """
 
 from __future__ import annotations
@@ -44,6 +44,10 @@ def _snap_path(head: str, version_id: str) -> str:
 
 def _log_copy_path(head: str, version_id: str) -> str:
     return os.path.join(_versions_root(head), f"{version_id}.log")
+
+
+def _curve_copy_path(head: str, version_id: str) -> str:
+    return os.path.join(_versions_root(head), f"{version_id}.curve.jsonl")
 
 
 def _weights_dir(head: str, version_id: str) -> str:
@@ -166,7 +170,7 @@ def _factor_tag(head: str, params: Optional[Dict[str, Any]]) -> Optional[str]:
         return None
     if head in ("tc", "tc_rank"):
         return "atc_full" if _as_bool(params.get("full_atc", True), default=True) else "atc_core"
-    return "aoo_full" if _as_bool(params.get("full_aoo", False), default=False) else "aoo_core"
+    return "aoo_full" if _as_bool(params.get("full_aoo", True), default=True) else "aoo_core"
 
 
 def _sample_pct(params: Optional[Dict[str, Any]]) -> Optional[float]:
@@ -349,6 +353,29 @@ def _copy_log_tail(src: str, dest: str) -> str:
     return text
 
 
+def _copy_curve(src: str, dest: str) -> None:
+    """曲线文件很小，整份带走。缺文件或空文件不写副本。"""
+    if not src or not os.path.isfile(src):
+        return
+    try:
+        size = os.path.getsize(src)
+    except OSError:
+        return
+    if size <= 0:
+        return
+    try:
+        with open(src, "rb") as handle:
+            if size > 2_000_000:
+                handle.seek(size - 2_000_000)
+                handle.readline()
+            data = handle.read()
+        os.makedirs(os.path.dirname(dest) or ".", exist_ok=True)
+        with open(dest, "wb") as handle:
+            handle.write(data)
+    except OSError:
+        logger.exception("factory version curve copy failed dest=%s", dest)
+
+
 def _eval_fields(last: Optional[Dict[str, Any]], metrics: Optional[Dict[str, Any]]) -> Dict[str, Any]:
     """没有本跑指标时不继承上一份 last 的闸门和评测。"""
     if not metrics or not isinstance(last, dict):
@@ -461,6 +488,8 @@ def archive_factory_run(
     atomic_write_json(_snap_path(h, vid), doc)
     log_src = desk._log_path(h)
     _copy_log_tail(log_src, _log_copy_path(h, vid))
+    if fac == "T":
+        _copy_curve(desk._fit_curve_path(h), _curve_copy_path(h, vid))
     item = {
         "id": vid,
         "model_id": doc["model_id"],
@@ -489,7 +518,7 @@ def archive_factory_run(
         from core.research.yhat_factory_weights import remove_version_weights
 
         remove_version_weights(h, oid)
-        for path in (_snap_path(h, oid), _log_copy_path(h, oid)):
+        for path in (_snap_path(h, oid), _log_copy_path(h, oid), _curve_copy_path(h, oid)):
             try:
                 if os.path.isfile(path):
                     os.remove(path)
@@ -688,6 +717,12 @@ def preview_factory_version(
                 log_tail = ""
         out = _desk().without_retired_param_warnings(dict(doc)) or dict(doc)
         out["log_tail"] = log_tail
+        if fac == "T":
+            from core.research.yhat_transformer.fit_curve import load_fit_curve
+
+            out["fit_curve"] = load_fit_curve(_curve_copy_path(h, vid))
+        else:
+            out["fit_curve"] = None
         out["success"] = True
         out["ok"] = True
         return out
@@ -717,13 +752,14 @@ def delete_factory_version(
         items = _read_index(h)
         snap = _snap_path(h, vid)
         log_path = _log_copy_path(h, vid)
+        curve_path = _curve_copy_path(h, vid)
         known = any(str(it.get("id") or "") == vid for it in items)
         if not known and not os.path.isfile(snap):
             return {"success": False, "ok": False, "error": "版本不存在", "run_id": vid}
         from core.research.yhat_factory_weights import remove_version_weights
 
         remove_version_weights(h, vid)
-        for path in (snap, log_path):
+        for path in (snap, log_path, curve_path):
             try:
                 if os.path.isfile(path):
                     os.remove(path)

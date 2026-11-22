@@ -95,11 +95,24 @@ def _holdout_is_full_sample(holdout_trading_days: Any) -> bool:
         return False
 
 
-def _eval_pack(preds, ys, metas) -> Dict[str, Any]:
+def _train_despite_empty_holdout(
+    n_train: int, n_test: int, holdout_trading_days: Any
+) -> bool:
+    """Holdout 0 且训练行还在：没有评估行也要训练。"""
+    try:
+        train_n = int(n_train)
+        test_n = int(n_test)
+    except (TypeError, ValueError):
+        return False
+    return _holdout_is_full_sample(holdout_trading_days) and train_n > 0 and test_n <= 0
+
+
+def _eval_pack(preds, ys, metas, *, level: bool = False) -> Dict[str, Any]:
     from core.research.yhat_transformer.metrics import (
         daily_cs_ic_report,
         mean_daily_ndcg,
         pooled_pearson,
+        holdout_mse,
         sign_hit,
     )
 
@@ -108,6 +121,8 @@ def _eval_pack(preds, ys, metas) -> Dict[str, Any]:
     out["sign_hit"] = sign_hit(preds, ys)
     out["cs_ndcg_30"] = mean_daily_ndcg(preds, ys, metas, k=30)
     out["n"] = len(ys)
+    if level:
+        out["mse"] = holdout_mse(preds, ys)
     return out
 
 
@@ -136,15 +151,15 @@ def _arm_l_max_train_rows() -> int:
 
 
 def _arm_t_max_train_rows(n_train: int, args: Any) -> int:
-    """Arm·T 训练行上限：``t_sample_frac``（缺省 0.1）；返回 0=不截断。"""
+    """Arm·T 训练行上限：``t_sample_frac``（缺省 1，不截断）；返回 0=不截断。"""
     n_train = max(0, int(n_train or 0))
     frac_raw = getattr(args, "t_sample_frac", None)
     try:
-        frac = 0.1 if frac_raw is None else float(frac_raw)
+        frac = 1.0 if frac_raw is None else float(frac_raw)
     except (TypeError, ValueError):
-        frac = 0.1
+        frac = 1.0
     if frac != frac or frac <= 0:
-        frac = 0.1
+        frac = 1.0
     if frac >= 1.0 - 1e-12:
         return 0
     if n_train <= 0:
@@ -457,30 +472,33 @@ def _run_arm_l_regression(
         f"{time.time() - t0:.1f}s rss={_rss_mb()}",
         flush=True,
     )
-    print(f"  ArmL predict test={len(te)} rss={_rss_mb()}", flush=True)
-    preds_raw = predict_fn(blob, X, names, te, row_dates=dates)
-    ys_all = [float(y[i]) for i in te]
-    metas_all = _metas([fac.codes[i] for i in te], [fac.dates[i] for i in te])
     preds: List[float] = []
     ys: List[float] = []
     metas: List[dict] = []
     n_miss = 0
-    for p, yy, m in zip(preds_raw, ys_all, metas_all):
-        if p is None:
-            n_miss += 1
-            continue
-        try:
-            fv = float(p)
-        except (TypeError, ValueError):
-            n_miss += 1
-            continue
-        if not np.isfinite(fv):
-            n_miss += 1
-            continue
-        preds.append(fv)
-        ys.append(float(yy))
-        metas.append(m)
-    if not preds:
+    if te:
+        print(f"  ArmL predict test={len(te)} rss={_rss_mb()}", flush=True)
+        preds_raw = predict_fn(blob, X, names, te, row_dates=dates)
+        ys_all = [float(y[i]) for i in te]
+        metas_all = _metas([fac.codes[i] for i in te], [fac.dates[i] for i in te])
+        for p, yy, m in zip(preds_raw, ys_all, metas_all):
+            if p is None:
+                n_miss += 1
+                continue
+            try:
+                fv = float(p)
+            except (TypeError, ValueError):
+                n_miss += 1
+                continue
+            if not np.isfinite(fv):
+                n_miss += 1
+                continue
+            preds.append(fv)
+            ys.append(float(yy))
+            metas.append(m)
+    else:
+        print("  ArmL Holdout=0 全样本，跳过评估", flush=True)
+    if not preds and te:
         return {
             "arm": "L_lightgbm",
             "success": False,
@@ -490,7 +508,7 @@ def _run_arm_l_regression(
             "elapsed_sec": round(time.time() - t0, 2),
             "note": "live fit_*_lgb_matrix + L2 cube CS-z",
         }
-    metrics = _eval_pack(preds, ys, metas)
+    metrics = _eval_pack(preds, ys, metas, level=True) if preds else {}
     metrics.update(
         {
             "arm": "L_lightgbm",
@@ -506,6 +524,7 @@ def _run_arm_l_regression(
             "max_train_cap": int(max_tr),
             "theme_boost": theme_boost,
             "live_aligned": True,
+            "full_sample": not bool(te),
         }
     )
     span = _eval_span([str(fac.dates[i]) for i in te])
@@ -683,7 +702,7 @@ def _run_arm_l_rank(
             ys.append(float(yy))
             codes.append(str(day_codes[i]) if i < len(day_codes) else "")
             dates_te.append(day_date)
-    if not preds:
+    if not preds and (days_te or list(test_idx)):
         return {
             "arm": "L_lambdarank",
             "success": False,
@@ -693,7 +712,11 @@ def _run_arm_l_rank(
             "n_groups": fit.get("n_groups"),
             "note": "live fit_lambdarank day-pack",
         }
-    metrics = _eval_pack(preds, ys, _metas(codes, dates_te))
+    if not preds and not days_te:
+        print("  ArmL Holdout=0 全样本，跳过评估", flush=True)
+    metrics = (
+        _eval_pack(preds, ys, _metas(codes, dates_te)) if preds else {}
+    )
     n_train = int(fit.get("sample_count") or 0)
     metrics.update(
         {
@@ -705,6 +728,7 @@ def _run_arm_l_rank(
             "n_test": len(preds),
             "n_pred_miss": int(n_miss),
             "n_groups": fit.get("n_groups"),
+            "full_sample": not bool(preds) and not bool(days_te),
             "elapsed_sec": round(time.time() - t0, 2),
             "rss_mb": _rss_mb(),
             "note": (
@@ -832,47 +856,50 @@ def _fit_arm_r_like_hub(
         f"excluded={len(excluded)} {time.time() - t0:.1f}s rss={_rss_mb()}",
         flush=True,
     )
-    try:
-        raw_preds = predict_oo_matrix(
-            model,
-            np.asarray(X),
-            names,
-            list(te_pos),
-            row_dates=list(dates),
-        )
-    except MaterializeRequired as exc:
-        return {
-            "arm": "R_ridge",
-            "success": False,
-            "error": f"MaterializeRequired: {exc}",
-            "elapsed_sec": round(time.time() - t0, 2),
-            "head": hid,
-            "n_train": n_train,
-            "note": note,
-        }
     preds: List[float] = []
     ys: List[float] = []
     metas: List[dict] = []
     n_miss = 0
-    for i, fv in zip(te_pos, raw_preds):
-        if fv is None:
-            n_miss += 1
-            continue
-        yy = float(y[i])
-        val = float(fv)
-        if not np.isfinite(val) or not np.isfinite(yy):
-            n_miss += 1
-            continue
-        preds.append(val)
-        ys.append(yy)
-        metas.append(
-            {
-                "code": str(fac.codes[i]),
-                "date": str(fac.dates[i])[:10],
-                "decision_date": str(fac.dates[i])[:10],
+    if te_pos:
+        try:
+            raw_preds = predict_oo_matrix(
+                model,
+                np.asarray(X),
+                names,
+                list(te_pos),
+                row_dates=list(dates),
+            )
+        except MaterializeRequired as exc:
+            return {
+                "arm": "R_ridge",
+                "success": False,
+                "error": f"MaterializeRequired: {exc}",
+                "elapsed_sec": round(time.time() - t0, 2),
+                "head": hid,
+                "n_train": n_train,
+                "note": note,
             }
-        )
-    if not preds:
+        for i, fv in zip(te_pos, raw_preds):
+            if fv is None:
+                n_miss += 1
+                continue
+            yy = float(y[i])
+            val = float(fv)
+            if not np.isfinite(val) or not np.isfinite(yy):
+                n_miss += 1
+                continue
+            preds.append(val)
+            ys.append(yy)
+            metas.append(
+                {
+                    "code": str(fac.codes[i]),
+                    "date": str(fac.dates[i])[:10],
+                    "decision_date": str(fac.dates[i])[:10],
+                }
+            )
+    else:
+        print("  ArmR Holdout=0 全样本，跳过评估", flush=True)
+    if not preds and te_pos:
         return {
             "arm": "R_ridge",
             "success": False,
@@ -882,7 +909,7 @@ def _fit_arm_r_like_hub(
             "elapsed_sec": round(time.time() - t0, 2),
             "note": note,
         }
-    metrics = _eval_pack(preds, ys, metas)
+    metrics = _eval_pack(preds, ys, metas, level=True) if preds else {}
     metrics.update(
         {
             "arm": "R_ridge",
@@ -898,6 +925,7 @@ def _fit_arm_r_like_hub(
             "note": note,
             "ridge_alpha": float(ridge_alpha),
             "live_aligned": False,
+            "full_sample": not bool(te_pos),
         }
     )
     span = _eval_span([str(fac.dates[i]) for i in te_pos])
@@ -1061,7 +1089,7 @@ def _fit_arm_r_tc(
                 "decision_date": str(fac.dates[i])[:10],
             }
         )
-    if not preds:
+    if not preds and te_pos:
         return {
             "arm": "R_ridge",
             "success": False,
@@ -1071,7 +1099,9 @@ def _fit_arm_r_tc(
             "elapsed_sec": round(time.time() - t0, 2),
             "note": note,
         }
-    metrics = _eval_pack(preds, ys, metas)
+    if not preds:
+        print("  ArmR Holdout=0 全样本，跳过评估", flush=True)
+    metrics = _eval_pack(preds, ys, metas, level=True) if preds else {}
     metrics.update(
         {
             "arm": "R_ridge",
@@ -1087,6 +1117,7 @@ def _fit_arm_r_tc(
             "note": note,
             "ridge_alpha": float(ridge_alpha),
             "live_aligned": False,
+            "full_sample": not bool(te_pos),
         }
     )
     span = _eval_span([str(fac.dates[i]) for i in te_pos])
@@ -1289,7 +1320,7 @@ def _run_arm_r(
                 "decision_date": str(fac.dates[i])[:10],
             }
         )
-    if not preds:
+    if not preds and te_pos:
         return {
             "arm": "R_ridge",
             "success": False,
@@ -1299,7 +1330,9 @@ def _run_arm_r(
             "elapsed_sec": round(time.time() - t0, 2),
             "note": note,
         }
-    metrics = _eval_pack(preds, ys, metas)
+    if not preds:
+        print("  ArmR Holdout=0 全样本，跳过评估", flush=True)
+    metrics = _eval_pack(preds, ys, metas) if preds else {}
     metrics.update(
         {
             "arm": "R_ridge",
@@ -1314,6 +1347,7 @@ def _run_arm_r(
             "note": note,
             "ridge_alpha": float(ridge_alpha),
             "live_aligned": False,
+            "full_sample": not bool(te_pos),
         }
     )
     span = _eval_span([str(fac.dates[i]) for i in te_pos])
@@ -1485,19 +1519,18 @@ def _try_save_transformer(state: Dict[str, Any], meta: Dict[str, Any]) -> None:
         print(f"  ArmT 权重未保存：{exc}", flush=True)
 
 
-def _run_arm_t(seq, fac, train_idx, test_idx, args, probe_idx=None) -> Dict[str, Any]:
-    """Arm·T：序列 Transformer ∥ 因子支路；固定 seed=42 只训一轮。
+def _run_arm_t(seq, fac, train_idx, test_idx, args) -> Dict[str, Any]:
+    """Arm·T。固定 seed=42，跑满 epochs。
 
-    因子支路与 Arm·L 同：全面板 ``cs_z_matrix_prefer_cube``（L2 截面 CS-z）。
-    早于立方的行已在对齐后丢掉；剩下的面板缺立方则显式失败，不做列标准化回退。
+    因子面板只负责对齐样本。序列里的因子列走开盘立方截面 z。
+    早于立方的行已在对齐后丢掉；序列缺立方则显式失败，不做列标准化回退。
     """
     import gc
 
     from core.research.materialize.consumer import MaterializeRequired
-    from core.research.materialize.cube_z import cs_z_matrix_prefer_cube
     from core.research.yhat_transformer.train import (
-        predict_seq_factor_transformer,
-        train_seq_factor_transformer,
+        predict_arm_t,
+        train_arm_t,
     )
 
     seed = 42
@@ -1512,24 +1545,29 @@ def _run_arm_t(seq, fac, train_idx, test_idx, args, probe_idx=None) -> Dict[str,
         }
         for i in te_ii.tolist()
     ]
-    names = [str(n) for n in fac.feature_names]
-    dates = [str(d)[:10] for d in fac.dates]
-    # 与 L 同：先 float64 走立方 CS-z，再压成 float32 给 Transformer
-    fac_X = np.array(fac.X, dtype=np.float64, copy=True)
-    n_features_factor = int(fac_X.shape[1])
+    n_features_factor = int(getattr(fac.X, "shape", (0, 0))[1] or 0)
     try:
         fac.X = np.empty((0, 0), dtype=np.float32)
     except Exception:
         pass
     gc.collect()
 
+    # 排序头与 Arm·L LambdaRank 同裁 ±Z_CLIP；回归头不裁
+    head_id = str(getattr(args, "head", "") or "").strip().lower()
+    z_clip = None
+    if head_id in ("oo_rank", "tc_rank"):
+        from core.research.oo_rank_lambdarank import LAMBDARANK_Z_CLIP
+
+        z_clip = float(LAMBDARANK_Z_CLIP)
+    from core.research.yhat_transformer.factor_panel import cs_z_factor_sequence
+
     print(
-        f"  ArmT L2 CS-z start F={n_features_factor} N={int(fac_X.shape[0])} "
+        f"  ArmT 序列截面 z start N={int(getattr(seq, 'n', 0) or 0)} "
         f"clock=open rss={_rss_mb()}",
         flush=True,
     )
     try:
-        fac_X = cs_z_matrix_prefer_cube(fac_X, names, dates, clock="open")
+        cs_z_factor_sequence(seq, z_clip=z_clip)
     except MaterializeRequired as exc:
         return {
             "arm": "T_transformer",
@@ -1537,23 +1575,17 @@ def _run_arm_t(seq, fac, train_idx, test_idx, args, probe_idx=None) -> Dict[str,
             "error": f"MaterializeRequired: {exc}",
             "elapsed_sec": round(time.time() - t0, 2),
             "n_features_factor": n_features_factor,
-            "note": "factor branch L2 cube CS-z (aligned with Arm·L)",
+            "note": "sequence-only; open-cube CS-z on the sequence",
         }
-    # 排序头与 Arm·L LambdaRank 同裁 ±Z_CLIP；回归头不裁（对齐 live LGB）
-    head_id = str(getattr(args, "head", "") or "").strip().lower()
-    z_clip = None
-    if head_id in ("oo_rank", "tc_rank"):
-        from core.research.oo_rank_lambdarank import LAMBDARANK_Z_CLIP
-
-        z_clip = float(LAMBDARANK_Z_CLIP)
-        if z_clip > 0:
-            fac_X = np.clip(fac_X, -z_clip, z_clip)
-    fac_X = np.where(np.isfinite(fac_X), fac_X, 0.0)
-    fac_X = np.asarray(fac_X, dtype=np.float32)
-    if not fac_X.flags["C_CONTIGUOUS"]:
-        fac_X = np.ascontiguousarray(fac_X)
+    seq_cs_z = bool(getattr(getattr(seq, "X", None), "cs_z", False))
+    if seq_cs_z:
+        print(
+            f"  ArmT 序列截面 z F={int(seq.X.values.shape[1])} "
+            f"z_clip={z_clip if z_clip else '—'} rss={_rss_mb()}",
+            flush=True,
+        )
     print(
-        f"  ArmT L2 CS-z done {time.time() - t0:.1f}s rss={_rss_mb()}",
+        f"  ArmT 序列截面 z done {time.time() - t0:.1f}s rss={_rss_mb()}",
         flush=True,
     )
 
@@ -1580,11 +1612,18 @@ def _run_arm_t(seq, fac, train_idx, test_idx, args, probe_idx=None) -> Dict[str,
                 "elapsed_sec": round(time.time() - t0, 2),
             }
         pre_meta = loaded.get("meta") if isinstance(loaded.get("meta"), dict) else {}
-        if int(pre_meta.get("arch") or 1) != 2:
+        if int(pre_meta.get("arch") or 3) < 3:
             return {
                 "arm": "T_transformer",
                 "success": False,
-                "error": "预训练权重是 arch=1，不能微调进 arch=2",
+                "error": "预训练权重是旧结构，不能微调",
+                "elapsed_sec": round(time.time() - t0, 2),
+            }
+        if not pre_meta.get("seq_through_decision"):
+            return {
+                "arm": "T_transformer",
+                "success": False,
+                "error": "预训练权重的因子序列停在 T-1，不能微调进含决策日的窗口",
                 "elapsed_sec": round(time.time() - t0, 2),
             }
         init_state = loaded.get("state_dict")
@@ -1593,25 +1632,22 @@ def _run_arm_t(seq, fac, train_idx, test_idx, args, probe_idx=None) -> Dict[str,
             flush=True,
         )
     try:
-        state, report = train_seq_factor_transformer(
-        seq,
-        fac_X,
-        train_idx,
-        d_model=args.d_model,
-        nhead=args.nhead,
-        nlayers=args.nlayers,
-        factor_hidden=args.mlp_hidden,
-        dropout=args.dropout,
-        epochs=args.epochs,
-        batch_size=args.batch_size,
-        lr=float(getattr(args, "lr", 1e-3) or 1e-3),
-        seed=seed,
-        device=args.device,
-        max_train_rows=max_tr,
-        loss=getattr(args, "loss", "smooth_l1"),
-        probe_idx=probe_idx,
-        init_state=init_state,
-        arch=2,
+        state, report = train_arm_t(
+            seq,
+            train_idx,
+            d_model=args.d_model,
+            nhead=args.nhead,
+            nlayers=args.nlayers,
+            dropout=args.dropout,
+            epochs=args.epochs,
+            batch_size=args.batch_size,
+            lr=float(args.lr),
+            seed=seed,
+            device=args.device,
+            max_train_rows=max_tr,
+            loss=getattr(args, "loss", "mse"),
+            holdout_idx=list(test_idx),
+            init_state=init_state,
         )
     except ValueError as exc:
         return {
@@ -1622,29 +1658,25 @@ def _run_arm_t(seq, fac, train_idx, test_idx, args, probe_idx=None) -> Dict[str,
         }
     Xseq = report.pop("Xseq")
     gap = report.pop("gap")
-    Xf = report.pop("Xf")
     report.pop("y", None)
     report.pop("dates", None)
-    fac_X = None
     gc.collect()
-    preds = predict_seq_factor_transformer(
+    preds = predict_arm_t(
         state,
         Xseq,
         gap,
-        Xf,
         test_idx,
         d_model=args.d_model,
         nhead=args.nhead,
         nlayers=args.nlayers,
-        factor_hidden=args.mlp_hidden,
         device=args.device,
-        arch=2,
     )
-    m = _eval_pack(preds.tolist(), te_y, te_metas)
+    level = str(getattr(args, "head", "") or "") in ("oo", "tc")
+    m = _eval_pack(preds.tolist(), te_y, te_metas, level=level)
     m["seed"] = seed
     m["elapsed_sec"] = round(time.time() - t0, 2)
     m["n_params"] = report.get("n_params")
-    m["probe_by_epoch"] = list(report.get("probe_by_epoch") or [])
+    m["holdout_by_epoch"] = list(report.get("holdout_by_epoch") or [])
     print(
         f"  ArmT seed={seed} {_arm_done_bits(m)} "
         f"{m['elapsed_sec']}s rss={_rss_mb()}",
@@ -1654,21 +1686,18 @@ def _run_arm_t(seq, fac, train_idx, test_idx, args, probe_idx=None) -> Dict[str,
     weight_meta: Dict[str, Any] = {
         "head": head_id,
         "factor_pack": _factor_pack(head_id, args),
-        "factor_names": names,
+        "factor_names": [],
         "d_seq_in": int(Xseq.shape[-1]),
-        "d_factor": int(Xf.shape[1]),
         "d_model": int(args.d_model),
         "nhead": int(args.nhead),
         "nlayers": int(args.nlayers),
-        "factor_hidden": int(args.mlp_hidden or args.d_model),
         "dropout_infer": 0.0,
         "loss": str(getattr(args, "loss", "") or ""),
         "seed": int(seed),
-        "arch": 2,
         "position_encoding": "sin",
-        "factor_trunk": "linear_gelu_dropout",
-        "gap_after_fusion_ln": True,
         "seq_clip": report.get("seq_clip"),
+        "seq_cs_z": bool(seq_cs_z),
+        "seq_through_decision": True,
         "z_clip": z_clip,
         **span,
     }
@@ -1679,7 +1708,7 @@ def _run_arm_t(seq, fac, train_idx, test_idx, args, probe_idx=None) -> Dict[str,
         "arm": "T_transformer",
         "success": True,
         "n_features_factor": n_features_factor,
-        "note": "factor branch L2 cube CS-z (aligned with Arm·L)",
+        "note": "sequence-only; open-cube CS-z on the sequence",
         **m,
     }
 
@@ -1695,16 +1724,20 @@ def _fmt_metric(v: Any) -> str:
 
 
 def _arm_done_bits(m: Dict[str, Any]) -> str:
-    """完成行：Rank IC、Pearson ICIR（ICIR=）、Rank ICIR、命中、Top10% y。"""
+    """完成行。回归头在公共指标后写 mse。"""
     ndcg = ""
     if m.get("cs_ndcg_30") is not None:
         ndcg = f" ndcg30={_fmt_metric(m.get('cs_ndcg_30'))}"
+    level = ""
+    if m.get("mse") is not None:
+        level = f" mse={_fmt_metric(m.get('mse'))}"
     return (
         f"rankIC={_fmt_metric(m.get('cs_rank_ic'))} "
         f"ICIR={_fmt_metric(m.get('cs_icir'))} "
         f"rankICIR={_fmt_metric(m.get('cs_rank_icir'))} "
         f"sign_hit={_fmt_metric(m.get('sign_hit'))} "
         f"topY={_fmt_metric(m.get('cs_top_mean_y'))}"
+        f"{level}"
         f"{ndcg}"
     )
 
@@ -1719,6 +1752,7 @@ def _metric_row(tag: str, pack: Dict[str, Any]) -> Dict[str, Any]:
         "sign_hit": pack.get("sign_hit"),
         "cs_ndcg_30": pack.get("cs_ndcg_30"),
         "cs_top_mean_y": pack.get("cs_top_mean_y"),
+        "mse": pack.get("mse"),
         "n": pack.get("n"),
         "success": pack.get("success"),
         "error": pack.get("error"),
@@ -1848,45 +1882,6 @@ def arml_keep_train_day(
     return True
 
 
-def carve_probe_days(
-    train_days: Sequence[str],
-    *,
-    horizon: int,
-    probe_days: int = 20,
-    min_probe: int = 5,
-    min_fit_days: int = 3,
-) -> Tuple[List[str], List[str], List[str]]:
-    """从训练日尾部切出探针。返回 (拟合日, 探针前隔离, 探针日)。
-
-    训练日已经停在 Holdout 隔离之前。这里再留一段同样长度的隔离，
-    避免拟合标签落到探针里。训练日不足、容纳不下最短探针时，探针为空，拟合日原样返回。
-    """
-    days: List[str] = []
-    seen = set()
-    for raw in train_days or []:
-        day = str(raw)[:10]
-        if len(day) < 10 or day in seen:
-            continue
-        seen.add(day)
-        days.append(day)
-    h = max(0, int(horizon or 0))
-    n = len(days)
-    room = n - h - int(min_fit_days)
-    if room < int(min_probe):
-        return days, [], []
-    probe_n = min(int(probe_days), room)
-    if probe_n < int(min_probe):
-        return days, [], []
-    probe = days[-probe_n:]
-    if h:
-        embargo = days[-(probe_n + h) : -probe_n]
-        fit = days[: -(probe_n + h)]
-    else:
-        embargo = []
-        fit = days[:-probe_n]
-    return fit, embargo, probe
-
-
 def label_horizon_days_for_head(head_id: str, horizon_days: int) -> int:
     """τc 标签当天收盘实现，隔离 0 日；隔夜头用 horizon（至少 1）。
 
@@ -1977,6 +1972,19 @@ def _run_pretrain_then_finetune(args: argparse.Namespace) -> int:
 
 
 def main() -> int:
+    from core.research.yhat_tf_desk import ARM_T_POOL_LR
+    from core.research.yhat_transformer.heads import (
+        ARM_T_BATCH,
+        ARM_T_BATCH_MAX,
+        ARM_T_BATCH_MIN,
+        ARM_T_D_MODEL,
+        ARM_T_EPOCHS,
+        ARM_T_HOLDOUT,
+        ARM_T_LOOKBACK,
+        ARM_T_NLAYERS,
+        ARM_T_SEQ_LEN,
+    )
+
     p = argparse.ArgumentParser(
         description="四头 ŷ_* 工厂 Holdout（--factory L|R|T|LT；默认 head=oo；研究轨）"
     )
@@ -1988,41 +1996,45 @@ def main() -> int:
         help="Arm·T：先按 --codes 大池预训练，再在沪深300上微调",
     )
     p.add_argument("--watching-limit", type=int, default=800)
-    p.add_argument("--lookback", type=int, default=900)
+    p.add_argument("--lookback", type=int, default=ARM_T_LOOKBACK)
     p.add_argument("--horizon-days", type=int, default=1)
-    p.add_argument("--holdout-trading-days", type=int, default=60)
+    p.add_argument("--holdout-trading-days", type=int, default=ARM_T_HOLDOUT)
     p.add_argument(
         "--factory",
         type=str,
         default="T",
         help="L=仅 LightGBM 臂；R=仅 Ridge 臂；T=仅 Transformer 臂；LT=双臂对照（遗留）",
     )
-    p.add_argument("--seq-len", type=int, default=20)
+    p.add_argument("--seq-len", type=int, default=ARM_T_SEQ_LEN)
     p.add_argument(
         "--seq-feat-set",
         type=str,
         default="seq_core",
-        help="序列特征集 seq_core|seq_full（对齐因子列宽：oo 65/222，开盘 τc 61/218；旧 seq8|16|32|64 仍可加载）",
+        help="序列特征集 seq_core|seq_full（oo 65/222，开盘 τc 61/218）",
     )
-    p.add_argument("--d-model", type=int, default=64)
+    p.add_argument("--d-model", type=int, default=ARM_T_D_MODEL)
     p.add_argument("--nhead", type=int, default=4)
-    p.add_argument("--nlayers", type=int, default=3)
-    p.add_argument(
-        "--mlp-hidden",
-        type=int,
-        default=None,
-        help="因子支路 hidden；默认对齐 --d-model",
-    )
+    p.add_argument("--nlayers", type=int, default=ARM_T_NLAYERS)
     p.add_argument("--dropout", type=float, default=0.1)
-    p.add_argument("--epochs", type=int, default=12)
-    p.add_argument("--batch-size", type=int, default=32, help="Arm·T 训练 batch，范围 16–1024")
-    p.add_argument("--lr", type=float, default=1e-3, help="Arm·T 学习率")
+    p.add_argument("--epochs", type=int, default=ARM_T_EPOCHS)
+    p.add_argument(
+        "--batch-size",
+        type=int,
+        default=ARM_T_BATCH,
+        help=f"Arm·T 训练 batch，范围 {ARM_T_BATCH_MIN}–{ARM_T_BATCH_MAX}",
+    )
+    p.add_argument(
+        "--lr",
+        type=float,
+        default=ARM_T_POOL_LR,
+        help="Arm·T 初始学习率。大池默认 1e-3；沪深300和微调段在开跑前改成 1e-4",
+    )
     p.add_argument("--device", default="cpu")
     p.add_argument(
         "--t-sample-frac",
         type=float,
-        default=None,
-        help="Arm·T 相对 Holdout 训练段 subsample 比例 (0,1]；默认 0.1=10%%；1=不截断",
+        default=1.0,
+        help="Arm·T 相对 Holdout 训练段 subsample 比例 (0,1]；默认 1=不截断",
     )
     p.add_argument(
         "--update-desk",
@@ -2158,7 +2170,6 @@ def _run_holdout(args: argparse.Namespace) -> int:
         assert_trainable(head_spec)
     except NotImplementedError as exc:
         raise SystemExit(str(exc)) from exc
-    args.loss = head_spec.loss
     args.task_type = head_spec.task_type
     factory = str(getattr(args, "factory", "T") or "T").strip().upper()
     if factory in ("L", "ARM-L", "ARM_L", "LGB"):
@@ -2176,19 +2187,28 @@ def _run_holdout(args: argparse.Namespace) -> int:
     else:
         raise SystemExit(f"unknown --factory {factory!r}; expect L|R|T|LT")
     args.factory = factory
-    if factory == "R":
-        args.loss = "ridge"
+    from core.research.yhat_tf_desk import loss_for_factory
+
+    # 日志和 Arm·T 训练都读这一份。L 是 l2 / lambdarank，R 是 ridge，T 回归头是 mse。
+    args.loss = loss_for_factory(head_spec, "T" if factory == "LT" else factory)
+    if "T" in arms:
+        from core.research.yhat_tf_desk import resolve_arm_t_lr
+
+        args.lr = resolve_arm_t_lr(
+            getattr(args, "lr", None),
+            feature_set=os.environ.get("QUANTLAB_FEATURE_SET") or "",
+            finetune=bool(getattr(args, "finetune", False)),
+        )
     need_fac = True
     need_seq = "T" in arms
     if need_seq:
         from core.research.yhat_transformer.seq_dataset import resolve_seq_feat_set
 
         args.seq_feat_set = resolve_seq_feat_set(getattr(args, "seq_feat_set", None))
-    # mlp_hidden 无配置时对齐 d_model
-    if getattr(args, "mlp_hidden", None) is None:
-        args.mlp_hidden = int(getattr(args, "d_model", 64) or 64)
     # CLI 直跑也可能绕过 desk harden：此处再钳一次 nhead|d_model
-    dm = max(1, int(getattr(args, "d_model", 64) or 64))
+    from core.research.yhat_transformer.heads import ARM_T_D_MODEL
+
+    dm = max(1, int(getattr(args, "d_model", ARM_T_D_MODEL) or ARM_T_D_MODEL))
     nh = max(1, int(getattr(args, "nhead", 4) or 4))
     if dm % nh != 0:
         nh0 = nh
@@ -2243,7 +2263,7 @@ def _run_holdout(args: argparse.Namespace) -> int:
             f"臂={arms} 池≤{len(codes)} lookback={args.lookback} L={args.seq_len} "
             f"seq_feat={getattr(args, 'seq_feat_set', 'seq_core')} "
             f"holdout={args.holdout_trading_days} ArmT_sample_frac={frac_s} "
-            f"rss={_rss_mb()}",
+            f"lr={float(args.lr):.6g} rss={_rss_mb()}",
             flush=True,
         )
     stock_bars = _load_bars(codes, lookback=args.lookback)
@@ -2260,7 +2280,6 @@ def _run_holdout(args: argparse.Namespace) -> int:
             "d_model",
             "nhead",
             "nlayers",
-            "mlp_hidden",
             "dropout",
             "epochs",
             "batch_size",
@@ -2289,22 +2308,7 @@ def _run_holdout(args: argparse.Namespace) -> int:
 
     factor_seq = bool(need_seq and is_factor_seq(getattr(args, "seq_feat_set", None)))
     if need_seq and not factor_seq:
-        from core.research.yhat_transformer.seq_dataset import build_seq_panel
-
-        t0 = time.time()
-        seq = build_seq_panel(
-            stock_bars,
-            head=head_spec,
-            seq_len=args.seq_len,
-            horizon_days=args.horizon_days,
-            feat_set=getattr(args, "seq_feat_set", None),
-        )
-        print(
-            f"序列面板 head={head_spec.id} N={seq.n} L={seq.seq_len} "
-            f"F={seq.X.shape[-1]} feat={getattr(args, 'seq_feat_set', 'seq_core')} "
-            f"{time.time()-t0:.1f}s rss={_rss_mb()}",
-            flush=True,
-        )
+        raise ValueError("价量序列已下线，只用 seq_core / seq_full")
     if need_fac:
         from core.research.yhat_transformer.factor_panel import build_factor_panel
 
@@ -2336,6 +2340,7 @@ def _run_holdout(args: argparse.Namespace) -> int:
             sequence_from_factor_panel,
             slice_arm_t_panel,
         )
+        from core.research.yhat_transformer.heads import ARM_T_SEQ_LEN
 
         t0 = time.time()
         tc_head = head_spec.id in ("tc", "tc_rank")
@@ -2348,11 +2353,13 @@ def _run_holdout(args: argparse.Namespace) -> int:
                 atc_core_only=tc_head,
             )
         seq = sequence_from_factor_panel(
-            seq_src, stock_bars, seq_len=int(args.seq_len or 20)
+            seq_src, stock_bars, seq_len=int(args.seq_len or ARM_T_SEQ_LEN)
         )
         print(
             f"序列面板 head={head_spec.id} N={seq.n} L={seq.seq_len} "
+            f"含决策日 "
             f"F={seq.X.shape[-1]} feat={getattr(args, 'seq_feat_set', 'seq_core')} "
+            f"window={getattr(seq.X, 'nbytes', 0)/1e6:.0f}MB "
             f"对齐因子列 {time.time()-t0:.1f}s rss={_rss_mb()}",
             flush=True,
         )
@@ -2547,7 +2554,14 @@ def _run_holdout(args: argparse.Namespace) -> int:
                 flush=True,
             )
             continue
-        if te_shared:
+        full_sample = _train_despite_empty_holdout(
+            len(tr),
+            len(te_shared),
+            getattr(args, "holdout_trading_days", None),
+        )
+        if te_shared or full_sample:
+            if full_sample:
+                print(f"  {label} Holdout=0 全样本训练，无评估窗", flush=True)
             try:
                 from core.research.yhat_transformer.factor_panel import (
                     require_factor_panel,
@@ -2630,37 +2644,14 @@ def _run_holdout(args: argparse.Namespace) -> int:
             seq_c.dates,
             calendar_dates=shared_cal if shared_cal else None,
         )
-        fit_days, probe_embargo, probe_days = carve_probe_days(
-            list(meta.get("train_days") or []),
-            horizon=label_horizon_days_for_head(
-                head_spec.id, getattr(args, "horizon_days", 1)
-            ),
-        )
-        if probe_days:
-            fit_set = set(fit_days)
-            probe_set = set(probe_days)
-            probe_idx = [
-                i for i in tr if str(seq_c.dates[i])[:10] in probe_set
-            ]
-            tr = [i for i in tr if str(seq_c.dates[i])[:10] in fit_set]
-        else:
-            probe_idx = []
-            print("ArmT 探针跳过：训练日不足", flush=True)
         summary["split_T"] = {
-            "fit_end": fit_days[-1] if fit_days else meta.get("fit_end"),
+            "fit_end": meta.get("fit_end"),
             "eval_start": meta.get("eval_start"),
             "n_train": len(tr),
             "n_test": len(te),
-            "n_probe": len(probe_idx),
-            "n_probe_days": len(probe_days),
-            "probe_start": probe_days[0] if probe_days else None,
-            "probe_end": probe_days[-1] if probe_days else None,
-            "probe_embargo": list(probe_embargo),
         }
         print(
-            f"ArmT 切分 train={len(tr)} probe={len(probe_idx)} test={len(te)} "
-            f"probe={summary['split_T']['probe_start'] or '—'}…"
-            f"{summary['split_T']['probe_end'] or '—'} "
+            f"ArmT 切分 train={len(tr)} test={len(te)} "
             f"eval_start={meta.get('eval_start')} rss={_rss_mb()}",
             flush=True,
         )
@@ -2671,9 +2662,7 @@ def _run_holdout(args: argparse.Namespace) -> int:
             if full_sample and not te:
                 print("ArmT Holdout=0 全样本训练，无评估窗", flush=True)
             try:
-                summary["arm_T"] = _run_arm_t(
-                    seq_c, fac_c, tr, te, args, probe_idx=probe_idx
-                )
+                summary["arm_T"] = _run_arm_t(seq_c, fac_c, tr, te, args)
             except Exception as exc:  # noqa: BLE001
                 import traceback
 
@@ -2731,11 +2720,11 @@ def _run_holdout(args: argparse.Namespace) -> int:
 
         frac_raw = getattr(args, "t_sample_frac", None)
         try:
-            frac_v = 0.1 if frac_raw is None else float(frac_raw)
+            frac_v = 1.0 if frac_raw is None else float(frac_raw)
         except (TypeError, ValueError):
-            frac_v = 0.1
+            frac_v = 1.0
         if frac_v != frac_v or frac_v <= 0:
-            frac_v = 0.1
+            frac_v = 1.0
         desk_params = {
             "full_aoo": True if factory in ("L", "R") and head_spec.id in ("oo", "oo_rank") else bool(getattr(args, "full_aoo", False)),
             "full_atc": True if factory in ("L", "R") and head_spec.id in ("tc", "tc_rank") else not bool(getattr(args, "atc_core", False)),
@@ -2747,9 +2736,9 @@ def _run_holdout(args: argparse.Namespace) -> int:
     except Exception:  # noqa: BLE001
         frac_raw = getattr(args, "t_sample_frac", None)
         try:
-            frac_v = 0.0 if frac_raw is None else float(frac_raw)
+            frac_v = 1.0 if frac_raw is None else float(frac_raw)
         except (TypeError, ValueError):
-            frac_v = 0.0
+            frac_v = 1.0
         factor_full = (
             factory in ("L", "R")
             or (

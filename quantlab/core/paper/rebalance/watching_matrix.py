@@ -114,114 +114,6 @@ def _watching_codes(*, include_held: Sequence[str] = ()) -> Tuple[List[str], Dic
     return codes, meta
 
 
-def _resolve_rank_day_cube(
-    items: Sequence[dict],
-    *,
-    day_cube: Any = None,
-    clock: str = "open",
-) -> Any:
-    """复用已建 Cube；否则按行上湖日 load（内存/盘），再 ensure。
-
-    优先显式 ``day_cube``（open-pit / 会话日立方），避免只靠 remember 键对齐。
-    """
-    if day_cube is not None:
-        return day_cube
-    rows = [it for it in (items or []) if isinstance(it, dict)]
-    if len(rows) < 2:
-        return None
-    try:
-        from core.research.batch_score import ensure_day_cube_for_items
-        from core.research.day_cube import load_day_cube
-        from core.research.materialize.coverage import read_cube_codes
-
-        day = _live_rank_asof(rows)
-        uh = None
-        try:
-            uh = read_cube_codes() or None
-        except Exception:  # noqa: BLE001
-            uh = None
-        lookup = list(uh) if uh else [
-            str(it.get("stock_code") or "").strip()
-            for it in rows
-            if str(it.get("stock_code") or "").strip()
-        ]
-        clk = str(clock or "open")
-        if len(day) >= 10 and len(lookup) >= 2:
-            hit = load_day_cube(day, lookup, clock=clk)
-            if hit is not None:
-                return hit
-        return ensure_day_cube_for_items(
-            rows,
-            date=day,
-            clock=clk,
-            persist=False,
-            universe_codes=uh,
-        )
-    except Exception:  # noqa: BLE001
-        logger.debug("resolve rank day_cube failed", exc_info=True)
-        return None
-
-
-def _attach_oo_rank_scores(
-    items: Sequence[dict],
-    *,
-    score_codes: Optional[Collection[str]] = None,
-    day_cube: Any = None,
-    clock: str = "open",
-) -> None:
-    """ŷ_oo_rank：有已启用模型则写入当日截面 1..n 名次；缺则跳过。不改 y_oo_fuse；相对分进合成 rank_score。
-
-    截面 z 只用全池 L2；``score_codes`` 只限制写名次。
-    模型 ``train_universe``（``tier_a`` / ``tier``）不影响打分 μ/σ。
-    """
-    try:
-        from core.research.oo_rank_lambdarank import apply_oo_rank_scores, load_oo_rank_model
-
-        # live 调仓只用执行套；缺则跳过，不静默换研究套。
-        doc = load_oo_rank_model(prefer_research=False)
-        if doc:
-            cube = _resolve_rank_day_cube(
-                items, day_cube=day_cube, clock=clock
-            )
-            apply_oo_rank_scores(
-                list(items or []),
-                model_doc=doc,
-                score_codes=score_codes,
-                day_cube=cube,
-                clock=str(clock or "open"),
-            )
-    except Exception:  # noqa: BLE001
-        # 缺 L2 / open-pit 立方时排序头整列空；勿只打 debug 导致手动表「全是 —」。
-        logger.warning("attach live y_oo_rank failed", exc_info=True)
-
-
-def _attach_tc_rank_scores(
-    items: Sequence[dict],
-    *,
-    score_codes: Optional[Collection[str]] = None,
-    day_cube: Any = None,
-    clock: str = "open",
-) -> None:
-    """ŷ_τc_rank：有执行套模型则写入当日截面名次；缺则跳过。宇宙语义同 oo_rank。"""
-    try:
-        from core.research.tc_rank import apply_tc_rank_scores, load_tc_rank_model
-
-        doc = load_tc_rank_model(prefer_research=False)
-        if doc:
-            cube = _resolve_rank_day_cube(
-                items, day_cube=day_cube, clock=clock
-            )
-            apply_tc_rank_scores(
-                list(items or []),
-                model_doc=doc,
-                score_codes=score_codes,
-                day_cube=cube,
-                clock=str(clock or "open"),
-            )
-    except Exception:  # noqa: BLE001
-        logger.warning("attach live y_tc_rank failed", exc_info=True)
-
-
 # 持仓表 / 盯盘 / 交易记录展示用名次字段。
 LIVE_RANK_CORE_KEYS = (
     "y_oo_rank",
@@ -297,9 +189,11 @@ def _resolve_live_rank_pool(
     else:
         held_list = [str(c).strip() for c in held if str(c or "").strip()]
     try:
-        codes, meta = _watching_codes(include_held=held_list)
+        from core.paper.rebalance.live_plan import live_execution_codes
+
+        codes, meta = live_execution_codes(paper, include_held=held_list)
     except Exception:  # noqa: BLE001
-        logger.debug("resolve live rank pool: watching read failed", exc_info=True)
+        logger.debug("resolve live rank pool failed", exc_info=True)
         return [], None, held_list, {}
     meta = meta if isinstance(meta, dict) else {}
     if not codes:
@@ -325,7 +219,7 @@ def _resolve_live_rank_pool(
 def current_live_rank_universe(
     *, paper: Optional[dict] = None
 ) -> Tuple[List[str], str]:
-    """当前应用名次截面：整观察池。返回 (codes, fp)。"""
+    """当前名次截面：历史回测页已保存的股票池。返回 (codes, fp)。"""
     codes, allow, _held, meta = _resolve_live_rank_pool(paper=paper)
     if allow:
         uni = list(allow)
@@ -577,22 +471,6 @@ def _copy_rank_fields(dst: dict, src: dict, *, overwrite: bool) -> bool:
     return wrote
 
 
-def _lake_cover_ok(n_rows: int, n_codes: int) -> bool:
-    if n_rows < 2 or n_codes < 2:
-        return False
-    if n_codes <= 12:
-        return n_rows >= n_codes - 1
-    return n_rows >= 8 and n_rows >= int(0.5 * n_codes)
-
-
-def _feature_overlap_ok(sample: dict, names: Sequence[str]) -> bool:
-    cols = [str(n) for n in names if str(n or "").strip()]
-    if not cols or not isinstance(sample, dict):
-        return False
-    hit = sum(1 for name in cols if sample.get(name) is not None)
-    return hit >= max(4, int(0.4 * len(cols)))
-
-
 def _live_rank_asof(items: Optional[Sequence[dict]] = None) -> str:
     """Live 名次日：优先行上会话日 ``lake_score_day`` / ``as_of``，否则 ŷ_oo 周期日。
 
@@ -619,106 +497,6 @@ def _live_rank_asof(items: Optional[Sequence[dict]] = None) -> str:
     return date.today().isoformat()
 
 
-def _stamp_ranks_from_lake(focus: Sequence[dict]) -> None:
-    """用 Feature Lake 的 oo_rank / tc_rank 行编观察池名次，写回 focus。
-
-    只用行上 / 周期日的**会话日**湖行；会话日不够则留空，禁止静默回退昨收名次。
-    只补 focus 上还没有的键。特征与模型对不上则跳过该头。
-    """
-    from core.research.feature_lake import load_day_rows
-    from core.research.lake_bridge import FAMILY_OO_RANK, FAMILY_TC_RANK
-
-    held = [
-        str(it.get("stock_code") or "").strip()
-        for it in focus
-        if isinstance(it, dict) and str(it.get("stock_code") or "").strip()
-    ]
-    if not held:
-        return
-    codes, _meta = _watching_codes(include_held=held)
-    if len(codes) < 2:
-        return
-    day = _live_rank_asof(focus)
-    if len(day) < 10:
-        return
-    oo_rows = load_day_rows(FAMILY_OO_RANK, codes, day) or {}
-    tc_rows = load_day_rows(FAMILY_TC_RANK, codes, day) or {}
-    if not (
-        _lake_cover_ok(len(oo_rows), len(codes))
-        or _lake_cover_ok(len(tc_rows), len(codes))
-    ):
-        return
-    oo_ok = _lake_cover_ok(len(oo_rows), len(codes))
-    tc_ok = _lake_cover_ok(len(tc_rows), len(codes))
-    if oo_ok:
-        try:
-            from core.research.oo_rank_lambdarank import (
-                _oo_rank_feature_names,
-                _resolve_oo_rank_fit,
-                load_oo_rank_model,
-            )
-
-            doc = load_oo_rank_model(prefer_research=False)
-            model = _resolve_oo_rank_fit(model_doc=doc)
-            names = _oo_rank_feature_names(model) if isinstance(model, dict) else []
-            sample = next(iter(oo_rows.values()), {})
-            if not _feature_overlap_ok(sample, names):
-                oo_ok = False
-        except Exception:  # noqa: BLE001
-            logger.debug("oo_rank lake overlap check failed", exc_info=True)
-            oo_ok = False
-    if tc_ok:
-        try:
-            from core.research.oo_rank_lambdarank import _oo_rank_feature_names
-            from core.research.tc_rank import _resolve_tc_rank_fit, load_tc_rank_model
-
-            doc = load_tc_rank_model(prefer_research=False)
-            model = _resolve_tc_rank_fit(doc)
-            names = _oo_rank_feature_names(model) if isinstance(model, dict) else []
-            sample = next(iter(tc_rows.values()), {})
-            if not _feature_overlap_ok(sample, names):
-                tc_ok = False
-        except Exception:  # noqa: BLE001
-            logger.debug("tc_rank lake overlap check failed", exc_info=True)
-            tc_ok = False
-    if not oo_ok and not tc_ok:
-        return
-    n_watch = int((_meta or {}).get("n_watch") or 0) if isinstance(_meta, dict) else 0
-    fp_codes = codes[:n_watch] if n_watch > 0 else codes
-    _, fit_meta = _apply_universe_fit_tier_filter(
-        codes, keep=held, pool_codes_for_fp=fp_codes
-    )
-    score_codes = fit_meta.get("tradable_codes")
-    if not isinstance(score_codes, (list, tuple, set)):
-        score_codes = None
-    batch: List[dict] = []
-    for code in codes:
-        row: Dict[str, Any] = {"stock_code": code, "lake_score_day": day}
-        if oo_ok and isinstance(oo_rows.get(code), dict):
-            row["sub_scores"] = dict(oo_rows[code])
-        if tc_ok and isinstance(tc_rows.get(code), dict):
-            row["features_tau"] = dict(tc_rows[code])
-        if row.get("sub_scores") or row.get("features_tau"):
-            batch.append(row)
-    if len(batch) < 2:
-        return
-    if oo_ok:
-        _attach_oo_rank_scores(batch, score_codes=score_codes, clock="open")
-    if tc_ok:
-        _attach_tc_rank_scores(batch, score_codes=score_codes, clock="open")
-    by_code = {
-        str(it.get("stock_code") or "").strip(): it
-        for it in batch
-        if str(it.get("stock_code") or "").strip()
-    }
-    for it in focus:
-        if not isinstance(it, dict):
-            continue
-        src = by_code.get(str(it.get("stock_code") or "").strip())
-        if isinstance(src, dict):
-            _copy_rank_fields(it, src, overwrite=False)
-
-
 def stamp_live_ranks(
     focus: Sequence[dict],
     *,
@@ -727,8 +505,8 @@ def stamp_live_ranks(
 ) -> None:
     """给已打分的持仓行补 oo_rank / τc_rank。
 
-    先用**同一会话日**调仓快照；缺/失效/缺码时可 DayCube 自愈重写；再试同一日 Feature Lake。
-    禁止回退到昨日快照/湖行（避免展示错日名次）。两侧都没有则留空（—）。
+    只用同一会话日的调仓快照。快照没有则留空，不用套槽 rank 模型从湖特征补。
+    禁止回退到昨日快照。
     """
     rows = [it for it in focus or [] if isinstance(it, dict)]
     if not rows:
@@ -749,17 +527,6 @@ def stamp_live_ranks(
                 src = snap.get(str(it.get("stock_code") or "").strip())
                 if isinstance(src, dict):
                     _copy_rank_fields(it, src, overwrite=False)
-    pending = [
-        it
-        for it in rows
-        if it.get("y_oo_rank") is None or it.get("y_tc_rank") is None
-    ]
-    if not pending:
-        return
-    try:
-        _stamp_ranks_from_lake(pending)
-    except Exception:  # noqa: BLE001
-        logger.debug("stamp live ranks from lake failed", exc_info=True)
 
 
 def _ranked_name_count(rows: Sequence[dict]) -> int:
@@ -810,15 +577,13 @@ def attach_and_persist_live_ranks(
     *,
     paper: Optional[dict] = None,
     score_codes: Optional[Collection[str]] = None,
-    day_cube: Any = None,
     clock: str = "open",
     persist: bool = True,
 ) -> None:
-    """对已出分池编 oo_rank / τc_rank，并落当日 live 快照。
+    """把执行套已经写上的名次落到当日 live 快照。
 
-    与手动执行同口径时用 ``clock="open"``。持仓表读这份快照，故手动 /
-    持仓出分都须刷新，避免分母卡在旧截面（如 484）。
-    出分池相对可交易集过窄、或非会话日回退截面时只写行内名次、不覆盖快照。
+    不在这里重算名次。持仓表读这份快照，故手动 / 持仓出分都须刷新，
+    避免分母卡在旧截面。截面过窄或非会话日时不覆盖快照。
     """
     rows = [it for it in scored or [] if isinstance(it, dict)]
     if not rows:
@@ -834,12 +599,6 @@ def attach_and_persist_live_ranks(
             paper=paper, held=held
         )
     clk = str(clock or "open")
-    _attach_oo_rank_scores(
-        rows, score_codes=allow, day_cube=day_cube, clock=clk
-    )
-    _attach_tc_rank_scores(
-        rows, score_codes=allow, day_cube=day_cube, clock=clk
-    )
     if not persist:
         return
     if not _live_rank_persist_ok(rows, score_codes=allow):
@@ -878,6 +637,14 @@ def refresh_live_open_ranks(*, paper: Optional[dict] = None) -> Dict[str, Any]:
     只读已物化 L2；缺立方返回 ``open_session_unavailable``，不临时拼截面。
     **禁止**用昨收立方冒充今日快照。
     """
+    from core.paper.rebalance.live_plan import live_feature_set
+    from core.universe.feature_sets import feature_set_scope
+
+    with feature_set_scope(live_feature_set(paper)):
+        return _refresh_live_open_ranks_scoped(paper=paper)
+
+
+def _refresh_live_open_ranks_scoped(*, paper: Optional[dict] = None) -> Dict[str, Any]:
     from core.research.materialize.coverage import read_cube_codes
 
     codes, allow, held, _meta = _resolve_live_rank_pool(paper=paper)
@@ -916,11 +683,10 @@ def refresh_live_open_ranks(*, paper: Optional[dict] = None) -> Dict[str, Any]:
             "cycle_day": day or None,
             "request": session_open_materialize_request(day),
         }
-    scored, _rejected, cube = scored_pack
+    scored, _rejected, _cube = scored_pack
     attach_and_persist_live_ranks(
         scored,
         score_codes=allow,
-        day_cube=cube,
         clock="open",
         persist=True,
     )
@@ -1004,14 +770,16 @@ def score_session_from_lake(
     *,
     paper: Optional[dict] = None,
 ) -> Tuple[List[dict], List[dict]]:
-    """观察池并上 ``codes``，读会话日同钟 L1/L2。
+    """已保存股票池并上 ``codes``，读会话日同钟 L1/L2。
 
     缺覆盖抛 ``MaterializeRequired``；不回退昨收、不临时补数。
     """
     from datetime import datetime
 
+    from core.paper.rebalance.live_plan import live_execution_codes
+
     held = [str(c).strip() for c in codes if str(c or "").strip()]
-    uni, _meta = _watching_codes(include_held=held)
+    uni, _meta = live_execution_codes(paper, include_held=held)
     pool = uni or held
     clock = ""
     try:
@@ -1328,84 +1096,6 @@ def _cube_tip_explains(
     return out
 
 
-def _attach_cube_lgb_formula(
-    items: Sequence[dict],
-    codes: Sequence[str],
-    Z: Any,
-    names: Sequence[str],
-    model: Any,
-    fields: Sequence[str],
-    score_codes: Optional[Collection[str]],
-    explain_codes: Optional[Collection[str]],
-) -> None:
-    """LightGBM：按立方已 z 行组 dict → ``explain_prediction``。"""
-    allow = None
-    if score_codes is not None:
-        allow = {str(c or "").strip() for c in score_codes if str(c or "").strip()}
-    explain = None
-    if explain_codes is not None:
-        explain = {str(c or "").strip() for c in explain_codes if str(c or "").strip()}
-    index = {str(c or "").strip(): i for i, c in enumerate(codes)}
-    feat_names = [str(n) for n in (getattr(model, "feature_names", None) or [])]
-    if not feat_names:
-        return
-    name_j = {str(n): i for i, n in enumerate(names)}
-    role = str(getattr(model, "model_role", "") or "").strip().lower()
-    for it in items:
-        code = str(it.get("stock_code") or "").strip()
-        if allow is not None and code not in allow:
-            continue
-        if explain is not None and code not in explain:
-            continue
-        i = index.get(code)
-        if i is None:
-            continue
-        row: Dict[str, float] = {}
-        for fn in feat_names:
-            j = name_j.get(fn)
-            if j is None:
-                continue
-            try:
-                v = float(Z[i, j])
-            except Exception:  # noqa: BLE001
-                continue
-            if v == v:
-                row[fn] = v
-        if not row:
-            continue
-        try:
-            expl = model.explain_prediction(row)
-        except Exception:  # noqa: BLE001
-            expl = None
-        if not isinstance(expl, dict):
-            continue
-        if role in {"research", "live"}:
-            expl = dict(expl)
-            expl["score_model_role"] = role
-            it["score_model_role"] = role
-        for key in fields:
-            it[key] = expl
-
-
-def _write_head(items: Sequence[dict], codes: Sequence[str], pred: Any, fields: Sequence[str], score_codes: Optional[Collection[str]]) -> None:
-    allow = None
-    if score_codes is not None:
-        allow = {str(c or "").strip() for c in score_codes if str(c or "").strip()}
-    index = {str(c or "").strip(): i for i, c in enumerate(codes)}
-    for it in items:
-        code = str(it.get("stock_code") or "").strip()
-        if allow is not None and code not in allow:
-            continue
-        i = index.get(code)
-        if i is None or i >= len(pred):
-            continue
-        val = float(pred[i])
-        if val != val:
-            continue
-        for key in fields:
-            it[key] = val
-
-
 def _stamp_fusion_on_items(
     items: Sequence[dict],
     paper: Optional[dict] = None,
@@ -1434,10 +1124,8 @@ def _stamp_cube_head_scores(
     items: List[dict],
     *,
     score_codes: Optional[Collection[str]] = None,
-    explain_codes: Optional[Collection[str]] = None,
-    paper: Optional[dict] = None,
 ) -> None:
-    """用立方矩阵点积写 ŷ_oo / ŷ_τc / fuse，并附因子拆解供股票表 tip。"""
+    """用立方矩阵写窗口头。ŷ_oo / ŷ_τc 不在这里打，由工厂执行套另写。"""
     from core.signal.factors.sum_identity import (
         cs_batch_preds_look_collapsed,
         filter_predict_active_names,
@@ -1454,99 +1142,6 @@ def _stamp_cube_head_scores(
         if cs_batch_preds_look_collapsed(vals, intercept=intercept):
             raise RuntimeError(f"{head} 截面出分拒绝：批 ŷ 塌缩远离 intercept")
 
-    try:
-        from core.research.oo_lgb import (
-            is_oo_lightgbm_scorer,
-            predict_oo_lgb_on_cs_z,
-        )
-        from core.research.oo_model import load_scoring_return_model
-
-        model, _meta = load_scoring_return_model()
-    except Exception:  # noqa: BLE001
-        logger.debug("cube oo model load failed", exc_info=True)
-        model = None
-        is_oo_lightgbm_scorer = None  # type: ignore[assignment]
-        predict_oo_lgb_on_cs_z = None  # type: ignore[assignment]
-    if model is not None and callable(is_oo_lightgbm_scorer) and is_oo_lightgbm_scorer(model):
-        pred_arr = (
-            predict_oo_lgb_on_cs_z(model, Z, names)
-            if callable(predict_oo_lgb_on_cs_z)
-            else None
-        )
-        if pred_arr is not None:
-            pred = [float(v) for v in list(pred_arr)]
-            _refuse("oo", [p for p in pred if p == p], 0.0)
-            _write_head(
-                items,
-                codes,
-                pred,
-                ("y_oo", "predicted_score", "predicted_score_oo"),
-                score_codes,
-            )
-            try:
-                _attach_cube_lgb_formula(
-                    items,
-                    codes,
-                    Z,
-                    names,
-                    model,
-                    ("score_formula_terms", "formula_terms"),
-                    score_codes,
-                    explain_codes,
-                )
-            except Exception:  # noqa: BLE001
-                logger.debug("cube oo lgb formula terms skipped", exc_info=True)
-    try:
-        from core.research.tc_lgb import (
-            TcLightgbmScorer,
-            is_tc_lightgbm_blob,
-            predict_tc_lgb_on_cs_z,
-        )
-        from core.research.tc_model import load_tau_model
-
-        doc = load_tau_model() or {}
-        rm = doc.get("return_model") if isinstance(doc, dict) else {}
-        if not isinstance(rm, dict):
-            rm = {}
-        tau_role = str(
-            (doc.get("model_role") if isinstance(doc, dict) else "")
-            or rm.get("model_role")
-            or ""
-        )
-        tc_scorer = None
-        if is_tc_lightgbm_blob(rm) or is_tc_lightgbm_blob(doc):
-            blob = rm if is_tc_lightgbm_blob(rm) else doc
-            tc_scorer = TcLightgbmScorer(blob, model_role=tau_role)
-    except Exception:  # noqa: BLE001
-        logger.debug("cube tau model load failed", exc_info=True)
-        rm = {}
-        tc_scorer = None
-        tau_role = ""
-    if tc_scorer is not None:
-        pred_arr = predict_tc_lgb_on_cs_z(tc_scorer.to_dict(), Z, names)
-        if pred_arr is not None:
-            pred = [float(v) for v in list(pred_arr)]
-            _refuse("tau", [p for p in pred if p == p], 0.0)
-            _write_head(
-                items,
-                codes,
-                pred,
-                ("y_τc", "predicted_score_τc", "y_tau_raw"),
-                score_codes,
-            )
-            try:
-                _attach_cube_lgb_formula(
-                    items,
-                    codes,
-                    Z,
-                    names,
-                    tc_scorer,
-                    ("formula_terms_tau", "score_formula_terms_tau"),
-                    score_codes,
-                    explain_codes,
-                )
-            except Exception:  # noqa: BLE001
-                logger.debug("cube tau lgb formula terms skipped", exc_info=True)
     try:
         from core.research.feature_standardize import is_cross_section_zscore
         from core.research.horizon_ridge import _doc_backend, load_ridge_model, write_y_hat
@@ -1582,11 +1177,6 @@ def _stamp_cube_head_scores(
                 write_y_hat(head, it, float(pred[i]))
     except Exception:  # noqa: BLE001
         logger.debug("cube horizon heads skipped", exc_info=True)
-
-    try:
-        _stamp_fusion_on_items(items, paper)
-    except Exception:  # noqa: BLE001
-        logger.debug("cube fuse stamp failed", exc_info=True)
 
 
 def _scored_has_lake_fallback(scored: Sequence[dict]) -> bool:
@@ -1645,9 +1235,21 @@ def _try_score_pool_from_cube_on_day(
         cube,
         scored_all,
         score_codes=score_codes,
-        explain_codes=codes,
-        paper=paper,
     )
+    from core.research.materialize.consumer import MaterializeRequired
+
+    try:
+        from core.paper.rebalance.live_plan import stamp_live_execution_heads
+
+        stamp_live_execution_heads(scored_all, day=day_s, paper=paper)
+    except MaterializeRequired:
+        raise
+    except Exception:  # noqa: BLE001
+        logger.warning("stamp live execution heads failed", exc_info=True)
+    try:
+        _stamp_fusion_on_items(scored_all, paper)
+    except Exception:  # noqa: BLE001
+        logger.debug("live execution fuse stamp failed", exc_info=True)
     want = [c for c in codes if c]
     want_set = set(want)
     scored = (
@@ -1747,12 +1349,31 @@ def _score_pool_from_lake(
     缺覆盖 → ``MaterializeRequired``（开盘可提示 ``do_session_open_l2``）。
     禁止昨收回退、禁止临时拼截面。第三项为供 rank 复用的 DayCube。
     """
+    from core.paper.rebalance.live_plan import live_feature_set
+    from core.universe.feature_sets import feature_set_scope
+
+    codes = [str(c or "").strip() for c in pool if str(c or "").strip()]
+    clock = _consumer_score_clock(use_minute_tau, tau_clock)
+    with feature_set_scope(live_feature_set(paper)):
+        return _score_pool_from_lake_scoped(
+            codes,
+            score_codes=score_codes,
+            paper=paper,
+            clock=clock,
+        )
+
+
+def _score_pool_from_lake_scoped(
+    codes: Sequence[str],
+    *,
+    score_codes: Optional[Collection[str]],
+    paper: Optional[dict],
+    clock: str,
+) -> Tuple[List[dict], List[dict], Any]:
     from core.research.materialize.consumer import MaterializeRequired
     from core.research.materialize.coverage import read_cube_codes
     from core.signal.session_pit import oo_cycle_date
 
-    codes = [str(c or "").strip() for c in pool if str(c or "").strip()]
-    clock = _consumer_score_clock(use_minute_tau, tau_clock)
     cube_codes = read_cube_codes()
     cycle_day = str(oo_cycle_date() or "")[:10]
 
@@ -2419,7 +2040,7 @@ def simulate_watching_matrix_preview(
 
     rl_cfg = get_rank_lot_cfg(paper, top_k=top_k)
     k = int(rl_cfg["top_k"])
-    # 遗留枚举名 ridge=「非影子树」；与 ŷ_oo 算法无关（生产仍 load_scoring_return_model → LightGBM）
+    # 遗留枚举名 ridge=「非影子树」。ŷ_oo 来自工厂执行套，不读套槽 LightGBM。
     score_backend = "ridge"
     _backend_ctx = None
     try:
@@ -2440,7 +2061,9 @@ def simulate_watching_matrix_preview(
         for h in (paper.get("holdings") or [])
         if isinstance(h, dict) and float(h.get("shares") or 0) > 0
     ]
-    codes, pool_meta = _watching_codes(include_held=held_codes)
+    from core.paper.rebalance.live_plan import live_execution_codes
+
+    codes, pool_meta = live_execution_codes(paper, include_held=held_codes)
     name_by_code = (
         pool_meta.get("name_by_code")
         if isinstance(pool_meta.get("name_by_code"), dict)
@@ -2552,7 +2175,6 @@ def simulate_watching_matrix_preview(
     attach_and_persist_live_ranks(
         scored,
         score_codes=score_codes,
-        day_cube=score_day_cube,
         clock=rank_clock,
         persist=True,
     )
@@ -2595,8 +2217,7 @@ def simulate_watching_matrix_preview(
         if name:
             item_by_code[code]["stock_name"] = name
 
-    # 缺 L2 / 未进 scored 的持仓仍盖当日名次快照，避免结果表 oo/τc_rank 全是 —。
-    # 本路径刚跑过整池 attach/persist，heal=False 避免重复刷立方。
+    # 缺 L2 / 未进 scored 的持仓仍盖当日名次快照。本路径刚落过快照，不再自愈重刷。
     try:
         stamp_live_ranks(list(item_by_code.values()), paper=paper, heal=False)
     except Exception:  # noqa: BLE001

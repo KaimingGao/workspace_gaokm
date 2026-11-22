@@ -135,39 +135,6 @@ class TestHeadSpec(unittest.TestCase):
         self.assertNotIn("raw_atc_LOC_HL", opened)
         self.assertIn("raw_atc_GAP", opened)
 
-    def test_tc_open_seq_label(self):
-        from core.research.yhat_transformer.seq_dataset import build_seq_panel
-
-        stock = {
-            "000001": _synth_bars(50, seed=1),
-            "000002": _synth_bars(50, seed=2),
-        }
-        panel = build_seq_panel(
-            stock, head="tc", seq_len=8, horizon_days=1, use_cache=False
-        )
-        self.assertGreater(panel.n, 10)
-        # close/open 通常 |y| 小于极端 oo 隔夜；但仍应有限
-        self.assertTrue(np.all(np.isfinite(panel.y)))
-
-    def test_rank_heads_reuse_regression_labels(self):
-        from core.research.yhat_transformer.seq_dataset import build_seq_panel
-
-        stock = {
-            "000001": _synth_bars(50, seed=1),
-            "000002": _synth_bars(50, seed=2),
-        }
-        oo = build_seq_panel(stock, head="oo", seq_len=8, horizon_days=1, use_cache=False)
-        oo_r = build_seq_panel(
-            stock, head="oo_rank", seq_len=8, horizon_days=1, use_cache=False
-        )
-        self.assertEqual(oo.n, oo_r.n)
-        np.testing.assert_allclose(oo.y, oo_r.y, rtol=0, atol=1e-5)
-        tc = build_seq_panel(stock, head="tc", seq_len=8, horizon_days=1, use_cache=False)
-        tc_r = build_seq_panel(
-            stock, head="tc_rank", seq_len=8, horizon_days=1, use_cache=False
-        )
-        self.assertEqual(tc.n, tc_r.n)
-        np.testing.assert_allclose(tc.y, tc_r.y, rtol=0, atol=1e-5)
 
 def _synth_bars(n: int = 80, seed: int = 0):
     rng = np.random.RandomState(seed)
@@ -197,83 +164,6 @@ def _synth_bars(n: int = 80, seed: int = 0):
 
 
 class TestYhatSeqPanel(unittest.TestCase):
-    def test_few_stock_errors_are_skipped(self):
-        from unittest import mock
-
-        from core.research.yhat_transformer import seq_dataset
-
-        stock = {f"{i:06d}": _synth_bars(40, seed=i) for i in range(5)}
-        real = seq_dataset.samples_from_bars
-
-        def _boom(code, bars, **kwargs):
-            if code == "000000":
-                raise RuntimeError("bad bar")
-            return real(code, bars, **kwargs)
-
-        with mock.patch.object(seq_dataset, "samples_from_bars", side_effect=_boom):
-            panel = seq_dataset.build_seq_panel(
-                stock, head="oo", seq_len=8, use_cache=False
-            )
-        self.assertGreater(panel.n, 0)
-        self.assertNotIn("000000", panel.codes)
-
-    def test_too_many_stock_errors_abort(self):
-        from unittest import mock
-
-        from core.research.yhat_transformer import seq_dataset
-
-        stock = {f"{i:06d}": [] for i in range(5)}
-        with mock.patch.object(
-            seq_dataset, "samples_from_bars", side_effect=RuntimeError("bad")
-        ):
-            with self.assertRaises(RuntimeError):
-                seq_dataset.build_seq_panel(stock, head="oo", seq_len=8, use_cache=False)
-
-    def test_seq_panel_cache_skips_rebuild(self):
-        import tempfile
-        from unittest import mock
-
-        from core.research.yhat_transformer import seq_dataset
-
-        stock = {f"{i:06d}": _synth_bars(40, seed=i) for i in range(3)}
-        with tempfile.TemporaryDirectory() as td:
-            first = seq_dataset.build_seq_panel(
-                stock, head="oo", seq_len=8, cache_dir=td, use_cache=True
-            )
-            self.assertGreater(first.n, 0)
-
-            def _boom(*_a, **_k):
-                raise AssertionError("cache hit should not rebuild")
-
-            with mock.patch.object(seq_dataset, "samples_from_bars", side_effect=_boom):
-                second = seq_dataset.build_seq_panel(
-                    stock, head="oo", seq_len=8, cache_dir=td, use_cache=True
-                )
-            self.assertEqual(second.n, first.n)
-            np.testing.assert_allclose(second.y, first.y)
-
-            changed = {k: list(v) for k, v in stock.items()}
-            changed["000000"][20]["close"] = float(changed["000000"][20]["close"]) + 3.0
-            third = seq_dataset.build_seq_panel(
-                changed, head="oo", seq_len=8, cache_dir=td, use_cache=True
-            )
-            self.assertGreater(third.n, 0)
-            self.assertFalse(np.allclose(third.X, first.X))
-
-    def test_bars_token_tracks_ohlcv(self):
-        from core.research.yhat_transformer.seq_dataset import _bars_token
-
-        bars = _synth_bars(8, seed=1)
-        base = _bars_token(bars)
-        bars[3]["volume"] = float(bars[3]["volume"]) + 1.0
-        self.assertNotEqual(_bars_token(bars), base)
-        bars[3]["high"] = float(bars[3]["high"]) + 0.05
-        vol_and_high = _bars_token(bars)
-        self.assertNotEqual(vol_and_high, base)
-        bars[3]["open"] = float(bars[3]["open"]) + 0.05
-        self.assertNotEqual(_bars_token(bars), vol_and_high)
-        ordered = _synth_bars(8, seed=2)
-        self.assertEqual(_bars_token(list(reversed(ordered))), _bars_token(ordered))
 
     def test_reorder_panel_by_codes_matches_item_order(self):
         from core.research.yhat_transformer.factor_panel import (
@@ -336,42 +226,6 @@ class TestYhatSeqPanel(unittest.TestCase):
         self.assertEqual(panel.feature_names, ["a", "b"])
         self.assertEqual(panel.X.dtype, np.float32)
 
-    def test_pit_and_build(self):
-        from core.research.yhat_transformer.seq_dataset import (
-            assert_pit_last_bar_before_decision,
-            build_seq_panel,
-            samples_from_bars,
-        )
-
-        bars = _synth_bars(60)
-        X, gap, y, dates = samples_from_bars("000001", bars, seq_len=10, horizon_days=1)
-        self.assertGreater(len(dates), 5)
-        self.assertEqual(X.shape[-1], 16)
-        by_date = {str(b["date"])[:10]: j for j, b in enumerate(bars)}
-        for d in dates[:5]:
-            i = by_date[d]
-            self.assertTrue(assert_pit_last_bar_before_decision(bars, i, 10))
-        panel = build_seq_panel(
-            {"000001": _synth_bars(50, 1), "000002": _synth_bars(50, 2)},
-            head="oo",
-            seq_len=8,
-            horizon_days=1,
-            use_cache=False,
-        )
-        self.assertGreater(panel.n, 10)
-        self.assertEqual(panel.X.shape[-1], 16)
-
-    def test_reversed_bars_match_chrono(self):
-        from core.research.yhat_transformer.seq_dataset import samples_from_bars
-
-        bars = _synth_bars(40, seed=4)
-        X, _, _, dates = samples_from_bars("000001", bars, seq_len=8, horizon_days=1)
-        Xr, _, _, dates_r = samples_from_bars(
-            "000001", list(reversed(bars)), seq_len=8, horizon_days=1
-        )
-        self.assertEqual(dates, dates_r)
-        np.testing.assert_allclose(X, Xr)
-        self.assertEqual(dates, sorted(set(dates)))
 
     def test_factor_cache_key_tracks_prices(self):
         from core.research.yhat_transformer.factor_panel import _cache_key
@@ -465,68 +319,14 @@ class TestYhatSeqPanel(unittest.TestCase):
             )
             self.assertIsNone(_try_load_cache(path))
 
-    def test_seq8_vs_seq16(self):
-        from core.research.yhat_transformer.seq_dataset import (
-            SEQ16_FEATURE_NAMES,
-            SEQ32_FEATURE_NAMES,
-            SEQ64_FEATURE_NAMES,
-            SEQ8_FEATURE_NAMES,
-            samples_from_bars,
-        )
-
-        bars = _synth_bars(40, seed=3)
-        x8, _, _, _ = samples_from_bars(
-            "000001", bars, seq_len=8, feat_set="seq8"
-        )
-        x16, _, _, d16 = samples_from_bars(
-            "000001", bars, seq_len=8, feat_set="seq16"
-        )
-        self.assertEqual(len(SEQ8_FEATURE_NAMES), 8)
-        self.assertEqual(len(SEQ16_FEATURE_NAMES), 16)
-        self.assertEqual(len(SEQ32_FEATURE_NAMES), 32)
-        self.assertEqual(len(SEQ64_FEATURE_NAMES), 64)
-        self.assertEqual(SEQ16_FEATURE_NAMES[:8], SEQ8_FEATURE_NAMES)
-        self.assertEqual(SEQ32_FEATURE_NAMES[:16], SEQ16_FEATURE_NAMES)
-        self.assertEqual(SEQ64_FEATURE_NAMES[:32], SEQ32_FEATURE_NAMES)
-        self.assertGreater(x8.shape[0], 0)
-        self.assertEqual(x8.shape[-1], 8)
-        self.assertEqual(x16.shape[-1], 16)
-        np.testing.assert_allclose(x8, x16[:, :, :8], rtol=0, atol=1e-5)
-        self.assertTrue(np.all(np.isfinite(x16)))
-        x32, _, _, d32 = samples_from_bars(
-            "000001", bars, seq_len=8, feat_set="seq32"
-        )
-        x64, _, _, d64 = samples_from_bars(
-            "000001", bars, seq_len=8, feat_set="seq64"
-        )
-        self.assertEqual(x32.shape[-1], 32)
-        self.assertEqual(x64.shape[-1], 64)
-        self.assertGreater(x32.shape[0], 0)
-        self.assertGreater(x64.shape[0], 0)
-        # 嵌套前缀：更大档截断后等于更小档（同决策日）
-        by16 = {d: i for i, d in enumerate(d16)}
-        by32 = {d: i for i, d in enumerate(d32)}
-        for i, d in enumerate(d32):
-            np.testing.assert_allclose(x32[i, :, :16], x16[by16[d]], rtol=0, atol=1e-5)
-        for i, d in enumerate(d64):
-            np.testing.assert_allclose(x64[i, :, :32], x32[by32[d]], rtol=0, atol=1e-5)
-        # 32/64 后半维不是前 16 的 lag 拷贝
-        self.assertFalse(np.allclose(x32[:, :, 16:32], x32[:, :, :16]))
-        self.assertFalse(np.allclose(x64[:, :, 32:48], x64[:, :, :16]))
-        self.assertTrue(np.all(np.isfinite(x64)))
-        # 各档样本量应一致（滚动不足时降级，不因 F 变大丢样本）
-        self.assertEqual(x16.shape[0], x32.shape[0])
-        self.assertEqual(x32.shape[0], x64.shape[0])
+    def test_price_seq_names_are_retired(self):
         from core.research.yhat_transformer.seq_dataset import resolve_seq_feat_set
 
-        self.assertEqual(resolve_seq_feat_set("seq16"), "seq16")
-        self.assertEqual(resolve_seq_feat_set("seq64"), "seq64")
         self.assertEqual(resolve_seq_feat_set("core"), "seq_core")
         self.assertEqual(resolve_seq_feat_set("full"), "seq_full")
-        self.assertEqual(resolve_seq_feat_set("seq8"), "seq8")
-        self.assertEqual(resolve_seq_feat_set("seq32"), "seq32")
-        with self.assertRaises(ValueError):
-            samples_from_bars("000001", bars, seq_len=8, feat_set="seq_core")
+        for legacy in ("seq8", "seq16", "seq32", "seq64"):
+            with self.assertRaises(ValueError):
+                resolve_seq_feat_set(legacy)
 
     def test_factor_seq_window_matches_factor_width(self):
         from core.research.yhat_transformer.factor_panel import (
@@ -547,68 +347,73 @@ class TestYhatSeqPanel(unittest.TestCase):
             feature_names=["c0", "c1", "c2"],
         )
         seq = sequence_from_factor_panel(fac, {"000001": bars}, seq_len=5)
-        self.assertEqual(seq.X.shape, (len(dates) - 5, 5, width + 1))
+        self.assertEqual(seq.X.shape, (len(dates) - 4, 5, width + 1))
+        self.assertEqual(seq.seq_len, 5)
         self.assertEqual(seq.feature_names, ("c0", "c1", "c2", "age_td"))
-        self.assertEqual(seq.dates[0], dates[5])
+        self.assertEqual(seq.dates[0], dates[4])
         self.assertTrue(np.isnan(seq.X[0, 2, 1]))
         np.testing.assert_allclose(seq.X[0, :, :width], raw[:5], equal_nan=True)
-        self.assertAlmostEqual(float(seq.X[0, -1, -1]), 1.0 / 5.0, places=5)
+        self.assertAlmostEqual(float(seq.X[0, -1, -1]), 0.0, places=5)
+        self.assertAlmostEqual(float(seq.X[0, -2, -1]), 1.0 / 4.0, places=5)
         self.assertAlmostEqual(float(seq.X[0, 0, -1]), 1.0, places=5)
-        self.assertFalse(np.allclose(seq.X[0, -1, :width], raw[5], equal_nan=True))
+        np.testing.assert_allclose(seq.X[0, -1, :width], raw[4], equal_nan=True)
+        expanded = int(np.prod(seq.X.shape)) * 4
+        self.assertLess(seq.X.nbytes, expanded)
+        sub = seq.subset([0])
+        self.assertIs(sub.X.values, seq.X.values)
+        self.assertEqual(sub.X.shape[0], 1)
 
-    def test_window_equals_vector_at(self):
-        """窗口行必须等于当日 _vector_at，不能因为只算一次而改值。"""
-        from core.research.yhat_transformer.seq_dataset import (
-            _bar_ohlcv,
-            _vector_at,
-            samples_from_bars,
+    def test_window_preprocess_matches_dense(self):
+        from core.research.yhat_transformer.factor_panel import (
+            FactorPanel,
+            sequence_from_factor_panel,
+        )
+        from core.research.yhat_transformer.seq_dataset import FactorWindowView
+        from core.research.yhat_transformer.train import (
+            _clip_inplace_rows,
+            _impute_seq_median,
         )
 
-        bars = _synth_bars(48, seed=7)
-        L = 8
-        X, _, _, dates = samples_from_bars(
-            "000001", bars, seq_len=L, feat_set="seq64"
+        bars = _synth_bars(12, seed=3)
+        dates = [b["date"] for b in bars]
+        width = 3
+        raw = np.arange(len(dates) * width, dtype=np.float32).reshape(len(dates), width)
+        raw[2, 1] = np.nan
+        raw[4, 0] = 80.0
+        fac = FactorPanel(
+            X=raw,
+            y=np.arange(len(dates), dtype=np.float32),
+            dates=list(dates),
+            codes=["000001"] * len(dates),
+            feature_names=["c0", "c1", "c2"],
         )
-        ohlcv = []
-        vols = []
-        for b in bars:
-            got = _bar_ohlcv(b)
-            ohlcv.append(got)
-            vols.append(float(got[4]) if got is not None else 0.0)
-        by_date = {str(b["date"])[:10]: j for j, b in enumerate(bars)}
-        self.assertGreater(len(dates), 0)
-        i = by_date[dates[0]]
-        for k in range(L):
-            vec = _vector_at(ohlcv, vols, i - L + k, 64)
-            self.assertIsNotNone(vec)
-            np.testing.assert_array_equal(X[0, k], vec)
+        seq = sequence_from_factor_panel(fac, {"000001": bars}, seq_len=5)
+        self.assertIsInstance(seq.X, FactorWindowView)
+        rows = list(range(seq.n))
+        dense = np.array(seq.X, dtype=np.float32, copy=True)
+        gap = np.array(seq.gap, dtype=np.float32, copy=True)
+        gap_dense = gap.copy()
+        med_w = _impute_seq_median(seq.X, rows, seed=1)
+        med_d = _impute_seq_median(dense, rows, seed=1)
+        self.assertEqual(med_w, med_d)
+        np.testing.assert_allclose(
+            seq.X.gather(np.arange(seq.n)), dense, equal_nan=True
+        )
+        clip_w = _clip_inplace_rows(seq.X, gap, rows, seed=1)
+        clip_d = _clip_inplace_rows(dense, gap_dense, rows, seed=1)
+        self.assertEqual(clip_w["x_lo"], clip_d["x_lo"])
+        self.assertEqual(clip_w["x_hi"], clip_d["x_hi"])
+        np.testing.assert_allclose(seq.X.gather(np.arange(seq.n)), dense)
+        np.testing.assert_allclose(gap, gap_dense)
+        huge = FactorWindowView(
+            np.zeros((4, 2), dtype=np.float32),
+            np.zeros((80_000, 20), dtype=np.int32),
+            np.zeros((80_000, 20), dtype=np.float32),
+            ("a", "b", "age_td"),
+        )
+        with self.assertRaises(MemoryError):
+            np.asarray(huge)
 
-    def test_parallel_panel_matches_serial_order(self):
-        import os
-
-        from core.research.yhat_transformer.seq_dataset import build_seq_panel
-
-        bars = {f"{i:06d}": _synth_bars(40, seed=i) for i in range(16)}
-        old = os.environ.get("SEQ_PANEL_WORKERS")
-        try:
-            os.environ["SEQ_PANEL_WORKERS"] = "1"
-            serial = build_seq_panel(
-                bars, head="oo", seq_len=8, feat_set="seq16", use_cache=False
-            )
-            os.environ["SEQ_PANEL_WORKERS"] = "4"
-            parallel = build_seq_panel(
-                bars, head="oo", seq_len=8, feat_set="seq16", use_cache=False
-            )
-        finally:
-            if old is None:
-                os.environ.pop("SEQ_PANEL_WORKERS", None)
-            else:
-                os.environ["SEQ_PANEL_WORKERS"] = old
-        self.assertGreater(serial.n, 0)
-        np.testing.assert_array_equal(serial.X, parallel.X)
-        np.testing.assert_array_equal(serial.y, parallel.y)
-        self.assertEqual(serial.codes, parallel.codes)
-        self.assertEqual(serial.dates, parallel.dates)
 
 
 class TestRankDayGroups(unittest.TestCase):
@@ -666,11 +471,11 @@ def _has_torch() -> bool:
 
 @unittest.skipUnless(_has_torch(), "torch missing")
 class TestYhatModelSmoke(unittest.TestCase):
-    def test_seq_factor_transformer_forward(self):
+    def test_arm_t_model_forward(self):
         import torch
 
         from core.research.yhat_transformer.model import (
-            SeqFactorTransformer,
+            ArmTModel,
             SeqTransformer,
             count_parameters,
         )
@@ -678,46 +483,34 @@ class TestYhatModelSmoke(unittest.TestCase):
         m = SeqTransformer(d_in=8, d_model=16, nhead=2, nlayers=1, dim_feedforward=32)
         self.assertGreater(count_parameters(m), 100)
         x = torch.randn(4, 8, 8)
-        g = torch.randn(4)
-        y = m(x, g)
-        self.assertEqual(tuple(y.shape), (4,))
-        model = SeqFactorTransformer(
-            d_seq_in=8, d_factor=12, d_model=16, nhead=2, nlayers=1, factor_hidden=32
+        self.assertEqual(tuple(m.encode(x).shape), (4, 16))
+        model = ArmTModel(
+            d_seq_in=8, d_model=16, nhead=2, nlayers=1
         )
-        self.assertFalse(model.seq.with_head)
-        self.assertFalse(hasattr(model.seq, "head"))
-        out = model(x, g, torch.randn(4, 12))
+        g = torch.randn(4)
+        out = model(x, g)
         self.assertEqual(tuple(out.shape), (4,))
         with self.assertRaises(ValueError):
-            SeqFactorTransformer(
-                d_seq_in=8, d_factor=2, d_model=64, nhead=3, nlayers=1, factor_hidden=16
-            )
+            ArmTModel(d_seq_in=8, d_model=64, nhead=3, nlayers=1)
 
-    def test_arch2_prefix_order_changes_output(self):
+    def test_sequence_order_changes_output(self):
         import torch
 
-        from core.research.yhat_transformer.model import SeqFactorTransformer
+        from core.research.yhat_transformer.model import ArmTModel
 
         torch.manual_seed(0)
-        kw = dict(d_seq_in=4, d_factor=5, d_model=16, nhead=2, nlayers=1, factor_hidden=16)
         x = torch.randn(2, 6, 4)
         g = torch.randn(2)
-        f = torch.randn(2, 5)
+        model = ArmTModel(
+            d_seq_in=4, d_model=16, nhead=2, nlayers=1
+        ).eval()
+        y = model(x, g)
         order = [1, 3, 0, 2, 4, 5]
-        new = SeqFactorTransformer(arch=2, **kw).eval()
-        old = SeqFactorTransformer(arch=1, **kw).eval()
-        y_new = new(x, g, f)
-        y_new_perm = new(x[:, order, :], g, f)
-        self.assertFalse(torch.allclose(y_new, y_new_perm, atol=1e-4))
-        y_old = old(x, g, f)
-        y_old_perm = old(x[:, order, :], g, f)
-        self.assertTrue(torch.allclose(y_old, y_old_perm, atol=1e-3))
-        with self.assertRaises(RuntimeError):
-            new.load_state_dict(old.state_dict(), strict=True)
+        self.assertFalse(torch.allclose(y, model(x[:, order, :], g), atol=1e-4))
 
     def test_arm_t_holdout_each_epoch_does_not_pick_weights(self):
         from core.research.yhat_transformer.seq_dataset import SeqPanel
-        from core.research.yhat_transformer.train import train_seq_factor_transformer
+        from core.research.yhat_transformer.train import train_arm_t
 
         rng = np.random.RandomState(0)
         dates: list = []
@@ -736,31 +529,28 @@ class TestYhatModelSmoke(unittest.TestCase):
             seq_len=4,
             feature_names=("a", "b", "c", "d"),
         )
-        fac = rng.randn(n, 3).astype(np.float32)
         train_idx = list(range(42))
-        probe_idx = list(range(42, 48))
-        _state, report = train_seq_factor_transformer(
+        holdout_idx = list(range(42, 48))
+        _state, report = train_arm_t(
             panel,
-            fac,
             train_idx,
             d_model=8,
             nhead=2,
             nlayers=1,
-            factor_hidden=8,
             epochs=2,
             batch_size=16,
             seed=0,
-            probe_idx=probe_idx,
+            holdout_idx=holdout_idx,
         )
-        rows = report.get("probe_by_epoch") or []
+        rows = report.get("holdout_by_epoch") or []
         self.assertEqual([r["epoch"] for r in rows], [1, 2])
-        self.assertTrue(all(int(r["n"]) == len(probe_idx) for r in rows))
+        self.assertTrue(all(int(r["n"]) == len(holdout_idx) for r in rows))
         self.assertTrue(all(r.get("cs_top_mean_y") is not None for r in rows))
-        self.assertNotIn("holdout_by_epoch", report)
+        self.assertNotIn("probe_by_epoch", report)
         self.assertNotIn("n_val", report)
         self.assertNotIn("best_val_loss", report)
         self.assertEqual(report.get("n_train"), len(train_idx))
-        self.assertEqual(report.get("arch"), 2)
+        self.assertNotIn("arch", report)
         self.assertNotIn("false_open_weight", report)
         self.assertNotIn("missed_up_weight", report)
         self.assertTrue(all("cs_icir" in r and "cs_rank_icir" in r for r in rows))
@@ -796,8 +586,10 @@ class TestYhatModelSmoke(unittest.TestCase):
         )
 
         self.assertEqual(_resolve_loss("lambdarank"), "lambdarank")
-        self.assertEqual(_resolve_loss("mse"), "smooth_l1")
-        self.assertEqual(_resolve_loss("huber"), "smooth_l1")
+        self.assertEqual(_resolve_loss("mse"), "mse")
+        self.assertEqual(_resolve_loss("l2"), "mse")
+        self.assertEqual(_resolve_loss("huber"), "mse")
+        self.assertEqual(_resolve_loss("smooth_l1"), "mse")
         y = torch.tensor([0.0, 1.0, 3.0, 8.0])
         aligned = torch.tensor([0.0, 1.0, 2.0, 3.0], requires_grad=True)
         flipped = torch.tensor([3.0, 2.0, 1.0, 0.0], requires_grad=True)
@@ -852,24 +644,51 @@ class TestYhatModelSmoke(unittest.TestCase):
         if float(y[worst]) > float(y.median()):
             self.assertLess(float(pred.grad[worst]), 0.0)
 
-    def test_regression_loss_is_smooth_l1(self):
-        """回归头就是 SmoothL1。漏涨和猜涨猜错都按同一权重。"""
+    def test_regression_loss_is_mse(self):
+        """回归头是逐点 MSE。"""
         import torch
 
         from core.research.yhat_transformer.train import _regression_batch_loss
 
-        loss_fn = torch.nn.SmoothL1Loss(beta=1.0)
-        y = torch.tensor([-0.8, 0.5, 0.4, -0.3])
-        pred = torch.tensor([0.4, 0.3, -0.2, -0.5], requires_grad=True)
+        y = torch.tensor([-0.8, 0.5, 0.4, -0.3, 12.0])
+        pred = torch.tensor([0.4, 0.3, -0.2, -0.5, 0.0], requires_grad=True)
         mixed = _regression_batch_loss(pred, y)
-        plain = loss_fn(pred, y)
+        plain = torch.nn.functional.mse_loss(pred, y)
         self.assertTrue(torch.allclose(mixed, plain))
-        mixed.backward()
-        pred_plain = pred.detach().clone().requires_grad_(True)
-        loss_fn(pred_plain, y).backward()
-        self.assertTrue(torch.allclose(pred.grad, pred_plain.grad, atol=1e-6))
         empty = torch.empty(0)
         self.assertEqual(float(_regression_batch_loss(empty, empty)), 0.0)
+
+    def test_bias_and_layernorm_skip_weight_decay(self):
+        """bias 与 LayerNorm.weight 不衰减，其余参数衰减 1e-3。"""
+        import torch
+
+        from core.research.yhat_transformer.model import ArmTModel
+        from core.research.yhat_transformer.train import _WEIGHT_DECAY, _adamw
+
+        model = ArmTModel(
+            d_seq_in=4,
+            d_model=8,
+            nhead=2,
+            nlayers=1,
+            dropout=0.0,
+        )
+        self.assertEqual(model.seq.encoder.layers[0].linear1.out_features, 64)
+        opt = _adamw(model, 1e-3)
+        decay_groups = [g for g in opt.param_groups if g["weight_decay"] > 0]
+        free_groups = [g for g in opt.param_groups if g["weight_decay"] == 0]
+        self.assertEqual(len(decay_groups), 1)
+        self.assertEqual(decay_groups[0]["weight_decay"], _WEIGHT_DECAY)
+        decay = {id(p) for p in decay_groups[0]["params"]}
+        free = {id(p) for g in free_groups for p in g["params"]}
+        self.assertEqual(_WEIGHT_DECAY, 1e-3)
+        for name, param in model.named_parameters():
+            leaf = name.rsplit(".", 1)[-1]
+            owner = dict(model.named_modules()).get(name.rsplit(".", 1)[0], model)
+            skip = leaf == "bias" or (
+                leaf == "weight" and isinstance(owner, torch.nn.LayerNorm)
+            )
+            self.assertEqual(id(param) in free, skip, msg=name)
+            self.assertEqual(id(param) in decay, not skip, msg=name)
 
     def test_rank_loss_is_order_only(self):
         """排序损失只看序。整段平移不改变损失。"""
@@ -1162,6 +981,108 @@ class TestArmLLiveAligned(unittest.TestCase):
         self.assertFalse(_holdout_is_full_sample(5))
         self.assertFalse(_holdout_is_full_sample(None))
 
+    def test_arm_r_full_sample_trains_without_eval_window(self):
+        """执行套 Holdout=0：评估窗为空仍要训练并落权重，不能报 empty holdout。"""
+        import time
+        from types import SimpleNamespace
+        from unittest import mock
+
+        from core.research.yhat_tf_desk import _metrics_from_holdout_summary
+        from scripts.run_yhat_transformer_holdout import (
+            _fit_arm_r_like_hub,
+            _train_despite_empty_holdout,
+        )
+
+        self.assertTrue(_train_despite_empty_holdout(10, 0, 0))
+        self.assertFalse(_train_despite_empty_holdout(10, 0, 20))
+        self.assertFalse(_train_despite_empty_holdout(0, 0, 0))
+        self.assertFalse(_train_despite_empty_holdout(10, 3, 0))
+
+        class _Model:
+            coefficients = {"z_a": 0.25}
+            intercept = 0.01
+
+        def _fit(*_a, **_k):
+            return _Model(), {
+                "success": True,
+                "sample_count": 40,
+                "active_features": ["z_a"],
+                "excluded_features": [],
+            }
+
+        saved: dict = {}
+
+        def _save(blob, meta):
+            saved["blob"] = blob
+            saved["meta"] = meta
+
+        fac = SimpleNamespace(codes=["600000"], dates=["2024-01-02"])
+        with mock.patch(
+            "core.research.oo_model_compact.fit_oo_ridge_matrix", _fit
+        ), mock.patch(
+            "core.research.oo_model_compact.predict_oo_matrix",
+            side_effect=AssertionError("empty holdout must not predict"),
+        ), mock.patch(
+            "scripts.run_yhat_transformer_holdout._try_save_ridge", _save
+        ):
+            out = _fit_arm_r_like_hub(
+                fac,
+                np.zeros((3, 1)),
+                np.zeros(3),
+                ["z_a"],
+                ["2024-01-02", "2024-01-03", "2024-01-04"],
+                [0, 1, 2],
+                [],
+                hid="oo",
+                ridge_alpha=1.0,
+                t0=time.time(),
+            )
+        self.assertTrue(out["success"])
+        self.assertTrue(out["full_sample"])
+        self.assertEqual(out["n_test"], 0)
+        self.assertEqual(out["n_train"], 40)
+        self.assertEqual(saved["blob"]["feature_names"], ["z_a"])
+        self.assertAlmostEqual(saved["blob"]["intercept"], 0.01)
+        self.assertIsNone(saved["meta"]["eval_start"])
+
+        saved.clear()
+
+        def _predict_miss(*_a, **_k):
+            return [None]
+
+        with mock.patch(
+            "core.research.oo_model_compact.fit_oo_ridge_matrix", _fit
+        ), mock.patch(
+            "core.research.oo_model_compact.predict_oo_matrix", _predict_miss
+        ), mock.patch(
+            "scripts.run_yhat_transformer_holdout._try_save_ridge", _save
+        ):
+            missed = _fit_arm_r_like_hub(
+                fac,
+                np.zeros((3, 1)),
+                np.zeros(3),
+                ["z_a"],
+                ["2024-01-02", "2024-01-03", "2024-01-04"],
+                [0, 1, 2],
+                [0],
+                hid="oo",
+                ridge_alpha=1.0,
+                t0=time.time(),
+            )
+        self.assertFalse(missed["success"])
+        self.assertIn("holdout preds empty", missed["error"])
+        self.assertFalse(saved)
+
+        metrics = _metrics_from_holdout_summary(
+            {
+                "factory": "R",
+                "arm_R": out,
+                "split_R": {"n_train": 40, "n_test": 0, "fit_end": "2026-11-19"},
+            }
+        )
+        self.assertEqual(metrics["arms"]["R"]["n_train"], 40)
+        self.assertEqual(metrics["arms"]["R"]["n_test"], 0)
+
     def test_hub_live_note_forces_holdout_zero(self):
         from unittest import mock
 
@@ -1356,7 +1277,7 @@ class TestArmLLiveAligned(unittest.TestCase):
             self.assertEqual(first_readable_cube_day("open"), ("", 0))
 
     def test_arm_t_uses_l2_cube_cs_z(self):
-        """因子支路与 L 对齐：全面板走 cs_z_matrix_prefer_cube，不再列标准化。"""
+        """序列模型不把因子矩阵送进网络。稠密价量序列不做截面 z。"""
         from types import SimpleNamespace
         from unittest import mock
 
@@ -1386,14 +1307,13 @@ class TestArmLLiveAligned(unittest.TestCase):
             d_model=16,
             nhead=2,
             nlayers=1,
-            mlp_hidden=32,
             dropout=0.0,
             epochs=1,
             batch_size=8,
             lr=1e-3,
             device="cpu",
             t_sample_frac=1.0,
-            loss="smooth_l1",
+            loss="mse",
         )
         fake_state = {"w": np.zeros(1)}
         fake_report = {
@@ -1409,50 +1329,22 @@ class TestArmLLiveAligned(unittest.TestCase):
             "core.research.materialize.cube_z.cs_z_matrix_prefer_cube",
             return_value=z_out,
         ) as csz_m, mock.patch(
-            "core.research.yhat_transformer.train.train_seq_factor_transformer",
+            "core.research.yhat_transformer.train.train_arm_t",
             return_value=(fake_state, dict(fake_report)),
         ) as train_m, mock.patch(
-            "core.research.yhat_transformer.train.predict_seq_factor_transformer",
+            "core.research.yhat_transformer.train.predict_arm_t",
             return_value=np.zeros(4, dtype=np.float64),
         ):
             out = _run_arm_t(
                 seq, fac, list(range(16)), list(range(16, 20)), args
             )
         self.assertTrue(out.get("success"))
-        self.assertIn("L2 cube CS-z", str(out.get("note") or ""))
-        csz_m.assert_called_once()
-        csz_kw = csz_m.call_args
-        self.assertEqual(csz_kw.kwargs.get("clock"), "open")
-        self.assertEqual(list(csz_kw.args[1]), fac.feature_names)
+        self.assertIn("sequence-only", str(out.get("note") or ""))
+        csz_m.assert_not_called()
         train_m.assert_called_once()
-        fac_passed = train_m.call_args.args[1]
-        self.assertEqual(fac_passed.dtype, np.float32)
-        np.testing.assert_allclose(fac_passed, z_out.astype(np.float32), atol=1e-5)
-        # 非有限值应填 0（与 rank L 后处理一致）
-        z_nan = z_out.copy()
-        z_nan[0, 0] = np.nan
-        with mock.patch(
-            "core.research.materialize.cube_z.cs_z_matrix_prefer_cube",
-            return_value=z_nan,
-        ), mock.patch(
-            "core.research.yhat_transformer.train.train_seq_factor_transformer",
-            return_value=(fake_state, dict(fake_report)),
-        ) as train_nan, mock.patch(
-            "core.research.yhat_transformer.train.predict_seq_factor_transformer",
-            return_value=np.zeros(4, dtype=np.float64),
-        ):
-            fac2 = SimpleNamespace(
-                X=rng.randn(n, f).astype(np.float64),
-                y=seq.y.copy(),
-                dates=dates,
-                codes=list(seq.codes),
-                feature_names=[f"f{j}" for j in range(f)],
-                n=n,
-            )
-            _run_arm_t(seq, fac2, list(range(16)), list(range(16, 20)), args)
-        fac_nan = train_nan.call_args.args[1]
-        self.assertTrue(np.isfinite(fac_nan).all())
-        self.assertEqual(float(fac_nan[0, 0]), 0.0)
+        self.assertEqual(list(train_m.call_args.args[1]), list(range(16)))
+        self.assertNotIn("arch", train_m.call_args.kwargs)
+        self.assertNotIn("factor_hidden", train_m.call_args.kwargs)
 
     def test_arm_t_cs_z_materialize_required(self):
         from types import SimpleNamespace
@@ -1471,8 +1363,14 @@ class TestArmLLiveAligned(unittest.TestCase):
             feature_names=["a", "b"],
             n=n,
         )
+        from core.research.yhat_transformer.seq_dataset import FactorWindowView
+
+        values = np.ones((2, 2), dtype=np.float32)
+        windows = np.zeros((n, 2), dtype=np.int32)
+        view = FactorWindowView(values, windows, None, ("a", "b"))
+        view.value_dates = ["2024-01-02", "2024-01-03"]
         seq = SimpleNamespace(
-            X=np.zeros((n, 4, 8), dtype=np.float32),
+            X=view,
             gap=np.zeros(n, dtype=np.float32),
             y=np.zeros(n, dtype=np.float32),
             dates=dates,
@@ -1483,20 +1381,19 @@ class TestArmLLiveAligned(unittest.TestCase):
             d_model=8,
             nhead=2,
             nlayers=1,
-            mlp_hidden=8,
             dropout=0.0,
             epochs=1,
             batch_size=4,
             lr=1e-3,
             device="cpu",
             t_sample_frac=1.0,
-            loss="smooth_l1",
+            loss="mse",
         )
         with mock.patch(
             "core.research.materialize.cube_z.cs_z_matrix_prefer_cube",
             side_effect=MaterializeRequired({"error": "缺 L2"}),
         ), mock.patch(
-            "core.research.yhat_transformer.train.train_seq_factor_transformer"
+            "core.research.yhat_transformer.train.train_arm_t"
         ) as train_m:
             out = _run_arm_t(seq, fac, list(range(4)), list(range(4, 8)), args)
         self.assertFalse(out.get("success"))
@@ -1504,7 +1401,7 @@ class TestArmLLiveAligned(unittest.TestCase):
         train_m.assert_not_called()
 
 
-class TestArmTGateAndProbe(unittest.TestCase):
+class TestArmTGate(unittest.TestCase):
     def test_gate_sign_and_rank_icir(self):
         from core.research.yhat_transformer.metrics import hard_gate_vs_baseline
 
@@ -1519,25 +1416,68 @@ class TestArmTGateAndProbe(unittest.TestCase):
         self.assertFalse(gate(0.10, 0.112, 0.50, 0.40)["pass"])
         self.assertTrue(gate(-0.02, 0.03, -0.10, 0.20)["pass"])
 
-    def test_probe_days_stay_out_of_fit_and_each_other(self):
-        from datetime import date, timedelta
+    def test_factor_sequence_uses_open_cube_z_and_keeps_age(self):
+        from unittest.mock import patch
 
-        from scripts.run_yhat_transformer_holdout import carve_probe_days
+        from core.research.yhat_transformer.factor_panel import (
+            FactorPanel,
+            cs_z_factor_sequence,
+            sequence_from_factor_panel,
+        )
 
-        days = [(date(2024, 1, 2) + timedelta(days=i)).isoformat() for i in range(50)]
-        fit, embargo, probe = carve_probe_days(days, horizon=1)
-        self.assertEqual(len(probe), 20)
-        self.assertEqual(embargo, [days[-21]])
-        self.assertEqual(probe[0], days[-20])
-        self.assertEqual(fit[-1], days[-22])
-        self.assertFalse(set(fit) & set(probe))
-        self.assertFalse(set(fit) & set(embargo))
-        self.assertFalse(set(probe) & set(embargo))
-        short = days[:8]
-        fit_short, embargo_short, probe_short = carve_probe_days(short, horizon=1)
-        self.assertEqual(probe_short, [])
-        self.assertEqual(embargo_short, [])
-        self.assertEqual(fit_short, short)
+        bars = _synth_bars(12, seed=1)
+        dates = [b["date"] for b in bars]
+        width = 3
+        raw = np.arange(len(dates) * width, dtype=np.float32).reshape(len(dates), width)
+        fac = FactorPanel(
+            X=raw.copy(),
+            y=np.arange(len(dates), dtype=np.float32),
+            dates=list(dates),
+            codes=["000001"] * len(dates),
+            feature_names=["c0", "c1", "c2"],
+        )
+        seq = sequence_from_factor_panel(fac, {"000001": bars}, seq_len=5)
+        age_before = float(seq.X[0, 0, -1])
+        seen = {}
+
+        def fake_z(x, names, groups, clock="open"):
+            seen["clock"] = clock
+            seen["names"] = list(names)
+            seen["days"] = list(groups)
+            return np.full_like(x, 4.0, dtype=np.float64)
+
+        with patch(
+            "core.research.materialize.cube_z.first_readable_cube_day",
+            return_value=(dates[2], 0),
+        ), patch(
+            "core.research.materialize.cube_z.cs_z_matrix_prefer_cube",
+            side_effect=fake_z,
+        ):
+            cs_z_factor_sequence(seq, z_clip=3.0)
+            cs_z_factor_sequence(seq, z_clip=3.0)
+        self.assertEqual(seen["clock"], "open")
+        self.assertEqual(seen["names"], ["c0", "c1", "c2"])
+        self.assertNotIn(dates[0], seen["days"])
+        self.assertIn(dates[2], seen["days"])
+        self.assertEqual(float(seq.X.values[0, 0]), 0.0)
+        self.assertEqual(float(seq.X.values[2, 0]), 3.0)
+        self.assertAlmostEqual(float(seq.X[0, 0, -1]), age_before, places=5)
+        sub = seq.subset([0])
+        self.assertTrue(sub.X.cs_z)
+        self.assertIs(sub.X.value_dates, seq.X.value_dates)
+        gap = np.array([50.0] + [0.01] * (seq.n - 1), dtype=np.float32)
+        values = np.array(seq.X.values, copy=True)
+        clip = seq.X.clip_train(gap, list(range(seq.n)), seed=0)
+        self.assertTrue(clip["seq_cs_z"])
+        np.testing.assert_array_equal(seq.X.values, values)
+        seq.X.values[3, 0] = np.nan
+        seq.X.apply_saved_clip(
+            gap,
+            {"seq_cs_z": True, "gap_lo": 0.0, "gap_hi": 1.0, "x_lo": [-5.0], "x_hi": [-4.0]},
+        )
+        self.assertEqual(float(seq.X.values[3, 0]), 0.0)
+        self.assertEqual(float(seq.X.values[2, 0]), 3.0)
+        self.assertLessEqual(float(gap.max()), 1.0)
 
     def test_seq_nan_imputes_train_median(self):
         from core.research.yhat_factory_backtest import apply_seq_clip
@@ -1737,6 +1677,22 @@ class TestLabelHorizonByHead(unittest.TestCase):
         eval_i = dates.index(same_day["eval_start"])
         self.assertEqual(same_day["fit_end"], dates[eval_i - 1])
         self.assertEqual(overnight["fit_end"], dates[eval_i - 2])
+
+
+class TestRegressionLevelMetrics(unittest.TestCase):
+    def test_mse_uses_raw_points(self):
+        from core.research.yhat_transformer.metrics import holdout_mse
+
+        preds = [0.0, 1.0, 2.0]
+        ys = [0.0, 1.0, 3.0]
+        self.assertAlmostEqual(holdout_mse(preds, ys), 1.0 / 3.0, places=6)
+
+    def test_mse_skips_non_finite_and_empty(self):
+        from core.research.yhat_transformer.metrics import holdout_mse
+
+        self.assertIsNone(holdout_mse([], []))
+        self.assertIsNone(holdout_mse([float("nan")], [1.0]))
+        self.assertAlmostEqual(holdout_mse([0.2] * 2, [1.0, 1.0]), 0.64, places=6)
 
 
 if __name__ == "__main__":

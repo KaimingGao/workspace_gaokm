@@ -1778,6 +1778,7 @@ class TestWebQuantJsGuards(unittest.TestCase):
         self.assertNotIn("本金默认 20 万，是回测全部资金", replay)
         self.assertIn("replay-run-head", replay)
         self.assertIn("replay-lookback-field", replay)
+        self.assertEqual(replay.count("replay-run-chip"), 4)
         self.assertNotIn("replay-control-band", replay)
         self.assertNotIn("09:30 · 100/200", replay)
         self.assertNotIn("1000/2000 股", replay)
@@ -3654,7 +3655,7 @@ class TestWebQuantJsGuards(unittest.TestCase):
         self.assertIn("data-persist-role", panel)
         self.assertNotIn('id="quant-recipe-band"', panel)
         self.assertNotIn("data-recipe-arm", panel)
-        self.assertIn(">双支路晚融合</span>", panel)
+        self.assertIn(">序列 Transformer</span>", panel)
         self.assertEqual(panel.count('data-arm-console="T"'), 4)
         self.assertEqual(panel.count('class="yhat-tf-arm-badge">T</span>'), 4)
         self.assertIn('data-quant-recipe="transformer"', panel)
@@ -3683,6 +3684,7 @@ class TestWebQuantJsGuards(unittest.TestCase):
         self.assertIn('marked === "live"', hub_arm)
         self.assertIn("${VERSION_URL}/enable", hub_arm)
         self.assertIn("holdout === 0", hub_arm)
+        self.assertIn("全样本已写入，无评估窗", hub_arm)
         self.assertIn("applyRecipeParams", hub_arm)
         self.assertIn("fit_params", hub_arm)
         self.assertIn("holdout", hub_arm)
@@ -3915,7 +3917,7 @@ class TestWebQuantJsGuards(unittest.TestCase):
         self.assertIn("100～1060", panel)
         self.assertNotIn("40～700", panel)
         self.assertIn(
-            'id="quant-fit-lookback-oo_rank" type="number" min="100" max="1200" step="10" value="700"',
+            'id="quant-fit-lookback-oo_rank" type="number" min="100" max="1200" step="10" value="1000"',
             panel,
         )
         self.assertNotIn("readLabelDemean", params_js)
@@ -4055,7 +4057,7 @@ class TestWebQuantJsGuards(unittest.TestCase):
     def test_hub_arm_stamp_matches_factory_windows(self):
         hub = self._read("web", "static", "js", "quant", "hub_arm_t.js")
         self.assertIn(
-            "T: { holdout: 60, lookback: { oo: 900, tc: 900, oo_rank: 700, tc_rank: 900 } }",
+            "T: { holdout: 60, lookback: { oo: 1000, tc: 1000, oo_rank: 1000, tc_rank: 1000 } }",
             hub,
         )
         self.assertIn(
@@ -4075,10 +4077,10 @@ class TestWebQuantJsGuards(unittest.TestCase):
 <div class="quant-fit-params yhat-tf-fit-params yhat-tf-run-config">
 <div data-hub-fields="T">t</div>
 <div data-hub-fields="LR" hidden>lr</div>
-<input data-param="lookback" value="900" />
+<input data-param="lookback" value="1000" />
 <input data-param="holdout_trading_days" value="60" />
 <div data-arm-console="T"><span class="yhat-tf-arm-badge">T</span>
-<div class="yhat-tf-arm-title"><strong>Arm·T</strong><span>双支路晚融合</span></div></div>
+<div class="yhat-tf-arm-title"><strong>Arm·T</strong><span>序列 Transformer</span></div></div>
 </div>
 </section>
 """
@@ -4091,7 +4093,7 @@ class TestWebQuantJsGuards(unittest.TestCase):
         self.assertIn('data-hub-fields="LR">', stamped)
         self.assertNotIn('data-hub-fields="LR" hidden', stamped)
 
-        edited = html.replace('value="900"', 'value="800"', 1)
+        edited = html.replace('value="1000"', 'value="800"', 1)
         kept = _stamp_quant_hub_arms(edited, {"tc_rank": "L"})
         self.assertIn('data-param="lookback" value="800"', kept)
 
@@ -4194,12 +4196,14 @@ class TestWebQuantJsGuards(unittest.TestCase):
             self.assertNotIn("dashboard-section-desc", chunk)
             self.assertNotIn("quant-section-desc", chunk)
         self.assertIn("quant-rg-protocol", panel)
-        self.assertIn(">观察池</span>", panel)
-        self.assertIn("宇宙 = <strong>观察池</strong>", panel)
+        self.assertIn(">沪深300</span>", panel)
+        self.assertIn("宇宙 = <strong>沪深300</strong>", panel)
+        self.assertNotIn("宇宙 = <strong>观察池</strong>", panel)
         self.assertNotIn("quant-section-research-universe", panel)
         self.assertNotIn(">全池</span>", panel[panel.find('id="quant-section-roll-gate"') : panel.find('id="quant-rg-run"')])
         self.assertIn('id="quant-rg-run" class="dialog-btn primary"', panel)
-        self.assertIn("ŷ&gt;0.5% ∧ rank_score&gt;0.5 · top_n=10", panel)
+        self.assertIn("ŷ&gt;0.3% ∧ rank&lt;6", panel)
+        self.assertNotIn("ŷ&gt;0.5% ∧ rank_score&gt;0.5 · top_n=10", panel)
         self.assertNotIn("ŷ&gt;0.2% ∧ rank_score&gt;0.3", panel)
         self.assertIn('id="quant-rg-ran"', panel)
         rg_head = panel[panel.find('id="quant-rg-strip"') : panel.find('id="quant-rg-run"')]
@@ -4211,19 +4215,23 @@ class TestWebQuantJsGuards(unittest.TestCase):
         self.assertIn("quant-rg-day-wrap", panel)
         rg_js = self._read("web", "static", "js", "quant", "roll_gate_ui.js")
         self.assertIn(">折</th><th>日期</th><th>结果</th>", rg_js)
+        self.assertIn('<th title="Y 预估值">ŷ</th><th title="Rank 预估值">Rank</th>', rg_js)
         self.assertIn("quant-rg-out quant-rg-out--${out.kind}", rg_js)
         self.assertIn("DAY_REASON_LABEL", rg_js)
         self.assertIn("y_gate: \"ŷ 门槛\"", rg_js)
         self.assertIn("/api/quant/roll-gate", rg_js)
         self.assertIn("/api/quant/roll-gate/last", rg_js)
         self.assertNotIn("/api/quant/roll-gate-top1", rg_js)
-        self.assertIn("观察池 walk-forward", rg_js)
+        self.assertIn("沪深300 walk-forward", rg_js)
+        self.assertNotIn("观察池 walk-forward", rg_js)
         self.assertIn(
-            "Walk-forward · ŷ>0.5% ∧ rank_score>0.5 · top_n=10 · 不入库",
+            "Walk-forward · ŷ>0.3% ∧ rank<6 · 不入库",
             rg_js,
         )
         self.assertNotIn("rank_score>0.3", rg_js)
-        self.assertIn("拉观察池日线", rg_js)
+        self.assertIn("拉沪深300日线", rg_js)
+        self.assertNotIn("拉观察池日线", rg_js)
+        self.assertIn("沪深300 ${nPool}", rg_js)
         self.assertIn("观察池 ${nPool}", rg_js)
         self.assertIn("A档(旧) ${nPool}", rg_js)
         self.assertNotIn("入队全池 walk-forward", rg_js)

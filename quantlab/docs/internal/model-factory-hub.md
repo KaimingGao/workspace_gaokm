@@ -44,7 +44,7 @@
 
 | | `/yhat-l` · Arm·L | `/yhat-t` · Arm·T |
 |--|--|--|
-| 模型 | LightGBM / LambdaRank | `SeqFactorTransformer` |
+| 模型 | LightGBM / LambdaRank | `ArmTModel` |
 | Holdout | `--factory L`（不建序列面板） | `--factory T`（序列+因子） |
 | 落盘 | `live/yhat_l/` | `live/yhat_t/`（旧 `yhat_tf/` 迁此或别名） |
 | 页内 Gate | 绝对指标（无 vs T） | 绝对指标（无 vs L）；跨厂对照留给枢纽 |
@@ -102,7 +102,7 @@ versions/{head}/{版本号}.weights/
   ridge.json    # Arm·R：截距与系数
 ```
 
-`meta.json` 带上版本档案里没有的打分伴随信息：`d_seq_in`、`d_factor`、网络结构、推理 dropout=0、训练时序列 1%/99% clip 上下界、因子列序与因子包。删除版本或超出保留条数时，该目录与 JSON、日志一起删除。`load_factory_weights(head, 版本号)` 只在版本 JSON 存在时读取。历史回测的四头读这个目录里已启用的版本；ŷ_τ30…90 仍读套槽。离线组合回测按版本号加载并预估（§3.4）。
+`meta.json` 带上版本档案里没有的打分伴随信息：`d_seq_in`、网络结构、推理 dropout=0、训练时序列 1%/99% clip 上下界、因子列序与因子包。删除版本或超出保留条数时，该目录与 JSON、日志一起删除。`load_factory_weights(head, 版本号)` 只在版本 JSON 存在时读取。历史回测的四头读这个目录里已启用的版本；ŷ_τ30…90 仍读套槽。离线组合回测按版本号加载并预估（§3.4）。
 
 ### 3.2 跨工厂可比评测
 
@@ -138,9 +138,9 @@ Holdout OOS 之外，还要看这版模型的历史回测收益。每个成功�
 
 历史回测页不另挂工厂版本下拉。四头 ŷ_oo / ŷ_τc / ŷ_oo_rank / ŷ_τc_rank 按 `live/yhat_hub/arms.json` 读取对应工厂的启用版本（研究套 `enabled.research`，执行套 `enabled.live`），用 `load_factory_weights` 打分。没有启用版本或没有 `weights_ref` 的头不打分。ŷ_τ30…90 仍读套槽。历史回测页的规则保存会同步到交易执行。
 
-离线验证在回测中心 `/yhat-bt`：四头各选 Arm·R / Arm·L / Arm·T，再各选该臂一版带权重的配方，后台加载权重并预估，用本页自己的 rank_lots 算出收益。臂只决定本页看哪一家工厂的版本，不写 `arms.json`。同臂四头和跨厂组合都在这里，不在三家工厂页底。权重、入场、强档、y_*>0、形态闸和本金只写在 `live/yhat_bt/`，不回写历史回测，也不改 live。日分价闸和可调成交钟仍只在历史回测页。成交固定 09:30。它不调用历史回测页的跑回测入口，不写研究套、不写执行套。
+离线验证在回测中心 `/yhat-bt`：四头各选 Arm·R / Arm·L / Arm·T，再各选该臂一版带权重的研究套配方，后台加载权重并预估，用本页自己的 rank_lots 算出收益。研究枢纽的执行套（`suite=live`，含未标套别且 Holdout 为 0 的跑次）不进这份版本列表。臂只决定本页看哪一家工厂的版本，不写 `arms.json`。同臂四头和跨厂组合都在这里，不在三家工厂页底。权重、入场、强档、y_*>0、形态闸和本金只写在 `live/yhat_bt/`，不回写历史回测，也不改 live。日分价闸和可调成交钟仍只在历史回测页。成交固定 09:30。它不调用历史回测页的跑回测入口，不写研究套、不写执行套。
 
-`/yhat-bt` 只读三家工厂已经落盘的版本，四头可以来自不同后端。两条排序头后端相同时买序用原始分（main 组合：Arm·R 的 ŷ_oo / ŷ_τc，Arm·L 的 LambdaRank）；后端不同时买序改用当日名次。回归头保持预测收益。同样不进历史回测页，不写套槽，不改 live。
+`/yhat-bt` 只读三家工厂已经落盘的研究套版本，四头可以来自不同后端。两条排序头后端相同时买序用原始分（main 组合：Arm·R 的 ŷ_oo / ŷ_τc，Arm·L 的 LambdaRank）；后端不同时买序改用当日名次。回归头保持预测收益。同样不进历史回测页，不写套槽，不改 live。
 
 离线回测对观察池全池打分并成交（截面 z 与打分同一份池）。运行台展示累计收益、超额、最大回撤、决策收益、准确率、命中率和窗口，不展示换手。
 
@@ -187,9 +187,9 @@ Holdout OOS 之外，还要看这版模型的历史回测收益。每个成功�
 |--|--|--|
 | LightGBM / LambdaRank | 数据：Holdout、训练窗。ŷ_τc / ŷ_τc_rank 另有前缀 | 因子表 |
 | Ridge | 数据，另加 λ | 系数表 |
-| Arm·T | 实验、数据、训练、模型与工厂同一套，可改。loss 按头固定（回归头 smooth_l1，排序头 lambdarank） | 运行台：Rank IC、ICIR、命中、Top10% y。无因子表 |
+| Arm·T | 实验、数据、训练、模型与工厂同一套，可改。loss 按头固定（回归头 mse，排序头 lambdarank） | 运行台：排序头 Rank IC、ICIR、NDCG@30、Top10% y；回归头 MSE、Rank IC、ICIR、命中、Top10% y。无因子表 |
 
-ŷ_τc 在枢纽的 id 是 `tau`，工厂是 `tc`，卡上做这一层映射。ŷ_τ30…90 和回测中心不进这张卡。当前页 `data-quant-recipe="transformer"`。四头各自从 Arm·R / Arm·L / Arm·T 里三选一，选择落在 `live/yhat_hub/arms.json`，缺省全是 T。卡上没有「研究 | 执行」切换，也不铺研究浅蓝。按钮是「拟合研究」「拟合执行」，调用所选工厂的 `start_holdout_fit`。Arm·T 参数与工厂一致（采样 10%、oo 用 core、τc 用 full、Holdout 60、窗 oo / τc / τc_rank 900、oo_rank 700、池子 800）。Arm·L / Arm·R 用该厂默认窗长（oo 600、τc 120、两条排序头 700、Holdout 20），池子是大池或沪深300，Arm·R 另有 λ。换臂时，训练窗和 Holdout 仍等于上一臂默认值的才改成新臂默认，改过的数字保留。指标从该厂状态画到运行台。每头一个版本框，列表是该臂跑次（`/api/quant/yhat-r|l|t/versions`），可预览、可删除。历史回测按头读取对应工厂里已启用、且带权重的版本。
+ŷ_τc 在枢纽的 id 是 `tau`，工厂是 `tc`，卡上做这一层映射。ŷ_τ30…90 和回测中心不进这张卡。当前页 `data-quant-recipe="transformer"`。四头各自从 Arm·R / Arm·L / Arm·T 里三选一，选择落在 `live/yhat_hub/arms.json`，缺省全是 T。卡上没有「研究 | 执行」切换，也不铺研究浅蓝。按钮是「拟合研究」「拟合执行」，调用所选工厂的 `start_holdout_fit`。Arm·T 参数与工厂一致（采样 100%、oo 与 τc 都用 full、Holdout 60、四头训练窗 1000、截面沪深300）。Arm·L / Arm·R 用该厂默认窗长（oo 600、τc 120、两条排序头 700、Holdout 20），池子是大池或沪深300，Arm·R 另有 λ。换臂时，训练窗和 Holdout 仍等于上一臂默认值的才改成新臂默认，改过的数字保留。指标从该厂状态画到运行台。每头研究框与执行框各一行。研究框与该臂模型中心同一列表（`suite=research`），执行框只收执行套（`suite=live`）。回测中心的版本列表与研究框同一范围。可预览、可删除。历史回测按头读取对应工厂里已启用、且带权重的版本。
 
 ---
 
@@ -329,3 +329,4 @@ live/yhat_l/  或  live/yhat_t/
 | 2026-11-19 | 三家工厂页和 `/api/quant/yhat-{l,t,r,tf}/backtest` 不再提供回测；组合回测只走 `/yhat-bt` |
 | 2026-11-20 | 枢纽四头各自选臂，选择在 `arms.json`。历史回测四头读该厂启用版本。概览不再挂配方带。τc_rank 的 Arm·T 训练窗与工厂同为 900，Arm·L / Arm·R 为 700 |
 | 2026-11-20 | 回测中心组合回测四头各有 Arm·R / L / T。版本列表随臂过滤。不写 `arms.json` |
+| 2026-11-22 | 回测中心版本列表只收研究套。研究枢纽的执行套不进这份列表 |

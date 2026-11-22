@@ -957,20 +957,16 @@ class TestAttachAndPersistLiveRanks(unittest.TestCase):
             {
                 "stock_code": f"{i:06d}",
                 "lake_score_day": "2026-11-09",
+                "y_oo_rank": i,
+                "y_oo_rank_n": 20,
+                "y_oo_rank_source": "arm_l",
+                "y_tc_rank": i,
+                "y_tc_rank_n": 20,
+                "y_tc_rank_source": "arm_l",
             }
             for i in range(1, 21)
         ]
         uni = [f"{i:06d}" for i in range(1, 21)]
-
-        def _oo(items, score_codes=None, day_cube=None, clock="open"):
-            for i, it in enumerate(items):
-                it["y_oo_rank"] = i + 1
-                it["y_oo_rank_n"] = len(items)
-
-        def _tc(items, score_codes=None, day_cube=None, clock="open"):
-            for i, it in enumerate(items):
-                it["y_tc_rank"] = i + 1
-                it["y_tc_rank_n"] = len(items)
 
         with tempfile.TemporaryDirectory() as tmp:
             path = os.path.join(tmp, "live_rank_snapshot.json")
@@ -980,12 +976,6 @@ class TestAttachAndPersistLiveRanks(unittest.TestCase):
             ), patch(
                 "core.paper.rebalance.watching_matrix.current_live_rank_universe",
                 return_value=(uni, live_rank_universe_fp(uni)),
-            ), patch(
-                "core.paper.rebalance.watching_matrix._attach_oo_rank_scores",
-                side_effect=_oo,
-            ), patch(
-                "core.paper.rebalance.watching_matrix._attach_tc_rank_scores",
-                side_effect=_tc,
             ):
                 attach_and_persist_live_ranks(
                     scored, score_codes=None, clock="open", persist=True
@@ -1002,26 +992,27 @@ class TestAttachAndPersistLiveRanks(unittest.TestCase):
         from core.paper.rebalance.watching_matrix import attach_and_persist_live_ranks
 
         scored = [
-            {"stock_code": "600096", "lake_score_day": "2026-11-09"},
-            {"stock_code": "000402", "lake_score_day": "2026-11-09"},
+            {
+                "stock_code": "600096",
+                "lake_score_day": "2026-11-09",
+                "y_oo_rank": 1,
+                "y_oo_rank_n": 2,
+                "y_oo_rank_source": "arm_l",
+            },
+            {
+                "stock_code": "000402",
+                "lake_score_day": "2026-11-09",
+                "y_oo_rank": 2,
+                "y_oo_rank_n": 2,
+                "y_oo_rank_source": "arm_l",
+            },
         ]
-
-        def _oo(items, score_codes=None, day_cube=None, clock="open"):
-            for i, it in enumerate(items):
-                it["y_oo_rank"] = i + 1
-                it["y_oo_rank_n"] = len(items)
 
         with tempfile.TemporaryDirectory() as tmp:
             path = os.path.join(tmp, "live_rank_snapshot.json")
             with patch(
                 "core.paper.rebalance.watching_matrix._live_rank_snapshot_path",
                 return_value=path,
-            ), patch(
-                "core.paper.rebalance.watching_matrix._attach_oo_rank_scores",
-                side_effect=_oo,
-            ), patch(
-                "core.paper.rebalance.watching_matrix._attach_tc_rank_scores",
-                side_effect=_oo,
             ), patch(
                 "core.paper.rebalance.watching_matrix.save_live_rank_snapshot"
             ) as save:
@@ -1046,28 +1037,19 @@ class TestAttachAndPersistLiveRanks(unittest.TestCase):
                 "stock_code": f"{i:06d}",
                 "lake_score_day": "2026-10-26",
                 "lake_score_fallback_from": "2026-11-09",
+                "y_oo_rank": i,
+                "y_oo_rank_n": 20,
+                "y_tc_rank": i,
+                "y_tc_rank_n": 20,
             }
             for i in range(1, 21)
         ]
-
-        def _oo(items, score_codes=None, day_cube=None, clock="open"):
-            for i, it in enumerate(items):
-                it["y_oo_rank"] = i + 1
-                it["y_oo_rank_n"] = len(items)
-                it["y_tc_rank"] = i + 1
-                it["y_tc_rank_n"] = len(items)
 
         with tempfile.TemporaryDirectory() as tmp:
             path = os.path.join(tmp, "live_rank_snapshot.json")
             with patch(
                 "core.paper.rebalance.watching_matrix._live_rank_snapshot_path",
                 return_value=path,
-            ), patch(
-                "core.paper.rebalance.watching_matrix._attach_oo_rank_scores",
-                side_effect=_oo,
-            ), patch(
-                "core.paper.rebalance.watching_matrix._attach_tc_rank_scores",
-                side_effect=_oo,
             ), patch(
                 "core.paper.rebalance.watching_matrix.save_live_rank_snapshot"
             ) as save:
@@ -1149,11 +1131,7 @@ class TestLiveRankSnapshot(unittest.TestCase):
                     universe_codes=uni,
                 )
                 rows = [{"stock_code": "600519", "y_oo": 1.2}]
-                with patch(
-                    "core.paper.rebalance.watching_matrix._stamp_ranks_from_lake"
-                ) as lake:
-                    stamp_live_ranks(rows)
-                lake.assert_not_called()
+                stamp_live_ranks(rows)
         self.assertEqual(rows[0]["y_oo_rank"], 2)
         self.assertEqual(rows[0]["y_tc_rank"], 5)
         self.assertEqual(rows[0]["y_oo_rank_n"], 40)
@@ -1192,11 +1170,8 @@ class TestLiveRankSnapshot(unittest.TestCase):
                 with patch(
                     "core.paper.rebalance.watching_matrix.refresh_live_open_ranks",
                     return_value={"ok": False},
-                ), patch(
-                    "core.paper.rebalance.watching_matrix._stamp_ranks_from_lake"
-                ) as lake:
+                ):
                     stamp_live_ranks(rows, heal=True)
-                lake.assert_called_once()
         self.assertIsNone(rows[0].get("y_oo_rank"))
 
     def test_fallback_row_stamps_session_day_ranks(self):
@@ -1243,11 +1218,7 @@ class TestLiveRankSnapshot(unittest.TestCase):
                         "lake_score_fallback_from": session,
                     }
                 ]
-                with patch(
-                    "core.paper.rebalance.watching_matrix._stamp_ranks_from_lake"
-                ) as lake:
-                    stamp_live_ranks(rows)
-                lake.assert_not_called()
+                stamp_live_ranks(rows)
         self.assertEqual(rows[0]["y_oo_rank"], 3)
         self.assertEqual(rows[0]["y_tc_rank"], 6)
 

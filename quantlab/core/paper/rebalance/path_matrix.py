@@ -41,6 +41,8 @@ DEFAULT_PATH_MATRIX: Dict[str, Any] = {
     # Live 自动调仓 / 手动预演窗口起点；止于 10:00。与回测 fill_clock 分立。
     "live_fill_clock": "09:30",
     "score_backend": "ridge",
+    # 历史回测页股票池。保存后即 live 调仓宇宙。缺省沪深300，与回测页默认一致。
+    "feature_set": "hs300",
     # 手数：按金额/价换算整手，不够一手则跳过；保存规则写入交易执行。缺省 live 1万/2万。
     "lot_base_amount": 10_000.0,
     "lot_strong_amount": 20_000.0,
@@ -257,6 +259,13 @@ def get_path_matrix_cfg(
         strong_amt = base
     out["lot_base_amount"] = base
     out["lot_strong_amount"] = strong_amt
+    try:
+        from core.universe.feature_sets import FEATURE_HS300, normalize_feature_set
+
+        out["feature_set"] = normalize_feature_set(out.get("feature_set")) or FEATURE_HS300
+    except Exception:  # noqa: BLE001
+        logger.debug("normalize feature_set failed", exc_info=True)
+        out["feature_set"] = "hs300"
     return out
 
 

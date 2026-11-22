@@ -34,7 +34,7 @@
       </p>
       <div class="replay-run-toolbar" aria-label="回测窗">
         <label
-          class="platform-field quant-pro-field replay-lookback-field replay-clock-field"
+          class="platform-field quant-pro-field replay-lookback-field replay-clock-field replay-run-chip"
           title="仅历史回测成交钟。成交用该时刻 5 分钟 K。09:30 用首根开盘价；其后用该根收盘价。ŷ_oo 始终开盘；ŷ_τc 在成交钟>09:30 时用截至该钟的 5m 前缀重算。不改 live「启动时间」（交易执行页独立配置，默认 09:30）。缺分钟：买入跳过；清仓回退该钟之后～10:00，再回退 09:30/日开盘。日分价闸只用 09:30–10:00 窗口分钟（尾盘残缺不当开盘锚）。有窗口分钟且「其他」里日分价闸开时，日开/分开或日昨/分昨错位超阈则该票当日跳过。"
         >
           <span class="quant-pro-field-label">回测时间</span>
@@ -49,15 +49,15 @@
           </select>
         </label>
         <label
-          class="platform-field quant-pro-field replay-lookback-field"
+          class="platform-field quant-pro-field replay-lookback-field replay-run-chip"
           title="回测覆盖多少个交易日（独立于 Holdout）。默认 10。不是调仓规则。"
         >
           <span class="quant-pro-field-label">窗口</span>
           <input id="quant-lookback" type="number" min="10" max="500" value="10" />
         </label>
         <label
-          class="platform-field quant-pro-field replay-lookback-field replay-model-field"
-          title="研究槽：Holdout 前训，默认历史验证。执行槽：由研究槽晋级的同一份模型（与自动调仓同一套）。两槽只是版本前后。"
+          class="platform-field quant-pro-field replay-lookback-field replay-model-field replay-run-chip"
+          title="只影响本页回测。研究是 Holdout 前训。执行对照工厂执行套。交易执行固定用执行套，不跟这个下拉。"
         >
           <span class="quant-pro-field-label">模型</span>
           <select id="quant-score-model-role">
@@ -66,8 +66,8 @@
           </select>
         </label>
         <label
-          class="platform-field quant-pro-field replay-lookback-field replay-pool-field"
-          title="回测候选用哪一套已物化截面，打分也读同一套。大池是数据中心观察池；沪深300是固定成分。须与对应模型的拟合截面一致。"
+          class="platform-field quant-pro-field replay-lookback-field replay-pool-field replay-run-chip"
+          title="本页回测和交易执行共用这一池。大池是数据中心观察池；沪深300是固定成分。点保存后 live 按这一池调仓。"
         >
           <span class="quant-pro-field-label">股票池</span>
           <select id="quant-feature-set" aria-label="股票池">

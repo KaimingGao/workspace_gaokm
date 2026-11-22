@@ -1,6 +1,7 @@
 /** 研究枢纽四头：每头在 Arm·R / Arm·L / Arm·T 里三选一。训练走对应工厂。 */
 
 import { apiFetch } from "../api_client.js";
+import { paintFitCurves } from "../fit_curves.js";
 import { readWatchingPoolLimit } from "./params.js";
 
 const PREFIX_CLOCKS = (() => {
@@ -36,10 +37,10 @@ const ARM_API = {
 const ARM_COPY = {
   R: { title: "Arm·R", desc: "Ridge · 全量" },
   L: { title: "Arm·L", desc: "LightGBM · 全量" },
-  T: { title: "Arm·T", desc: "双支路晚融合" },
+  T: { title: "Arm·T", desc: "序列 Transformer" },
 };
 const ARM_DEFAULTS = {
-  T: { holdout: 60, lookback: { oo: 900, tc: 900, oo_rank: 700, tc_rank: 900 } },
+  T: { holdout: 60, lookback: { oo: 1000, tc: 1000, oo_rank: 1000, tc_rank: 1000 } },
   L: { holdout: 20, lookback: { oo: 600, tc: 120, oo_rank: 700, tc_rank: 700 } },
   R: { holdout: 20, lookback: { oo: 600, tc: 120, oo_rank: 700, tc_rank: 700 } },
 };
@@ -53,8 +54,8 @@ const HEADS = [
     statusId: "quant-ols-summary",
     holdoutId: "quant-holdout-days",
     lookbackId: "quant-fit-lookback-oo",
-    lookback: 900,
-    loss: "smooth_l1",
+    lookback: 1000,
+    loss: "mse",
     fullAoo: true,
   },
   {
@@ -65,8 +66,8 @@ const HEADS = [
     statusId: "quant-tau-summary",
     holdoutId: "quant-holdout-days-tc",
     lookbackId: "quant-fit-lookback-tc",
-    lookback: 900,
-    loss: "smooth_l1",
+    lookback: 1000,
+    loss: "mse",
     fullAtc: true,
   },
   {
@@ -77,7 +78,7 @@ const HEADS = [
     statusId: "quant-oo-rank-summary",
     holdoutId: "quant-holdout-days-oo_rank",
     lookbackId: "quant-fit-lookback-oo_rank",
-    lookback: 700,
+    lookback: 1000,
     loss: "lambdarank",
     fullAoo: true,
   },
@@ -89,7 +90,7 @@ const HEADS = [
     statusId: "quant-tc-rank-summary",
     holdoutId: "quant-holdout-days-tc_rank",
     lookbackId: "quant-fit-lookback-tc_rank",
-    lookback: 900,
+    lookback: 1000,
     loss: "lambdarank",
     fullAtc: true,
   },
@@ -279,29 +280,57 @@ function paintGate(ui, text) {
 function paintMetrics(ui, pack) {
   const section = sectionOf(ui);
   const box = section?.querySelector(".quant-recipe-console .yhat-tf-arm-metrics");
+  const rankHead = ui === "oo_rank" || ui === "tc_rank";
   if (box) {
-    const rankHead = ui === "oo_rank" || ui === "tc_rank";
     const slots = box.querySelectorAll(":scope > div");
-    const hitLab = slots[2]?.querySelector("span");
-    if (hitLab) {
-      hitLab.textContent = rankHead ? "NDCG@30" : "命中";
-      hitLab.title = rankHead ? "Holdout 日均 NDCG@30" : "样本外方向命中率";
-    }
+    const labels = rankHead
+      ? [
+          ["Rank IC", "每日截面 Spearman 再对日平均"],
+          ["ICIR", "日频 IC 均值/标准差"],
+          ["NDCG@30", "Holdout 日均 NDCG@30"],
+          ["Top10% y", "Holdout 日截面 ŷ 头部 10% 实现收益均值"],
+        ]
+      : [
+          ["MSE", "Holdout 逐点均方误差。预测和实现都是百分点，不截断"],
+          ["Rank IC", "每日截面 Spearman 再对日平均"],
+          ["ICIR", "日频 Pearson IC 均值/标准差"],
+          ["命中", "样本外方向命中率，|ŷ|<0.05 个百分点不计"],
+          ["Top10% y", "Holdout 日截面 ŷ 头部 10% 实现收益均值"],
+        ];
+    slots.forEach((slot, i) => {
+      const lab = slot.querySelector("span");
+      if (!lab || !labels[i]) return;
+      lab.textContent = labels[i][0];
+      lab.title = labels[i][1];
+    });
     const cells = box.querySelectorAll("strong");
-    const values = [
-      fmt3(pack?.cs_rank_ic),
-      fmt3(pack?.cs_icir),
-      rankHead ? fmt3(pack?.cs_ndcg_30) : fmtHit(pack?.sign_hit),
-      fmt3(pack?.cs_top_mean_y),
-    ];
+    const values = rankHead
+      ? [
+          fmt3(pack?.cs_rank_ic),
+          fmt3(pack?.cs_icir),
+          fmt3(pack?.cs_ndcg_30),
+          fmt3(pack?.cs_top_mean_y),
+        ]
+      : [
+          fmt3(pack?.mse),
+          fmt3(pack?.cs_rank_ic),
+          fmt3(pack?.cs_icir),
+          fmtHit(pack?.sign_hit),
+          fmt3(pack?.cs_top_mean_y),
+        ];
     cells.forEach((el, i) => {
       const text = values[i] || "—";
       el.textContent = text;
       el.classList.toggle("is-empty", text === "—");
     });
   }
-  const ic = fmt3(pack?.cs_rank_ic);
-  paintGate(ui, ic === "—" ? "Rank IC —" : `Rank IC ${ic}`);
+  if (rankHead) {
+    const ic = fmt3(pack?.cs_rank_ic);
+    paintGate(ui, ic === "—" ? "Rank IC —" : `Rank IC ${ic}`);
+    return;
+  }
+  const mse = fmt3(pack?.mse);
+  paintGate(ui, mse === "—" ? "MSE —" : `MSE ${mse}`);
 }
 
 function paintCardMessage(spec, text) {
@@ -330,25 +359,26 @@ function recipeParams(spec, role) {
     arms: tag,
   };
   if (tag === "T") {
-    params.d_model = sectionNum(section, "d_model", 64);
-    params.nlayers = sectionNum(section, "nlayers", 3);
+    params.d_model = sectionNum(section, "d_model", 128);
+    params.nlayers = sectionNum(section, "nlayers", 2);
     params.nhead = 4;
     params.dropout = 0.1;
-    params.batch_size = sectionNum(section, "batch_size", 32);
-    params.epochs = sectionNum(section, "epochs", 12);
-    params.lr = 0.001;
-    params.t_sample_pct = sectionNum(section, "t_sample_pct", 10);
+    params.batch_size = sectionNum(section, "batch_size", 2048);
+    params.epochs = sectionNum(section, "epochs", 20);
+    params.t_sample_pct = sectionNum(section, "t_sample_pct", 100);
     params.device = "cpu";
     params.seq_feat_set = sectionRadio(section, "seq_feat_set", "seq_core");
-    params.seq_len = sectionNum(section, "seq_len", 20);
+    params.seq_len = sectionNum(section, "seq_len", 60);
     params.loss = spec.loss;
+    if (params.pool_n === 300) params.feature_set = "hs300";
+    params.lr = params.feature_set === "hs300" ? 0.0001 : 0.001;
     if (spec.fullAoo) {
-      params.full_aoo = sectionRadio(section, "full_aoo", "0") === "1";
-      params.factor_pack = params.full_aoo ? "aoo_full" : "aoo_core";
+      params.full_aoo = true;
+      params.factor_pack = "aoo_full";
     }
     if (spec.fullAtc) {
-      params.full_atc = sectionRadio(section, "full_atc", "1") !== "0";
-      params.factor_pack = params.full_atc ? "atc_full" : "atc_core";
+      params.full_atc = true;
+      params.factor_pack = "atc_full";
     }
   } else {
     const pool = section?.querySelector("[data-hub-pool]:checked");
@@ -567,12 +597,6 @@ function seqFeatValue(raw) {
   return "";
 }
 
-function flagValue(value) {
-  if (value === true || value === 1 || value === "1") return "1";
-  if (value === false || value === 0 || value === "0") return "0";
-  return "";
-}
-
 function applyRecipeParams(spec, params) {
   const section = sectionOf(spec.ui);
   if (!section || !params || typeof params !== "object") return;
@@ -590,8 +614,6 @@ function applyRecipeParams(spec, params) {
     if (el) el.checked = true;
   };
   pick("seq_feat_set", seqFeatValue(params.seq_feat_set));
-  if (params.full_aoo != null) pick("full_aoo", flagValue(params.full_aoo));
-  if (params.full_atc != null) pick("full_atc", flagValue(params.full_atc));
   const pool = String(params.feature_set || "");
   if (pool === "pool" || pool === "hs300") {
     const el = section.querySelector(`[data-hub-pool="${pool}"]`);
@@ -636,27 +658,12 @@ function replayChips(params) {
               : seqKey
                 ? seqTable.core
                 : "";
-  const pack = String(params.factor_pack || "");
-  const fac = pack
-    ? pack.includes("full")
-      ? "full"
-      : "core"
-    : params.full_atc != null
-      ? params.full_atc
-        ? "full"
-        : "core"
-      : params.full_aoo != null
-        ? params.full_aoo
-          ? "full"
-          : "core"
-        : "";
   const sample = params.t_sample_pct;
   return [
     ["池子", params.pool_n],
     ["训练窗", params.lookback],
     ["Holdout", params.holdout_trading_days],
     ["序列", dim],
-    ["T因子", fac],
     ["batch", params.batch_size],
     ["epochs", params.epochs],
     ["T采样%", sample == null || sample === "" ? "" : String(Number(sample))],
@@ -720,6 +727,7 @@ function paintReplay(spec, doc) {
     logEl.hidden = !text;
     logEl.textContent = text;
   }
+  paintFitCurves(box, arm(spec) === "T" ? doc?.fit_curve : null);
 }
 
 function paintArmState(box, text, tone, extra = {}) {
@@ -763,6 +771,7 @@ function paintLive(spec, st, label) {
   paintArmState(box, shown, "busy", { clockFrom: from, clock });
   paintCardMessage(spec, clock ? `${armName(spec)} ${shown} · ${clock}` : `${armName(spec)} ${shown}`);
   paintMetrics(spec.ui, null);
+  paintFitCurves(box, arm(spec) === "T" ? st?.fit_curve : null);
   const logEl = box.querySelector("[data-recipe-replay-log]");
   const text = replayLog(st?.log_tail);
   if (!logEl) return;
@@ -782,6 +791,7 @@ function clearReplay(spec) {
     logEl.hidden = true;
     logEl.textContent = "";
   }
+  paintFitCurves(box, null);
 }
 
 async function openVersion(spec, runId, role = "research") {
@@ -942,22 +952,41 @@ function applyHead(spec, st) {
   if (viewing.get(spec.api)) return;
   clearReplay(spec);
   paintMetrics(spec.ui, pack);
+  const rankHead = spec.ui === "oo_rank" || spec.ui === "tc_rank";
   const dur = spentDur(st?.job?.started_at, st?.job?.finished_at, pack?.elapsed_sec);
   const box = sectionOf(spec.ui)?.querySelector(".quant-recipe-console");
   const failed =
     st?.job?.status === "error" || st?.last?.action === "holdout_failed";
+  const curve = arm(spec) === "T" ? st?.fit_curve : null;
   if (failed) {
     const err = st?.job?.error || st?.last?.error || "拟合失败";
     paintArmState(box, "失败", "fail", { dur });
+    paintFitCurves(box, curve);
     paintCardMessage(spec, dur ? `${armName(spec)} ${err} · ${dur}` : `${armName(spec)} ${err}`);
     return;
   }
-  if (pack && pack.cs_rank_ic != null) {
+  if (pack && (rankHead ? pack.cs_rank_ic != null : pack.mse != null || pack.cs_rank_ic != null || pack.sign_hit != null)) {
     paintArmState(box, "完成", "ok", { dur });
+    paintFitCurves(box, curve);
     const spent = dur ? ` · ${dur}` : "";
     paintCardMessage(
       spec,
-      `${armName(spec)} Rank IC ${fmt3(pack.cs_rank_ic)} · ICIR ${fmt3(pack.cs_icir)}${spent}`
+      rankHead
+        ? `${armName(spec)} Rank IC ${fmt3(pack.cs_rank_ic)} · ICIR ${fmt3(pack.cs_icir)}${spent}`
+        : `${armName(spec)} MSE ${fmt3(pack.mse)} · Rank IC ${fmt3(pack.cs_rank_ic)}${spent}`
+    );
+    return;
+  }
+  const holdout = Number(st?.job?.params?.holdout_trading_days);
+  if (st?.job?.status === "done" && holdout === 0) {
+    paintArmState(box, "完成", "ok", { dur });
+    paintFitCurves(box, curve);
+    paintGate(spec.ui, "全样本");
+    paintCardMessage(
+      spec,
+      dur
+        ? `${armName(spec)} 全样本已写入，无评估窗 · ${dur}`
+        : `${armName(spec)} 全样本已写入，无评估窗`
     );
   }
 }
@@ -1086,6 +1115,7 @@ function paintArmChrome(spec) {
     const desc = consoleBox.querySelector(".yhat-tf-arm-title span");
     if (title) title.textContent = copy.title;
     if (desc) desc.textContent = copy.desc;
+    if (tag !== "T") paintFitCurves(section?.querySelector(".quant-recipe-console"), null);
   }
   const fit = document.getElementById(spec.fitId);
   if (fit) fit.title = `按当前配置拟合 ${copy.title}`;
@@ -1186,8 +1216,10 @@ export function installHubArmT() {
     wireArm(spec);
     const gate = document.querySelector(`[data-head-summary-gate="${spec.ui}"]`);
     if (gate && !gate.dataset.armGate) {
-      gate.dataset.armGate = "Rank IC —";
-      gate.textContent = "Rank IC —";
+      const blank =
+        spec.ui === "oo_rank" || spec.ui === "tc_rank" ? "Rank IC —" : "MSE —";
+      gate.dataset.armGate = blank;
+      gate.textContent = blank;
     }
   }
   wireVersionDismiss();

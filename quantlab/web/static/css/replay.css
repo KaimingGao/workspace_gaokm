@@ -330,6 +330,83 @@ body[data-page="replay"] .replay-run-toolbar {
   flex-wrap: wrap;
 }
 
+/* 调仓回测配置：标签写在控件里，四项成一组，不跟标题抢行、也不把「沪深300」裁掉 */
+body[data-page="replay"] #replay-section-run .replay-run-toolbar {
+  flex-wrap: nowrap;
+  gap: 6px;
+}
+
+body[data-page="replay"] #replay-section-run .replay-run-chip {
+  flex: 0 0 auto;
+  flex-direction: row !important;
+  align-items: center;
+  gap: 2px;
+  height: 28px;
+  margin: 0;
+  padding: 0 2px 0 8px;
+  border: 1px solid var(--line);
+  border-radius: 2px;
+  background: var(--surface);
+  box-sizing: border-box;
+}
+
+body[data-page="replay"] #replay-section-run .replay-run-chip:focus-within {
+  border-color: var(--accent, #2563eb);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent, #2563eb) 16%, transparent);
+}
+
+body[data-page="replay"] #replay-section-run .replay-run-chip .quant-pro-field-label {
+  flex: 0 0 auto;
+  padding: 0;
+  letter-spacing: 0 !important;
+  text-transform: none !important;
+  font-size: 12px !important;
+  font-weight: 600 !important;
+  line-height: 1;
+  color: var(--ink-3) !important;
+}
+
+body[data-page="replay"] #replay-section-run .replay-run-chip select,
+body[data-page="replay"] #replay-section-run .replay-run-chip input {
+  border: 0 !important;
+  background: transparent !important;
+  box-shadow: none !important;
+  height: 26px !important;
+  min-height: 0;
+  margin: 0;
+  padding: 0 2px 0 0 !important;
+  border-radius: 0 !important;
+  outline: none;
+}
+
+body[data-page="replay"] #replay-section-run .replay-run-chip select:focus,
+body[data-page="replay"] #replay-section-run .replay-run-chip input:focus {
+  border: 0 !important;
+  box-shadow: none !important;
+  outline: none;
+}
+
+body[data-page="replay"] #replay-section-run #quant-fill-clock {
+  width: 4.85rem;
+  min-width: 4.85rem;
+}
+
+body[data-page="replay"] #replay-section-run #quant-lookback {
+  width: 3.15rem;
+  min-width: 3.15rem;
+  text-align: center;
+}
+
+body[data-page="replay"] #replay-section-run #quant-score-model-role {
+  width: 4.15rem;
+  min-width: 4.15rem;
+}
+
+body[data-page="replay"] #replay-section-run #quant-feature-set {
+  width: 6.35rem;
+  min-width: 6.35rem;
+}
+
 body[data-page="replay"] .replay-run-toolbar > .dialog-btn {
   flex: 0 0 auto;
   align-self: center;
@@ -1738,6 +1815,10 @@ body[data-page="replay"] .replay-page .quant-fold > summary {
   body[data-page="replay"] .replay-run-toolbar {
     margin-left: 0;
     width: 100%;
+  }
+
+  body[data-page="replay"] #replay-section-run .replay-run-toolbar {
+    flex-wrap: wrap;
   }
 
   body[data-page="replay"] .replay-t0-pool-search {

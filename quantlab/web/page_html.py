@@ -75,7 +75,7 @@ _YHAT_L_ONLY = re.compile(r"<!--yhat-only:L-->.*?<!--/yhat-only:L-->", re.DOTALL
 _YHAT_R_ONLY = re.compile(r"<!--yhat-only:R-->.*?<!--/yhat-only:R-->", re.DOTALL)
 
 
-# Arm·L 默认窗跟研究枢纽。共享模板里的 900/60 留给 Arm·T。
+# Arm·L 默认窗跟研究枢纽。共享模板里的 1000/60 留给 Arm·T。
 _L_LOOKBACK = {"oo": 600, "tc": 120, "oo_rank": 700, "tc_rank": 700}
 _L_HOLDOUT = 20
 
@@ -133,8 +133,8 @@ def _yhat_factory_panel(factory: str) -> str:
             ),
             "{{ARMS_TITLE}}": "本厂模型臂",
             "{{ARMS_RAIL}}": arms_rail,
-            "open[T]→open[T+1] · SmoothL1 · Scheme LT": "open[T]→open[T+1] · LightGBM",
-            "price[τ]→close[T] · SmoothL1 · Scheme LT": "price[τ]→close[T] · LightGBM",
+            "open[T]→open[T+1] · mse": "open[T]→open[T+1] · LightGBM",
+            "price[τ]→close[T] · mse": "price[τ]→close[T] · LightGBM",
             "CS rank · LambdaRank · Gate=Δcs_rank_ic vs Arm·L": "CS rank · LambdaRank",
             "Gate · Arm·L": "绝对指标",
             "Gate · Δcs_rank_ic": "绝对指标",
@@ -156,8 +156,8 @@ def _yhat_factory_panel(factory: str) -> str:
             ),
             "{{ARMS_TITLE}}": "本厂模型臂",
             "{{ARMS_RAIL}}": arms_rail,
-            "open[T]→open[T+1] · SmoothL1 · Scheme LT": "open[T]→open[T+1] · Ridge",
-            "price[τ]→close[T] · SmoothL1 · Scheme LT": "price[τ]→close[T] · Ridge",
+            "open[T]→open[T+1] · mse": "open[T]→open[T+1] · Ridge",
+            "price[τ]→close[T] · mse": "price[τ]→close[T] · Ridge",
             "CS rank · LambdaRank · Gate=Δcs_rank_ic vs Arm·L": "CS rank · Ridge",
             "Gate · Arm·L": "绝对指标",
             "Gate · Δcs_rank_ic": "绝对指标",
@@ -165,20 +165,19 @@ def _yhat_factory_panel(factory: str) -> str:
     else:
         arms_rail = (
             '<span class="quant-path-step quant-pro-path-step is-active" data-state="busy" '
-            'title="双支路晚融合：序列塔与因子支拼接后出标量">'
-            '<span class="quant-pro-path-num">Arm·T</span> 双支路晚融合</span>'
+            'title="序列 Transformer：末步 LayerNorm 之后拼 gap，出标量">'
+            '<span class="quant-pro-path-num">Arm·T</span> 序列 Transformer</span>'
         )
         fills = {
             "{{FACTORY}}": "T",
             "{{EYEBROW}}": "Transformer Factory",
             "{{PAGE_H2}}": "模型中心 · Arm·T",
             "{{HELP_BLURB}}": (
-                "本页只训 <strong>Arm·T（SeqFactorTransformer · 双支路晚融合）</strong>。"
+                "本页只训 <strong>Arm·T（序列 Transformer）</strong>。"
                 "四头各自拟合与评测；绝对指标，无页内 vs L 硬闸；跨厂对照留给研究枢纽。不写 live。"
             ),
             "{{ARMS_TITLE}}": "本厂模型臂",
             "{{ARMS_RAIL}}": arms_rail,
-            "Scheme LT": "Arm·T",
         }
     html = _partial("yhat_factory_panel.html")
     for k, v in fills.items():
@@ -199,14 +198,14 @@ def _yhat_factory_panel(factory: str) -> str:
 
 # 与 hub_arm_t.js 的 ARM_DEFAULTS 一致。只在当前值仍是 Arm·T 默认时改成新臂默认。
 _HUB_UI_API = {"oo": "oo", "tau": "tc", "oo_rank": "oo_rank", "tc_rank": "tc_rank"}
-_HUB_T_LOOKBACK = {"oo": 900, "tc": 900, "oo_rank": 700, "tc_rank": 900}
+_HUB_T_LOOKBACK = {"oo": 1000, "tc": 1000, "oo_rank": 1000, "tc_rank": 1000}
 _HUB_LR_LOOKBACK = {"oo": 600, "tc": 120, "oo_rank": 700, "tc_rank": 700}
 _HUB_T_HOLDOUT = 60
 _HUB_LR_HOLDOUT = 20
 _HUB_ARM_COPY = {
     "R": ("Arm·R", "Ridge · 全量"),
     "L": ("Arm·L", "LightGBM · 全量"),
-    "T": ("Arm·T", "双支路晚融合"),
+    "T": ("Arm·T", "序列 Transformer"),
 }
 _HUB_SECTION = re.compile(
     r'<section\b[^>]*\bdata-head-section="(oo|tau|oo_rank|tc_rank)"[^>]*>'

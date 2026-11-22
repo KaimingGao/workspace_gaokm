@@ -37,30 +37,21 @@ class TestYhatTfLegacyMigrate(unittest.TestCase):
 
 
 class TestYhatTfHardenParams(unittest.TestCase):
-    def test_page_d_model_realigns_auto_mlp_hidden(self):
-        """页面改 d_model 时，草稿里「自动对齐」的 mlp_hidden 不得粘住旧值。"""
+    def test_mlp_hidden_is_dropped(self):
+        """因子 MLP 的 mlp_hidden 不再进入拟合参数。"""
         from core.research.yhat_tf_desk import (
             _merge_request_over_draft,
             _normalize_fit_params,
         )
 
-        draft = _normalize_fit_params("oo", {"d_model": 64})
-        self.assertEqual(draft["mlp_hidden"], 64)
-        page = {"d_model": 128, "pool_n": 800}
-        merged = _merge_request_over_draft(draft, page)
+        draft = _normalize_fit_params("oo", {"d_model": 64, "mlp_hidden": 32})
+        self.assertNotIn("mlp_hidden", draft)
+        merged = _merge_request_over_draft(
+            {"d_model": 64, "mlp_hidden": 32}, {"d_model": 128, "pool_n": 800}
+        )
         out = _normalize_fit_params("oo", merged)
         self.assertEqual(out["d_model"], 128)
-        self.assertEqual(out["mlp_hidden"], 128)
-        # 显式覆盖（≠旧 d_model）保留
-        draft2 = _normalize_fit_params(
-            "oo", {"d_model": 64, "mlp_hidden": 32}
-        )
-        self.assertEqual(draft2["mlp_hidden"], 32)
-        out2 = _normalize_fit_params(
-            "oo",
-            _merge_request_over_draft(draft2, {"d_model": 128}),
-        )
-        self.assertEqual(out2["mlp_hidden"], 32)
+        self.assertNotIn("mlp_hidden", out)
 
     def test_tc_lookback_clamped_and_nhead_aligned(self):
         from core.research.yhat_tf_desk import harden_fit_params, _normalize_fit_params
@@ -147,11 +138,12 @@ class TestYhatTfHardenParams(unittest.TestCase):
         )
         self.assertNotIn("protocol_preset", oo)
         self.assertNotIn("tau_end", oo)
-        self.assertEqual(oo["seq_feat_set"], "seq32")
-        legacy, _ = harden_fit_params("oo", {"seq_feat_set": "seq16"})
-        self.assertEqual(legacy["seq_feat_set"], "seq16")
+        self.assertEqual(oo["seq_feat_set"], "seq_core")
+        legacy, legacy_warns = harden_fit_params("oo", {"seq_feat_set": "seq16"})
+        self.assertEqual(legacy["seq_feat_set"], "seq_core")
+        self.assertTrue(any("已下线" in w for w in legacy_warns))
         legacy64, _ = harden_fit_params("oo", {"seq_feat_set": "seq64"})
-        self.assertEqual(legacy64["seq_feat_set"], "seq64")
+        self.assertEqual(legacy64["seq_feat_set"], "seq_core")
         core_seq, _ = harden_fit_params("oo", {"seq_feat_set": "core"})
         self.assertEqual(core_seq["seq_feat_set"], "seq_core")
         full_seq, _ = harden_fit_params("oo", {"seq_feat_set": "full"})
@@ -189,16 +181,16 @@ class TestYhatTfHardenParams(unittest.TestCase):
     def test_loss_clamp_warns_and_cli_has_lr(self):
         from core.research.yhat_tf_desk import build_holdout_cli, harden_fit_params
 
-        oo, warns = harden_fit_params("oo", {"loss": "mse", "lr": 5e-4})
-        self.assertEqual(oo["loss"], "smooth_l1")
-        self.assertTrue(any("loss:" in w and "mse→smooth_l1" in w for w in warns))
+        oo, warns = harden_fit_params("oo", {"loss": "mae", "lr": 5e-4})
+        self.assertEqual(oo["loss"], "mse")
+        self.assertTrue(any("loss:" in w and "mae→mse" in w for w in warns))
         from core.research.yhat_tf_desk import factory_scope
 
         with factory_scope("L"):
-            arm_l, l_warns = harden_fit_params("oo", {"loss": "smooth_l1"})
-            arm_l_rank, _ = harden_fit_params("oo_rank", {"loss": "smooth_l1"})
+            arm_l, l_warns = harden_fit_params("oo", {"loss": "mae"})
+            arm_l_rank, _ = harden_fit_params("oo_rank", {"loss": "mae"})
         self.assertEqual(arm_l["loss"], "l2")
-        self.assertTrue(any("smooth_l1→l2" in w for w in l_warns))
+        self.assertTrue(any("mae→l2" in w for w in l_warns))
         self.assertEqual(arm_l_rank["loss"], "lambdarank")
         cli = build_holdout_cli("oo", oo)
         self.assertIn("--lr 0.0005", cli)
@@ -231,7 +223,11 @@ class TestYhatTfHardenParams(unittest.TestCase):
             harden_fit_params,
         )
 
-        self.assertEqual(default_fit_params("oo")["t_sample_pct"], 10.0)
+        self.assertEqual(default_fit_params("oo")["t_sample_pct"], 100.0)
+        omitted, _ = harden_fit_params("oo", {"lookback": 1000})
+        self.assertTrue(omitted["full_aoo"])
+        self.assertEqual(omitted["factor_pack"], "aoo_full")
+        self.assertEqual(omitted["t_sample_pct"], 100.0)
         keep, _ = harden_fit_params("oo", {"t_sample_pct": 25})
         self.assertEqual(keep["t_sample_pct"], 25)
         self.assertIn("--t-sample-frac 0.25", build_holdout_cli("oo", keep))
@@ -257,8 +253,8 @@ class TestYhatTfHardenParams(unittest.TestCase):
         legacy, _lw = harden_fit_params("oo", {"max_train_rows": 40000, "arms": "L,T"})
         self.assertNotIn("max_train_rows", legacy)
         self.assertEqual(legacy["arms"], "T")
-        self.assertEqual(legacy["t_sample_pct"], 10.0)
-        # Holdout args.t_sample_frac → desk t_sample_pct（避免 ingest 掉回默认 10）
+        self.assertEqual(legacy["t_sample_pct"], 100.0)
+        # Holdout args.t_sample_frac → desk t_sample_pct（避免 ingest 掉回别的数）
         via_frac = _normalize_fit_params("oo", {"t_sample_frac": 1.0, "watching_limit": 800})
         self.assertEqual(via_frac["t_sample_pct"], 100.0)
         self.assertNotIn("t_sample_frac", via_frac)
@@ -271,14 +267,36 @@ class TestYhatTfHardenParams(unittest.TestCase):
             factory_scope,
         )
 
-        self.assertEqual(default_fit_params("oo")["lookback"], 900)
-        self.assertEqual(default_fit_params("oo")["holdout_trading_days"], 60)
-        self.assertEqual(default_fit_params("tc_rank")["lookback"], 900)
+        from core.research.yhat_transformer.heads import (
+            ARM_T_BATCH,
+            ARM_T_D_MODEL,
+            ARM_T_EPOCHS,
+            ARM_T_HOLDOUT,
+            ARM_T_LOOKBACK,
+            ARM_T_NLAYERS,
+            ARM_T_SEQ_LEN,
+        )
+
+        oo_t = default_fit_params("oo")
+        self.assertEqual(oo_t["lookback"], ARM_T_LOOKBACK)
+        self.assertEqual(oo_t["holdout_trading_days"], ARM_T_HOLDOUT)
+        self.assertEqual(oo_t["d_model"], ARM_T_D_MODEL)
+        self.assertEqual(oo_t["nlayers"], ARM_T_NLAYERS)
+        self.assertEqual(oo_t["epochs"], ARM_T_EPOCHS)
+        self.assertEqual(oo_t["batch_size"], ARM_T_BATCH)
+        self.assertEqual(oo_t["seq_len"], ARM_T_SEQ_LEN)
+        self.assertEqual(oo_t["t_sample_pct"], 100.0)
+        self.assertEqual(oo_t["lr"], 1e-4)
+        self.assertTrue(oo_t["full_aoo"])
+        self.assertEqual(oo_t["feature_set"], "hs300")
+        self.assertEqual(default_fit_params("oo_rank")["lookback"], 1000)
+        self.assertEqual(default_fit_params("tc_rank")["lookback"], 1000)
         with factory_scope("L"):
             oo_l = default_fit_params("oo")
             self.assertEqual(oo_l["lookback"], 600)
             self.assertEqual(oo_l["holdout_trading_days"], 20)
             self.assertEqual(oo_l["arms"], "L")
+            self.assertNotIn("feature_set", oo_l)
             self.assertTrue(oo_l["full_aoo"])
             self.assertEqual(oo_l["factor_pack"], "aoo_full")
             self.assertEqual(default_fit_params("tc")["lookback"], 120)
@@ -289,8 +307,24 @@ class TestYhatTfHardenParams(unittest.TestCase):
         self.assertEqual(argv[argv.index("--lookback") + 1], "120")
         self.assertEqual(argv[argv.index("--holdout-trading-days") + 1], "20")
         argv_t = build_holdout_argv("oo", factory="T")
-        self.assertEqual(argv_t[argv_t.index("--lookback") + 1], "900")
-        self.assertEqual(argv_t[argv_t.index("--holdout-trading-days") + 1], "60")
+        self.assertEqual(argv_t[argv_t.index("--lookback") + 1], str(ARM_T_LOOKBACK))
+        self.assertEqual(
+            argv_t[argv_t.index("--holdout-trading-days") + 1], str(ARM_T_HOLDOUT)
+        )
+        self.assertEqual(argv_t[argv_t.index("--d-model") + 1], str(ARM_T_D_MODEL))
+        self.assertEqual(argv_t[argv_t.index("--batch-size") + 1], str(ARM_T_BATCH))
+        self.assertEqual(argv_t[argv_t.index("--epochs") + 1], str(ARM_T_EPOCHS))
+        self.assertEqual(argv_t[argv_t.index("--seq-len") + 1], str(ARM_T_SEQ_LEN))
+        self.assertEqual(argv_t[argv_t.index("--nlayers") + 1], str(ARM_T_NLAYERS))
+        import inspect
+
+        from core.research.yhat_transformer.train import train_arm_t
+
+        sig = inspect.signature(train_arm_t)
+        self.assertEqual(sig.parameters["d_model"].default, ARM_T_D_MODEL)
+        self.assertEqual(sig.parameters["nlayers"].default, ARM_T_NLAYERS)
+        self.assertEqual(sig.parameters["epochs"].default, ARM_T_EPOCHS)
+        self.assertEqual(sig.parameters["batch_size"].default, ARM_T_BATCH)
 
     def test_arm_t_both_pools_chain_finetune(self):
         from unittest import mock
@@ -310,6 +344,7 @@ class TestYhatTfHardenParams(unittest.TestCase):
         self.assertIn("--chain-finetune", argv)
         self.assertNotIn("--finetune", argv)
         self.assertEqual(argv[argv.index("--codes") + 1], "000001,000002")
+        self.assertEqual(argv[argv.index("--lr") + 1], "0.001")
         with factory_scope("T"), mock.patch(
             "core.universe.feature_sets.codes_for_feature_set",
             return_value=codes,
@@ -322,6 +357,32 @@ class TestYhatTfHardenParams(unittest.TestCase):
         self.assertNotIn("--finetune", argv_hs)
         self.assertNotIn("--chain-finetune", argv_hs)
         self.assertEqual(argv_hs[argv_hs.index("--codes") + 1], "000001,000002")
+        self.assertEqual(argv_hs[argv_hs.index("--lr") + 1], "0.0001")
+        with factory_scope("T"), mock.patch(
+            "core.universe.feature_sets.codes_for_feature_set",
+            return_value=codes,
+        ):
+            kept = build_holdout_argv(
+                "oo",
+                {"feature_set": "hs300", "lr": 5e-4},
+                factory="T",
+            )
+            legacy = build_holdout_argv(
+                "oo",
+                {"feature_set": "hs300", "lr": 1e-3},
+                factory="T",
+            )
+        self.assertEqual(kept[kept.index("--lr") + 1], "0.0005")
+        self.assertEqual(legacy[legacy.index("--lr") + 1], "0.0001")
+        from core.research.yhat_tf_desk import resolve_arm_t_lr
+
+        self.assertEqual(resolve_arm_t_lr(None, feature_set="hs300"), 1e-4)
+        self.assertEqual(resolve_arm_t_lr(1e-3, feature_set="hs300"), 1e-4)
+        self.assertEqual(resolve_arm_t_lr(5e-4, feature_set="hs300"), 5e-4)
+        self.assertEqual(resolve_arm_t_lr(1e-4, feature_set="pool"), 1e-3)
+        self.assertEqual(
+            resolve_arm_t_lr(1e-3, feature_set="pool", finetune=True), 1e-4
+        )
         with factory_scope("T"), mock.patch(
             "core.universe.feature_sets.codes_for_feature_set",
             return_value=codes,
@@ -477,6 +538,15 @@ class TestYhatTfHardenParams(unittest.TestCase):
         self.assertFalse(core["factor_width_match"])
         named = compute_parity("tc", {"full_atc": "core"}, eval_shared=False)
         self.assertFalse(named["factor_width_match"])
+        bare = compute_parity("oo", {}, eval_shared=True)
+        self.assertTrue(bare["factor_width_match"])
+        self.assertTrue(bare["train_sample_full"])
+        self.assertTrue(bare["formal"])
+        kept = compute_parity(
+            "oo", {"full_aoo": False, "t_sample_pct": 10}, eval_shared=True
+        )
+        self.assertFalse(kept["factor_width_match"])
+        self.assertFalse(kept["train_sample_full"])
         ok, drift = _protocol_matches({"full_aoo": "full"}, {"full_aoo": True})
         self.assertTrue(ok)
         self.assertEqual(drift, [])
@@ -541,6 +611,28 @@ class TestYhatTfHardenParams(unittest.TestCase):
         self.assertNotIn("cs_rank_ic", arms["L"])
         self.assertEqual(arms["T"]["cs_rank_ic"], 0.02)
 
+    def test_summary_arms_keeps_rank_ndcg(self):
+        """排序头运行台第三格读 cs_ndcg_30。切片丢掉它，NDCG@30 会是空的。"""
+        from core.research.yhat_tf_desk import _summary_arms
+
+        with tempfile.TemporaryDirectory() as td:
+            path = os.path.join(td, "summary.json")
+            with open(path, "w", encoding="utf-8") as f:
+                json.dump(
+                    {
+                        "arm_T": {
+                            "success": True,
+                            "cs_rank_ic": 0.04,
+                            "cs_icir": 0.22,
+                            "cs_ndcg_30": 0.61,
+                            "cs_top_mean_y": 0.18,
+                        }
+                    },
+                    f,
+                )
+            arms = _summary_arms({"action": "holdout_result", "experiment_out": path})
+        self.assertEqual(arms["T"]["cs_ndcg_30"], 0.61)
+
     def test_mark_fit_failed_writes_job_and_last(self):
         with tempfile.TemporaryDirectory() as td:
             with mock.patch("core.research.yhat_tf_desk.YHAT_TF_DIR", td), mock.patch(
@@ -587,7 +679,7 @@ class TestYhatTfFitExitError(unittest.TestCase):
                 with open(log_path, "w", encoding="utf-8") as f:
                     f.write(
                         "    transformer model ready n_params=1\n"
-                        "    transformer fit start loss=smooth_l1 batch=32 "
+                        "    transformer fit start loss=mse batch=32 "
                         "steps/ep=990 n_tr=100\n"
                     )
                 msg = _fit_exit_error_from_log("oo")
@@ -666,7 +758,7 @@ class TestYhatTfFitExitError(unittest.TestCase):
                 log_path = os.path.join(td, "tc_fit.log")
                 with open(log_path, "w", encoding="utf-8") as f:
                     f.write(
-                        "    transformer fit start loss=smooth_l1 batch=32\n"
+                        "    transformer fit start loss=mse batch=32\n"
                         "    transformer step=1070 ep=2/6 [97/973] loss=1.65\n"
                     )
                 msg = _fit_exit_error_from_log("tc")
@@ -1108,6 +1200,8 @@ class TestYhatTfPidAlive(unittest.TestCase):
                 self.assertEqual(env.get("OPENBLAS_NUM_THREADS"), "1")
                 self.assertEqual(env.get("TORCH_NUM_THREADS"), "4")
                 self.assertEqual(env.get("HORIZON_LGB_NUM_THREADS"), "1")
+                self.assertTrue(str(env.get("YHAT_FIT_CURVE") or "").endswith("oo_fit.curve.jsonl"))
+                self.assertTrue(os.path.isfile(env["YHAT_FIT_CURVE"]))
                 self.assertEqual(out["job"].get("exit_hint"), "early_exit")
                 self.assertIn("Traceback", out.get("error") or "")
                 with open(os.path.join(td, "oo_last.json"), encoding="utf-8") as f:
@@ -1219,14 +1313,14 @@ class TestYhatTfDesk(unittest.TestCase):
 
                 save_fit_draft(
                     "oo",
-                    {"d_model": 32, "batch_size": 16, "pool_n": 200, "loss": "mse"},
+                    {"d_model": 32, "batch_size": 16, "pool_n": 200, "loss": "mae"},
                     note="t",
                 )
                 draft_path = os.path.join(td, "oo_draft.json")
                 with open(draft_path, encoding="utf-8") as f:
                     draft_blob = json.load(f)
                 self.assertEqual(draft_blob["params"]["watching_limit"], 200)
-                self.assertEqual(draft_blob["params"]["loss"], "smooth_l1")
+                self.assertEqual(draft_blob["params"]["loss"], "mse")
 
                 out = record_holdout_intent("oo", {"epochs": 3})
                 self.assertTrue(out["success"])
@@ -1464,18 +1558,28 @@ class TestYhatTfDesk(unittest.TestCase):
                     promote_draft_to_research,
                     save_fit_draft,
                 )
-
-                # batch 范围 16–1024；factor_pack 跟 T 列宽；模型超参进 CLI
-                p8, warns = harden_fit_params("oo", {"batch_size": 8, "full_aoo": False})
-                self.assertEqual(p8["batch_size"], 16)
-                self.assertTrue(any("batch" in w for w in warns))
-                p_hi, warns_hi = harden_fit_params(
-                    "oo", {"batch_size": 2048, "full_aoo": False}
+                from core.research.yhat_transformer.heads import (
+                    ARM_T_BATCH_MAX,
+                    ARM_T_BATCH_MIN,
                 )
-                self.assertEqual(p_hi["batch_size"], 1024)
+
+                # batch 跟训练入口同一对边界；factor_pack 跟 T 列宽；模型超参进 CLI
+                p8, warns = harden_fit_params(
+                    "oo", {"batch_size": ARM_T_BATCH_MIN - 1, "full_aoo": False}
+                )
+                self.assertEqual(p8["batch_size"], ARM_T_BATCH_MIN)
+                self.assertTrue(any("batch" in w for w in warns))
+                p_ok, warns_ok = harden_fit_params(
+                    "oo", {"batch_size": ARM_T_BATCH_MAX, "full_aoo": False}
+                )
+                self.assertEqual(p_ok["batch_size"], ARM_T_BATCH_MAX)
+                self.assertFalse(any(w.startswith("batch") for w in warns_ok))
+                p_hi, warns_hi = harden_fit_params(
+                    "oo", {"batch_size": ARM_T_BATCH_MAX + 1, "full_aoo": False}
+                )
+                self.assertEqual(p_hi["batch_size"], ARM_T_BATCH_MAX)
                 self.assertTrue(any("batch" in w for w in warns_hi))
                 self.assertEqual(p8["factor_pack"], "aoo_core")
-                # 显式配置保留；无 mlp_hidden 时默认对齐 d_model
                 p_full, _ = harden_fit_params(
                     "oo",
                     {
@@ -1491,7 +1595,7 @@ class TestYhatTfDesk(unittest.TestCase):
                     },
                 )
                 self.assertEqual(p_full["factor_pack"], "aoo_full")
-                self.assertEqual(p_full["mlp_hidden"], 128)
+                self.assertNotIn("mlp_hidden", p_full)
                 self.assertEqual(p_full["nhead"], 8)
                 self.assertEqual(p_full["dropout"], 0.2)
                 self.assertNotIn("patience", p_full)
@@ -1499,14 +1603,14 @@ class TestYhatTfDesk(unittest.TestCase):
                     "oo", {"d_model": 128, "full_aoo": True}
                 )
                 self.assertEqual(p_def["nhead"], 4)
-                self.assertEqual(p_def["mlp_hidden"], 128)
+                self.assertNotIn("mlp_hidden", p_def)
                 self.assertEqual(p_def["dropout"], 0.1)
                 self.assertEqual(p_def["lr"], 1e-3)
                 self.assertNotIn("patience", p_def)
                 from core.research.yhat_tf_desk import build_holdout_cli
 
                 cli = build_holdout_cli("oo", p_full)
-                self.assertIn("--mlp-hidden 128", cli)
+                self.assertNotIn("--mlp-hidden", cli)
                 self.assertIn("--dropout 0.2", cli)
                 self.assertNotIn("--patience", cli)
                 self.assertIn("--nhead 8", cli)
@@ -1547,6 +1651,7 @@ class TestYhatTfDesk(unittest.TestCase):
                         },
                         "args": {
                             "full_aoo": True,
+                            "seq_feat_set": "seq_full",
                             "t_sample_frac": 1.0,
                             "d_model": 32,
                             "watching_limit": 800,
@@ -1597,7 +1702,7 @@ class TestYhatTfDesk(unittest.TestCase):
                         "batch_size": 32,
                         "epochs": 12,
                         "arms": "L,T",
-                        "loss": "smooth_l1",
+                        "loss": "mse",
                     }
                 }
                 last_sparse = {
@@ -1622,7 +1727,7 @@ class TestYhatTfDesk(unittest.TestCase):
                         "batch_size": 32,
                         "epochs": 12,
                         "arms": "L,T",
-                        "loss": "smooth_l1",
+                        "loss": "mse",
                         # 故意缺 dropout / lr
                     },
                 }
@@ -1863,8 +1968,9 @@ class TestYhatTfPageWiring(unittest.TestCase):
         self.assertNotIn("默认对照", html)
         self.assertNotIn("贴 live", html)
         self.assertIn('data-param-radio="seq_feat_set"', html)
-        self.assertIn('data-param-radio="full_aoo"', html)
-        self.assertIn('data-param-radio="full_atc"', html)
+        self.assertNotIn('data-param-radio="full_aoo"', html)
+        self.assertNotIn('data-param-radio="full_atc"', html)
+        self.assertNotIn('type="hidden" data-param="seq_len"', html)
         self.assertIn("core · 61", html)
         self.assertIn("full · 218", html)
         self.assertNotIn("core · 55", html)
@@ -1902,7 +2008,9 @@ class TestYhatTfPageWiring(unittest.TestCase):
             "ListNet",
             "T采样%",
             "SmoothL1",
-            "双支路晚融合",
+            "smooth_l1",
+            '<option value="mse"',
+            "序列 Transformer",
             "Scheme LT",
         ):
             self.assertNotIn(gone, html_l, msg=gone)
@@ -1931,7 +2039,16 @@ class TestYhatTfPageWiring(unittest.TestCase):
             'data-param="lookback" type="number" min="100" max="1200" step="10" value="600"',
             html_r,
         )
-        self.assertIn('value="900"', html_t)
+        self.assertIn('value="1000"', html_t)
+        self.assertIn('value="128"', html_t)
+        self.assertIn('value="2048"', html_t)
+        self.assertIn(
+            'data-param="epochs" type="number" min="1" max="40" step="1" value="20"',
+            html_t,
+        )
+        self.assertNotIn('value="256"', html_t)
+        self.assertIn('value="100"', html_t)
+        self.assertIn('data-pool="hs300" value="hs300" checked', html_t)
         self.assertIn('value="60"', html_t)
         self.assertNotIn("实验臂与 Gate 说明", html)
         self.assertNotIn("yhat-tf-arms-fold", html)
@@ -1939,14 +2056,104 @@ class TestYhatTfPageWiring(unittest.TestCase):
         self.assertIn('data-arm-console="T"', html_t)
         self.assertNotIn("yhat-only:L", html_t)
         self.assertNotIn("data-contrast-lift", html)
-        self.assertIn("双支路晚融合", html_t)
+        self.assertIn("序列 Transformer", html_t)
         self.assertNotIn('data-arm="0"', html)
         self.assertNotIn('data-arm="A"', html)
         self.assertIn('data-param="loss"', html)
         self.assertIn("<option value=\"lambdarank\"", html)
-        self.assertIn("<option value=\"smooth_l1\"", html)
+        self.assertIn("<option value=\"mse\"", html)
+        self.assertNotIn("<option value=\"smooth_l1\"", html)
+        self.assertIn("open[T]→open[T+1] · mse", html)
+        self.assertIn("price[τ]→close[T] · mse", html)
+        self.assertNotIn("· smooth_l1", html)
         self.assertNotIn('data-param="arms" type="text"', html)
         self.assertNotIn('data-param="loss" type="text"', html)
+        from core.research.yhat_transformer.heads import (
+            ARM_T_BATCH,
+            ARM_T_BATCH_MAX,
+            ARM_T_BATCH_MIN,
+            ARM_T_D_MODEL,
+            ARM_T_EPOCHS,
+            ARM_T_HOLDOUT,
+            ARM_T_LOOKBACK,
+            ARM_T_NLAYERS,
+            ARM_T_SEQ_LEN,
+            ARM_T_SEQ_MIN,
+        )
+
+        batch_bounds = f'min="{ARM_T_BATCH_MIN}" max="{ARM_T_BATCH_MAX}"'
+        seq_len = (
+            'data-param="seq_len" type="number" '
+            f'min="{ARM_T_SEQ_MIN}" max="{ARM_T_SEQ_LEN}" step="1" value="{ARM_T_SEQ_LEN}"'
+        )
+        fit_defaults = (
+            seq_len,
+            f'data-param="d_model" type="number" min="16" step="8" value="{ARM_T_D_MODEL}"',
+            f'data-param="nlayers" type="number" min="1" max="6" step="1" value="{ARM_T_NLAYERS}"',
+            (
+                'data-param="batch_size" type="number" '
+                f'min="{ARM_T_BATCH_MIN}" max="{ARM_T_BATCH_MAX}" step="8" value="{ARM_T_BATCH}"'
+            ),
+            (
+                'data-param="epochs" type="number" '
+                f'min="1" max="40" step="1" value="{ARM_T_EPOCHS}"'
+            ),
+        )
+        factory_windows = (
+            (
+                'data-param="lookback" type="number" '
+                f'min="100" max="1200" step="10" value="{ARM_T_LOOKBACK}"'
+            ),
+            (
+                'data-param="holdout_trading_days" type="number" '
+                f'min="5" max="90" step="1" value="{ARM_T_HOLDOUT}"'
+            ),
+        )
+        self.assertEqual(html_t.count(batch_bounds), 4)
+        hub_path = os.path.join(root, "web/static/partials/quant_panel.html")
+        with open(hub_path, encoding="utf-8") as f:
+            hub_html = f.read()
+        self.assertEqual(hub_html.count(batch_bounds), 4)
+        for snippet in fit_defaults:
+            self.assertEqual(html_t.count(snippet), 4, msg=snippet)
+            self.assertEqual(hub_html.count(snippet), 4, msg=snippet)
+        for snippet in factory_windows:
+            self.assertEqual(html_t.count(snippet), 4, msg=snippet)
+        import re
+
+        self.assertEqual(
+            len(
+                re.findall(
+                    rf'data-param="lookback"[^>]*value="{ARM_T_LOOKBACK}"',
+                    hub_html,
+                )
+            ),
+            4,
+        )
+        self.assertEqual(
+            len(
+                re.findall(
+                    rf'data-param="holdout_trading_days"[^>]*value="{ARM_T_HOLDOUT}"',
+                    hub_html,
+                )
+            ),
+            4,
+        )
+        hub_js = os.path.join(root, "web/static/js/quant/hub_arm_t.js")
+        with open(hub_js, encoding="utf-8") as f:
+            hub_js_src = f.read()
+        for key, num in (
+            ("d_model", ARM_T_D_MODEL),
+            ("nlayers", ARM_T_NLAYERS),
+            ("batch_size", ARM_T_BATCH),
+            ("epochs", ARM_T_EPOCHS),
+            ("seq_len", ARM_T_SEQ_LEN),
+        ):
+            self.assertIn(f'sectionNum(section, "{key}", {num})', hub_js_src)
+        self.assertIn(
+            f"T: {{ holdout: {ARM_T_HOLDOUT}, lookback: {{ oo: {ARM_T_LOOKBACK}, tc: {ARM_T_LOOKBACK}, oo_rank: {ARM_T_LOOKBACK}, tc_rank: {ARM_T_LOOKBACK} }} }}",
+            hub_js_src,
+        )
         # 四头字段对齐：模型 d_model/layers/loss · 训练 batch/epochs/T采样%；仅 τc* 多 tau_end
         # nhead/mlp/dropout/lr 不进页面（CLI/草稿可配）
         self.assertIn("T采样%", html)
@@ -1998,6 +2205,7 @@ class TestYhatTfPageWiring(unittest.TestCase):
                 "batch_size",
                 "epochs",
                 "t_sample_pct",
+                "seq_len",
             ):
                 self.assertIn(f'data-param="{key}"', panel, msg=f"{head}.{key}")
             self.assertIn('type="checkbox" data-pool="pool"', panel, msg=f"{head}.pool")
@@ -2063,6 +2271,9 @@ class TestYhatTfPageWiring(unittest.TestCase):
         self.assertNotIn("menu.style.width", place)
         self.assertNotIn("menu.style.minWidth", place)
         self.assertIn("/versions?head=", yhat_js)
+        self.assertIn("&suite=research", yhat_js)
+        self.assertIn("function hideFinishedExecution", yhat_js)
+        self.assertIn('String(st.job?.suite || "") !== "live"', yhat_js)
         self.assertIn("/versions/preview?", yhat_js)
         self.assertIn('method: "DELETE"', yhat_js)
         self.assertIn("data-version-delete", yhat_js)
@@ -2105,7 +2316,7 @@ class TestYhatTfPageWiring(unittest.TestCase):
         self.assertIn(".yhat-tf-result-grid", css)
         self.assertIn(".yhat-tf-head.is-compact", css)
         self.assertIn("--sys-r-tier1", css)
-        btn_css = css.split(".yhat-tf-version-btn {", 1)[1].split("}", 1)[0]
+        btn_css = css.split("\n.yhat-tf-version-btn {", 1)[1].split("}", 1)[0]
         self.assertIn("width: max-content", btn_css)
         self.assertIn("min-width: 24rem", btn_css)
         menu_css = css.split(".yhat-tf-version-menu {", 1)[1].split("}", 1)[0]

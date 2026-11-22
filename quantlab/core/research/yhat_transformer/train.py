@@ -1,4 +1,4 @@
-"""Arm·T 训练 / 推理。不切验证集，跑满 epochs。探针每个 epoch 测试，Holdout 在训练后预测。"""
+"""Arm·T 训练 / 推理。不切验证集，跑满 epochs。每个 epoch 在 Holdout 上测一次，不选权重。"""
 
 from __future__ import annotations
 
@@ -10,6 +10,16 @@ import time as _time
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 import numpy as np
+
+from core.research.yhat_transformer.fit_curve import append_fit_curve, finite_num
+from core.research.yhat_transformer.heads import (
+    ARM_T_BATCH,
+    ARM_T_BATCH_MAX,
+    ARM_T_BATCH_MIN,
+    ARM_T_D_MODEL,
+    ARM_T_EPOCHS,
+    ARM_T_NLAYERS,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -66,20 +76,22 @@ def _impute_seq_median(
     seed: int,
 ) -> Optional[List[float]]:
     """用训练行的逐列中位数填非有限值。中位数看最多 2 万行，再写回整张序列。"""
+    from core.research.yhat_transformer.seq_dataset import (
+        FactorWindowView,
+        fill_nonfinite_inplace,
+        sample_train_rows,
+    )
+
+    if isinstance(X, FactorWindowView):
+        return X.impute_median(row_ids, seed=int(seed))
     if not row_ids or X.size <= 0:
         return None
-    tr_np = np.asarray(row_ids, dtype=np.int64)
-    if tr_np.size > 20000:
-        rng_fill = np.random.RandomState(int(seed) + 7)
-        tr_np = tr_np[rng_fill.choice(tr_np.size, size=20000, replace=False)]
+    tr_np = sample_train_rows(row_ids, int(seed))
     sample = np.asarray(X[tr_np], dtype=np.float64)
     flat = sample.reshape(-1, sample.shape[-1])
     med = np.nanmedian(flat, axis=0).astype(np.float32)
     med = np.where(np.isfinite(med), med, np.float32(0.0)).astype(np.float32)
-    bad = ~np.isfinite(X)
-    if bool(bad.any()):
-        fill = np.broadcast_to(med.reshape((1,) * (X.ndim - 1) + (med.shape[0],)), X.shape)
-        X[bad] = fill[bad]
+    fill_nonfinite_inplace(X, med)
     return [float(v) for v in med.tolist()]
 
 
@@ -94,12 +106,16 @@ def _clip_inplace_rows(
 
     返回每维 1%/99% 上下界，供版本权重在新日期上按同一分位裁切。
     """
+    from core.research.yhat_transformer.seq_dataset import (
+        FactorWindowView,
+        sample_train_rows,
+    )
+
+    if isinstance(X, FactorWindowView):
+        return X.clip_train(gap, row_ids, seed=int(seed))
     if not row_ids:
         return None
-    tr_np = np.asarray(row_ids, dtype=np.int64)
-    if tr_np.size > 20000:
-        rng_clip = np.random.RandomState(int(seed) + 7)
-        tr_np = tr_np[rng_clip.choice(tr_np.size, size=20000, replace=False)]
+    tr_np = sample_train_rows(row_ids, int(seed))
     sample = X[tr_np]
     flat = sample.reshape(-1, sample.shape[-1])
     lo = np.nanpercentile(flat, 1.0, axis=0).astype(np.float32)
@@ -247,11 +263,11 @@ def _lambdarank_group_loss(pred, yb, *, truncation: int = _LAMBDARANK_TRUNCATION
 
 
 def _regression_batch_loss(pred, yb):
-    """回归头损失：逐点 SmoothL1（β=1），再对批取均值。预测和标签都是百分点。"""
+    """回归头损失：逐点 MSE。预测和标签都是百分点。"""
     torch = _require_torch()
     if pred.numel() <= 0:
         return pred.sum() * 0.0
-    return torch.nn.functional.smooth_l1_loss(pred, yb, beta=1.0, reduction="mean")
+    return torch.nn.functional.mse_loss(pred, yb, reduction="mean")
 
 
 def _rank_batch_loss(pred, yb, dates_batch: Sequence[str]):
@@ -278,11 +294,43 @@ def _rank_batch_loss(pred, yb, dates_batch: Sequence[str]):
 
 
 def _resolve_loss(loss: Optional[str]) -> str:
-    """排序头走 LambdaRank。其余名字，包括旧的 mse / huber，都是 SmoothL1（β=1）。"""
-    name = str(loss or "smooth_l1").strip().lower()
+    """排序头走 LambdaRank。回归头是 MSE。"""
+    name = str(loss or "mse").strip().lower()
     if name == "lambdarank":
         return "lambdarank"
-    return "smooth_l1"
+    return "mse"
+
+
+_WEIGHT_DECAY = 1e-3
+
+
+def _adamw(model, lr: float):
+    """AdamW。``bias`` 与 LayerNorm 的 ``weight`` 不衰减，其余 ``1e-3``。"""
+    torch = _require_torch()
+    owners = {}
+    for mod_name, mod in model.named_modules():
+        for pname, param in mod.named_parameters(recurse=False):
+            full = f"{mod_name}.{pname}" if mod_name else pname
+            owners[full] = mod
+    decay = []
+    free = []
+    for name, param in model.named_parameters():
+        if not param.requires_grad:
+            continue
+        leaf = name.rsplit(".", 1)[-1]
+        owner = owners.get(name)
+        if leaf == "bias" or (
+            leaf == "weight" and isinstance(owner, torch.nn.LayerNorm)
+        ):
+            free.append(param)
+        else:
+            decay.append(param)
+    groups = []
+    if decay:
+        groups.append({"params": decay, "weight_decay": _WEIGHT_DECAY})
+    if free:
+        groups.append({"params": free, "weight_decay": 0.0})
+    return torch.optim.AdamW(groups, lr=float(lr), weight_decay=0.0)
 
 
 def _configure_torch_threads() -> int:
@@ -374,41 +422,34 @@ def _subsample_whole_groups(
 
 
 
-def train_seq_factor_transformer(
+def train_arm_t(
     seq_panel: Any,
-    fac_X: Optional[np.ndarray],
     train_idx: Sequence[int],
     *,
-    d_model: int = 32,
+    d_model: int = ARM_T_D_MODEL,
     nhead: int = 4,
-    nlayers: int = 2,
-    factor_hidden: int = 64,
+    nlayers: int = ARM_T_NLAYERS,
     dropout: float = 0.1,
-    epochs: int = 25,
-    batch_size: int = 128,
+    epochs: int = ARM_T_EPOCHS,
+    batch_size: int = ARM_T_BATCH,
     lr: float = 1e-3,
     seed: int = 42,
     device: Optional[str] = None,
     max_train_rows: Optional[int] = None,
-    loss: str = "smooth_l1",
-    probe_idx: Optional[Sequence[int]] = None,
+    loss: str = "mse",
+    holdout_idx: Optional[Sequence[int]] = None,
     init_state: Optional[Dict[str, Any]] = None,
-    arch: int = 2,
 ) -> Tuple[Any, Dict[str, Any]]:
     """Arm·T 训练（固定调用方 seed，默认 42）。
 
-    ``fac_X`` 须已由调用方做完与 Arm·L 对齐的 L2 立方截面 CS-z；
-    此处不再做训练段列标准化。
     不切验证集，跑满 ``epochs``，保存最后一个 epoch 的权重。
-    ``probe_idx`` 每个 epoch 结束后 ``no_grad`` 打指标，不反传，不选权重。
-    Holdout 不传入这里，由调用方在训练结束后单独预测。
+    ``holdout_idx`` 每个 epoch 结束后 ``no_grad`` 打指标，不反传，不选权重。
     ``loss=lambdarank`` 时只做 LambdaRank。
-    回归头是逐点 SmoothL1（β=1）。
+    回归头是逐点 MSE。``bias`` 与 LayerNorm 的 weight 不进权重衰减。
     """
     torch = _require_torch()
     from core.research.yhat_transformer.model import (
-        ARCH_V2,
-        SeqFactorTransformer,
+        ArmTModel,
         count_parameters,
         pick_device,
     )
@@ -420,7 +461,7 @@ def train_seq_factor_transformer(
     dev = pick_device(device)
     loss_name = _resolve_loss(loss)
     grouped = loss_name == "lambdarank"
-    # 不切验证日。抽样只作用在拟合日。探针在 probe_idx，Holdout 由调用方在训练后预测。
+    # 不切验证日。抽样只作用在拟合日。Holdout 每个 epoch 结束后只读一次。
     if grouped:
         tr = _subsample_whole_groups(
             seq_panel.dates,
@@ -433,34 +474,23 @@ def train_seq_factor_transformer(
             list(train_idx), max_train_rows=max_train_rows, seed=seed
         )
 
-    # 先拆出独立缓冲，再清空面板大数组，避免 clip 时与面板双份并存
-    Xseq = _owned_f32(seq_panel.X)
+    # 因子序列是窗口视图，因子行只存一份，按 batch 再取。价量序列仍拷成可写缓冲。
+    from core.research.yhat_transformer.seq_dataset import FactorWindowView
+
+    windowed = isinstance(seq_panel.X, FactorWindowView)
+    Xseq = seq_panel.X if windowed else _owned_f32(seq_panel.X)
     gap = _owned_f32(seq_panel.gap)
     y = _owned_f32(seq_panel.y)
     day_s = [str(d)[:10] for d in seq_panel.dates]
     code_s = [str(c) for c in list(getattr(seq_panel, "codes", []) or [])]
-    try:
-        seq_panel.X = np.empty((0, 0, 0), dtype=np.float32)
-        seq_panel.gap = np.empty((0,), dtype=np.float32)
-        seq_panel.y = np.empty((0,), dtype=np.float32)
-    except Exception:
-        pass
-    # 因子已 CS-z：只保证独立 float32 缓冲，不再列标准化
-    fac_owned = np.asarray(fac_X, dtype=np.float32)
-    if (
-        fac_owned.dtype != np.float32
-        or not fac_owned.flags.writeable
-        or not getattr(fac_owned.flags, "owndata", True)
-    ):
-        fac_owned = _owned_f32(fac_X)
-    del fac_X
+    if not windowed:
+        try:
+            seq_panel.X = np.empty((0, 0, 0), dtype=np.float32)
+            seq_panel.gap = np.empty((0,), dtype=np.float32)
+            seq_panel.y = np.empty((0,), dtype=np.float32)
+        except Exception:
+            pass
     gc.collect()
-    Xf = fac_owned
-    if int(Xf.shape[0]) != int(Xseq.shape[0]):
-        raise ValueError(
-            f"Arm·T 行数不对齐：Xseq N={int(Xseq.shape[0])} Xf N={int(Xf.shape[0])}；"
-            "须先 align_seq_and_factor"
-        )
     if int(d_model) % max(1, int(nhead)) != 0:
         raise ValueError(
             f"d_model={int(d_model)} 须能被 nhead={int(nhead)} 整除"
@@ -484,23 +514,21 @@ def train_seq_factor_transformer(
         return len(seen)
 
     n_tr_days = _count_days(tr)
+    xseq_mb = Xseq.nbytes / 1e6
+    bs = max(ARM_T_BATCH_MIN, min(ARM_T_BATCH_MAX, int(batch_size or ARM_T_BATCH)))
     print(
         f"    transformer build d_model={d_model} layers={nlayers} "
         f"n_train={len(tr)} train_days={n_tr_days} "
-        f"batch={batch_size} device={dev} "
-        f"Xseq={Xseq.nbytes/1e6:.0f}MB Xf={Xf.nbytes/1e6:.0f}MB",
+        f"batch={bs} device={dev} "
+        f"Xseq={xseq_mb:.0f}MB{'' if not windowed else ' window'}",
         flush=True,
     )
-    model_arch = int(arch or ARCH_V2)
-    model = SeqFactorTransformer(
+    model = ArmTModel(
         d_seq_in=int(Xseq.shape[-1]),
-        d_factor=int(Xf.shape[1]),
         d_model=int(d_model),
         nhead=int(nhead),
         nlayers=int(nlayers),
-        factor_hidden=int(factor_hidden),
         dropout=float(dropout),
-        arch=model_arch,
     ).to(dev)
     if init_state:
         try:
@@ -517,28 +545,27 @@ def train_seq_factor_transformer(
         Xseq = np.ascontiguousarray(Xseq)
     if not gap.flags["C_CONTIGUOUS"]:
         gap = np.ascontiguousarray(gap)
-    if not Xf.flags["C_CONTIGUOUS"]:
-        Xf = np.ascontiguousarray(Xf)
     if not y.flags["C_CONTIGUOUS"]:
         y = np.ascontiguousarray(y)
     print(
         f"    transformer buffers ready n_params={count_parameters(model)} "
-        f"Xseq={Xseq.nbytes/1e6:.0f}MB Xf={Xf.nbytes/1e6:.0f}MB "
+        f"Xseq={Xseq.nbytes/1e6:.0f}MB{'' if not windowed else ' window'} "
         f"(batch via numpy, no full torch index)",
         flush=True,
     )
 
     base_lr = float(lr)
-    opt = torch.optim.AdamW(model.parameters(), lr=base_lr, weight_decay=1e-4)
+    opt = _adamw(model, base_lr)
     rng = np.random.RandomState(int(seed))
     global_step = 0
     tr_arr = np.asarray(tr, dtype=np.int64)
-    # 探针可能是 ndarray，不能写 `if x` / `x or []`
-    probe_src = [] if probe_idx is None else probe_idx
-    probe_arr = np.asarray(probe_src, dtype=np.int64)
-    if probe_arr.size:
-        probe_arr = probe_arr[(probe_arr >= 0) & (probe_arr < int(y.shape[0]))]
-    bs = max(16, min(1024, int(batch_size or 128)))
+    # Holdout 可能是 ndarray，不能写 `if x` / `x or []`
+    holdout_src = [] if holdout_idx is None else holdout_idx
+    holdout_arr = np.asarray(holdout_src, dtype=np.int64)
+    if holdout_arr.size:
+        holdout_arr = holdout_arr[
+            (holdout_arr >= 0) & (holdout_arr < int(y.shape[0]))
+        ]
     tr_groups = (
         _group_row_lists(day_s, tr_arr.tolist(), min_group=2) if grouped else []
     )
@@ -567,12 +594,13 @@ def train_seq_factor_transformer(
         log_every = 0
     if log_every <= 0:
         log_every = max(50, min(500, max(1, steps_per_ep // 10)))
+    loss_note = loss_name
     print(
-        f"    transformer fit start loss={loss_name} lr={base_lr:.2e} "
+        f"    transformer fit start loss={loss_note} lr={base_lr:.2e} "
         f"sched=cosine warmup={warmup_steps} total_steps={total_steps} "
         f"threads={n_threads} batch={bs} steps/ep={steps_per_ep} log_every={log_every} "
         f"epochs={epochs} save=last "
-        f"n_tr={tr_arr.size} train_days={n_tr_days}"
+        f"n_tr={tr_arr.size} train_days={n_tr_days} n_ho={holdout_arr.size}"
         + (
             f" n_groups={len(tr_groups)} "
             f"group_med={sorted(len(g) for g in tr_groups)[len(tr_groups) // 2]}"
@@ -628,11 +656,9 @@ def train_seq_factor_transformer(
         with torch.enable_grad():
             for si, rows in enumerate(batches):
                 rows_np = np.asarray(rows, dtype=np.int64)
-                xs, gg, xf, yb = _batch_to_device(
-                    Xseq, gap, Xf, y, rows=rows_np, device=dev
-                )
+                xs, gg, yb = _batch_to_device(Xseq, gap, y, rows=rows_np, device=dev)
                 opt.zero_grad(set_to_none=True)
-                pred = model(xs, gg, xf)
+                pred = model(xs, gg)
                 if grouped:
                     loss = _rank_batch_loss(
                         pred, yb, [day_s[int(r)] for r in rows]
@@ -667,7 +693,14 @@ def train_seq_factor_transformer(
                         f"{speed:.1f}it/s eta={eta:.0f}s",
                         flush=True,
                     )
-                del xs, gg, xf, yb, loss
+                    _curve(
+                        {
+                            "k": "s",
+                            "step": int(global_step),
+                            "avg": total / max(n_seen, 1),
+                        }
+                    )
+                del xs, gg, yb, loss
         return total / float(max(1, n_seen)), last_gn
 
     def _fmt4(v: Any) -> str:
@@ -679,25 +712,27 @@ def train_seq_factor_transformer(
             return "nan"
         return f"{x:.4f}"
 
-    def _score_probe() -> Optional[Dict[str, Any]]:
-        """当前权重在探针行上的截面指标。不反传，不改权重。"""
-        if probe_arr.size <= 0:
+    def _score_holdout() -> Optional[Dict[str, Any]]:
+        """当前权重在 Holdout 行上的截面指标。不反传，不改权重。"""
+        if holdout_arr.size <= 0:
             return None
-        from core.research.yhat_transformer.metrics import daily_cs_ic_report, sign_hit
+        from core.research.yhat_transformer.metrics import (
+            daily_cs_ic_report,
+            holdout_mse,
+            sign_hit,
+        )
 
         was_training = bool(model.training)
         model.eval()
         outs: List[np.ndarray] = []
         try:
             with torch.no_grad():
-                for start in range(0, int(probe_arr.size), bs):
-                    rows = probe_arr[start : start + bs]
-                    xs, gg, xf = _batch_to_device(
-                        Xseq, gap, Xf, rows=rows, device=dev
-                    )
-                    pred = model(xs, gg, xf)
+                for start in range(0, int(holdout_arr.size), bs):
+                    rows = holdout_arr[start : start + bs]
+                    xs, gg = _batch_to_device(Xseq, gap, rows=rows, device=dev)
+                    pred = model(xs, gg)
                     outs.append(pred.detach().cpu().numpy().astype(np.float64))
-                    del xs, gg, xf, pred
+                    del xs, gg, pred
         finally:
             if was_training:
                 model.train(True)
@@ -706,17 +741,19 @@ def train_seq_factor_transformer(
             if outs
             else np.zeros((0,), dtype=np.float64)
         )
-        ys = np.asarray(y[probe_arr], dtype=np.float64)
+        ys = np.asarray(y[holdout_arr], dtype=np.float64)
         metas = [
             {
                 "code": code_s[int(i)] if int(i) < len(code_s) else "",
                 "date": day_s[int(i)] if int(i) < len(day_s) else "",
                 "decision_date": day_s[int(i)] if int(i) < len(day_s) else "",
             }
-            for i in probe_arr.tolist()
+            for i in holdout_arr.tolist()
         ]
         pack = daily_cs_ic_report(preds.tolist(), ys.tolist(), metas)
         pack["sign_hit"] = sign_hit(preds.tolist(), ys.tolist())
+        if not grouped:
+            pack["mse"] = holdout_mse(preds.tolist(), ys.tolist())
         pack["n"] = int(ys.shape[0])
         if grouped:
             from core.research.yhat_transformer.metrics import mean_daily_ndcg
@@ -726,7 +763,20 @@ def train_seq_factor_transformer(
             )
         return pack
 
-    probe_by_epoch: List[Dict[str, Any]] = []
+    def _curve(row: Dict[str, Any]) -> None:
+        clean: Dict[str, Any] = {}
+        for key, value in row.items():
+            if key in ("k", "ep", "step"):
+                clean[key] = value
+                continue
+            num = finite_num(value)
+            if num is not None:
+                clean[key] = num
+        if not any(key in clean for key in ("avg", "rank_ic", "ndcg30", "mse")):
+            return
+        append_fit_curve(clean)
+
+    holdout_by_epoch: List[Dict[str, Any]] = []
     t_fit0 = _time.time()
     for ep in range(1, max(1, int(epochs)) + 1):
         t_ep = _time.time()
@@ -740,19 +790,20 @@ def train_seq_factor_transformer(
             f"{ep_sec:.1f}s",
             flush=True,
         )
-        if probe_arr.size:
+        holdout_pack = None
+        if holdout_arr.size:
             try:
-                probe_pack = _score_probe()
+                holdout_pack = _score_holdout()
             except Exception as exc:  # noqa: BLE001
-                probe_pack = None
+                holdout_pack = None
                 print(
-                    f"    transformer ep={ep}/{epochs} probe 失败："
+                    f"    transformer ep={ep}/{epochs} holdout 失败："
                     f"{type(exc).__name__}: {exc}",
                     flush=True,
                 )
-            if probe_pack is not None:
+            if holdout_pack is not None:
                 row: Dict[str, Any] = {"epoch": int(ep)}
-                probe_keys = [
+                holdout_keys = [
                     "cs_rank_ic",
                     "cs_icir",
                     "cs_rank_icir",
@@ -760,30 +811,47 @@ def train_seq_factor_transformer(
                     "cs_top_mean_y",
                 ]
                 if grouped:
-                    probe_keys.append("cs_ndcg_30")
-                for key in probe_keys:
-                    raw = probe_pack.get(key)
+                    holdout_keys.append("cs_ndcg_30")
+                else:
+                    holdout_keys.append("mse")
+                for key in holdout_keys:
+                    raw = holdout_pack.get(key)
                     try:
                         num = float(raw)
                     except (TypeError, ValueError):
                         num = float("nan")
                     row[key] = num if num == num else None
-                row["n"] = int(probe_pack.get("n") or 0)
-                probe_by_epoch.append(row)
+                row["n"] = int(holdout_pack.get("n") or 0)
+                holdout_by_epoch.append(row)
                 ndcg_bit = ""
+                level_bit = ""
                 if grouped:
-                    ndcg_bit = f" ndcg30={_fmt4(probe_pack.get('cs_ndcg_30'))}"
+                    ndcg_bit = f" ndcg30={_fmt4(holdout_pack.get('cs_ndcg_30'))}"
+                else:
+                    level_bit = f" mse={_fmt4(holdout_pack.get('mse'))}"
                 print(
-                    f"    transformer ep={ep}/{epochs} probe "
-                    f"rankIC={_fmt4(probe_pack.get('cs_rank_ic'))} "
-                    f"ICIR={_fmt4(probe_pack.get('cs_icir'))} "
-                    f"rankICIR={_fmt4(probe_pack.get('cs_rank_icir'))} "
-                    f"sign_hit={_fmt4(probe_pack.get('sign_hit'))} "
-                    f"topY={_fmt4(probe_pack.get('cs_top_mean_y'))}"
+                    f"    transformer ep={ep}/{epochs} holdout "
+                    f"rankIC={_fmt4(holdout_pack.get('cs_rank_ic'))} "
+                    f"ICIR={_fmt4(holdout_pack.get('cs_icir'))} "
+                    f"rankICIR={_fmt4(holdout_pack.get('cs_rank_icir'))} "
+                    f"sign_hit={_fmt4(holdout_pack.get('sign_hit'))} "
+                    f"topY={_fmt4(holdout_pack.get('cs_top_mean_y'))}"
+                    f"{level_bit}"
                     f"{ndcg_bit} "
-                    f"n={probe_pack.get('n')}",
+                    f"n={holdout_pack.get('n')}",
                     flush=True,
                 )
+        if holdout_pack:
+            epoch_row: Dict[str, Any] = {
+                "k": "e",
+                "ep": int(ep),
+                "rank_ic": holdout_pack.get("cs_rank_ic"),
+            }
+            if grouped:
+                epoch_row["ndcg30"] = holdout_pack.get("cs_ndcg_30")
+            else:
+                epoch_row["mse"] = holdout_pack.get("mse")
+            _curve(epoch_row)
     last_state = {
         k: v.detach().cpu().clone() for k, v in model.state_dict().items()
     }
@@ -798,17 +866,15 @@ def train_seq_factor_transformer(
         "n_params": count_parameters(model),
         "seed": int(seed),
         "device": str(dev),
-        "batch_size": int(batch_size),
+        "batch_size": int(bs),
         "lr": float(base_lr),
         "lr_sched": "cosine",
         "warmup_steps": int(warmup_steps),
         "loss": loss_name,
-        "arch": int(model_arch),
         "lambdarank_truncation": int(_LAMBDARANK_TRUNCATION) if grouped else None,
         "global_step": int(global_step),
-        "probe_by_epoch": probe_by_epoch,
+        "holdout_by_epoch": holdout_by_epoch,
         "seq_clip": seq_clip,
-        "Xf": Xf,
         "Xseq": Xseq,
         "gap": gap,
         "y": y,
@@ -816,26 +882,22 @@ def train_seq_factor_transformer(
     }
 
 
-def predict_seq_factor_transformer(
+def predict_arm_t(
     state_dict: Dict[str, Any],
     Xseq: np.ndarray,
     gap: np.ndarray,
-    Xf: np.ndarray,
     row_idx: Sequence[int],
     *,
-    d_model: int = 32,
+    d_model: int = ARM_T_D_MODEL,
     nhead: int = 4,
-    nlayers: int = 2,
-    factor_hidden: int = 64,
+    nlayers: int = ARM_T_NLAYERS,
     device: Optional[str] = None,
     batch_size: int = 256,
-    arch: int = 2,
 ) -> np.ndarray:
-    """按块前向。``batch_size`` 是推理分块，默认 256，不超过训练 batch 上限 1024。"""
+    """按块前向。``batch_size`` 是推理分块，默认 256，不超过训练 batch 上限。"""
     torch = _require_torch()
     from core.research.yhat_transformer.model import (
-        ARCH_V2,
-        SeqFactorTransformer,
+        ArmTModel,
         pick_device,
     )
 
@@ -843,37 +905,36 @@ def predict_seq_factor_transformer(
     if not idx:
         return np.zeros((0,), dtype=np.float64)
     dev = pick_device(device)
-    model = SeqFactorTransformer(
+    model = ArmTModel(
         d_seq_in=int(Xseq.shape[-1]),
-        d_factor=int(Xf.shape[1]),
         d_model=int(d_model),
         nhead=int(nhead),
         nlayers=int(nlayers),
-        factor_hidden=int(factor_hidden),
         dropout=0.0,
-        arch=int(arch or ARCH_V2),
     )
     model.load_state_dict(state_dict)
     model.to(dev)
     model.eval()
-    Xseq_np = np.ascontiguousarray(np.asarray(Xseq, dtype=np.float32))
+    from core.research.yhat_transformer.seq_dataset import FactorWindowView
+
+    if isinstance(Xseq, FactorWindowView):
+        Xseq_np = Xseq
+    else:
+        Xseq_np = np.ascontiguousarray(np.asarray(Xseq, dtype=np.float32))
     gap_np = np.ascontiguousarray(np.asarray(gap, dtype=np.float32))
-    Xf_np = np.ascontiguousarray(np.asarray(Xf, dtype=np.float32))
     outs: List[np.ndarray] = []
-    bs = max(32, min(1024, int(batch_size)))
+    bs = max(32, min(ARM_T_BATCH_MAX, int(batch_size)))
     order = np.asarray(idx, dtype=np.int64)
     with torch.no_grad():
         for start in range(0, int(order.size), bs):
             rows = order[start : start + bs]
-            xs, gg, xf = _batch_to_device(
-                Xseq_np, gap_np, Xf_np, rows=rows, device=dev
-            )
-            pred = model(xs, gg, xf)
+            xs, gg = _batch_to_device(Xseq_np, gap_np, rows=rows, device=dev)
+            pred = model(xs, gg)
             outs.append(pred.detach().cpu().numpy().astype(np.float64))
     return np.concatenate(outs, axis=0) if outs else np.zeros((0,), dtype=np.float64)
 
 
 __all__ = [
-    "train_seq_factor_transformer",
-    "predict_seq_factor_transformer",
+    "train_arm_t",
+    "predict_arm_t",
 ]

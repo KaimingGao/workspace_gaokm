@@ -14,7 +14,7 @@ const COMMANDS = [
     label: "前往 · 模型中心 Arm·T",
     hint: "/yhat-t",
     href: "/yhat-t",
-    keywords: "模型中心 arm-t transformer yhat-t yhat-tf oo τc tau rank 双支路晚融合 seq l4 拟合 隐藏",
+    keywords: "模型中心 arm-t transformer yhat-t yhat-tf oo τc tau rank 序列 Transformer seq l4 拟合 隐藏",
   },
   {
     id: "nav-yhat-l",

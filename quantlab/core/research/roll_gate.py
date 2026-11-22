@@ -1,11 +1,11 @@
-"""滚动验证（研究枢纽）：观察池 walk-forward 相对分闸门，不写模型。
+"""滚动验证（研究枢纽）：沪深300 walk-forward 相对分闸门，不写模型。
 
-宇宙 = 当前观察池（股票分档已下线，不再切 A 档）。
-OO：ŷ_oo>y_min 且 oo_rank 相对分 > rank_score_min，按相对分降序最多取 top_n
-τc：ŷ_τc>y_min 且 τc_rank 相对分 > rank_score_min（开盘钟），按相对分降序最多取 top_n
-有仓日收益 = 入选等权均值；命中 = 等权收益 > 0。
+宇宙 = 沪深300成分，不用大池（股票分档已下线，不再切 A 档）。
+OO：ŷ_oo>y_min 且 oo 当天名次 < rank_max，按名次最多取 top_n
+τc：ŷ_τc>y_min 且 τc 当天名次 < rank_max（开盘钟），按名次最多取 top_n
+名次 1 = 排序分最高。有仓日收益 = 入选等权均值；命中 = 等权收益 > 0。
 
-默认 lookback=500、holdout=10、folds=3、y_min=0.5、rank_score_min=0.5、top_n=10。
+默认 lookback=900、holdout=10、folds=3、y_min=0.3、rank_max=6、top_n=10。
 API / Job wire：``roll-gate``；落盘 ``roll_gate_last.json`` / ``jobs/roll_gate.json``。
 """
 
@@ -49,12 +49,12 @@ def _abandon_open_roll_gate() -> None:
 
 atexit.register(_abandon_open_roll_gate)
 
-DEFAULT_LOOKBACK = 500
+DEFAULT_LOOKBACK = 900
 DEFAULT_HOLDOUT = 10
 DEFAULT_FOLDS = 3
-DEFAULT_Y_MIN = 0.5  # 百分点
-DEFAULT_RANK_SCORE_MIN = 0.5  # oo_rank / τc_rank 相对分
-DEFAULT_TOP_N = 10  # 过闸后按相对分最多取 N
+DEFAULT_Y_MIN = 0.3  # 百分点：回归头 ŷ > 0.3%
+DEFAULT_RANK_MAX = 6  # 当天名次，1=最高；须 < 6
+DEFAULT_TOP_N = 10  # 过闸后按名次最多取 N；名次<6 时至多 5 只
 
 ProgressCb = Optional[Callable[[int, int, str], None]]
 
@@ -159,15 +159,14 @@ def persist_last(doc: Dict[str, Any]) -> str:
 
 
 def _pool_codes() -> List[str]:
-    """滚动验证宇宙：当前观察池。"""
-    from core.watching.store import read_watching
+    """滚动验证宇宙：沪深300成分。不用当前观察池（大池）。"""
+    from core.universe.feature_sets import codes_for_feature_set
 
-    uni = read_watching()
-    return [str(c).strip() for c in (uni.get("watchlist") or []) if str(c).strip()]
+    return codes_for_feature_set("hs300", fetch=False)
 
 
 def _load_pool(lookback: int, codes: Optional[Sequence[str]] = None) -> List[dict]:
-    """拉观察池日线。"""
+    """拉沪深300日线。"""
     from core.data.facade import get_bars_batch
 
     watch = [str(c).strip() for c in (codes if codes is not None else _pool_codes()) if str(c).strip()]
@@ -331,10 +330,13 @@ def _pick_gated_top_n(
     y_preds: Sequence[Any],
     rank_preds: Sequence[Any],
     y_min: float,
-    rank_score_min: float = DEFAULT_RANK_SCORE_MIN,
+    rank_max: int = DEFAULT_RANK_MAX,
     top_n: int = DEFAULT_TOP_N,
 ) -> Dict[str, Any]:
-    """过 ŷ 与相对分闸后，按相对分降序最多取 top_n；等权收益，否则空闸。"""
+    """ŷ > y_min 且当天名次 < rank_max 后，按名次最多取 top_n；等权，否则空闸。
+
+    名次从 1 起，1 = 排序分最高。同名次按代码稳定排序。
+    """
     codes = [str(c) for c in (day.get("codes") or [])]
     ys = list(day.get("ys") or [])
     n = len(codes)
@@ -354,38 +356,42 @@ def _pick_gated_top_n(
     if not rows:
         return {"empty": True, "reason": "no_rows"}
     rows.sort(key=lambda t: (-t[2], t[0]))
-    score_thr = float(rank_score_min)
     y_thr = float(y_min)
+    cap = max(1, int(rank_max))
     k = max(1, int(top_n or DEFAULT_TOP_N))
+    ranked = [
+        (i, code, y_hat, score, lab)
+        for i, (code, y_hat, score, lab) in enumerate(rows, start=1)
+    ]
     passed = [
-        (code, y_hat, score, lab)
-        for code, y_hat, score, lab in rows
-        if score > score_thr and y_hat > y_thr
+        item for item in ranked if item[0] < cap and item[2] > y_thr
     ]
     if not passed:
-        code, y_hat, score, _lab = rows[0]
-        reason = "rank_score" if score <= score_thr else "y_gate"
+        rank, code, y_hat, score, _lab = ranked[0]
+        reason = "rank" if rank >= cap else "y_gate"
         return {
             "empty": True,
             "reason": reason,
             "code": code,
             "y_hat": y_hat,
             "rank_score": score,
+            "rank": rank,
             "n_picks": 0,
         }
     picked = passed[:k]
-    labs = [lab for _c, _y, _s, lab in picked]
+    labs = [lab for _r, _c, _y, _s, lab in picked]
     mean_lab = sum(labs) / len(labs)
-    top_code, top_y, top_score, _ = picked[0]
+    top_rank, top_code, top_y, top_score, _ = picked[0]
     return {
         "empty": False,
         "code": top_code,
         "y_hat": top_y,
         "rank_score": top_score,
+        "rank": top_rank,
         "label": mean_lab,
         "hit": 1 if mean_lab > 1e-12 else 0,
         "n_picks": len(picked),
-        "codes": [c for c, _y, _s, _lab in picked],
+        "codes": [c for _r, c, _y, _s, _lab in picked],
     }
 
 
@@ -457,7 +463,7 @@ def run_roll_gate(
     holdout: int = DEFAULT_HOLDOUT,
     folds: int = DEFAULT_FOLDS,
     y_min: float = DEFAULT_Y_MIN,
-    rank_score_min: float = DEFAULT_RANK_SCORE_MIN,
+    rank_max: int = DEFAULT_RANK_MAX,
     top_n: int = DEFAULT_TOP_N,
     progress_cb: ProgressCb = None,
     persist: bool = True,
@@ -466,7 +472,36 @@ def run_roll_gate(
     """同步跑完；``progress_cb(cur, tot, msg)``；可选落盘 last.json。
 
     ``job_id`` 写入进度与 last，供 UI 区分「本轮」与上一轮落盘，避免运行中误读旧结果。
+    股票池钉在沪深300，截面 μ/σ 也读这一套，不跟大池。
     """
+    from core.universe.feature_sets import feature_set_scope
+
+    with feature_set_scope("hs300"):
+        return _run_roll_gate(
+            lookback=lookback,
+            holdout=holdout,
+            folds=folds,
+            y_min=y_min,
+            rank_max=rank_max,
+            top_n=top_n,
+            progress_cb=progress_cb,
+            persist=persist,
+            job_id=job_id,
+        )
+
+
+def _run_roll_gate(
+    *,
+    lookback: int = DEFAULT_LOOKBACK,
+    holdout: int = DEFAULT_HOLDOUT,
+    folds: int = DEFAULT_FOLDS,
+    y_min: float = DEFAULT_Y_MIN,
+    rank_max: int = DEFAULT_RANK_MAX,
+    top_n: int = DEFAULT_TOP_N,
+    progress_cb: ProgressCb = None,
+    persist: bool = True,
+    job_id: Optional[str] = None,
+) -> Dict[str, Any]:
     from core.research.oo_lgb import predict_oo_lgb_matrix
     from core.research.oo_rank_lambdarank import _predict_oo_rank_matrix
     from core.research.rank_day_panels import build_rank_day_panels
@@ -484,15 +519,10 @@ def run_roll_gate(
     if y_min != y_min:  # NaN
         y_min = float(DEFAULT_Y_MIN)
     try:
-        rank_score_min = float(
-            rank_score_min
-            if rank_score_min is not None
-            else DEFAULT_RANK_SCORE_MIN
-        )
+        rank_max = int(rank_max if rank_max is not None else DEFAULT_RANK_MAX)
     except (TypeError, ValueError):
-        rank_score_min = float(DEFAULT_RANK_SCORE_MIN)
-    if rank_score_min != rank_score_min:  # NaN
-        rank_score_min = float(DEFAULT_RANK_SCORE_MIN)
+        rank_max = int(DEFAULT_RANK_MAX)
+    rank_max = max(2, min(300, rank_max))
     try:
         top_n = int(top_n if top_n is not None else DEFAULT_TOP_N)
     except (TypeError, ValueError):
@@ -517,12 +547,12 @@ def run_roll_gate(
             except Exception:  # noqa: BLE001
                 logger.debug("roll_gate progress_cb failed", exc_info=True)
 
-    _emit(0, n_folds, "拉观察池日线…")
+    _emit(0, n_folds, "拉沪深300日线…")
     pool_codes = _pool_codes()
     if not pool_codes:
         out = {
             "success": False,
-            "error": "观察池为空",
+            "error": "沪深300成分未就绪",
         }
         _set_progress(status="failed", message=out["error"])
         return out
@@ -530,7 +560,7 @@ def run_roll_gate(
     if len(stock_bars) < 20:
         out = {
             "success": False,
-            "error": f"观察池有效标的不足 n={len(stock_bars)}（候选 {len(pool_codes)}）",
+            "error": f"沪深300有效标的不足 n={len(stock_bars)}（候选 {len(pool_codes)}）",
         }
         _set_progress(status="failed", message=out["error"])
         return out
@@ -658,7 +688,7 @@ def run_roll_gate(
                         y_preds=y_preds,
                         rank_preds=rk_preds,
                         y_min=y_min,
-                        rank_score_min=rank_score_min,
+                        rank_max=rank_max,
                         top_n=top_n,
                     )
                     oo_day_rows.append({**base, **pick})
@@ -681,7 +711,7 @@ def run_roll_gate(
                         y_preds=y_preds,
                         rank_preds=rk_preds,
                         y_min=y_min,
-                        rank_score_min=rank_score_min,
+                        rank_max=rank_max,
                         top_n=top_n,
                     )
                     tc_day_rows.append({**base, **pick})
@@ -705,9 +735,9 @@ def run_roll_gate(
                 "holdout": hold_n,
                 "folds": n_folds,
                 "y_min": y_min,
-                "rank_score_min": rank_score_min,
+                "rank_max": rank_max,
                 "top_n": top_n,
-                "universe": "pool",
+                "universe": "hs300",
             },
             "window": {
                 "start": test_days[0],
@@ -746,9 +776,9 @@ def run_roll_gate(
                 "holdout": hold_n,
                 "folds": n_folds,
                 "y_min": y_min,
-                "rank_score_min": rank_score_min,
+                "rank_max": rank_max,
                 "top_n": top_n,
-                "universe": "pool",
+                "universe": "hs300",
             },
             "window": {
                 "n_pool": len(stock_bars),
@@ -782,9 +812,9 @@ def run_roll_gate(
             "holdout": hold_n,
             "folds": n_folds,
             "y_min": y_min,
-            "rank_score_min": rank_score_min,
+            "rank_max": rank_max,
             "top_n": top_n,
-            "universe": "pool",
+            "universe": "hs300",
             "embargo": 1,
             "oo_rank_backend": "lambdarank",
             "tc_rank_backend": "lambdarank",
@@ -800,7 +830,7 @@ def run_roll_gate(
         "folds": fold_rows,
         "summary": summary,
         "finished_at": datetime.now(timezone.utc).isoformat(),
-        "note": "观察池宇宙；每折重训；空仓不计命中分母；不写模型/不入库",
+        "note": "沪深300宇宙；每折重训；空仓不计命中分母；不写模型/不入库",
     }
     if run_id:
         doc["job_id"] = run_id
@@ -822,7 +852,7 @@ def start_roll_gate_job(
     holdout: int = DEFAULT_HOLDOUT,
     folds: int = DEFAULT_FOLDS,
     y_min: float = DEFAULT_Y_MIN,
-    rank_score_min: float = DEFAULT_RANK_SCORE_MIN,
+    rank_max: int = DEFAULT_RANK_MAX,
     top_n: int = DEFAULT_TOP_N,
 ) -> Dict[str, Any]:
     """后台开槽跑；返回 job 快照。"""
@@ -887,7 +917,7 @@ def start_roll_gate_job(
                 holdout=holdout,
                 folds=folds,
                 y_min=y_min,
-                rank_score_min=rank_score_min,
+                rank_max=rank_max,
                 top_n=top_n,
                 progress_cb=_pcb,
                 persist=True,

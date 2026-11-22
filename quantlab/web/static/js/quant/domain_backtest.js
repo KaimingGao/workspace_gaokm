@@ -881,7 +881,6 @@ export function installBacktest(q) {
           score_backend: p.score_backend,
           t0_score_model_role: readScoreModelRole("paper-t0-score-model-role"),
           fill_clock: p.fill_clock,
-          feature_set: p.feature_set,
           initial_cash: p.initial_cash,
           lot_base_amount: p.lot_base_amount,
           lot_strong_amount: p.lot_strong_amount,
@@ -896,7 +895,9 @@ export function installBacktest(q) {
   function restoreReplayDeskPrefs() {
     const prefs = readReplayDeskPrefs();
     if (!prefs) return false;
-    applyPortfolioBtParams(prefs, { rules: false, desk: true });
+    const deskPrefs = { ...prefs };
+    delete deskPrefs.feature_set;
+    applyPortfolioBtParams(deskPrefs, { rules: false, desk: true });
     if (prefs.t0_score_model_role != null) {
       applyScoreModelRole("paper-t0-score-model-role", prefs.t0_score_model_role);
     }

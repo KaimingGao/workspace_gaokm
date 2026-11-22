@@ -265,7 +265,7 @@ def yhat_r_page() -> HTMLResponse:
 
 @app.get("/yhat-bt")
 def yhat_bt_page() -> HTMLResponse:
-    """回测中心：拼三家工厂已落盘的四头。仅 ⌘⇧K 入口；不写生产 score。"""
+    """回测中心：拼三家工厂已落盘的研究套。仅 ⌘⇧K 入口；不写生产 score。"""
     return HTMLResponse(
         render_tool_html("yhat_bt"),
         headers={"Cache-Control": "no-store"},

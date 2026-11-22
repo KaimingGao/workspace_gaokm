@@ -13276,6 +13276,7 @@ button.quant-rg-dot:focus-visible {
 }
 
 .quant-page .quant-rg-day-table .quant-rg-day-y,
+.quant-page .quant-rg-day-table .quant-rg-day-rank,
 .quant-page .quant-rg-day-table .quant-rg-day-ret {
   width: 4.8rem;
   text-align: right;
@@ -14780,6 +14781,35 @@ body[data-page="yhat_bt"] {
   border-radius: 4px;
 }
 
+.yhat-tf-protocol-row:has(input[data-param="seq_len"]):hover,
+.yhat-tf-protocol-row:has(input[data-param="seq_len"]):focus-within {
+  background: color-mix(in srgb, var(--ytf-accent) 4%, transparent);
+}
+
+.yhat-tf-protocol-row .quant-inline-num {
+  display: flex;
+  width: 100%;
+  min-height: 28px;
+  justify-content: flex-end;
+  align-items: center;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+}
+
+.yhat-tf-protocol-row .quant-inline-num input[type="number"] {
+  width: 100%;
+  height: 28px;
+  min-width: 0;
+  padding: 0 2px;
+  border: none;
+  border-radius: 0;
+  background: transparent;
+  text-align: right;
+}
+
 
 .quant-page.yhat-tf-page .dashboard-card.quant-pro-card > .quant-pro-card-body.yhat-tf-run-output {
   display: grid;
@@ -14922,6 +14952,65 @@ body[data-page="yhat_bt"] {
 
 [data-arm-console="T"] .yhat-tf-arm-metrics > div {
   border-right-color: #d7ebe7;
+}
+
+.yhat-tf-fit-curves {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 20px;
+  margin-top: 10px;
+  padding: 10px 12px 8px;
+  background: #fff;
+  border: 1px solid #d7ebe7;
+  border-radius: var(--ytf-radius, 6px);
+}
+
+.yhat-tf-fit-curves[hidden],
+.yhat-tf-fit-curve[hidden] {
+  display: none;
+}
+
+.yhat-tf-fit-curve {
+  min-width: 0;
+  margin: 0;
+}
+
+.yhat-tf-fit-curve + .yhat-tf-fit-curve {
+  padding-left: 12px;
+  border-left: 1px solid #e3eeeb;
+}
+
+.yhat-tf-fit-curve figcaption {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 2px;
+  color: #143832;
+  font-size: 11px;
+  line-height: 1.3;
+}
+
+.yhat-tf-fit-curve figcaption em {
+  color: #2a524c;
+  font-style: normal;
+  font-variant-numeric: tabular-nums;
+}
+
+.yhat-tf-fit-curve canvas {
+  display: block;
+  width: 100%;
+  height: 128px;
+}
+
+@media (max-width: 720px) {
+  .yhat-tf-fit-curves {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .yhat-tf-fit-curve + .yhat-tf-fit-curve {
+    padding-left: 0;
+    border-left: 0;
+  }
 }
 
 [data-arm-console="T"].is-lead {
@@ -15082,6 +15171,14 @@ body[data-page="yhat_bt"] {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
   border-bottom: 1px solid var(--ytf-line);
+}
+
+.yhat-tf-arm-metrics--five {
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+}
+
+.yhat-tf-arm-metrics--five > div {
+  padding: 7px 8px;
 }
 
 .yhat-tf-arm-metrics > div {

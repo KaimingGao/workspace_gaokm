@@ -31,7 +31,7 @@ def _job(run_id: str, pid: int = 7, **extra):
             "holdout_trading_days": 60,
             "t_sample_pct": 10,
             "full_aoo": False,
-            "loss": "smooth_l1",
+            "loss": "mse",
         },
         "started_at": "2026-11-16T01:02:03",
         "finished_at": "2026-11-16T01:08:00",

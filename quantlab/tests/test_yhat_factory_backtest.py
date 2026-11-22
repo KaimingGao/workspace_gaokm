@@ -53,7 +53,6 @@ def _spec(head, pack, *, start="2024-01-02", end="2024-01-05", sample=10.0, back
             "d_model": 64,
             "nhead": 4,
             "nlayers": 3,
-            "factor_hidden": 64,
             "d_seq_in": 16,
         },
         "fit_params": {
@@ -62,7 +61,7 @@ def _spec(head, pack, *, start="2024-01-02", end="2024-01-05", sample=10.0, back
             "watching_limit": 800,
             "lookback": 120,
             "seq_len": 20,
-            "seq_feat_set": "seq16",
+            "seq_feat_set": "seq_core",
         },
     }
 
@@ -773,6 +772,69 @@ class TestScoreHelpers(unittest.TestCase):
         self.assertEqual(seen["pred_rows"], 1)
         self.assertEqual(list(out), [("600001", "2024-01-02")])
 
+    def test_window_score_clips_without_expanding(self):
+        from core.research.yhat_transformer.seq_dataset import FactorWindowView, SeqPanel
+
+        panel = SimpleNamespace(
+            dates=["2024-01-02", "2024-01-03", "2024-01-04"],
+            feature_names=["f"],
+            X=np.ones((3, 1), dtype=np.float64),
+            codes=["600001", "600001", "600002"],
+        )
+        values = np.array([[9.0], [-4.0]], dtype=np.float32)
+        windows = np.zeros((3, 2), dtype=np.int32)
+        windows[1, 0] = 1
+        age = np.full((3, 2), 2.0, dtype=np.float32)
+        view = FactorWindowView(values, windows, age, ("c0", "age_td"))
+        seq = SeqPanel(
+            X=view,
+            gap=np.array([0.0, 5.0, -5.0], dtype=np.float32),
+            y=np.zeros(3, dtype=np.float32),
+            dates=list(panel.dates),
+            codes=list(panel.codes),
+            seq_len=2,
+            feature_names=view.feature_names,
+        )
+        seen = {}
+
+        def _z(X, names, dates, z_clip):
+            return X.astype(np.float32)
+
+        def _pred(bundle, X, seq_rows, gap):
+            seen["kind"] = type(seq_rows).__name__
+            seen["n"] = int(seq_rows.shape[0])
+            seen["block"] = seq_rows.gather(np.arange(seq_rows.shape[0]))
+            seen["gap"] = np.array(gap, copy=True)
+            return np.ones(len(X), dtype=np.float64)
+
+        bundle = {
+            "head": "oo",
+            "backend": "transformer",
+            "meta": {
+                "factor_names": ["f"],
+                "d_seq_in": 2,
+                "seq_clip": {
+                    "x_lo": [0.0, 0.0],
+                    "x_hi": [1.0, 1.0],
+                    "gap_lo": -1.0,
+                    "gap_hi": 1.0,
+                },
+            },
+        }
+        with mock.patch(
+            "core.research.yhat_factory_backtest._zscore", side_effect=_z
+        ), mock.patch(
+            "core.research.yhat_factory_backtest._predict_matrix", side_effect=_pred
+        ):
+            out = _scores_for_head(bundle, panel, seq, "2024-01-02", "2024-01-04")
+        self.assertEqual(seen["kind"], "FactorWindowView")
+        self.assertEqual(seen["n"], 3)
+        self.assertEqual(len(out), 3)
+        self.assertLessEqual(float(np.max(seen["block"])), 1.0)
+        self.assertGreaterEqual(float(np.min(seen["block"])), 0.0)
+        self.assertLessEqual(float(np.max(seen["gap"])), 1.0)
+        self.assertGreaterEqual(float(np.min(seen["gap"])), -1.0)
+
 class TestFactoryBacktestConsoleColor(unittest.TestCase):
     def test_open_hold_red_exit_green(self):
         from tests.conftest import ROOT
@@ -954,9 +1016,9 @@ class TestMixBacktest(unittest.TestCase):
             _mix_spec("oo_rank", "aoo_core", "lightgbm", "L"),
             _mix_spec("tc_rank", "atc_core", "lightgbm", "L"),
         ]
-        legacy[0]["meta"]["d_seq_in"] = 16
-        legacy[1]["meta"]["d_seq_in"] = 64
-        with self.assertRaisesRegex(ValueError, "网络结构不一致"):
+        legacy[0]["fit_params"]["seq_feat_set"] = "seq16"
+        legacy[1]["fit_params"]["seq_feat_set"] = "seq16"
+        with self.assertRaisesRegex(ValueError, "已下线"):
             check_mix(legacy)
 
     def test_suite_still_rejects_mixed_backends(self):
@@ -1080,6 +1142,78 @@ class TestMixBacktest(unittest.TestCase):
         payload = json.loads(cmd[cmd.index("--versions") + 1])
         self.assertEqual(payload["oo"]["factory"], "R")
         self.assertEqual(payload["oo_rank"]["factory"], "L")
+
+    def test_live_suite_stays_out_of_mix_catalog(self):
+        from core.research.yhat_factory_backtest import list_mix_catalog
+        from core.research.yhat_factory_versions import archive_factory_run
+        from core.research.yhat_factory_weights import version_weights_dir
+        from core.research.yhat_tf_desk import factory_scope
+
+        def _job(run_id, *, suite="", holdout=60):
+            job = {
+                "run_id": run_id,
+                "pid": 7,
+                "head": "oo",
+                "params": {
+                    "pool_n": 800,
+                    "lookback": 900,
+                    "holdout_trading_days": holdout,
+                    "t_sample_pct": 10,
+                },
+                "started_at": "2026-11-22T01:02:03",
+                "finished_at": "2026-11-22T01:08:00",
+            }
+            if suite:
+                job["suite"] = suite
+            return job
+
+        last = {
+            "action": "holdout_result",
+            "head": "oo",
+            "metrics": {"cs_rank_ic": 0.042, "arm": "T"},
+            "message": "Holdout 完成",
+            "updated_at": "2026-11-22T01:08:00",
+        }
+
+        def _weights(vid):
+            path = version_weights_dir("oo", vid)
+            os.makedirs(path, exist_ok=True)
+            with open(os.path.join(path, "meta.json"), "w", encoding="utf-8") as f:
+                json.dump({"backend": "transformer"}, f)
+
+        with tempfile.TemporaryDirectory() as td_l, tempfile.TemporaryDirectory() as td_r, tempfile.TemporaryDirectory() as td_t:
+            with mock.patch.multiple(
+                "core.research.yhat_tf_desk",
+                YHAT_L_DIR=td_l,
+                YHAT_L_LAST_PATH=os.path.join(td_l, "last_status.json"),
+                YHAT_R_DIR=td_r,
+                YHAT_R_LAST_PATH=os.path.join(td_r, "last_status.json"),
+                YHAT_TF_DIR=td_t,
+                YHAT_TF_LAST_PATH=os.path.join(td_t, "last_status.json"),
+            ):
+                with factory_scope("T"):
+                    research = archive_factory_run(
+                        "oo", job=_job("oo-research"), last=last, status="done"
+                    )
+                    live = archive_factory_run(
+                        "oo",
+                        job=_job("oo-live", suite="live", holdout=60),
+                        last=last,
+                        status="done",
+                    )
+                    unmarked = archive_factory_run(
+                        "oo",
+                        job=_job("oo-zero", holdout=0),
+                        last=last,
+                        status="done",
+                    )
+                    for vid in (research, live, unmarked):
+                        _weights(vid)
+                catalog = list_mix_catalog()
+        ids = [row["id"] for row in catalog["heads"]["oo"]]
+        self.assertEqual(ids, [research])
+        self.assertNotIn(live, ids)
+        self.assertNotIn(unmarked, ids)
 
     def test_page_is_palette_only(self):
         from web.page_html import clear_html_cache, render_tool_html

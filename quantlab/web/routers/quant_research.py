@@ -341,7 +341,7 @@ def quant_model_versions_purge_incomplete(
 
 @router.post("/api/quant/roll-gate")
 def quant_roll_gate() -> Dict[str, Any]:
-    """滚动验证：观察池 lookback500 · holdout10×3 · ŷ>0.5% ∧ rank_score>0.5 · top_n=10 等权 · oo/τc 两臂；后台 Job，不写模型。
+    """滚动验证：沪深300 lookback900 · holdout10×3 · ŷ>0.3% ∧ 名次<6 等权 · oo/τc 两臂；后台 Job，不写模型。
 
     轮询 ``GET /api/jobs/roll-gate?progress=1``；折表读 ``GET /api/quant/roll-gate/last``。
     """

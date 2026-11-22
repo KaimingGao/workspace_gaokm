@@ -134,10 +134,10 @@ def _delete(
     if not out.get("success"):
         code = 400 if out.get("error") == "invalid run_id" else 404
         raise HTTPException(status_code=code, detail=out.get("error") or "版本不存在")
-    if factory == "T":
-        listed = list_factory_versions(head, factory="T", suite=suite or "research")
-        if listed.get("success"):
-            out["items"] = listed["items"]
+    listed = list_factory_versions(head, factory=factory, suite=suite or "research")
+    if listed.get("success"):
+        out["items"] = listed["items"]
+        out["enabled_id"] = listed.get("enabled_id") or ""
     return out
 
 
@@ -190,7 +190,7 @@ def yhat_l_fit(body: YhatFactoryFitBody) -> Dict[str, Any]:
 @router.get("/api/quant/yhat-l/versions")
 def yhat_l_versions(
     head: str,
-    suite: Optional[str] = Query(None, description="research | live；缺省不过滤"),
+    suite: str = Query("research", description="research=与模型中心同一列表；live=仅执行套"),
 ) -> Dict[str, Any]:
     return _versions("L", head, suite=suite)
 
@@ -206,8 +206,12 @@ def yhat_l_versions_preview(head: str, run_id: str) -> Dict[str, Any]:
 
 
 @router.delete("/api/quant/yhat-l/versions")
-def yhat_l_versions_delete(head: str, run_id: str) -> Dict[str, Any]:
-    return _delete("L", head, run_id)
+def yhat_l_versions_delete(
+    head: str,
+    run_id: str,
+    suite: str = Query("research", description="research | live"),
+) -> Dict[str, Any]:
+    return _delete("L", head, run_id, suite=suite)
 
 
 @router.get("/api/quant/yhat-t/status")
@@ -260,7 +264,7 @@ def yhat_r_fit(body: YhatFactoryFitBody) -> Dict[str, Any]:
 @router.get("/api/quant/yhat-r/versions")
 def yhat_r_versions(
     head: str,
-    suite: Optional[str] = Query(None, description="research | live；缺省不过滤"),
+    suite: str = Query("research", description="research=与模型中心同一列表；live=仅执行套"),
 ) -> Dict[str, Any]:
     return _versions("R", head, suite=suite)
 
@@ -276,8 +280,12 @@ def yhat_r_versions_preview(head: str, run_id: str) -> Dict[str, Any]:
 
 
 @router.delete("/api/quant/yhat-r/versions")
-def yhat_r_versions_delete(head: str, run_id: str) -> Dict[str, Any]:
-    return _delete("R", head, run_id)
+def yhat_r_versions_delete(
+    head: str,
+    run_id: str,
+    suite: str = Query("research", description="research | live"),
+) -> Dict[str, Any]:
+    return _delete("R", head, run_id, suite=suite)
 
 
 # 旧路径兼容 → Arm·T
@@ -325,7 +333,7 @@ def hub_arms_put(body: YhatHubArmsBody) -> Dict[str, Any]:
 
 @router.get("/api/quant/yhat-bt/versions")
 def yhat_bt_versions() -> Dict[str, Any]:
-    """三家工厂里带权重的版本。回测中心只读，不在这里删除或启用。"""
+    """三家工厂里带权重的研究套版本。执行套不进这份列表。回测中心只读，不在这里删除或启用。"""
     try:
         return list_mix_catalog()
     except Exception as e:  # noqa: BLE001

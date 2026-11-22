@@ -15,14 +15,8 @@ from core.research.yhat_transformer.heads import (
 )
 from core.research.yhat_transformer.seq_dataset import (
     DEFAULT_SEQ_FEAT_SET,
-    SEQ16_FEATURE_NAMES,
-    SEQ32_FEATURE_NAMES,
-    SEQ64_FEATURE_NAMES,
-    SEQ8_FEATURE_NAMES,
     SeqPanel,
-    build_seq_panel,
     resolve_seq_feat_set,
-    seq_feature_names,
 )
 
 __all__ = [
@@ -32,12 +26,6 @@ __all__ = [
     "head_ids",
     "assert_trainable",
     "DEFAULT_SEQ_FEAT_SET",
-    "SEQ8_FEATURE_NAMES",
-    "SEQ16_FEATURE_NAMES",
-    "SEQ32_FEATURE_NAMES",
-    "SEQ64_FEATURE_NAMES",
     "resolve_seq_feat_set",
-    "seq_feature_names",
     "SeqPanel",
-    "build_seq_panel",
 ]

@@ -100,6 +100,33 @@ def pooled_pearson(preds: Sequence[float], ys: Sequence[float]) -> Optional[floa
     return _pearson(xs, zs)
 
 
+def _finite_pair(p: Any, y: Any) -> Optional[tuple]:
+    try:
+        pf = float(p)
+        yf = float(y)
+    except (TypeError, ValueError):
+        return None
+    if not math.isfinite(pf) or not math.isfinite(yf):
+        return None
+    return pf, yf
+
+
+def holdout_mse(preds: Sequence[float], ys: Sequence[float]) -> Optional[float]:
+    """Holdout 逐点均方误差。预测和标签都是百分点，不截断。"""
+    acc = 0.0
+    n = 0
+    for p, y in zip(preds, ys):
+        pair = _finite_pair(p, y)
+        if pair is None:
+            continue
+        err = pair[0] - pair[1]
+        acc += err * err
+        n += 1
+    if n <= 0:
+        return None
+    return round(acc / float(n), 6)
+
+
 def sign_hit(
     preds: Sequence[float],
     ys: Sequence[float],
@@ -194,6 +221,7 @@ def gate_lift_vs_baseline(
 __all__ = [
     "daily_cs_ic_report",
     "pooled_pearson",
+    "holdout_mse",
     "sign_hit",
     "hard_gate_vs_baseline",
     "gate_lift_vs_baseline",
