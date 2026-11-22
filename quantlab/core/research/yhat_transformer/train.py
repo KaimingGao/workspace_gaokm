@@ -587,13 +587,13 @@ def train_arm_t(
         warmup_steps = 100
     warmup_steps = max(0, warmup_steps)
     total_steps = max(1, int(steps_per_ep) * max(1, int(epochs)))
-    # 步日志：约每 10% epoch；TRANSFORMER_LOG_EVERY=N 可覆盖
+    # 步日志：默认每 10 步；TRANSFORMER_LOG_EVERY=N 可覆盖
     try:
         log_every = int(os.environ.get("TRANSFORMER_LOG_EVERY") or 0)
     except ValueError:
         log_every = 0
     if log_every <= 0:
-        log_every = max(50, min(500, max(1, steps_per_ep // 10)))
+        log_every = 10
     loss_note = loss_name
     print(
         f"    transformer fit start loss={loss_note} lr={base_lr:.2e} "

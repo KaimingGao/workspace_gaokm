@@ -182,7 +182,7 @@ x_seq (B, L, F+1) ── Linear ── sin PE ── Pre-LN Encoder × nlayers
 | **epochs** | 默认 **20**；跑满，不提前停 |
 | **保存** | 最后一个 epoch 的权重 |
 | **eval** | 每个 epoch 在 Holdout 上做一次 `no_grad` 测试。排序头打 Rank IC / Pearson ICIR / Rank ICIR / NDCG@30 / Top10% y。回归头同一行再打 MSE。训练日用到 Holdout 隔离之前的全部交易日。不反传，不选权重，不改学习率日程 |
-| **曲线** | 步日志和每个 epoch 追加 `{head}_fit.curve.jsonl`（`YHAT_FIT_CURVE`）。运行台卡片下面画两张图，各自有坐标轴。训练损失左轴是步均 `avg`，底轴是 step。Holdout 左轴是 Rank IC；排序头右轴是 NDCG@30，回归头右轴是 MSE；底轴是 epoch。跑完随版本归档。只显示，不选权重 |
+| **曲线** | 步日志默认每 10 步一行，`TRANSFORMER_LOG_EVERY` 可覆盖；每个 epoch 也追加 `{head}_fit.curve.jsonl`（`YHAT_FIT_CURVE`）。运行台卡片下面画两张图，各自有坐标轴。训练损失左轴是步均 `avg`，底轴是 step。Holdout 左轴是 Rank IC；排序头右轴是 NDCG@30，回归头右轴是 MSE；底轴是 epoch。跑完随版本归档。只显示，不选权重 |
 | **optimizer** | AdamW，`weight_decay=1e-3`。`bias` 与 LayerNorm 的 `weight` 为 0。初始学习率见下 |
 | **LR** | cosine + warmup；`TRANSFORMER_WARMUP_STEPS` 默认 100；`min_ratio=0.01`。沪深300从头训练的峰值是 **1e-4**，暖机后到这个值，再余弦降到 1e-6。大池预训练峰值仍是 **1e-3**。两段连着训时，微调段改用 1e-4。页面没有这个旋钮；草稿里的 1e-3 / 1e-4 随截面换。请求里写明的其它学习率保留 |
 | **grad clip** | 1.0 |
@@ -387,3 +387,4 @@ PYTHONUNBUFFERED=1 .venv/bin/python scripts/run_yhat_transformer_holdout.py --he
 | 2026-11-22 | Arm·T 拟合默认改为 d_model 128、batch 2048、epochs 20。长度 60、层数 2、训练窗 1000、Holdout 60 |
 | 2026-11-22 | 这套拟合缺省收到 `heads.py`。desk、CLI、训练入口和页面用同一份 |
 | 2026-11-22 | 回测缺了序列长度或网络宽度时改用这套缺省。序列档提示改为 `[T−(L−1) … T]` |
+| 2026-11-22 | 训练步日志默认每 10 步一行。`TRANSFORMER_LOG_EVERY` 仍可覆盖 |
