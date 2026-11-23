@@ -10,11 +10,15 @@ import json
 import logging
 import os
 import shutil
+from datetime import datetime, timedelta
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 import numpy as np
 
 logger = logging.getLogger(__name__)
+
+# 对照副本只服务近端复盘；过期目录可删
+_PROMOTE_KEEP_DAYS = 30
 
 _OPEN_NAME_EXACT = {
     "gap_pct",
@@ -291,6 +295,21 @@ def hold_provisional_opens(day: Optional[str] = None) -> int:
     day_s = str(day or _session_day() or "")[:10]
     if len(day_s) < 10:
         return 0
+    # L1 已留过则 L2 再调直接返回，避免扫全库哈希
+    day_root = _day_dir(day_s)
+    if os.path.isdir(day_root):
+        try:
+            prior = sum(
+                1
+                for uh in os.listdir(day_root)
+                if uh
+                and not uh.startswith(".")
+                and os.path.isfile(os.path.join(day_root, uh, "before.npz"))
+            )
+        except OSError:
+            prior = 0
+        if prior:
+            return prior
     try:
         from core.research.day_cube import _root
         from core.research.feature_registry import FEATURE_SCHEMA
@@ -397,7 +416,50 @@ def finish_open_promote(day: Optional[str] = None) -> Optional[Dict[str, Any]]:
             if prev.get(key) is not None and summary.get(key) is None:
                 summary[key] = prev[key]
         written = _save_summary(day_s, uh, summary)
+    try:
+        prune_old_open_promotes(keep_days=_PROMOTE_KEEP_DAYS, keep_day=day_s)
+    except Exception:  # noqa: BLE001
+        logger.debug("open promote prune failed", exc_info=True)
     return written
+
+
+def prune_old_open_promotes(
+    *,
+    keep_days: int = _PROMOTE_KEEP_DAYS,
+    keep_day: Optional[str] = None,
+) -> int:
+    """删掉过期的 ``open_promote/{day}/``；``keep_day`` 当天始终保留。"""
+    root = _promote_root()
+    if not os.path.isdir(root):
+        return 0
+    try:
+        days = int(keep_days)
+    except (TypeError, ValueError):
+        days = _PROMOTE_KEEP_DAYS
+    if days < 1:
+        days = _PROMOTE_KEEP_DAYS
+    keep = str(keep_day or "")[:10]
+    cutoff = (datetime.now() - timedelta(days=days)).strftime("%Y-%m-%d")
+    removed = 0
+    try:
+        names = os.listdir(root)
+    except OSError:
+        return 0
+    for name in names:
+        day = str(name or "")[:10]
+        if len(day) < 10 or day == keep:
+            continue
+        if day >= cutoff:
+            continue
+        path = os.path.join(root, name)
+        if not os.path.isdir(path):
+            continue
+        try:
+            shutil.rmtree(path)
+            removed += 1
+        except OSError:
+            logger.debug("open promote rmtree failed day=%s", day, exc_info=True)
+    return removed
 
 
 def _iter_summaries(day: str) -> List[Tuple[str, Dict[str, Any]]]:
@@ -584,6 +646,7 @@ __all__ = [
     "is_hist_column",
     "is_open_column",
     "promote_line_for_codes",
+    "prune_old_open_promotes",
     "score_delta",
     "summary_for_codes",
 ]

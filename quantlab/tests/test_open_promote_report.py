@@ -16,6 +16,7 @@ from core.research.open_promote_report import (
     finish_open_promote,
     format_open_promote_line,
     hold_provisional_opens,
+    prune_old_open_promotes,
     score_delta,
 )
 
@@ -167,6 +168,29 @@ class TestOpenPromoteReport(unittest.TestCase):
                 )
             self.assertIn("ŷ 平均差", updated["line"])
             self.assertIn("跨门槛", updated["line"])
+            # 第二次 hold：已有 before 则短路，不再依赖立方目录
+            with patch(
+                "core.research.open_promote_report._promote_root", _promote
+            ), patch(
+                "core.research.open_promote_report._session_day", lambda: day
+            ):
+                self.assertEqual(hold_provisional_opens(day), 1)
+
+    def test_prune_old_open_promotes(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            old = os.path.join(tmp, "2026-01-01", "uh")
+            keep = os.path.join(tmp, "2026-11-23", "uh")
+            os.makedirs(old)
+            os.makedirs(keep)
+            open(os.path.join(old, "before.npz"), "wb").close()
+            open(os.path.join(keep, "before.npz"), "wb").close()
+            with patch(
+                "core.research.open_promote_report._promote_root", lambda: tmp
+            ):
+                n = prune_old_open_promotes(keep_days=7, keep_day="2026-11-23")
+            self.assertEqual(n, 1)
+            self.assertFalse(os.path.isdir(os.path.join(tmp, "2026-01-01")))
+            self.assertTrue(os.path.isdir(keep))
 
 
 if __name__ == "__main__":

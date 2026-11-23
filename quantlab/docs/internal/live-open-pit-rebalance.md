@@ -98,7 +98,7 @@
 - 不再用「已实现的昨开→今开」ŷ_oo 开仓；缺立方拒单，去掉静默错日成交。
 - **历史 tip**：旧行 `lake_score_fallback_from` / `_score_source=open_pit` 仍可展示；新路径消费为 `day_cube` 并透传 `pit_phase` / `open_source`。
 - 盘中 provisional 与晚间 final **同会话日**但 μ/σ 可能因成员漂移重标定；成交记录保留下单时 ŷ，tip 对临时立方注明勿拿终态对账。
-- **早盘对照摘要**：日线物化删/盖会话日 open 前，把临时立方与当日 `live_rank_snapshot` 抄到 `data/run/open_promote/{day}/`；晋升终态后写 `summary.json`（今开列 / 历史列 / 股票集合；有早盘分数时再补 ŷ·名次·跨门槛）。交易执行「09:30 复现」`pit.open_promote_line` 与分数 tip 同一句；数据中心日线物化完成态只加「今日 open 已升终态」。无临时副本或未晋升则不写空 0。
+- **早盘对照摘要**：日线物化删/盖会话日 open 前，把临时立方与当日 `live_rank_snapshot` 抄到 `data/run/open_promote/{day}/`；晋升终态后写 `summary.json`（今开列 / 历史列 / 股票集合；有早盘分数时再补 ŷ·名次·跨门槛）。交易执行「09:30 复现」`pit.open_promote_line` 与分数 tip 同一句；数据中心日线物化完成态只加「今日 open 已升终态」。无临时副本或未晋升则不写空 0。副本默认保留 30 天（`prune_old_open_promotes`）。
 
 ---
 
