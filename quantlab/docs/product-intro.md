@@ -33,7 +33,7 @@
 | 交易执行（Paper/Follow） | 持仓、调仓、做T、规则、日志、北极星 |
 | 历史回测（Replay） | rank_lots 指标、分票贡献、成交账 |
 | 研究枢纽（Quant） | 因子、ŷ、日报 |
-| 平台（Platform） | 调度、审计 |
+| 平台 API（无独立页） | 调度、审计；旧 `/platform` 302 → `/follow` |
 | AI 抽屉（⌘K） | LLM 模型 + 自然语言命令 |
 
 实时通信：WebSocket `/ws/live`（行情 / ŷ / 做T / 持仓推送）+ `job_poll.js` 轮询长任务。
@@ -51,7 +51,7 @@
 - **双预测头**：`dual_score/` — ŷ_oo（入池地板 / fuse 成分）、ŷ_τc（fuse 的 τc 项）；买序看 **oo_rank**（缺则回退 fuse）。
 - **质量门禁**：`production_ok`；缺分 / hard_reject 不进生产开加。
 
-> 因子清单、双预测头公式、买入闸 / EOD gate 等细节见 [quant.md · ŷ 全链路](quant.md#predictedscoreŷ全链路) 与 [quant.md · 双层 ŷ](quant.md#25-双层-predictedscoreŷoo-ŷτ)。
+> 因子清单、双预测头公式、买入闸 / EOD gate 等细节见 [quant.md · ŷ 全链路](quant.md#predicted_scoreŷ全链路) 与 [quant.md · 双层 ŷ](quant.md#25-双层-predicted_scoreŷ_oo-ŷ_τ)。
 
 ---
 

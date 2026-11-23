@@ -212,7 +212,7 @@ LLM 可**解读**标题；**不得**写入 `sub_scores` / ŷ。`sentiment.includ
 
 徽章配置见 `signal_config.sentiment` · `core/sentiment_prior.py`；标签读取见 `core/news_archive.py`。
 
-**相关**：开盘缺口等 **事件先验**（与 S 并列的 \(E\)，同属 ŷ 外旁路）见 [quant.md · Live 旁路](../quant.md#live-出分与旁路) · [§2.5](../quant.md#25-双层-predictedscoreŷoo-ŷτ)。
+**相关**：开盘缺口等 **事件先验**（与 S 并列的 \(E\)，同属 ŷ 外旁路）见 [quant.md · Live 旁路](../quant.md#live-出分与旁路) · [§2.5](../quant.md#25-双层-predicted_scoreŷ_oo-ŷ_τ)。
 
 ---
 
@@ -274,7 +274,7 @@ LLM ────────► 叙事（不进分）
 |------|------|
 | [本文件 · 风控层](#风控模型risk-layer) | 防守侧输入 |
 | [§ 策略层](./strategy.md#策略层strategy-layer) | ŷ 排序真源 |
-| [quant.md · ŷ 全链路](../quant.md#predictedscoreŷ全链路) | ŷ 主链路（门禁与口径） |
+| [quant.md · ŷ 全链路](../quant.md#predicted_scoreŷ全链路) | ŷ 主链路（门禁与口径） |
 | [design-spine.md](../design-spine.md) | 先可信再变厚 |
 
 ---

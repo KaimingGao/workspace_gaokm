@@ -84,7 +84,7 @@ live 调仓宇宙是整份观察池；历史回测调仓宇宙是工具条所选
 
 1. 信息集：窗口截至**昨收**，报价用**今开**（不把今日收盘喂进特征）。过热（mom5≥10% 等）与 live `score_stock` 一样**仍算当日 ŷ**，只标 tip（`mom_chase_risk` / overheat）；**不拦开/加**。历史回测不得把过热票踢出打分名单，否则已持仓明细预估值会冻在最后一天。
 2. `y_oo_fuse` 是某一 τ 的 fuse：`fusion_w_oo × ((ŷ_oo+1)/(1+rot)−1) + fusion_w_oc × ŷ_τc`，`rot = price(τ)/open[T]−1`。两项都在 **τ→open[T+1]**；ŷ_τc 已是 τ→close，不再整段减 rot。τ=开盘时 rot=0。真实 label = `open[T+1]/price(τ)−1`。净收益=落盘百分点÷100。缺 `y_spec_tau` 的旧行才退回开盘基准融合再减 rot。
-3. 已持仓且未过入场、缺 y_oo_fuse、hard_reject、或 live 分档掉出允许档 → 清仓（T+1 可卖手数）。过热不因此清仓。
+3. 已持仓且未过入场、缺 y_oo_fuse、hard_reject → 清仓（T+1 可卖手数）。过热不因此清仓。
 4. fuse 过入场的票按 rank_score 买，缺分才按 fuse 从高到低（live 受观察池容量与 `holdings_mv_cap`；历史回测按所选股票池、不套市值帽）：建仓或加仓。没有 ŷ_τc 的票没有 fuse：新开跳过，已持仓清仓。
 5. 金额：fuse &gt; fuse强 → lot_strong_amount，否则 lot_base_amount（缺省 2 万 / 1 万）。按成交价换算整手；不够一手则跳过。买不下则缩到整百，最少一手。
 6. 单票持仓市值上限 = `lot_strong_amount × 120%`。买后该票市值将超过则跳过，防单票过重。

@@ -318,7 +318,7 @@ Skill / Service / 研究 CLI
 | **前端增强（CDN）** | Lightweight Charts · marked；局部 React 岛（非全站 SPA） |
 | **AI** | 通义千问（DashScope，OpenAI 兼容 HTTP）；自定义 `Agent` + Skills |
 | **行情 / 基本面** | 腾讯 qt（现价）· AkShare（日线/选股等）· pandas |
-| **存储** | 配置/账本/流水：本地 JSON / JSONL；**日线/分钟线缓存**：默认 SQLite WAL（`QUANTLAB_BARS_BACKEND=sqlite\|json`）；见 [component/data.md · 数据层](component/data.md#数据层data-layer) · 存储选型 · [internal/sqlite-migration.md · SQLite 改造](internal/sqlite-migration.md#日线分钟线缓存-sqlite-改造方案) · [internal/engineering-track.md · 工程结构轨](internal/engineering-track.md#工程结构轨a0a4-b0b4) |
+| **存储** | 配置/账本/流水：本地 JSON / JSONL；**日线/分钟线缓存**：默认 SQLite WAL（`QUANTLAB_BARS_BACKEND=sqlite\|json`）；见 [component/data.md · 数据层](component/data.md#数据层data-layer) · 存储选型 · [internal/sqlite-migration.md · SQLite 改造](internal/sqlite-migration.md#日线分钟线缓存-sqlite-改造方案) · [internal/engineering-track.md · 工程结构轨](internal/engineering-track.md#工程结构轨a0a4-b0b4-c0c3-c1x) |
 | **量化主轴** | Ridge β → **predicted_score（ŷ）** 选股；ML 旁路见 `research/ml/` |
 | **任务 / 运维** | 进程内 `POST /api/schedule/run` + shell cron / launchd；`unittest` + `evals` |
 | **部署形态** | 单机本地（默认 `127.0.0.1:8000`）；暂不接实盘 OMS |
@@ -383,13 +383,13 @@ Skill / Service / 研究 CLI
 策略层（选股择时 / 仓位 / 风控、输入输出、设计模板）见 **[component/strategy.md · 策略层](component/strategy.md#策略层strategy-layer)**。  
 风控模型（风险因子、Alpha×Risk、演进）见 **[component/risk.md · 风控层](component/risk.md#风控模型risk-layer)**。  
 强化学习视角（Policy/Reward ↔ 策略/风控；**未实现**在线 RL）见 **[component/rl.md · RL 视角](component/rl.md#强化学习视角rl-layer)**。  
-舆情/另类数据（新闻→风险分；当前仅标题 Skill）见 **[component/risk.md · 舆情层](component/risk.md#舆情与另类数据sentiment-altdata)**。
+舆情/另类数据（新闻→风险分；当前仅标题 Skill）见 **[component/risk.md · 舆情层](component/risk.md#舆情与另类数据sentiment-alt-data)**。
 
 **P94 演进（非重写）**：`QuantService` 拆为 config/factors/portfolio/ops Mixin，门面类名与方法不变；Web 路由按域拆到 `web/routers/*`，URL 不变。
 
 产品流程（观察 ≠ 模拟）：观察台维护名单并建仓，交易执行管已有仓位，历史回测验规则。见 [quant-ui.md](quant-ui.md)。路由：`/watching` `/follow` `/replay` `/market-prior`（`/paper` 重定向到 `/follow`；`/strategy` 重定向到 `/market-prior`；`/quant` 等仍可用）。见 `action_map.py`、`GET /api/quant/actions` 与 [quant.md · 入门概念](quant.md#量化入门概念)。
 
-**观察池**（Watching）：用户维护的**候选股票宇宙**（静态名单和/或 `screen` 筛选），落盘 `data/watching.json`，页 `/watching`。划定打分、行情预热、截面 μ/σ、调仓开加、回测宇宙的范围（上限默认 300、硬顶 `WATCHING_MAX_SIZE`=1600，数据中心概览可改）；**不是**持仓、**不是**全市场。持仓在模拟账本 `paper.json`。生产调仓主路径：观察池 → 会话日官方开盘 L2 出分（缺则物化补齐）→ **y_oo_fuse 入场 + y_oo_rank 买序（rank_lots）**；建仓只从观察台进（见下「入口边界」）。做 T 不从池新开，只 overlay 已持底仓；分钟截面常为观察池 ∪ 持仓。细则见 [rebalance-logic.md](rebalance-logic.md) · [quant.md · ŷ](quant.md#predictedscoreŷ全链路)。
+**观察池**（Watching）：用户维护的**候选股票宇宙**（静态名单和/或 `screen` 筛选），落盘 `data/watching.json`，页 `/watching`。划定打分、行情预热、截面 μ/σ、调仓开加、回测宇宙的范围（上限默认 300、硬顶 `WATCHING_MAX_SIZE`=1600，数据中心概览可改）；**不是**持仓、**不是**全市场。持仓在模拟账本 `paper.json`。生产调仓主路径：观察池 → 会话日官方开盘 L2 出分（缺则物化补齐）→ **y_oo_fuse 入场 + y_oo_rank 买序（rank_lots）**；建仓只从观察台进（见下「入口边界」）。做 T 不从池新开，只 overlay 已持底仓；分钟截面常为观察池 ∪ 持仓。细则见 [rebalance-logic.md](rebalance-logic.md) · [quant.md · ŷ](quant.md#predicted_scoreŷ全链路)。
 
 **研究宇宙 / 可交易严筛**：`data/research_universe.json` 为日线研究与观察池扩容的**门票池**，经 `core/universe/tradable_screen.py` 按 `data/tradable_universe_policy.json` 严筛（剔 ST、流通市值/成交额/价格带等）后写入。Web 按钮在数据中心概览；主入口 `POST /api/quant/research-universe/rebuild-and-reconcile`；运维可分步 `rebuild-tradable` / `reconcile-watching`。默认 **`watching ⊆ research_universe`**（`QUANTLAB_WATCHING_SUBSET_OF_RESEARCH=1`）；扩容只从研究池补，手工加票须已在研究池。回测剔 ST 时同步套用 policy 绝对成交额门槛。
 
@@ -1381,13 +1381,16 @@ quantlab/
 | 风控层 | [component/risk.md](component/risk.md) | Alpha×Risk · 风控因子 · 舆情徽章 / news.db 标签 |
 | RL 视角 | [component/rl.md](component/rl.md) | Policy/Reward/Env（远期） |
 | 框架梳理 | [internal/framework-review.md](internal/framework-review.md) | 工程债台账 |
-| 工程结构轨 | [internal/engineering-track.md](internal/engineering-track.md) | A0–A4 · B0–B4 |
+| 工程结构轨 | [internal/engineering-track.md](internal/engineering-track.md) | A0–A4 · B0–B4 · C0–C3 · C1.x |
 | SQLite 迁移 | [internal/sqlite-migration.md](internal/sqlite-migration.md) | bars.db WAL（已落地 A1） |
 | 行情更新缓存 | [internal/bars-update-cache.md](internal/bars-update-cache.md) | 日线/5m 写仓读仓 · 指纹 · 前复权替换 |
 | Feature Lake / DayCube | [internal/feature-lake-daycube.md](internal/feature-lake-daycube.md) | L1/L2 物化 · 写穿 · `allow_l1_end_lag` |
 | DayCube 宇宙键 | [internal/daycube-universe-key.md](internal/daycube-universe-key.md) | `universe_hash` |
 | Live 开盘 L2 | [internal/live-open-pit-rebalance.md](internal/live-open-pit-rebalance.md) | 只读会话日 open 立方；缺则 `ensure_session_open_l2`（临时→终态） |
 | AkShare vs Tushare | [internal/akshare-tushare-daily-compare.md](internal/akshare-tushare-daily-compare.md) | 日线对齐审计 |
+| Arm·T 技术方案 | [internal/arm-t.md](internal/arm-t.md) | 序列 Transformer · Holdout 硬闸 · 训练与晋级协议 |
+| 模型工厂 × 枢纽执行 | [internal/model-factory-hub.md](internal/model-factory-hub.md) | 工厂验证配方 · 研究套 / 执行套 |
+| Agent × 调仓（AO 轨） | [internal/agent-ops-landing.md](internal/agent-ops-landing.md) | `ops` Skill · 五问 / 预演 / 异常 |
 
 ---
 

@@ -196,7 +196,7 @@ python3 research/watching_run.py --init
 python3 research/watching_run.py --show
 ```
 
-`--init` 把 `watching.example.json` 复制成 `watching.json`。文件已经存在时它会报错并拒绝覆盖。换池之后要重新做第 6、7 步（整池拉数和拟合都会久很多），回测时分档仍然全部取消勾选。
+`--init` 把 `watching.example.json` 复制成 `watching.json`。文件已经存在时它会报错并拒绝覆盖。换池之后要重新做第 6、7 步（整池拉数和拟合都会久很多）。
 
 ---
 
@@ -225,7 +225,6 @@ python3 research/watching_run.py --show
 | 回测提示 `watching.json 不存在` | 回到第 3 步写文件，再跑 `setup_quant.sh` |
 | 日线 / 分钟线 Missing 不掉 | 名单是不是仍约 500 只；外网是否通。第一次用「增量补齐」，不要用强更 |
 | 启用研究是灰的 | 这张卡的「拟合」还没跑完，或失败了。看卡片状态条上的报错 |
-| 回测提示无枢纽分档报告 | 分档 A/B/C 全部取消勾选后再点「跑回测」 |
 | 回测像没读到新模型 | 拟合之后要点「启用研究」。只拟合不启用，历史回测仍用旧研究套 |
 | 点了「跑回测」却在问候选池 | 点的是下面「做 T 回测」（先加入最多 8 只）。调仓改点上面「调仓回测」 |
 | 一直停在「回测中…」 | 先确认第 6 步 Missing 已是 0。名单如果仍是约 500 只，先收成 3 只 |

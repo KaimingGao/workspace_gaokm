@@ -2,7 +2,7 @@
 
 研究轨 **Scheme LT**（LightGBM vs Transformer）的右臂：序列 Transformer。对照左臂 **Arm·L**（现网 LightGBM · 全量）。`live_allowed=False`，不写生产 score。旧结构权重不再加载。
 
-UI 入口：`/yhat-t`（**Transformer 工厂**；旧 `/yhat-tf` 重定向）。契约见 [quant-ui.md · 模型中心](../quant-ui.md#yhat-t--yhat-l-模型中心双工厂)。  
+UI 入口：`/yhat-t`（**Transformer 工厂**；旧 `/yhat-tf` 重定向）。契约见 [quant-ui.md · 模型中心](../quant-ui.md#yhat-t-yhat-l-yhat-r-模型中心)。  
 长期拆分（工厂拟合 vs 枢纽注册 live/回测）见 **[model-factory-hub.md](model-factory-hub.md)**。跑次版本在 `live/yhat_t/versions/{head}/`（Arm·L 为 `yhat_l`）；选中只回看参数、指标和日志。删除只去掉该条归档和日志副本，不改磁盘上的当前拟合，不写 live。若删掉的是概览正在指示的那次失败，概览不再显示这次失败；列表里还有版本时，改看剩下的最新一条。
 
 ---

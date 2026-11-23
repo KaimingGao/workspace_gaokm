@@ -48,3 +48,4 @@
 | [DayCube 宇宙键](internal/daycube-universe-key.md) | 物化与回测的 `universe_hash`：完整名单做键、有行代码进矩阵；旧 798 目录与重跑 |
 | [Live 开盘 L2](internal/live-open-pit-rebalance.md) | 早盘误用昨日立方根因；现行只读会话日 L2 + `ensure_session_open_l2`（临时→终态） |
 | [AkShare vs Tushare 日线对比](internal/akshare-tushare-daily-compare.md) | 本地日线仓与 Tushare daily 对齐审计（复权标签 / 量单位） |
+| [Agent × 量化调仓（AO 轨）](internal/agent-ops-landing.md) | `ops` Skill · 五问快照 · 调仓预演 · 异常 / 建议草稿 |

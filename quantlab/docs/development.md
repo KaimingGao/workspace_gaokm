@@ -267,9 +267,7 @@ python3 evals/run_agent_check.py --case quant_package_info
 python3 evals/run_repro.py
 ```
 
-**CI**（`.github/workflows/quantlab-ci.yml`）：push/PR 自动跑单测 · **import 审计** · repro · `--mock --presets` checklist · preset 校验 · daily eval-mock。
-
-本地量化 CI 同款：`bash scripts/ci_quant.sh`（单测 · import 审计 · repro · checklist · daily eval-mock）。
+**CI**：当前未接入托管 CI（仓库无 `.github/workflows/`）。本地量化 CI 用 `bash scripts/ci_quant.sh`（单测 · import 审计 · repro · checklist · daily eval-mock）。
 
 **Web**：跑 checklist / preset / routing 用下方 CLI 与 Eval API（不再从顶栏弹窗）。
 

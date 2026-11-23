@@ -24,7 +24,7 @@
 
 **A · 可解释 / 效率**
 
-1. 自然语言完成：解读最近调仓/日更、预演下一步、排查 `risk_block` / IC / 数据质量。
+1. 自然语言完成：解读最近调仓/日报、预演下一步、排查 `risk_block` / IC / 数据质量。
 2. Agent 默认只暴露 **只读快照** 与 **dry_run**；写盘须二次确认（UI 或 `AGENT_ALLOW_CONFIRM`，默认关）。
 3. 复用 `ops_report`、三路预演、`feedback/suggest`、DecisionRecord；少造平行领域逻辑。
 4. 验收可回放：golden + mock LLM 环路进 CI。
@@ -121,7 +121,7 @@ Agent（编排旁路）
 | 监控健康 | `quant(task=health)` · `assess_strategy_health` | 部分可用 |
 | 持仓桥 | `quant(task=portfolio_bridge)` | **缺** ops_report |
 | 反馈草稿 | `POST /api/feedback/suggest` | **未**挂 |
-| 决策留痕 | DecisionRecord · `paper_daily` / advise | 解释链可引用，无统一拉取工具 |
+| 决策留痕 | DecisionRecord · `auto` / `follow` / advise | 解释链可引用，无统一拉取工具 |
 | 新闻 | `news` 标题摘要 | 无事件 flag schema |
 
 研究助理（Role3：回测 / IC / preset / config_diff）**已较强**：AO3.5 / AO6 **复用**这些能力做对照与 Alpha 草稿，不重写研究台引擎。
@@ -156,7 +156,7 @@ Agent（编排旁路）
 **交付**
 
 1. 新 Skill **`ops_snapshot`**（或 `quant` 新 task `ops_snapshot`——推荐 **独立 Skill**，避免 quant task 继续膨胀）：
-   - 读 `paper.last_ops_report`；若空则返回明确 `success:false` + 提示先跑日更/调仓
+   - 读 `paper.last_ops_report`；若空则返回明确 `success:false` + 提示先跑调仓
    - 附最近 N 条 `risk_block` 操作日志摘要、最近 1 条 `source=paper_daily|advise` Decision
 2. `portfolio_bridge` 可选附带 `last_ops_report` 精简键（或废弃重复，统一走 ops_snapshot）
 3. `artifacts.py`：新 artifact 类型 → 交易执行 / 跟单 tab；`ai_drawer` 深链「打开五问条」
@@ -208,7 +208,7 @@ Agent（编排旁路）
    - `baseline_ref`（当前 strategy_version / config hash）
    - `suggested_checks[]`（须跑的回测/纸面 dry 项，如 `portfolio_backtest`、滚动 IC）
    - 人 promote 后由既有流程写 DecisionRecord；本阶段不自动跑全套回测也可，但 UI/文案必须提示「未对照不得宣称变好」
-4. Drawer 深链：risk-block 列表 / 平台审计 / 策略 promote 入口
+4. Drawer 深链：risk-block 列表 / Decision 审计 API / 策略 promote 入口
 
 **验收**
 
@@ -369,7 +369,7 @@ Agent（编排旁路）
 | 交易执行五问条 | 仍为 SSOT；Agent 只引用同一 `last_ops_report` |
 | 观察台建仓 | 预演仍以现有 preview UI 为准；Agent 给摘要 |
 | 策略 / promote | 展示 Agent 草稿 + `suggested_checks`；**人点 promote** |
-| 平台 / 审计 | 有页则深链；DecisionRecord 区分 `agent_*` 来源 |
+| 审计 API | 无独立页（`/platform` 302 → `/follow`）；DecisionRecord 区分 `agent_*` 来源 |
 
 文案统一：
 

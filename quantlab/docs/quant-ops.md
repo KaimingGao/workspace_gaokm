@@ -14,7 +14,7 @@
 | 门槛配置 | `data/tradable_universe_policy.json` |
 | 子集强制开关 | `QUANTLAB_WATCHING_SUBSET_OF_RESEARCH`（默认 `1`） |
 
-面板只暴露合并入口；分步 API 供运维/自动化，不是双按钮。完成后重跑分档 / ŷ 拟合（宇宙指纹会变）。
+面板只暴露合并入口；分步 API 供运维/自动化，不是双按钮。完成后重跑 ŷ 拟合（宇宙指纹会变）。
 
 ---
 
@@ -36,9 +36,9 @@ Web `/follow` 补 ŷ、策略调仓「09:30 复现」与自动调仓 worker 遇�
 
 | preset | 说明 | 包含步骤 |
 |--------|------|----------|
-| `advisor` | 投顾日常（工作日收盘后） | 纸面观察池 · eval mock |
+| `advisor` | 投顾日常（工作日收盘后） | 离线 golden checklist（mock）；持仓规则日循环已下线 |
 | `quant` | 量化研究 | watching 刷新 · sync watchlist · 横截面 · quant 日报 · 导出 md/html |
-| `quant_paper` | 量化 + 纸面调仓 | 同上 + 纸面调仓（显式 opt-in，非实盘） |
+| `quant_paper` | 量化 + 纸面调仓 | quant 全流程 + 观察池 rank_lots 纸面调仓（显式 opt-in，非实盘） |
 | `full` | 全量 | advisor + quant（不含纸面调仓与 Agent 回归） |
 
 **CLI**：
@@ -128,7 +128,7 @@ python3 research/daily_run.py --quant-report --export-quant-report
 
 | 任务 | 需要先 |
 |------|--------|
-| `advisor` / `full` 纸面步骤 | `python3 research/paper_run.py --init` 或 Web「纸面」初始化 |
+| `quant_paper` 纸面调仓 | `python3 research/paper_run.py --init` 或 Web「纸面」初始化 |
 | `quant` / `full` watching | `python3 research/watching_run.py --init`（或 `bash scripts/setup_quant.sh`）：`watching.example.json` → `watching.json`。模板 `sources` 为空即手动名单；要按规则重算再写 `sources` 后 `--refresh` |
 
 失败时 CLI 退出码为 `1`，JSON 中 `failures` 列出原因；Web 返回 HTTP 422 与同样结构。

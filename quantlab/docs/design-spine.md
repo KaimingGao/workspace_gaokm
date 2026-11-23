@@ -1,6 +1,6 @@
 # 产品核心设计主轴
 
-[← 文档索引](README.md) · 工程分层见 [architecture.md](architecture.md) · **预估方法论**见 [§ 多频率 Ensemble](design-spine.md#预估方法论多频率-多目标-ensemble) · ŷ 契约见 [quant.md](quant.md#predictedscoreŷ全链路) · Live 旁路见 [quant.md · Live](quant.md#live-出分与旁路) · 运维见 [quant-ops.md](quant-ops.md) · τ 见 [§2.5](quant.md#25-双层-predictedscoreŷoo-ŷτ) · Web 见 [quant-ui.md](quant-ui.md)
+[← 文档索引](README.md) · 工程分层见 [architecture.md](architecture.md) · **预估方法论**见 [§ 多频率 Ensemble](design-spine.md#预估方法论多频率-多目标-ensemble) · ŷ 契约见 [quant.md](quant.md#predicted_scoreŷ全链路) · Live 旁路见 [quant.md · Live](quant.md#live-出分与旁路) · 运维见 [quant-ops.md](quant-ops.md) · τ 见 [§2.5](quant.md#25-双层-predicted_scoreŷ_oo-ŷ_τ) · Web 见 [quant-ui.md](quant-ui.md)
 
 本文是产品的 **核心设计主轴**，分三层读：
 
@@ -92,10 +92,10 @@ flowchart LR
 |----------|----------|------------|--------|
 | **事实输入** | 当时可见的价量、财务、资讯、账本 | `ports` · `fetch_daily_bars` · fundamentals · sentiment · `watching` / `paper` · **L1 Feature Lake / L2 DayCube**（训练·回测·live 共用截面物化） | 基本面多为 **snapshot**（非完整 PIT）；须在质量/文档标明；截面 μ/σ 绑 `universe_hash` |
 | **清洗门禁** | 能否进入生产估计 | `normalize_bars` · `assess_quality` · `allows_production_score` · manifest `adjust_policy` | thin/empty/fallback → `hard_reject`，不硬塞分 |
-| **Alpha 估计** | 已发生形态对「相对吸引力」的影响 | `factor_registry` · `score_bars`→sub_scores · ŷ_oo / ŷ_τc LightGBM（`OoLightgbmScorer` / `TcLightgbmScorer`）· **多目标多头** · **blend 融合** · `compute_buy_stance` | 方法论见 [design-spine · 预估方法论](design-spine.md#预估方法论多频率-多目标-ensemble)；生产主排序 = **ŷ_oo**；τc 独立 LightGBM + OOS；融合见 [quant §2.5](quant.md#25-双层-predictedscoreŷoo-ŷτ)；LLM **不改**分 |
+| **Alpha 估计** | 已发生形态对「相对吸引力」的影响 | `factor_registry` · `score_bars`→sub_scores · ŷ_oo / ŷ_τc LightGBM（`OoLightgbmScorer` / `TcLightgbmScorer`）· **多目标多头** · **blend 融合** · `compute_buy_stance` | 方法论见 [design-spine · 预估方法论](design-spine.md#预估方法论多频率-多目标-ensemble)；生产主排序 = **ŷ_oo**；τc 独立 LightGBM + OOS；融合见 [quant §2.5](quant.md#25-双层-predicted_scoreŷ_oo-ŷ_τ)；LLM **不改**分 |
 | **Risk 估计** | 已发生敞口对「能买多少 / 要不要停」的影响 | `check_account_risk` · `optimize_weights` · `strategy_monitor`（回撤 · 滚动 IC · 行业覆盖） · 成本 `simple_cn` | 监控 **只告警**；不自动改权、不代客下单 |
 | **验证** | 同一规则在历史上是否仍有效 | `backtest` · OOS/regime · IC / `weight_suggest` · 纸面 `ops_report` 五问 | 研究结果 ≠ 实盘保证；OOS 失败须可见 |
-| **动作** | 估计如何变成可审计行为 | 观察 · 人建仓 · `run_daily_cycle` / 横截面调仓 · `paper_daily` · DecisionRecord | **现行不接 OMS**（策略验证）；配置变更走 feedback → **人审 promote** |
+| **动作** | 估计如何变成可审计行为 | 观察 · 人建仓 · `run_daily_cycle` / 横截面调仓 · 开盘调仓 worker · DecisionRecord | **现行不接 OMS**（策略验证）；配置变更走 feedback → **人审 promote** |
 | **旁路解释** | 把估计讲给人听 | Agent / Skills / prompts | 只能 **引用** `stance_label`，不得改写数字 |
 
 ### 与六大模块的对应
@@ -153,7 +153,7 @@ flowchart LR
 | **做 T：正 / 反 / 跳过** | 开盘 Z + **5m 前缀** | **纯 ŷ_τw** 选向与金额 | ≥入场正T、≤−入场反T；\|ŷ_τw\| 分档金额 | `core/t0/close_band.py` |
 | **执行：何时触价** | **5m** 第一触达 | leg1=触发根收盘；leg2 无预设目标 | 与估计层分离；缺分钟跳过 | `core/t0/` · `minute_path` |
 
-详见 [quant.md · 策略调仓 vs 底仓做 T](quant.md#策略调仓-vs-底仓做-t) · [quant.md · 双层 ŷ §2.5](quant.md#25-双层-predictedscoreŷoo-ŷτ) · [quant.md · ŷ 全链路](quant.md#predictedscoreŷ全链路)。
+详见 [quant.md · 策略调仓 vs 底仓做 T](quant.md#策略调仓-vs-底仓做-t) · [quant.md · 双层 ŷ §2.5](quant.md#25-双层-predicted_scoreŷ_oo-ŷ_τ) · [quant.md · ŷ 全链路](quant.md#predicted_scoreŷ全链路)。
 
 ### Ensemble 在本仓库的具体形态
 
@@ -229,7 +229,7 @@ flowchart LR
 | 角色 | 其北极星 | 系统应支撑 | 路径内覆盖 |
 |------|----------|------------|------------|
 | **研究员** | 快速验证 Alpha 是否有效 | 数据 API、可复现回测、参数/因子实验吞吐 | 部分：回测/IC/五问；弱：IDE、参数曲面、TTM |
-| **交易执行（纸面）** | 以可审计、低损耗执行策略意图 | 预演→确认、成本可见、限额硬拦 | 有：调仓五问/日更；无 OMS/盘口（边界外） |
+| **交易执行（纸面）** | 以可审计、低损耗执行策略意图 | 预演→确认、成本可见、限额硬拦 | 有：调仓五问；无 OMS/盘口（边界外） |
 | **风控 / 运维** | 守底线且不无谓挡正常调仓 | 敞口可见、拦截可查、告警→人审 | 碎片：待办/五问/健康；缺专台与有效率 |
 
 ### 需求拷问（Actionable）
@@ -270,7 +270,7 @@ flowchart LR
 | 3 | **因子挖掘与模型** | 大规模因子库 + IC/IR 流水线 + 中性化；可选 ML/NN，artifact 冻结可 promote | `score_bars`→sub_scores + **回归 ŷ**（ŷ_oo/ŷ_τc=LightGBM）；IC / weight_suggest 遗留；NN **仅研究轨** | **ŷ_oo / ŷ_τc 树头** | `OoLightgbmScorer` / `tc_lgb` · 横截面；健康门/衰减见 pro-core FM；NN 不上生产 `score` | Velocity · 收益质量 |
 | 4 | **组合优化与风控** | QP/风险预算求解；单票/行业/风格暴露；VaR/限额实时；成本与冲击进目标函数 | 分数风险预算 + `risk_parity_lite` + 暴露矩阵 + 单票/行业硬拦；行业 map 覆盖与预算告警；纸面止损/回撤熔断 | **部分 ~68%** | `optimize_weights` · `risk/budget` · `check_account_risk` · `exposure`；风格进目标/动态限额见 pro-core RK；仍缺完整 QP / 实时 VaR | 收益质量 · 风控底线 |
 | 5 | **历史回测验证** | 组合级事件驱动；T+1/涨跌停/冲击；OOS/多 regime；Brinson/因子归因 | 共用 `score_bars`；成本对照；OOS/regime；撮合近似（板别涨跌停 + 跌停延后卖）；个股/行业/选股超额归因 | **较强 ~80%** | `backtest` · `matching` · `attribution`；非交易所级仿真 | 拟合 · 收益质量诊断 |
-| 6 | **部署与迭代** | OMS/券商 API；实时监控与自动风控；衰减触发再训练/调仓流水线 | **纸面准实盘（策略验证）**：日更调度、滚动 IC、告警出站、人审 promote；**现行不接 OMS** | **模拟 ~52%** | `paper_daily` · `strategy_monitor` · `alert_outbound`；N6 = 验证成熟后另立项 | 纸面收益 · 拟合闭环 |
+| 6 | **部署与迭代** | OMS/券商 API；实时监控与自动风控；衰减触发再训练/调仓流水线 | **纸面准实盘（策略验证）**：开盘调仓、滚动 IC、告警出站、人审 promote；**现行不接 OMS** | **模拟 ~52%** | 开盘调仓 · `strategy_monitor` · `alert_outbound`；N6 = 验证成熟后另立项 | 纸面收益 · 拟合闭环 |
 
 ### 专业 vs 本仓库：一句话对照
 
@@ -309,7 +309,7 @@ flowchart LR
 | 3 | 因子挖掘与模型 | **N2** | 线性 `score_bars` + IC；NN 仅研究轨 | ~60% | 骨架落地 |
 | 4 | 组合优化与风控 | **N3** | 分数预算权重 + 波动缩放 + 限额硬拦 | ~60% | 骨架 + 动态轻量 |
 | 5 | 历史回测验证 | **N4** | OOS / WF / 成本 / 板别涨跌停·跌停延后 | ~80% | 骨架；最强模块 |
-| 6 | 部署与迭代 | **N5** 纸面 / **N6** OMS | 日更 + 告警 + 人审；**现行不接 OMS** | ~52% / 未启动 | N5 策略验证主路径；N6 验证成熟后另立项 |
+| 6 | 部署与迭代 | **N5** 纸面 / **N6** OMS | 开盘调仓 + 告警 + 人审；**现行不接 OMS** | ~52% / 未启动 | N5 策略验证主路径；N6 验证成熟后另立项 |
 
 ```text
 能力地图（6）          工程轨（6）
@@ -351,7 +351,7 @@ flowchart LR
 |----|----------|------|
 | **产品北极星（三项乘积）** | **已仪表化 / 待用样本优化** | 滚动纸面夏普·TTM·回测–纸面相关可查；数值健康度随运行累积 |
 | **能力地图（六大模块对照）** | **部分～较强** | 粗估整体约 **~70%～78%**；回测相对最强，部署（无 OMS）最弱 |
-| **N1–N5 实现路径** | **P0–P2 可验收** | 五问/限额/质量/WF/IC/日更调度/告警→人审晋升已接线 |
+| **N1–N5 实现路径** | **P0–P2 可验收** | 五问/限额/质量/WF/IC/调仓调度/告警→人审晋升已接线 |
 | **现行主轴**（观察·策略·模拟·回溯 + AI 旁路） | **基本达成** | `score_bars` → stance → 建仓/调仓/回测共用计分；LLM **不改写** `score` / `stance` |
 | **升级重构 R0–R5** | **已收口** | 见本章路线图摘要；旧独立排期文档已并入 |
 | **N6 真·实盘 OMS** | **未启动（有意推迟）** | 待回测 + 纸面验证成熟、合规就绪后另立项；**不计入当前北极星分子** |
@@ -360,7 +360,7 @@ flowchart LR
 
 | 指标 | 状态 | 下一步 |
 |------|------|--------|
-| 滚动纸面夏普 / 卡玛 | **R0 已落地** | 日更积累样本；与回测夏普分列解读 |
+| 滚动纸面夏普 / 卡玛 | **R0 已落地** | 开盘调仓积累样本；与回测夏普分列解读 |
 | Time-to-Market | **R0 打点 · R2 研究台已加深** | 继续压缩中位耗时 |
 | 回测–纸面相关 / TE | **R0 已落地** | R1 PIT/冲击样本积累抬拟合 |
 | 拦截有效率 / 误拦率 | **R3 可算**（须 `meta.outcome` 标注） | 补标注样本 |
@@ -382,7 +382,7 @@ flowchart LR
 
 | 项 | 状态 | 落点 |
 |----|------|------|
-| 日更五问 | **已落地** | `ops_report` 顶层字段；交易执行「调仓五问」条；`paper_daily` DecisionRecord |
+| 调仓五问 | **已落地** | `ops_report` 顶层字段；交易执行「调仓五问」条；开盘调仓 DecisionRecord（收盘 `paper_daily` 已下线） |
 | 回测默认 cost/OOS/regime | **已落地** | API `apply_costs=True`；Web 指标卡与摘要展示 |
 | 限额硬拦 + 日志 | **已落地** | `run_daily_cycle` / 横截面调仓拦截加仓；`risk_block` 操作日志 |
 | data_quality 可查 | **已落地** | 调仓/日更/组合回测响应；`fallback_count` UI 文案 |
@@ -405,7 +405,7 @@ flowchart LR
 | 项 | 状态 | 落点 |
 |----|------|------|
 | `paper_daily` 定时 | **已下线** | 收盘日循环与 `scripts/daily_paper.sh` 已删除。开盘调仓在交易执行 |
-| 监控告警进 UI | **已落地** | 横截面 ops_report 接线 `assess_strategy_health`；平台/交易执行展示告警 |
+| 监控告警进 UI | **已落地** | 横截面 ops_report 接线 `assess_strategy_health`；交易执行展示告警 |
 | 告警→建议→promote | **已落地** | feedback `monitor_alerts`；研究枢纽 `POST /api/feedback/suggest`；`POST /api/strategy/promote`（无页面按钮） |
 
 ### P2+ 稳态加深（已完成）
@@ -456,7 +456,7 @@ flowchart LR
 | **N2** | 因子 / 模型 | 因子 IC 实验室；情绪可选因子；`research/ml/` 仅离线 artifact | **骨架落地** |
 | **N3** | 组合 / 风控 | StrategySpec 限额；`optimize_weights` 分数预算 + 高波缩放 | **骨架 + 动态轻量** |
 | **N4** | 历史回测 | OOS / regime 摘要；报告强制展示成本模型 | **骨架落地** |
-| **N5** | 准实盘迭代 | 调度 `paper_daily`；衰减监控；人审晋升闭环 | **P2 可验收** |
+| **N5** | 准实盘迭代 | 开盘调仓调度；衰减监控；人审晋升闭环 | **P2 可验收** |
 | **N6** | 真·实盘 | 策略验证成熟 + 合规后评估 OMS；**现行不排期** | 有意推迟 |
 
 ```text
@@ -467,7 +467,7 @@ N2 ──offline──► research/ml artifact ──promote only──► N5
 
 **锁定取舍**：生产 Alpha 仍为 `score_bars` 线性加权；NN 不得直连生产 `score`；不接券商 OMS，N5 用交易执行开盘调仓 + 监控代替「部署」。
 
-达成度细节见上文 [达成度评估（2026-07）](#达成度评估202607)；P0–P3 实现规划与下一程见 [北极星实现规划](#北极星实现规划p0p3)。
+达成度细节见上文 [达成度评估（2026-07）](#达成度评估2026-07)；P0–P3 实现规划与下一程见 [北极星实现规划](#北极星实现规划p0p3)。
 
 ---
 
@@ -707,14 +707,14 @@ data/*.json   → 配置与账本落盘
 | 基本面 `fundamentals` | A 股 PE/PB/ROE/增速等 | 中 |
 | 同行 `peer` | 预设同业组横向对比 | 中低 |
 | 相对强弱 `index` | 近 N 日相对沪深300/恒生超额 | 中 |
-| 资讯 `news` | 标题摘要（非全文研报） | 中低；数值化舆情见 [architecture.md · 舆情层](component/risk.md#舆情与另类数据sentiment-altdata) |
+| 资讯 `news` | 标题摘要（非全文研报） | 中低；数值化舆情见 [architecture.md · 舆情层](component/risk.md#舆情与另类数据sentiment-alt-data) |
 | 持仓 `position` | 文件/临时 holdings + 可配置规则 | 中 |
 | 解读/咨询 | prompt + 多工具串联 | 中 |
 | 产品形态 | CLI + Web | MVP |
 
 **已做得对的地方**：数据与话术分离；Skill 合约清晰；合规措辞；离线单测；P1～P3 核心能力已齐；**P4/P5 量化链路已落地**（因子 → 回测 → 纸面 → stance）。
 
-**主要缺口（相对产品北极星 / 策略验证阶段）**：能力地图上财务 PIT / 统一数仓仍弱；组合缺完整 QP；撮合非交易所级。**实盘/OMS 未接是有意推迟**（N6：策略验证成熟后再立项，不计入当前北极星分子）。路径内 P2++ / R0–R5 已补日线 PIT、行业预算、撮合近似、归因、出站告警、北极星仪表。能力地图粗估约 **~70%～78%**；详见 [design-spine · 产品北极星](design-spine.md#产品北极星) · [能力地图](design-spine.md#能力地图六大模块) · [达成度评估](design-spine.md#达成度评估202607)。
+**主要缺口（相对产品北极星 / 策略验证阶段）**：能力地图上财务 PIT / 统一数仓仍弱；组合缺完整 QP；撮合非交易所级。**实盘/OMS 未接是有意推迟**（N6：策略验证成熟后再立项，不计入当前北极星分子）。路径内 P2++ / R0–R5 已补日线 PIT、行业预算、撮合近似、归因、出站告警、北极星仪表。能力地图粗估约 **~70%～78%**；详见 [design-spine · 产品北极星](design-spine.md#产品北极星) · [能力地图](design-spine.md#能力地图六大模块) · [达成度评估](design-spine.md#达成度评估2026-07)。
 
 ---
 
@@ -761,7 +761,7 @@ data/*.json   → 配置与账本落盘
 [quant.md · Live 旁路 / §2.5](quant.md#live-出分与旁路)。**P0～R3 代码已落地**；生产排序仍只用 ŷ_oo；ŷ_τ 需 `POST /api/quant/tc-lgb`（`persist=true`，落盘 `tau_lgb_model.json`）后人审启用门控。
 
 **契约缺口与下一步**：**双层 ŷ** A1+F1 已落地；**F2** `predicted_score_blend` 可选（`fusion_mode=f2`）；**B1** promote 相对 active 的 OOS 失败率硬闸已落地；**B2/B3** focused 贪心 + promote-preflight / 落地卡已接通。未做：**A3** 主轴切换、分钟 τ 默认 live、Ridge 头重训并成功 promote。见
-[quant.md · τ 契约升级](quant.md#25-双层-predictedscoreŷoo-ŷτ) · [quant.md · ŷ 全链路 §2.5](quant.md#predictedscoreŷ全链路)。
+[quant.md · τ 契约升级](quant.md#25-双层-predicted_scoreŷ_oo-ŷ_τ) · [quant.md · ŷ 全链路 §2.5](quant.md#predicted_scoreŷ全链路)。
 
 ### P4 / P5 已交付 → 现行落点
 
@@ -854,7 +854,7 @@ Data(PIT/缓存) → Factors/Signal → Strategy(版本) → Backtest/OOS → Pa
 
 ### 与 D1–D6 / 路径 C 的关系
 
-- **D1–D6**：继续作平台骨架，**不**抢 Q2–Q4 主轴；调度（D5）优先挂「日更信号 + 模拟调仓」，而非荐股推送。  
+- **D1–D6**：继续作平台骨架，**不**抢 Q2–Q4 主轴；调度（D5）优先挂「开盘调仓 + 模拟调仓」，而非荐股推送。  
 - **路径 C（实盘/OMS）**：待策略验证成熟（回测 + 纸面可复现、风控审计齐全、合规确认）后另立项 N6；**现行不排期**。
 
 ### 建议执行顺序（甘特逻辑）
@@ -878,15 +878,15 @@ Q2 与 Q3 可部分并行（Strategy 接口先定，ports 清债同步）；Q4 �
 
 ## 北极星实现路径（N1–N6）· 路线图摘要
 
-> 总表与状态见上文 [北极星实现路径（N1–N6）](#北极星实现路径n1n6)；达成度见 [达成度评估](#达成度评估202607)；N6 闸门见 [N6 备忘](#n6-真实盘准入备忘)。本节只保留 P0–P3 规划摘要与 D1–D6 / 持仓配置，避免与上文重复。
+> 总表与状态见上文 [北极星实现路径（N1–N6）](#北极星实现路径n1n6)；达成度见 [达成度评估](#达成度评估2026-07)；N6 闸门见 [N6 备忘](#n6-真实盘准入备忘仅文档-无代码)。本节只保留 P0–P3 规划摘要与 D1–D6 / 持仓配置，避免与上文重复。
 
 ### 北极星实现规划（P0–P3）
 
 | 阶段 | 目标 | 状态 |
 |------|------|------|
-| **P0** 做实骨架 | 日更五问 · 回测默认成本/OOS · 限额真拦 · 质量可见 | **已完成** |
+| **P0** 做实骨架 | 调仓五问 · 回测默认成本/OOS · 限额真拦 · 质量可见 | **已完成** |
 | **P1** 加深模块 | 清洗门禁 · 组合限额 · 回测稳健 · 因子导出 | **已完成** |
-| **P2 / P2+ / P2++** | 纸面日更稳态 · 滚动 IC · PIT/行业预算/撮合/归因/出站告警 | **已完成** |
+| **P2 / P2+ / P2++** | 纸面调仓稳态 · 滚动 IC · PIT/行业预算/撮合/归因/出站告警 | **已完成** |
 | **P3** N6 闸门 | 验证成熟 + 合规后再评估 OMS | **有意推迟** |
 
 锁定：生产 Alpha = 线性 `score_bars` / ŷ；NN 仅离线；LLM 不改分；**现行不接 OMS**。开工顺序 P0→P2 已验收；勿并行冲 NN / OMS / 数仓。

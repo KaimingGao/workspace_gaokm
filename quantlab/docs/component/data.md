@@ -205,7 +205,7 @@ flowchart TD
 |----------|-------|------|
 | 日线回测窗口 | **是（研究近似）** | `core/data_pit.window_as_of`；单票/组合回测打分窗只含决策日及以前；`get_bars(..., as_of=)` 可切条 |
 | 基本面 | **live+研究 as_of（X0）** | live `score_stock` 经 `resolve_live_fundamentals` 与 panel/OLS 同源；缺 ann 标 `ann_missing`；覆盖见 DQ / sample_ops |
-| 资讯标题 | **否** | 实时拉取，不作历史面板；舆情因子演进见 [risk.md · 舆情层](./risk.md#舆情与另类数据sentiment-altdata) |
+| 资讯标题 | **否** | 实时拉取，不作历史面板；舆情因子演进见 [risk.md · 舆情层](./risk.md#舆情与另类数据sentiment-alt-data) |
 
 ### 验证宇宙约定（V0）
 
@@ -243,7 +243,7 @@ flowchart TD
 
 **结论（现行）**：配置与账本继续 JSON；**日线/分钟线缓存**走工程结构轨 **A1**：默认 SQLite WAL（`QUANTLAB_BARS_BACKEND=sqlite`），可回滚 `json`。账户、信号配置、交易流水仍 **本地 JSON / JSONL**——与「策略验证、观察池级规模、暂不接实盘」对齐。
 
-与 [架构总览](../architecture.md#架构总览)、[§ 工程结构轨 A0–A4](../internal/engineering-track.md#工程结构轨a0a4-b0b4)、[§ SQLite 改造](../internal/sqlite-migration.md#日线分钟线缓存-sqlite-改造方案) 一致：不为「专业感」把全部状态塞进一个库；行情按规模升 SQLite，配置保持可 diff。
+与 [架构总览](../architecture.md#架构总览)、[§ 工程结构轨 A0–A4](../internal/engineering-track.md#工程结构轨a0a4-b0b4-c0c3-c1x)、[§ SQLite 改造](../internal/sqlite-migration.md#日线分钟线缓存-sqlite-改造方案) 一致：不为「专业感」把全部状态塞进一个库；行情按规模升 SQLite，配置保持可 diff。
 
 ### 各类数据落盘对照
 
@@ -319,8 +319,8 @@ flowchart TD
 | **DS-E2 评分读口 + 可观测** | **已落地**：`score_stock.fetch_daily_bars`→DS 缓存+`bars_pack_worker` 池；bars 空宇宙 coverage=`None`；`metrics_snapshot`；batch 默认 adjust；ledger/insights `resolve_market_code` 经 ports |
 | **DS-E3 quote/指数/惰性包** | **已落地**：paper quote/batch 经 DS；`get_index_bars`；`portfolio_bars` 离线不打 quote；lazy `core.data.__getattr__`；DQ 暴露 `data_service_metrics` |
 | **DS-E4 收口扫尾** | **已落地**：`as_dict` 保留 kind/ok；score/watching/facts/schedule/cluster/event 行情经 DS；warmup 挂 metrics；topk 指数经 DS；portfolio 最终 resolve 跟 offline 语义 |
-| **DS-E5 可观测 + 锁** | **已落地**：平台 DQ/调度 last 展示 `data_service_metrics`；`spot_refresh` 挂 metrics；`reset_metrics` 导出；框架锁业务禁直 import ports 读行情；仪表盘指数经 DS |
-| **A1 Bars SQLite** | **已落地**：`QUANTLAB_BARS_BACKEND` · `core/store_bars_sqlite.py` · `scripts/migrate_bars_to_sqlite.py`；见 [§ SQLite 改造](../internal/sqlite-migration.md#日线分钟线缓存-sqlite-改造方案) · [§ 工程结构轨 A0–A4](../internal/engineering-track.md#工程结构轨a0a4-b0b4) |
+| **DS-E5 可观测 + 锁** | **已落地**：DQ / 调度 last 经 API 暴露 `data_service_metrics`；`spot_refresh` 挂 metrics；`reset_metrics` 导出；框架锁业务禁直 import ports 读行情；仪表盘指数经 DS |
+| **A1 Bars SQLite** | **已落地**：`QUANTLAB_BARS_BACKEND` · `core/store_bars_sqlite.py` · `scripts/migrate_bars_to_sqlite.py`；见 [§ SQLite 改造](../internal/sqlite-migration.md#日线分钟线缓存-sqlite-改造方案) · [§ 工程结构轨 A0–A4](../internal/engineering-track.md#工程结构轨a0a4-b0b4-c0c3-c1x) |
 | 全市场数仓 / Tick / 多源对齐 | **不做**（锁定） |
 
 ### 采集运维
