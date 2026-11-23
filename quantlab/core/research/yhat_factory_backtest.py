@@ -1,6 +1,6 @@
 """回测中心组合回测。
 
-四头各拿一版工厂权重，在评测窗交集里按 09:30 开盘价走 rank_lots。
+四头各拿一版工厂权重，从最近完整日线往前 Holdout 个交易日，按 09:30 开盘价走 rank_lots。
 四头可以来自 Arm·R / Arm·L / Arm·T，报告只写 live/yhat_bt。
 版本列表只收研究套。执行套留在研究枢纽。
 不调用历史回测页，不写研究套 / 执行套，不改 live，也不写三家工厂目录。
@@ -281,9 +281,69 @@ def _span(spec: Mapping[str, Any]) -> Tuple[str, str]:
     return start, end
 
 
-def check_suite(specs: Sequence[Mapping[str, Any]]) -> Dict[str, Any]:
-    """四头同一后端、因子包成对、评测窗有交集。不读行情。
+def _positive_holdout(spec: Mapping[str, Any]) -> Optional[int]:
+    raw = _fit_param(spec, "holdout_trading_days")
+    try:
+        n = int(raw)
+    except (TypeError, ValueError):
+        return None
+    if n <= 0:
+        return None
+    return n
 
+
+def _suite_holdout_days(specs: Sequence[Mapping[str, Any]]) -> Optional[int]:
+    """四头都写了 Holdout 时，收益窗长度取最短的那个。
+
+    终点都是最近完整日线，交集就是较短的那段。有的头写了、有的没写则拒绝。
+    都没写时返回 None，调用方仍用版本里的评测窗（测试与旧档）。
+    """
+    vals: List[int] = []
+    missing: List[str] = []
+    for spec in specs:
+        n = _positive_holdout(spec)
+        head = str(spec.get("head") or "")
+        if n is None:
+            missing.append(head)
+        else:
+            vals.append(n)
+    if not vals:
+        return None
+    if missing:
+        raise ValueError("Holdout 日数不齐，不能合成一次离线回测")
+    return min(vals)
+
+
+def _eval_window(specs: Sequence[Mapping[str, Any]]) -> Tuple[str, str]:
+    """没写 Holdout 时，收益窗退回四头评测窗的交集。"""
+    starts: List[str] = []
+    ends: List[str] = []
+    for spec in specs:
+        start, end = _span(spec)
+        head = str(spec.get("head") or "")
+        if len(start) < 10 or len(end) < 10 or start > end:
+            raise ValueError(f"{head} 缺少评测窗")
+        starts.append(start)
+        ends.append(end)
+    window_start, window_end = max(starts), min(ends)
+    if window_start > window_end:
+        raise ValueError("四头评测窗没有交集")
+    return window_start, window_end
+
+
+def _return_bounds(specs: Sequence[Mapping[str, Any]]) -> Tuple[str, str, Optional[int]]:
+    """写了 Holdout 就不把拟合评测窗当成这次的起止。起止等读到日线再定。"""
+    holdout_days = _suite_holdout_days(specs)
+    if holdout_days is not None:
+        return "", "", holdout_days
+    start, end = _eval_window(specs)
+    return start, end, None
+
+
+def check_suite(specs: Sequence[Mapping[str, Any]]) -> Dict[str, Any]:
+    """四头同一后端、因子包成对。不读行情。
+
+    写了 Holdout 时起止等日线读完再定。没写才要求评测窗有交集。
     拟合池和回看不要求相同。打分截面用当前观察池，日线按最长回看加载。
     """
     by_head = {str(s.get("head") or ""): s for s in specs}
@@ -309,21 +369,10 @@ def check_suite(specs: Sequence[Mapping[str, Any]]) -> Dict[str, Any]:
         _agree(ordered, key, label)
     if backend == "transformer":
         _agree_arch(ordered, message="四头网络结构不一致")
-    starts: List[str] = []
-    ends: List[str] = []
-    for spec in ordered:
-        start, end = _span(spec)
-        head = str(spec.get("head") or "")
-        if len(start) < 10 or len(end) < 10 or start > end:
-            raise ValueError(f"{head} 缺少评测窗")
-        starts.append(start)
-        ends.append(end)
-    window_start, window_end = max(starts), min(ends)
-    if window_start > window_end:
-        raise ValueError("四头评测窗没有交集")
+    window_start, window_end, holdout_days = _return_bounds(ordered)
     params = ordered[0].get("fit_params") if isinstance(ordered[0].get("fit_params"), dict) else {}
     lookback = _max_lookback(ordered)
-    return {
+    out = {
         "backend": backend,
         "window_start": window_start,
         "window_end": window_end,
@@ -334,6 +383,9 @@ def check_suite(specs: Sequence[Mapping[str, Any]]) -> Dict[str, Any]:
         "seq_len": params.get("seq_len"),
         "seq_feat_set": _resolved_seq_feat(params.get("seq_feat_set")),
     }
+    if holdout_days is not None:
+        out["holdout_days"] = holdout_days
+    return out
 
 
 def _pack_family(pack: str) -> str:
@@ -442,24 +494,13 @@ def check_mix(specs: Sequence[Mapping[str, Any]]) -> Dict[str, Any]:
         ):
             _agree(tf, key, label)
         _agree_arch(tf, message="Transformer 头的网络结构不一致")
-    starts: List[str] = []
-    ends: List[str] = []
-    for spec in ordered:
-        start, end = _span(spec)
-        head = str(spec.get("head") or "")
-        if len(start) < 10 or len(end) < 10 or start > end:
-            raise ValueError(f"{head} 缺少评测窗")
-        starts.append(start)
-        ends.append(end)
-    window_start, window_end = max(starts), min(ends)
-    if window_start > window_end:
-        raise ValueError("四头评测窗没有交集")
+    window_start, window_end, holdout_days = _return_bounds(ordered)
     lookback = _max_lookback(ordered)
     rank_blend = rank_blend_for_backends(backends["oo_rank"], backends["tc_rank"])
     seq_src = tf[0] if tf else ordered[0]
     seq_params = seq_src.get("fit_params") if isinstance(seq_src.get("fit_params"), dict) else {}
     picks = " · ".join(f"{head} {factories[head]}" for head in HEADS)
-    return {
+    out = {
         "mix": True,
         "factory": _MIX,
         "backend": "mix",
@@ -479,6 +520,9 @@ def check_mix(specs: Sequence[Mapping[str, Any]]) -> Dict[str, Any]:
         "seq_len": seq_params.get("seq_len") if tf else None,
         "seq_feat_set": _resolved_seq_feat(seq_params.get("seq_feat_set")) if tf else None,
     }
+    if holdout_days is not None:
+        out["holdout_days"] = holdout_days
+    return out
 
 
 def _mix_source(versions: Mapping[str, Any], head: str) -> Tuple[str, str]:
@@ -1213,11 +1257,6 @@ def run_factory_backtest(
     window_start = str(spec.get("window_start") or "")
     window_end = str(spec.get("window_end") or "")
     vids = spec.get("versions") if isinstance(spec.get("versions"), dict) else dict(versions)
-    print(
-        f"四头窗口 {window_start}→{window_end} "
-        + " ".join(f"{h}={vids.get(h) or ''}" for h in HEADS),
-        flush=True,
-    )
     note = _fit_span_note(spec.get("specs") if isinstance(spec.get("specs"), Mapping) else {})
     if note:
         print(note, flush=True)
@@ -1242,13 +1281,31 @@ def run_factory_backtest(
             os.environ.pop("QUANTLAB_FEATURE_SET", None)
         else:
             os.environ["QUANTLAB_FEATURE_SET"] = prev_feature
+    if days is not None and spec.get("holdout_days"):
+        from core.backtest.replay_calendar import tail_trading_days
+
+        tail = tail_trading_days(
+            [str((row or {}).get("date") or "") for row in scored],
+            int(spec["holdout_days"]),
+        )
+        window_start, window_end = (tail[0], tail[-1]) if tail else ("", "")
+        spec["window_start"] = window_start
+        spec["window_end"] = window_end
+    elif days is None:
+        window_start = str(spec.get("window_start") or window_start)
+        window_end = str(spec.get("window_end") or window_end)
+    print(
+        f"四头窗口 {window_start}→{window_end} "
+        + " ".join(f"{h}={vids.get(h) or ''}" for h in HEADS),
+        flush=True,
+    )
     kept = _clip_days(scored, window_start, window_end)
     if spec.get("mix"):
         # 名次留在原始分上。买序分位只在 plan_rank_lot_day 里换，算完写回原始分。
         stamp_day_ranks(kept, blend="raw")
     print(f"计入收益 {len(kept)} 日", flush=True)
     if not kept:
-        raise ValueError("评测窗内没有交易日")
+        raise ValueError("回测窗内没有交易日")
     report = simulate_scored_days(
         kept,
         cfg=planner,
@@ -1270,6 +1327,8 @@ def run_factory_backtest(
             "rules": rules_brief,
         }
     )
+    if spec.get("holdout_days") is not None:
+        report["holdout_days"] = int(spec["holdout_days"])
     if spec.get("mix"):
         report["factories"] = dict(spec.get("factories") or {})
         report["backends"] = dict(spec.get("backends") or {})
@@ -1731,6 +1790,21 @@ def score_open_window(
     stock_bars = _load_bars(codes, lookback=lookback)
     if not stock_bars:
         raise ValueError("没有可用日线")
+    hold_n = suite.get("holdout_days")
+    if hold_n:
+        from core.backtest.replay_calendar import return_window
+        from core.research.materialize.coverage import complete_daily_as_of
+
+        codes_asof = [
+            str(code).strip() for code in stock_bars if str(code).strip()
+        ]
+        as_of = complete_daily_as_of(codes_asof) if len(codes_asof) >= 2 else ""
+        start, end = return_window(stock_bars, int(hold_n), as_of=as_of)
+        if len(start) < 10 or len(end) < 10 or start > end:
+            raise ValueError("回测窗里没有交易日")
+        if isinstance(suite, dict):
+            suite["window_start"] = start
+            suite["window_end"] = end
     backend = str(suite.get("backend") or "")
     head_backends = {
         head: _spec_backend(specs.get(head) or {}, backend) for head in HEADS
@@ -1861,7 +1935,7 @@ def score_open_window(
     out = [days[k] for k in sorted(days)]
     print(f"可交易日 {len(out)}", flush=True)
     if not out:
-        raise ValueError("评测窗内没有可预估的交易日")
+        raise ValueError("回测窗内没有可预估的交易日")
     return out
 
 
@@ -2981,6 +3055,7 @@ def start_factory_backtest(
         "versions": suite.get("versions"),
         "window_start": suite.get("window_start"),
         "window_end": suite.get("window_end"),
+        "holdout_days": suite.get("holdout_days"),
         "fill_clock": FILL_CLOCK,
         "live_allowed": False,
         "rules": brief,

@@ -300,44 +300,47 @@ def backtest_paper_replay(
         except Exception:  # noqa: BLE001
             logger.debug("load tc_rank model failed in paper_replay", exc_info=True)
 
-    dates, trade_start = _replay_calendar(
-        stock_bars,
-        lookback=lookback,
-        min_history=min_history,
-        max_window=max_window,
-    )
-    if session_day and session_day not in dates:
-        dates = sorted(dates + [session_day])
-    # 消费只读：评分日历截到本地已入库的完整日线。15:05 后时钟会落到当天，
-    # 供应商日线还没进仓时停在末根，避免把未入库的会话日送进 L1/L2 硬闸。
+    # 收益窗与回测中心共用 replay_calendar：先截到完整日线，再取末尾 lookback 根。
+    # 会话日是覆盖进去的，可能晚于完整日线，取窗之后再挂上，最后仍按 as_of 丢掉。
     as_of = None
     if scores_by_date is None:
         try:
             from core.research.materialize.consumer import consumer_read_only
-            from core.research.materialize.coverage import (
-                clip_replay_score_dates,
-                complete_daily_as_of,
-            )
+            from core.research.materialize.coverage import complete_daily_as_of
 
             if consumer_read_only():
                 as_of = complete_daily_as_of(
                     [str(c).strip() for c in stock_bars if str(c).strip()],
                     now=session_now,
                 )
-                clipped = clip_replay_score_dates(
-                    dates, as_of=as_of, now=session_now
+        except Exception:  # noqa: BLE001
+            logger.debug("replay calendar as_of lookup failed", exc_info=True)
+            as_of = None
+    dates, trade_start = _replay_calendar(
+        stock_bars,
+        lookback=lookback,
+        min_history=min_history,
+        max_window=max_window,
+        as_of=as_of or "",
+    )
+    if session_day and session_day not in dates:
+        dates = sorted(dates + [session_day])
+    if as_of and scores_by_date is None:
+        try:
+            from core.research.materialize.coverage import clip_replay_score_dates
+
+            clipped = clip_replay_score_dates(dates, as_of=as_of, now=session_now)
+            if len(clipped) < len(dates):
+                logger.info(
+                    "replay calendar clip after as_of=%s (%s -> %s days)",
+                    as_of or "—",
+                    len(dates),
+                    len(clipped),
                 )
-                if len(clipped) < len(dates):
-                    logger.info(
-                        "replay calendar clip after as_of=%s (%s -> %s days)",
-                        as_of or "—",
-                        len(dates),
-                        len(clipped),
-                    )
-                    dates = clipped
-                    if session_day and as_of and session_day > as_of:
-                        session_day = None
-                        n_overlay = 0
+                dates = clipped
+                if session_day and session_day > str(as_of)[:10]:
+                    session_day = None
+                    n_overlay = 0
         except Exception:  # noqa: BLE001
             logger.debug("replay calendar as_of clip failed", exc_info=True)
     n = len(dates)

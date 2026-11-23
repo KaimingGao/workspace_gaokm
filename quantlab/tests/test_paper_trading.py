@@ -2598,6 +2598,23 @@ class TestReplayCalendar(unittest.TestCase):
         )
         self.assertEqual(len(dates) - start_i, 30)
 
+    def test_as_of_shifts_the_window_instead_of_shortening_it(self):
+        from core.backtest.replay_calendar import _replay_calendar, return_window
+
+        bars = self._iso_bars(12, start="2026-01-01")
+        stock_bars = {"000001": bars, "000002": list(bars)}
+        last = bars[-1]["date"]
+        cut = bars[-2]["date"]
+        dates, start_i = _replay_calendar(
+            stock_bars, lookback=10, min_history=1, max_window=1, as_of=cut
+        )
+        self.assertEqual(len(dates) - start_i, 10)
+        self.assertEqual(dates[-1], cut)
+        self.assertNotIn(last, dates)
+        start, end = return_window(stock_bars, 10, as_of=cut)
+        self.assertEqual(start, dates[start_i])
+        self.assertEqual(end, cut)
+
     def test_engine_lookback_sets_trade_days(self):
         long = self._iso_bars(25)
         stock_bars = {"600519": long, "600036": list(long)}

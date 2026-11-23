@@ -1,4 +1,4 @@
-"""回测中心组合回测：成套校验、评测窗、收益与 T+1。不写套槽。"""
+"""回测中心组合回测：成套校验、Holdout 收益窗、收益与 T+1。不写套槽。"""
 
 from __future__ import annotations
 
@@ -14,6 +14,7 @@ import numpy as np
 
 from types import SimpleNamespace
 
+from core.backtest.replay_calendar import return_window
 from core.research.yhat_factory_backtest import (
     _scores_for_head,
     apply_seq_clip,
@@ -290,6 +291,25 @@ class TestFactoryBacktestSim(unittest.TestCase):
         self.assertEqual(report["n_buys"], 1)
         self.assertEqual(report["n_sells"], 0)
         self.assertGreater(report["end_shares"], 0)
+
+    def test_pre_scored_days_use_holdout_tail(self):
+        suite = _suite(start="2024-01-02", end="2024-01-05")
+        suite["holdout_days"] = 1
+        report = run_factory_backtest(
+            "T",
+            suite["versions"],
+            days=[
+                _day("2024-01-02", 2.0, 2.0, 10.0),
+                _day("2024-01-03", -1.0, -1.0, 12.0),
+                _day("2024-01-04", 1.0, 1.0, 11.0),
+                _day("2024-01-05", 1.0, 1.0, 11.0),
+            ],
+            suite=suite,
+            cfg=_cfg(),
+        )
+        self.assertEqual(report["window_start"], "2024-01-05")
+        self.assertEqual(report["window_end"], "2024-01-05")
+        self.assertEqual(report["n_days"], 1)
 
     def test_dates_before_eval_start_are_not_return(self):
         suite = _suite(start="2024-01-03", end="2024-01-05")
@@ -914,6 +934,42 @@ class TestMixBacktest(unittest.TestCase):
             suite["specs"]["oo"]["meta"]["factor_pack"],
             suite["specs"]["oo_rank"]["meta"]["factor_pack"],
         )
+
+    def test_holdout_days_uses_the_shorter(self):
+        specs = _main_combo()
+        for spec in specs:
+            spec["fit_params"]["holdout_trading_days"] = 60
+        specs[2]["fit_params"]["holdout_trading_days"] = 20
+        suite = check_mix(specs)
+        self.assertEqual(suite["holdout_days"], 20)
+        self.assertEqual(suite["window_start"], "")
+        self.assertEqual(suite["window_end"], "")
+
+    def test_holdout_must_be_on_every_head(self):
+        specs = _main_combo()
+        specs[0]["fit_params"]["holdout_trading_days"] = 60
+        with self.assertRaises(ValueError):
+            check_mix(specs)
+
+    def test_return_window_is_last_holdout_days(self):
+        days = [
+            "2026-11-16",
+            "2026-11-17",
+            "2026-11-18",
+            "2026-11-19",
+            "2026-11-20",
+            "2026-11-23",
+        ]
+        bars = {
+            code: [{"date": day, "open": 1.0, "close": 1.0} for day in days]
+            for code in ("600000", "600001", "600002", "600003", "600004")
+        }
+        start, end = return_window(bars, 3, as_of="2026-11-23")
+        self.assertEqual(start, "2026-11-19")
+        self.assertEqual(end, "2026-11-23")
+        start, end = return_window(bars, 2, as_of="2026-11-20")
+        self.assertEqual(start, "2026-11-19")
+        self.assertEqual(end, "2026-11-20")
 
     def test_cross_family_rejected(self):
         specs = _main_combo()
