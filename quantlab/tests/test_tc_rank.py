@@ -85,7 +85,6 @@ class TestTcRank(unittest.TestCase):
         self.assertEqual(seen.get("train"), dates[-30:-20])
 
     def test_empty_bars_rejected(self):
-
         from core.research.tc_rank import fit_tc_rank_report
 
         out = fit_tc_rank_report([])

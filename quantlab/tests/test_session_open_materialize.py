@@ -7,6 +7,40 @@ from unittest.mock import MagicMock, patch
 
 
 class TestSessionOpenMaterialize(unittest.TestCase):
+    def test_resolve_follows_saved_hs300(self) -> None:
+        from core.research.materialize.session_open import resolve_session_open_codes
+
+        with patch(
+            "core.paper.ledger.load_paper", return_value={"holdings": []}
+        ), patch(
+            "core.paper.rebalance.live_plan.live_feature_set", return_value="hs300"
+        ), patch(
+            "core.universe.feature_sets.codes_for_feature_set",
+            return_value=["600000", "000001", "600519"],
+        ) as codes_fn, patch(
+            "core.research.materialize.orchestrate.resolve_materialize_codes"
+        ) as watching:
+            codes, feature_set = resolve_session_open_codes()
+        self.assertEqual(feature_set, "hs300")
+        self.assertEqual(codes, ["600000", "000001", "600519"])
+        codes_fn.assert_called_once_with("hs300", fetch=False)
+        watching.assert_not_called()
+
+    def test_resolve_explicit_codes_skip_feature_set(self) -> None:
+        from core.research.materialize.session_open import resolve_session_open_codes
+
+        with patch(
+            "core.research.materialize.orchestrate.resolve_materialize_codes",
+            return_value=["a", "b"],
+        ) as watching, patch(
+            "core.universe.feature_sets.codes_for_feature_set"
+        ) as hs:
+            codes, feature_set = resolve_session_open_codes(["a", "b"])
+        self.assertEqual(codes, ["a", "b"])
+        self.assertEqual(feature_set, "")
+        watching.assert_called_once()
+        hs.assert_not_called()
+
     def test_request_payload(self) -> None:
         from core.research.materialize.session_open import (
             session_open_materialize_request,

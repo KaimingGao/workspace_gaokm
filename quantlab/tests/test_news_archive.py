@@ -916,9 +916,6 @@ class NewsArchiveStoreTests(unittest.TestCase):
         self.assertFalse(poll_progress()["running"])
 
     def test_archive_status_coverage_and_failures(self):
-        from datetime import datetime
-        from unittest.mock import patch
-
         from core.news_archive import archive_status, poll_news_archive
 
         def fetcher(code):

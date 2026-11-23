@@ -691,49 +691,8 @@ class TestScoreHelpers(unittest.TestCase):
         X = np.ones((2, 1), dtype=np.float32)
         with self.assertRaises(ValueError):
             take_factor_columns(X, ["a"], ["b"])
-
-    def test_open_dead_column_filled_for_old_weight(self):
-        from core.signal.factors.alpha_tc import open_tau_neutral_value
-
-        X = np.ones((2, 1), dtype=np.float64)
-        got = take_factor_columns(
-            X,
-            ["z_τc_gap_pct"],
-            ["z_τc_gap_pct", "raw_atc_LOC_HL", "z_τc_ret_open_to_tau"],
-        )
-        self.assertEqual(got.shape, (2, 3))
-        self.assertEqual(float(got[0, 0]), 1.0)
-        self.assertEqual(float(got[0, 1]), open_tau_neutral_value("raw_atc_LOC_HL"))
-        self.assertEqual(float(got[0, 2]), 0.0)
-
-    def test_open_oo_constant_filled_for_old_weight(self):
-        X = np.ones((2, 1), dtype=np.float64)
-        got = take_factor_columns(X, ["z_oo_value"], ["z_oo_value", "z_oo_alpha_th"])
-        self.assertEqual(got.shape, (2, 2))
-        self.assertEqual(float(got[0, 0]), 1.0)
-        self.assertEqual(float(got[0, 1]), 50.0)
-
-    def test_open_seq_expands_legacy_full_width(self):
-        from core.research.yhat_factory_backtest import align_seq_open_width
-        from core.research.yhat_transformer.seq_dataset import SeqPanel
-        from core.signal.factors.alpha_tc import filter_open_tau_names, open_atc_full_names
-
-        full = open_atc_full_names()
-        opened = filter_open_tau_names(full)
-        seq = SeqPanel(
-            X=np.ones((2, 3, len(opened)), dtype=np.float32),
-            gap=np.zeros((2,), dtype=np.float32),
-            y=np.zeros((2,), dtype=np.float32),
-            dates=["a", "b"],
-            codes=["c", "c"],
-            seq_len=3,
-            feature_names=tuple(opened),
-        )
-        out = align_seq_open_width(seq, len(full))
-        self.assertEqual(int(out.X.shape[-1]), 247)
-        self.assertAlmostEqual(float(out.X[0, 0, full.index("raw_atc_LOC_HL")]), 0.5)
-        self.assertEqual(float(out.X[0, 0, full.index("z_τc_gap_pct")]), 1.0)
-        self.assertIs(align_seq_open_width(seq, 16), seq)
+        with self.assertRaises(ValueError):
+            take_factor_columns(X, ["z_oo_value"], ["z_oo_value", "z_oo_alpha_th"])
 
     def test_z_keeps_full_pool_and_only_a_is_scored(self):
         panel = SimpleNamespace(

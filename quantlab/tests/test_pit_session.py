@@ -183,8 +183,8 @@ class TestPitSessionProvenance(unittest.TestCase):
             "core.research.day_cube.os.makedirs"
         ):
             self.assertTrue(save_day_cube(cube))
-        self.assertTrue(write_json.called)
-        meta = write_json.call_args[0][1]
+        payloads = [call.args[1] for call in write_json.call_args_list]
+        meta = next(item for item in payloads if item.get("date") == "2026-11-09")
         self.assertEqual(meta.get("phase"), PHASE_PROVISIONAL)
         self.assertEqual(meta.get("builder"), BUILDER_SESSION_OPEN_QUOTE)
         self.assertEqual(meta.get("open_source"), OPEN_SOURCE_QUOTE)

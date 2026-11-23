@@ -12,14 +12,8 @@ from unittest.mock import patch
 
 import numpy as np
 
-
-def _has_lightgbm() -> bool:
-    try:
-        import lightgbm  # noqa: F401
-
-        return True
-    except ImportError:
-        return False
+from tests.conftest import _has_lightgbm
+from tests.conftest import _pack_cross_section_day as _pack_day
 
 
 def _l2_as_batch_cs(x, names, groups, **_kw):
@@ -45,17 +39,6 @@ def _patch_rank_l2_as_batch():
     ):
         yield
 
-
-def _pack_day(date_s, codes, xs, ys):
-    names = list(xs[0].keys()) if xs else []
-    X = np.array(
-        [
-            [float(row[n]) if row.get(n) is not None else np.nan for n in names]
-            for row in xs
-        ],
-        dtype=np.float64,
-    )
-    return {"date": date_s, "codes": codes, "ys": ys, "X": X, "names": names}
 
 def _synth_days(n_days: int = 30, n_names: int = 20, seed: int = 0):
     """特征与 y 正相关的合成截面日（mom3 强正、vol_penalty 负）。"""

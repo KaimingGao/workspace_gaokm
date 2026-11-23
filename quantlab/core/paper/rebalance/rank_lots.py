@@ -1,4 +1,6 @@
-"""策略调仓：fill_clock～10:00 过入场后按 rank_score 买序，按已保存金额换算股数下单。
+"""策略调仓：过入场后按 rank_score 买序，按已保存金额换算股数下单。
+
+窗口：live 用 live_fill_clock～10:00；回测用 fill_clock（分立）。fuse 权共用已保存 fusion_w_*。
 
 规则（live 与历史回测共用）：
   - 持有周期 = T 开盘 → T+1 开盘
@@ -10,6 +12,8 @@
     τ = 开盘时 rot = 0，简化为 w_oo·ŷ_oo + w_τc·ŷ_τc
   - rank_score = 0.6·y_oo_rank_score + 0.4·y_tc_rank_score
     （固定，不进配置；只用于买序，不用于名次门槛）
+  - 两条排序头后端不同时，计划前把相对分换成当日分位再加权，明细写回原始分。
+    live、历史回测、回测中心走 plan_rank_lot_day 的同一个 rank_blend。
   - 过入场（y_oo_fuse>fuse_enter）→ 按 rank_score 降序开仓或加仓；
     缺 rank_score 回退 y_oo_fuse 降序；可选 y_*>0（只看 ŷ_oo / ŷ_τc；缺分不拦）
   - 可选形态硬闸（默认关，门槛写死）：高波弱开（vol_p≥0.9 且 a1<0）、
@@ -1412,6 +1416,64 @@ def _stamp_cross_section_ranks(scored: Sequence[dict]) -> None:
 
 
 def plan_rank_lot_day(
+    *,
+    scored: Sequence[dict],
+    holdings: Sequence[dict],
+    cash: float,
+    prices: Dict[str, float],
+    cfg: dict,
+    as_of: Optional[str] = None,
+    sell_prices: Optional[Dict[str, float]] = None,
+    opens: Optional[Dict[str, float]] = None,
+    max_turnover_pct: Optional[float] = None,
+    min_cash_pct: Optional[float] = None,
+    bars_by_code: Optional[Mapping[str, Sequence[Mapping[str, Any]]]] = None,
+    sentiment_as_of: Optional[str] = None,
+    sentiment_clock: Optional[str] = None,
+    sentiment_align: Optional[str] = None,
+    rank_blend: Optional[str] = None,
+) -> Dict[str, Any]:
+    """一天的卖/买计划。价格用于估算现金是否够买该手；成交仍由调用方落地。
+
+    ``rank_blend="day_rank"`` 时，买序先把两条排序头的相对分换成当日分位，
+    计划结束后明细写回模型原始分。live、历史回测、回测中心都走这个参数，
+    不再在调用方各自换算。缺省 ``raw``：直接用原始分。
+    """
+    snap = None
+    if str(rank_blend or "") == "day_rank":
+        from core.backtest.replay_scoring import apply_buy_order_blend
+
+        snap = apply_buy_order_blend(scored)
+    out: Optional[Dict[str, Any]] = None
+    try:
+        out = _plan_rank_lot_day(
+            scored=scored,
+            holdings=holdings,
+            cash=cash,
+            prices=prices,
+            cfg=cfg,
+            as_of=as_of,
+            sell_prices=sell_prices,
+            opens=opens,
+            max_turnover_pct=max_turnover_pct,
+            min_cash_pct=min_cash_pct,
+            bars_by_code=bars_by_code,
+            sentiment_as_of=sentiment_as_of,
+            sentiment_clock=sentiment_clock,
+            sentiment_align=sentiment_align,
+        )
+        return out
+    finally:
+        if snap:
+            from core.backtest.replay_scoring import restore_rank_scores
+
+            restore_rank_scores(scored, snap)
+            if isinstance(out, dict):
+                for bucket in ("buys", "sells", "skips"):
+                    restore_rank_scores(out.get(bucket) or [], snap)
+
+
+def _plan_rank_lot_day(
     *,
     scored: Sequence[dict],
     holdings: Sequence[dict],

@@ -6,26 +6,6 @@ import inspect
 import unittest
 
 
-def _bar(dkey: str, hm: str, close: float, open_px: float | None = None):
-    o = open_px if open_px is not None else close
-    return {
-        "date": dkey,
-        "time": hm,
-        "open": round(o, 4),
-        "high": round(max(o, close), 4),
-        "low": round(min(o, close), 4),
-        "close": round(close, 4),
-        "volume": 1000,
-    }
-
-def _times_am_pm():
-    out = []
-    for total in range(9 * 60 + 30, 11 * 60 + 30 + 1, 5):
-        out.append(f"{total // 60:02d}:{total % 60:02d}")
-    for total in range(13 * 60, 15 * 60 + 1, 5):
-        out.append(f"{total // 60:02d}:{total % 60:02d}")
-    return out
-
 class YRPctTests(unittest.TestCase):
     def test_y_r_pct_matches_geometry(self):
         from core.research.tau_panel import y_r_pct

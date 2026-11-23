@@ -543,7 +543,6 @@ class TestBoardLabelScrub(unittest.TestCase):
         self.assertEqual(cov["board_labeled"], 1)
 
     def test_scrub_removes_boards(self):
-        import tempfile
         from pathlib import Path
 
         from core.sector_map_sync import save_sector_map, scrub_board_labels_from_sector_map
@@ -570,7 +569,6 @@ class TestSpotIndustryEnrich(unittest.TestCase):
 
     def test_enrich_from_mock_spot(self):
         import json
-        import tempfile
         from pathlib import Path
         from unittest.mock import patch
 

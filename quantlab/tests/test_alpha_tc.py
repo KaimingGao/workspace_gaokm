@@ -71,11 +71,7 @@ def test_alpha_tc_field_count():
     assert "PVSUMD5" in ALPHA_TC_FIELD_NAMES
 
 def test_atc_core_keeps_gap_yk_lag():
-    from core.signal.factors.alpha_tc import (
-        ALPHA_TC_CORE_FIELD_NAMES,
-        ALPHA_TC_RAW_PREFIX,
-        select_atc_core_names,
-    )
+    from core.signal.factors.alpha_tc import ALPHA_TC_CORE_FIELD_NAMES, select_atc_core_names
 
     names = ["gap_pct", "open_gap", "gap_atr", "yclose_loc", "tau_lag1", "tau_ma5"]
     names += [f"{ALPHA_TC_RAW_PREFIX}{k}" for k in ALPHA_TC_FIELD_NAMES]
@@ -566,10 +562,7 @@ def _assert_minute_row_matches_inject(bars, minutes, xs, dates, *, clock: str) -
 def test_blank_minute_column_row_falls_back():
     from unittest import mock
 
-    import numpy as np
-
     from core.research.tau_panel import collect_tau_intraday_panel
-    from core.signal.factors.alpha_tc import raw_atc_tau_columns
 
     bars, minutes = _dated_bars_and_minutes(90, seed=37)
 
@@ -854,8 +847,6 @@ def test_bad_minute_bar_does_not_drop_day():
 def test_tau_compact_skips_failed_fold():
     from unittest import mock
 
-    import numpy as np
-
     from core.research.panel_matrix import PanelMatrix, collect_tau_compact
 
     calls = {"n": 0}
@@ -896,8 +887,6 @@ def test_tau_compact_skips_failed_fold():
 def test_tau_compact_skips_failed_stock():
     from unittest import mock
 
-    import numpy as np
-
     from core.research.panel_matrix import collect_tau_compact
 
     def _job(item, *_args, **_kwargs):
@@ -929,8 +918,6 @@ def test_tau_compact_skips_failed_stock():
 def test_tau_compact_batch_attaches_minutes_not_full_pool():
     """无预挂分钟时，峰值挂载数 ≤ _TAU_POOL_BATCH，结束后全部 pop。"""
     from unittest import mock
-
-    import numpy as np
 
     from core.research.panel_matrix import _TAU_POOL_BATCH, collect_tau_compact
 
@@ -998,8 +985,6 @@ def test_tau_compact_batch_attaches_minutes_not_full_pool():
 def test_tau_compact_folds_in_stock_index_order():
     """进程完成序相反时，矩阵行仍跟股票列表，不跟谁先返回。"""
     from unittest import mock
-
-    import numpy as np
 
     from core.research.panel_matrix import collect_tau_compact
 
@@ -1121,7 +1106,6 @@ def test_open_tc_l1_fingerprint_uses_bumped_window():
     """开盘 α_τc 指纹记 62，旧的 min_history=12 对不上，增量合并不会留下旧前缀。"""
     from core.research.panel_fingerprint import bars_fingerprint, make_fingerprint
     from core.research.panel_matrix import tau_l1_min_history
-    from core.signal.factors.alpha_tc import ALPHA_TC_PANEL_WINDOW
 
     assert tau_l1_min_history(12, include_alpha_tc=True, use_minute=False) == int(
         ALPHA_TC_PANEL_WINDOW
@@ -1181,7 +1165,6 @@ def test_consumer_reads_bumped_stamp_when_lookback_covers_lake():
     )
     from core.research.panel_fingerprint import bars_fingerprint, make_fingerprint
     from core.research.panel_matrix import _tau_stock_job
-    from core.signal.factors.alpha_tc import ALPHA_TC_PANEL_WINDOW
 
     window = int(ALPHA_TC_PANEL_WINDOW)
     n_bars = window + 18

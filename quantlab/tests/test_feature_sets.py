@@ -41,7 +41,7 @@ class TestFeatureSets(unittest.TestCase):
                 self.assertEqual(len(watching_prefix(305)), 305)
 
     def test_large_pool_is_the_current_watchlist(self) -> None:
-        from core.universe.feature_sets import codes_for_feature_set, materialize_universes
+        from core.universe.feature_sets import materialize_universes
 
         hs = [f"{i:06d}" for i in range(1, 51)]
         watch = hs + ["000888", "000889"]

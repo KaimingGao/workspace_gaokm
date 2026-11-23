@@ -4,19 +4,8 @@ from __future__ import annotations
 
 import unittest
 
+from tests.conftest import _minute_bar_with_datetime as _bar
 
-def _bar(dkey: str, hm: str, close: float, open_px: float | None = None, volume: float = 1000):
-    o = open_px if open_px is not None else close
-    return {
-        "date": dkey,
-        "time": hm,
-        "datetime": f"{dkey} {hm}:00",
-        "open": round(o, 4),
-        "high": round(max(o, close), 4),
-        "low": round(min(o, close), 4),
-        "close": round(close, 4),
-        "volume": volume,
-    }
 
 class SessionClockT45T75Tests(unittest.TestCase):
     def test_add_session_minutes_45_and_75(self):

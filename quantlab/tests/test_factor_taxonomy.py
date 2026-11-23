@@ -124,8 +124,6 @@ class TestFactorTaxonomy(unittest.TestCase):
         self.assertFalse(is_removed_factor("raw_aoo_OPEN0"))
 
     def test_strip_keeps_empty_ic_rows_list(self):
-        from core.signal.factors.meta.taxonomy import strip_removed_factors_from_cluster_report
-
         report = {
             "clusters": [
                 {

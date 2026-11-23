@@ -107,9 +107,7 @@ from core.backtest.replay_scoring import (
     push_replay_arm_heads,
     refresh_tau_heads_after_prefix,
     rescore_replay_y_τc_at_clock,  # 门面 re-export（单测 / 冻结 API；见 pyproject F401）
-    apply_replay_day_rank_blend,
     replay_rank_blend,
-    restore_rank_scores,
     stamp_replay_arm_day,
     stamp_tau_prefix_misses,
 )
@@ -203,7 +201,8 @@ def backtest_paper_replay(
     ``score_backend`` 恒为 ridge（影子树头已下线）；传入 tree 会被忽略。
     ŷ_oo_rank / ŷ_τc_rank 有模型时按当日截面编成 1..n 名次透传到成交行。
     过入场后买序按 rank_score（固定 0.6/0.4，不进配置）。两条排序头后端不同时，
-    计划前把相对分换成当日分位，计划后明细仍写模型原始分。live 不走这一步。
+    ``plan_rank_lot_day(rank_blend="day_rank")`` 先换当日分位，计划后明细仍写模型原始分。
+    live 与回测中心传同一个参数。
     ``tradable_codes`` 给定时：主头与排序头截面 z 仍用整池；ŷ 与名次只写这份名单。
     产品排序头拟合固定全池；旧落盘 ``train_universe`` / ``zscore_universe=tier_a`` 仅审计，打分不缩 z。
     ``oo_rank_max`` 开则未过强档时另须 max(oo_rank, τc_rank) < N（缺省 6；None=关）。
@@ -828,11 +827,6 @@ def backtest_paper_replay(
         cash = float(paper.get("cash") or 0)
         start_snap = _holding_snap(paper.get("holdings") or [])
         fill_px_map = {**sell_prices, **prices}
-        rank_score_snap = (
-            apply_replay_day_rank_blend(scored, arm_table)
-            if replay_blend == "day_rank"
-            else None
-        )
         with paper_replay_context(
             as_of=day,
             batch_query=_make_fill_batch_query(fill_px_map, date_maps, dates, day),
@@ -850,11 +844,8 @@ def backtest_paper_replay(
                 # 成交钟可以晚于开盘。舆情卡该日 09:30 前已发布的标题，不看抓取日。
                 sentiment_clock="09:30",
                 sentiment_align="publish",
+                rank_blend=replay_blend,
             )
-            if rank_score_snap:
-                restore_rank_scores(scored, rank_score_snap)
-                for bucket in ("buys", "sells", "skips"):
-                    restore_rank_scores(plan.get(bucket) or [], rank_score_snap)
             ms = plan.get("morph_stamp") if isinstance(plan.get("morph_stamp"), dict) else {}
             if ms:
                 n_a1 = int(ms.get("n_a1") or 0)

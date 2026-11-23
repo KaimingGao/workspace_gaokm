@@ -33,8 +33,6 @@ const {
   collectLiveT0PrefixPatch,
   applyLiveFillClockUi,
   applyLiveT0PrefixUi,
-  applyLiveFusionWeightsForClock,
-  syncLiveFusionWeightSliders,
   liveFillClockAt,
   liveT0PrefixAt,
 } = await import(
@@ -2783,15 +2781,11 @@ export function initPaper(ctx) {
   }
 
   const paperLiveFillClock = document.getElementById("paper-live-fill-clock");
-  const paperLiveWOo = document.getElementById("paper-live-w-oo");
-  const liveRankLotsControls = [paperLiveFillClock, paperLiveWOo].filter(Boolean);
 
   const postLiveRankLotsPatch = async (note) => {
     const body = collectLiveFillClockPatch();
     if (!body) return;
-    liveRankLotsControls.forEach((el) => {
-      el.disabled = true;
-    });
+    if (paperLiveFillClock) paperLiveFillClock.disabled = true;
     try {
       const res = await fetch("/api/paper/execution", {
         method: "POST",
@@ -2817,9 +2811,7 @@ export function initPaper(ctx) {
         errEl.textContent = String(err.message || err);
       }
     } finally {
-      liveRankLotsControls.forEach((el) => {
-        el.disabled = false;
-      });
+      if (paperLiveFillClock) paperLiveFillClock.disabled = false;
     }
   };
 
@@ -2833,23 +2825,11 @@ export function initPaper(ctx) {
         String(Math.round(Number(paperLiveFillClock.value) || 0))
       );
       paperLiveFillClock.setAttribute("aria-valuetext", clock);
-      // 拖动中预览建议配重；松手 change 时再落盘。
-      applyLiveFusionWeightsForClock(clock, { force: true });
     };
     paperLiveFillClock.addEventListener("input", paintLiveClockThumb);
     paperLiveFillClock.addEventListener("change", async () => {
       paintLiveClockThumb();
-      await postLiveRankLotsPatch("follow live 启动时间与配重");
-    });
-  }
-
-  if (paperLiveWOo) {
-    paperLiveWOo.addEventListener("input", () => {
-      syncLiveFusionWeightSliders();
-    });
-    paperLiveWOo.addEventListener("change", async () => {
-      syncLiveFusionWeightSliders();
-      await postLiveRankLotsPatch("follow live fuse 配重");
+      await postLiveRankLotsPatch("follow live 启动时间");
     });
   }
 

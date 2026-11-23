@@ -20,45 +20,8 @@ from core.research.yhat_factory_versions import (
 from core.research.yhat_tf_desk import factory_scope
 
 
-def _job(run_id: str, pid: int = 7, **extra):
-    job = {
-        "run_id": run_id,
-        "pid": pid,
-        "head": "oo",
-        "params": {
-            "pool_n": 800,
-            "lookback": 900,
-            "holdout_trading_days": 60,
-            "t_sample_pct": 10,
-            "full_aoo": False,
-            "loss": "mse",
-        },
-        "started_at": "2026-11-16T01:02:03",
-        "finished_at": "2026-11-16T01:08:00",
-        "cli": "python holdout.py --head oo",
-    }
-    job.update(extra)
-    return job
-
-
-def _last(**extra):
-    last = {
-        "action": "holdout_result",
-        "head": "oo",
-        "metrics": {
-            "cs_rank_ic": 0.042,
-            "mse": 6.5,
-            "arm": "T",
-            "arms": {"T": {"success": True, "cs_rank_ic": 0.042}},
-            "splits": {"T": {"n_train": 10, "n_test": 4, "eval_start": "2026-01-02"}},
-        },
-        "parity": {"formal": False, "eval_shared": True},
-        "eval_universe": {"eval_shared": True, "eval_start": "2026-01-02", "n_shared": 4},
-        "message": "Holdout 完成",
-        "updated_at": "2026-11-16T01:08:00",
-    }
-    last.update(extra)
-    return last
+from tests.conftest import _yhat_factory_job as _job
+from tests.conftest import _yhat_factory_last as _last
 
 
 class TestYhatFactoryVersions(unittest.TestCase):

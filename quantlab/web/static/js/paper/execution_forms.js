@@ -10,7 +10,6 @@ const {
   renderExecutionDiffHtml,
   applyLiveFillClockUi,
   applyLiveT0PrefixUi,
-  applyLiveFusionWeightsUi,
 } = await import(`./execution_ui.js?v=${encodeURIComponent(_V)}`);
 const { createScoreTooltipController } = await import(
   `../score_tooltip.js?v=${encodeURIComponent(_V)}`
@@ -47,7 +46,7 @@ export function applyExecutionToUi(exec) {
   if (pathMatrixForm && exec) {
     fillPathMatrixForm(pathMatrixForm, exec);
   } else if (exec) {
-    // 交易执行页无规则表单：只回填启动时间 / live 融合权。
+    // 交易执行页无规则表单：只回填启动时间；fuse 权在历史回测改。
     const timing = exec.rebalance_timing || {};
     const pm =
       (timing.rank_lots && typeof timing.rank_lots === "object" && timing.rank_lots) ||
@@ -56,10 +55,6 @@ export function applyExecutionToUi(exec) {
     if (pm.live_fill_clock || pm.fill_clock) {
       applyLiveFillClockUi(pm.live_fill_clock || pm.fill_clock);
     }
-    applyLiveFusionWeightsUi(
-      pm.fusion_w_oo != null ? pm.fusion_w_oo : 0.9,
-      pm.fusion_w_oc != null ? pm.fusion_w_oc : 0.1
-    );
   }
   const poolEl = document.getElementById("quant-feature-set");
   const savedPool = String(

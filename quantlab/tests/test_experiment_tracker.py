@@ -1,7 +1,5 @@
 """实验追踪器测试。"""
 
-import json
-import os
 import shutil
 import tempfile
 import unittest

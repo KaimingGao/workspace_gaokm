@@ -77,8 +77,6 @@ class TestV21FactorThicken(unittest.TestCase):
         self.assertTrue(dy_m.get("omit_sub_score"))
 
     def test_size_missing_omitted_from_sub_scores(self):
-        from core.signal.factors.meta.registry import compute_configured_factors
-
         bars = [
             {
                 "date": "2026-01-01",
@@ -101,8 +99,6 @@ class TestV21FactorThicken(unittest.TestCase):
 
     def test_size_with_market_cap_in_sub_scores(self):
         import math
-
-        from core.signal.factors.meta.registry import compute_configured_factors
 
         bars = [
             {

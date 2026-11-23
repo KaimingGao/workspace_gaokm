@@ -304,7 +304,7 @@ class TestReplayRankBlend(unittest.TestCase):
             },
         }
 
-    def _plan_order(self, items):
+    def _plan_order(self, items, rank_blend=None):
         from core.paper.rebalance.rank_lots import plan_rank_lot_day
 
         out = plan_rank_lot_day(
@@ -320,6 +320,7 @@ class TestReplayRankBlend(unittest.TestCase):
                 "oo_rank_max": None,
                 "t0_sell_blocks": {},
             },
+            rank_blend=rank_blend,
         )
         return [row["stock_code"] for row in out["buys"]], out
 
@@ -373,6 +374,23 @@ class TestReplayRankBlend(unittest.TestCase):
         }
         self.assertEqual(replay_rank_blend(table), "raw")
         self.assertEqual(replay_rank_blend(None), "raw")
+
+    def test_plan_day_rank_restores_raw_scores(self) -> None:
+        items = self._items()
+        order, plan = self._plan_order(items, rank_blend="day_rank")
+        self.assertEqual(order, ["B", "A", "C"])
+        self.assertEqual(items[0]["y_oo_rank_score"], 100.0)
+        self.assertEqual(items[1]["y_tc_rank_score"], 9.0)
+        self.assertEqual(items[0]["y_oo_rank"], 1)
+        by = {row["stock_code"]: row for row in plan["buys"]}
+        self.assertEqual(by["A"]["y_oo_rank_score"], 100.0)
+        self.assertEqual(by["B"]["y_tc_rank_score"], 9.0)
+
+    def test_plan_raw_blend_keeps_raw_order(self) -> None:
+        items = self._items()
+        order, _plan = self._plan_order(items, rank_blend="raw")
+        self.assertEqual(order, ["A", "B", "C"])
+        self.assertEqual(items[0]["y_oo_rank_score"], 100.0)
 
 
 if __name__ == "__main__":

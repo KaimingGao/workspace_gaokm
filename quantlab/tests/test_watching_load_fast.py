@@ -42,8 +42,6 @@ class TestWatchingLoadFast(unittest.TestCase):
         mtm.assert_not_called()
 
     def test_watchlist_names_offline_skips_get_quote(self):
-        from unittest.mock import patch
-
         from core.watching.store import watchlist_names_for
 
         data = {

@@ -327,8 +327,6 @@ class TestYhatTfHardenParams(unittest.TestCase):
         self.assertEqual(sig.parameters["batch_size"].default, ARM_T_BATCH)
 
     def test_arm_t_both_pools_chain_finetune(self):
-        from unittest import mock
-
         from core.research.yhat_tf_desk import build_holdout_argv, factory_scope
 
         codes = ["000001", "000002"]
@@ -456,8 +454,6 @@ class TestYhatTfHardenParams(unittest.TestCase):
 
         self.assertEqual(normalize_factory("ARM-R"), "R")
         self.assertEqual(normalize_factory("ridge"), "R")
-        import tempfile
-        from unittest import mock
 
         with tempfile.TemporaryDirectory() as td, mock.patch(
             "core.research.yhat_tf_desk.YHAT_R_DIR", td
@@ -780,7 +776,6 @@ class TestYhatTfPidAlive(unittest.TestCase):
     def test_waitpid_reaps_zombie_child(self):
         import subprocess
         import sys
-        import time
 
         from core.research.yhat_tf_desk import _pid_alive, _reap_pid
 
@@ -1212,7 +1207,6 @@ class TestYhatTfPidAlive(unittest.TestCase):
         """成功回写 metrics 后也必须 waitpid，否则僵尸残留假死。"""
         import subprocess
         import sys
-        import time
 
         with tempfile.TemporaryDirectory() as td:
             last = os.path.join(td, "last_status.json")

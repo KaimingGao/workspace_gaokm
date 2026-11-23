@@ -250,7 +250,7 @@ preset（`advisor` / `quant` / `quant_paper` / `full`）、cron / launchd、报�
 |------|------|------|
 | 主字段 `predicted_score` / 入池地板 | **ŷ_oo**（LightGBM）；`scoring.min_predicted_score` | `rank.min_score=55`（启发式遗留，不进 ŷ 买入门） |
 | 盘中簿排序 `ŷ_trade` | `dual_score` blend：现网 **`w_oo=0, w_tau=1`** → 缺口∘ŷ_τ；收盘 `eod_next` 回到 ŷ_oo | 与调仓 rank_lots 不是同一套权 |
-| 调仓 / 纸面 y_oo_fuse（UI fuse） | `fusion_w_oo` / `fusion_w_oc`（回测表单默认 0.6 / 0.4；live Follow 单条滑条，改启动时间建议 0.9/0.1 或 0.1/0.9） | `dual_score.w_*` |
+| 调仓 / 纸面 y_oo_fuse（UI fuse） | `fusion_w_oo` / `fusion_w_oc`（回测表单默认 0.6 / 0.4；live 自动调仓共用） | `dual_score.w_*` |
 
 层 2 **不得**覆盖层 1 字段且不改标签混对账。
 
@@ -494,7 +494,7 @@ score_stock(code) 续——
 | 训练窗 | 允许 **100～1060** 交易日；默认 **700** |
 | Holdout | 卡头 **1～60** 交易日，默认 **20**；拟合按该值切分 |
 | 训练 | `POST /api/quant/oo-rank` 拟合写 last report（单头 LambdaRank）；标签为日截面 **稠密名次** ``0..n-1``；鲁棒默认：truncation=100、截面 z 裁 ±3、min_leaf=50、num_leaves=16、L2=5（API/UI 同默认）；人审「启用研究 / 启用执行」写入槽（须有 booster；旧 Ridge 顶层戳若同窗已有 LambdaRank 包，重新启用即可改写，不重训；无包则拒晋级），不重训 |
-| 回测 / live | 加载已启用模型（无 backend 开关），打相对分再编名次写入 `y_oo_rank`；成交明细 **oo_rank** 列。过门槛后买序按 `oo_rank_score`。历史回测在两条排序头后端不同时，先把两路相对分换成当日分位再加权，计划后明细仍写原始分；live 保持原始分。`oo_rank_max` 开则未过强档另须 `max(oo_rank, τc_rank) < N`（不是 y_oo / y_τc）；fuse 过强档改看 `oo_rank_strong_max`。排序头截面 z **只吃全池 L2**（不进批现算；缺 Cube 跳过写分）。名次写全池。旧落盘 `train_universe` / `zscore_universe=tier_a` 只审计，新戳强制 `pool` |
+| 回测 / live | 加载已启用模型（无 backend 开关），打相对分再编名次写入 `y_oo_rank`；成交明细 **oo_rank** 列。过门槛后买序按 `oo_rank_score`。两条排序头后端不同时，live、历史回测和回测中心都先把两路相对分换成当日分位再加权，计划后明细仍写原始分。`oo_rank_max` 开则未过强档另须 `max(oo_rank, τc_rank) < N`（不是 y_oo / y_τc）；fuse 过强档改看 `oo_rank_strong_max`。排序头截面 z **只吃全池 L2**（不进批现算；缺 Cube 跳过写分）。名次写全池。旧落盘 `train_universe` / `zscore_universe=tier_a` 只审计，新戳强制 `pool` |
 | OOS | **Gate lift / Gate y%**（主；研究用 `rank < N`，默认 10/100，不是调仓名次 6/12）/ **NDCG@K** / TopK；**IC** / **ICIR** / **Rank IC** 仅对照 |
 
 实现：`core/research/oo_rank_panel.py` · `core/research/oo_rank_lambdarank.py`。
@@ -583,7 +583,7 @@ score_stock(code) 续——
 产品回测与 live Follow 同一套 **rank_lots**：按手数开/加/清仓（未过入场清仓，无「持」）。历史成交用 5 分钟 K（回测时间 09:30–10:00）；live 窗跟独立「启动时间」`live_fill_clock`（可含 09:25）。  
 权建议 OOS / WF 默认走轻量 `topk_oos_curve`；完整引擎在 `legacy/topk_backtest`（`full_engine=True` / 单测），**不进 `/replay`**。
 
-成功回测落盘 `data/last_portfolio_backtest.json`。打开 `/replay` 时 `GET /api/quant/last-portfolio-backtest` 恢复 KPI / 净值 / 分票贡献 / 成交账，**不重跑**；点「跑回测」才重算（默认后台 Job，进度条带日期 / 日序号 / 股票池只数）。前端轮询：进度停滞 >25 分钟才判超时（墙钟上限 6 小时）；刷新可挂回仍在跑 / 已 `done` 的任务。**表单以「保存」为准**（权重/门槛/手数写入交易执行覆盖；本金/回测窗/模型/股票池本页记住；回测 `fill_clock` 与 live `live_fill_clock` 分立），刷新不用上次回测请求盖掉已存配置。日报摘要仍走 `summarize_portfolio_backtest`，不覆盖这份落盘。
+成功回测落盘 `data/last_portfolio_backtest.json`。打开 `/replay` 时 `GET /api/quant/last-portfolio-backtest` 恢复 KPI / 净值 / 分票贡献 / 成交账，**不重跑**；点「跑回测」才重算（默认后台 Job，进度条带日期 / 日序号 / 股票池只数）。前端轮询：进度停滞 >25 分钟才判超时（墙钟上限 6 小时）；刷新可挂回仍在跑 / 已 `done` 的任务。**表单以「保存」为准**（fuse 权 / 门槛 / 手数写入交易执行覆盖，live 自动调仓共用；本金/回测窗/模型/股票池本页记住；回测 `fill_clock` 与 live `live_fill_clock` 分立，Follow 只改启动时间不改权），刷新不用上次回测请求盖掉已存配置。日报摘要仍走 `summarize_portfolio_backtest`，不覆盖这份落盘。
 
 **日线加载**：所选股票池日 K 经 `load_portfolio_stock_bars` **单连接批量**读 `bars.db`（可 `max_bars` 截尾）；勿用多线程并发扫同一库。进度拆成「读本地日线 → 日线已就绪 → 过滤宇宙 → 准备成交参数」。剔 ST 只用观察池已存名（`watchlist_names`），**不**逐只 `get_quote`；缺名则保留。
 

@@ -236,7 +236,7 @@ def ensure_session_open_l2(
 
     ``prefer``: ``auto`` | ``quote`` | ``daily``。
     """
-    from core.research.materialize.orchestrate import resolve_materialize_codes
+    from core.research.materialize.session_open import resolve_session_open_codes
     from core.signal.session_pit import oo_cycle_date
     from core.watching.store import WATCHING_MAX_SIZE
 
@@ -256,10 +256,14 @@ def ensure_session_open_l2(
         out["error"] = "无会话日"
         return out
 
-    code_list = resolve_materialize_codes(codes=codes, watching_limit=limit)
+    code_list, feature_set = resolve_session_open_codes(
+        codes, watching_limit=limit
+    )
     out["n_universe"] = len(code_list)
+    if feature_set:
+        out["feature_set"] = feature_set
     if len(code_list) < 2:
-        out["error"] = "观察池/宇宙不足 2 只"
+        out["error"] = "调仓池不足 2 只"
         return out
 
     ready = daily_bars_ready_for_day(day, code_list)

@@ -219,7 +219,6 @@ class TestWeightOosGate(unittest.TestCase):
             YHAT_WEIGHTS_DECOUPLED,
             evaluate_weight_suggestion_oos,
         )
-        from core.signal.weight_suggest import format_weight_config_diff
 
         out = evaluate_weight_suggestion_oos(
             {"momentum": 0.5},

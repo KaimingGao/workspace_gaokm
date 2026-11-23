@@ -330,8 +330,6 @@ class TestTurnoverStats(unittest.TestCase):
 
     def test_rebalance_floors_are_json_safe(self):
         """未设 ŷ 门槛时内部用 -inf，API 落盘必须是 null（Starlette allow_nan=False）。"""
-        import json
-
         from core.signal.score_display import json_safe, json_safe_number
 
         self.assertIsNone(json_safe_number(float("-inf")))
@@ -721,9 +719,7 @@ class TestP45NewFactors(unittest.TestCase):
 
     def test_alpha158_migrates_to_alpha_oo(self):
         """旧盘 factor_groups / weights 的 alpha158 键加载时改写为 alpha_oo。"""
-        import json
         import tempfile
-        from unittest.mock import patch
 
         from core.signal import config as cfg_mod
 
@@ -919,7 +915,6 @@ class TestP70InterpretOfflineApi(unittest.TestCase):
         self.assertTrue(kwargs.get("offline"))
 
     def test_quant_service_offline_interpret(self):
-        from quant.services.quant_interpret import build_rule_based_interpret
         from quant.services.quant_service import QuantService
 
         report = {

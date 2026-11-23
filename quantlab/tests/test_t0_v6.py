@@ -16,23 +16,9 @@ from core.t0.close_band import (
 )
 from core.t0.config import T0_LAST_LEG1_HM, load_t0_rules
 from core.t0.slots import simulate_t0_day_slots
+from tests.conftest import _t0_window_heads as _ytw_heads
 from web.schemas.paper import PaperExecutionPatchRequest, T0BacktestRequest
 
-
-def _ytw_heads(up=True):
-    p = 0.8 if up else 0.2
-    return {
-        "y_τ30": p,
-        "y_t30": p,
-        "y_τ45": p,
-        "y_t45": p,
-        "y_τ60": p,
-        "y_t60": p,
-        "y_τ75": p,
-        "y_t75": p,
-        "y_τ90": p,
-        "y_t90": p,
-    }
 
 def _snap(y_tau, **extra):
     """选腿夹具：ŷ_τw 随 y_tau 符号定正/反 T。"""
@@ -144,11 +130,7 @@ class TestCloseBandCore(unittest.TestCase):
         self.assertFalse(hm_allows_leg1("10:35", "10:30"))
 
     def test_t0_last_leg1_hm_rule(self):
-        from core.t0.config import (
-            T0_BT_DEFAULT_LAST_LEG1_HM,
-            load_t0_rules,
-            normalize_t0_last_leg1_hm,
-        )
+        from core.t0.config import T0_BT_DEFAULT_LAST_LEG1_HM, normalize_t0_last_leg1_hm
 
         self.assertEqual(T0_BT_DEFAULT_LAST_LEG1_HM, "10:30")
         self.assertEqual(normalize_t0_last_leg1_hm(None), "11:00")
@@ -160,8 +142,6 @@ class TestCloseBandCore(unittest.TestCase):
         )
 
     def test_y_τc_t0_keys_discarded(self):
-        from core.t0.config import load_t0_rules
-
         dropped = load_t0_rules(
             {
                 "y_tc_validate": False,
@@ -193,8 +173,6 @@ class TestCloseBandCore(unittest.TestCase):
 
     def test_bar_ytw_uses_minute_ohlc_not_daily(self):
         """选腿看本根前缀 ŷ_τw；日线 close 不同也不得替代成交价。"""
-        from core.t0.slots import simulate_t0_day_slots
-
         closes = [100.6] + [100.0] * 30
         mins = _mins(closes, session_open=100.0)
         bar = {
@@ -401,7 +379,6 @@ class TestCloseBandCore(unittest.TestCase):
             bar_ytw_pick_direction,
             blend_y_tw_realized,
         )
-        from core.t0.config import load_t0_rules
         from core.t0.viz import classify_t0_skip_reason
 
         self.assertNotIn("t0_bar_oc_gate", load_t0_rules())
@@ -427,7 +404,6 @@ class TestCloseBandCore(unittest.TestCase):
             bar_ytw_pick_direction,
             blend_y_tw,
         )
-        from core.t0.config import load_t0_rules
 
         cfg0 = load_t0_rules()
         self.assertNotIn("t0_ytw_prefix_confirm", cfg0)
@@ -464,7 +440,6 @@ class TestCloseBandCore(unittest.TestCase):
 
     def test_leg1_close_extreme_dropped(self):
         from core.t0.close_band import bar_close_band_pick_direction
-        from core.t0.config import load_t0_rules
         from core.t0.viz import classify_t0_skip_reason
 
         up = _ytw_heads(up=True)

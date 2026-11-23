@@ -201,7 +201,6 @@ class ReleaseRowsTests(unittest.TestCase):
         bars = _bars()
 
         def _job(job):
-            code = job[0]
             x = np.ones((3, 2), dtype=np.float64)
             y = np.ones(3, dtype=np.float64)
             return x, y, ["f0", "f1"], ["2024-01-05", "2024-01-06", "2024-01-07"]

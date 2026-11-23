@@ -202,7 +202,7 @@ class TestOpsSkillHandler(unittest.TestCase):
 
         self.assertIn("ops", TOOL_NAMES)
         self.assertEqual(len(TOOL_NAMES), 14)
-        h = get_handler("ops")
+        get_handler("ops")
         tools = load_tool_definitions()
         names = {t["function"]["name"] for t in tools}
         self.assertIn("ops", names)

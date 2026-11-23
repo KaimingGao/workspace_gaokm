@@ -5,69 +5,11 @@ from __future__ import annotations
 import os
 import tempfile
 import unittest
-from datetime import date, timedelta
 from unittest.mock import patch
 
+from tests.conftest import _has_lightgbm
+from tests.conftest import _horizon_tree_stock as _stock
 
-def _bar(dkey: str, hm: str, close: float, open_px: float | None = None):
-    o = open_px if open_px is not None else close
-    return {
-        "date": dkey,
-        "time": hm,
-        "open": round(o, 4),
-        "high": round(max(o, close), 4),
-        "low": round(min(o, close), 4),
-        "close": round(close, 4),
-        "volume": 1000,
-    }
-
-def _times_am_pm():
-    out = []
-    for total in range(9 * 60 + 30, 11 * 60 + 30 + 1, 5):
-        out.append(f"{total // 60:02d}:{total % 60:02d}")
-    for total in range(13 * 60, 15 * 60 + 1, 5):
-        out.append(f"{total // 60:02d}:{total % 60:02d}")
-    return out
-
-def _stock(code: str, start: float, n_days: int = 40):
-    d0 = date(2025, 6, 2)
-    daily = []
-    minutes = []
-    px = start
-    times = _times_am_pm()
-    i = 0
-    day = d0
-    while len(daily) < n_days:
-        if day.weekday() < 5:
-            dkey = day.isoformat()
-            bars_m = []
-            for j, hm in enumerate(times):
-                c = px + (0.04 if j % 2 else 0.0) + j * 0.002 + (i % 3) * 0.01
-                bars_m.append(_bar(dkey, hm, c, open_px=px))
-            minutes.extend(bars_m)
-            close = bars_m[-1]["close"]
-            daily.append(
-                {
-                    "date": dkey,
-                    "open": px,
-                    "high": max(px, close) * 1.01,
-                    "low": min(px, close) * 0.99,
-                    "close": close,
-                    "volume": 1e6,
-                    "prev_close": px * 0.995,
-                }
-            )
-            px = close
-            i += 1
-        day = day + timedelta(days=1)
-    return {"code": code, "bars": daily, "minute_bars": minutes}
-
-def _has_lightgbm() -> bool:
-    try:
-        import lightgbm  # noqa: F401
-        return True
-    except ImportError:
-        return False
 
 @unittest.skipUnless(_has_lightgbm(), "lightgbm 未安装")
 class TestT90Tree(unittest.TestCase):

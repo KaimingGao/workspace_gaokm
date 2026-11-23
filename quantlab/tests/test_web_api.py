@@ -37,8 +37,6 @@ class TestWebApi(unittest.TestCase):
             self.skipTest("fastapi not installed")
         from unittest.mock import MagicMock
 
-        import web.deps as deps
-
         agent = MagicMock()
         agent.llm.api_key = "x"
         agent.llm.is_available.return_value = True

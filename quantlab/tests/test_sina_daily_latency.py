@@ -41,7 +41,6 @@ class TestSinaDailyLatency(unittest.TestCase):
 
     def test_fetch_records_http_timeout(self) -> None:
         from types import ModuleType
-        from unittest.mock import patch
         from contextlib import nullcontext
 
         from adapters.market.history import fetch_a_daily_bars

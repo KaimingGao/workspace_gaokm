@@ -11,14 +11,31 @@ from __future__ import annotations
 
 import logging
 import math
-from typing import Any, Dict, List, Optional, Sequence, Tuple
+from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple
 
 logger = logging.getLogger(__name__)
+
+ProgressCb = Optional[Callable[[int, int, str], None]]
+
+
+def _emit_open_pit(cb: ProgressCb, cur: int, tot: int, msg: str) -> None:
+    if not cb:
+        return
+    try:
+        cb(int(cur), max(1, int(tot)), str(msg or ""))
+    except Exception:  # noqa: BLE001
+        logger.debug("open_pit progress failed", exc_info=True)
 
 _OPEN_PIT_MAX_BARS = 80
 _OPEN_PIT_MIN_HIST = 61
 # 这三包的 raw_* 已由 inject_raw_aoo / inject_raw_atc 写入，再算会盖住开盘列。
 _STYLE_PACKS = frozenset({"alpha_oo", "alpha_tc", "alpha_th"})
+# 训练面板里这些列缺 PIT 财务就是 NaN，不能用来否决整行。
+# 否决的话开盘截面会变成 items=0（今开其实已经齐了）。
+_STYLE_MAY_OMIT = frozenset(
+    {"value", "quality", "size", "earnings_yield", "growth", "dividend"}
+)
+_style_miss_logged = False
 
 
 def _fpx(*vals: Any) -> Optional[float]:
@@ -350,12 +367,104 @@ def _open_style_quote(open_t: float, prev_close: Optional[float]) -> Dict[str, A
     return quote
 
 
+def _bars_before_day(bars: Sequence[dict], cycle_day: str) -> List[dict]:
+    """丢掉 date ≥ 会话日的 bar。今收 / 今日指数不进开盘 X。"""
+    day = str(cycle_day or "")[:10]
+    out: List[dict] = []
+    for b in bars or []:
+        if not isinstance(b, dict):
+            continue
+        d = str(b.get("date") or "")[:10]
+        if len(d) >= 10 and day and d >= day:
+            continue
+        out.append(b)
+    return out
+
+
+def _load_open_style_index(cycle_day: str) -> List[dict]:
+    """基准指数日线，只要 date < 会话日。只读进程缓存和本地日线，不打新浪。
+
+    开盘补齐时现拉指数会占住 AkShare 锁，整池停在「拉今开」。没有指数时特异动量缺测。
+    """
+    bars: List[dict] = []
+    try:
+        from core.signal.live_features import peek_cached_index_bars
+
+        pack = peek_cached_index_bars(market="CN", allow_live_origin=True)
+        if isinstance(pack, dict):
+            bars = [b for b in (pack.get("bars") or []) if isinstance(b, dict)]
+    except Exception:  # noqa: BLE001
+        logger.debug("open_pit index cache peek failed", exc_info=True)
+        bars = []
+    if len(bars) < 21:
+        try:
+            from core.data.facade import get_bars
+            from core.ports.market import default_benchmark
+
+            bench = str(default_benchmark("CN") or "sh000300").strip() or "sh000300"
+            pack = (
+                get_bars(
+                    bench,
+                    limit=120,
+                    offline_only=True,
+                    reject_quote_fallback=True,
+                )
+                or {}
+            )
+            offline = [b for b in (pack.get("bars") or []) if isinstance(b, dict)]
+            if len(offline) > len(bars):
+                bars = offline
+        except Exception:  # noqa: BLE001
+            logger.debug("open_pit offline index bars failed", exc_info=True)
+    kept = _bars_before_day(bars, cycle_day)
+    if len(kept) < 21:
+        logger.info(
+            "open_pit index thin day=%s n=%s; idio_momentum left missing",
+            str(cycle_day or "")[:10],
+            len(kept),
+        )
+    return kept
+
+
+def _open_style_fundamentals(code: str, cycle_day: str) -> Optional[dict]:
+    """本地 PIT 财务。缺公告日返回 None。不调用估值接口。
+
+    ``resolve_fundamentals_for_score`` 会按票打估值网。1600 只串行时补齐会停在
+    「拉今开」。这里只读已落盘的财务和估值缓存。
+    """
+    day = str(cycle_day or "")[:10]
+    try:
+        from core.data.policy import DEFAULT_ANN_MISSING_POLICY
+        from core.fundamentals_pit import load_fundamentals_panel, select_point_as_of
+
+        panel = load_fundamentals_panel(code)
+        point, meta = select_point_as_of(panel.get("history") or [], day)
+    except Exception:  # noqa: BLE001
+        logger.debug("open_pit fundamentals failed for %s", code, exc_info=True)
+        return None
+    if not isinstance(point, dict) or not point.get("metrics"):
+        return None
+    ann_miss = bool((meta or {}).get("ann_missing") or point.get("ann_missing"))
+    if ann_miss and DEFAULT_ANN_MISSING_POLICY in ("zero_weight", "omit", "hard_reject"):
+        return None
+    metrics = dict(point.get("metrics") or {})
+    try:
+        from core.valuation_em import merge_cached_valuation
+
+        merged = merge_cached_valuation(code, metrics)
+        if isinstance(merged, dict):
+            metrics = merged
+    except Exception:  # noqa: BLE001
+        logger.debug("open_pit cached valuation skipped for %s", code, exc_info=True)
+    return metrics or None
+
+
 def _style_factor_names() -> Tuple[str, ...]:
-    """与训练面板同一套裸名：去掉 alpha 包、aoo 重叠列、无真源因子。"""
-    from core.signal.factors.alpha_oo import Z_OO_DROP_WHEN_AOO_CORE
+    """与训练面板同一套裸名：去掉 alpha 包、aoo 重叠列、开盘常数列、无真源因子。"""
+    from core.signal.factors.alpha_oo import OPEN_OO_DROP_Z, Z_OO_DROP_WHEN_AOO_CORE
     from core.signal.factors.meta.registry import registered_factor_names
 
-    skip = set(_STYLE_PACKS) | set(Z_OO_DROP_WHEN_AOO_CORE)
+    skip = set(_STYLE_PACKS) | set(Z_OO_DROP_WHEN_AOO_CORE) | set(OPEN_OO_DROP_Z)
     try:
         from core.signal.factors.meta.health import unsourced_factor_names
 
@@ -363,6 +472,18 @@ def _style_factor_names() -> Tuple[str, ...]:
     except Exception:  # noqa: BLE001
         logger.debug("open_pit unsourced factor list skipped", exc_info=True)
     return tuple(n for n in registered_factor_names() if n not in skip)
+
+
+def _style_required_names(
+    names: Sequence[str],
+    *,
+    index_bars: Optional[Sequence[dict]],
+) -> Tuple[str, ...]:
+    """必须有限值的裸名。财务列允许缺；没有指数时特异动量也允许缺。"""
+    skip = set(_STYLE_MAY_OMIT)
+    if not index_bars:
+        skip.add("idio_momentum")
+    return tuple(n for n in names if n not in skip)
 
 
 def _style_complete(scores: Dict[str, float], names: Sequence[str]) -> bool:
@@ -376,10 +497,14 @@ def _open_style_scores(
     hist: Sequence[dict],
     open_t: float,
     prev_close: Optional[float],
+    *,
+    index_bars: Optional[Sequence[dict]] = None,
+    fundamentals: Optional[dict] = None,
 ) -> Dict[str, float]:
     """注册风格因子的 0–100 裸分。跳过 alpha 包，避免改写 raw_aoo_* / raw_atc_*。
 
-    窗不够、昨收缺失、或有裸名没算出来时返回空，调用方整行剔除。
+    价量列（以及有指数时的特异动量）必须齐。财务列缺测留空，与训练面板的 NaN 一样，
+    不把整行扔掉。窗不够或昨收缺失时返回空。
     """
     from core.research.oo_panel import _research_sub_scores
 
@@ -392,12 +517,15 @@ def _open_style_scores(
         return {}
     window = _open_style_hist(hist)
     names = _style_factor_names()
-    if not window or not names:
+    required = _style_required_names(names, index_bars=index_bars)
+    if not window or not required:
         return {}
     try:
         row = _research_sub_scores(
             window,
             quote=_open_style_quote(ot, pc),
+            index_bars=list(index_bars) if index_bars else None,
+            fundamentals=fundamentals if isinstance(fundamentals, dict) else None,
             factor_names=names,
         )
     except Exception:  # noqa: BLE001
@@ -413,7 +541,16 @@ def _open_style_scores(
         fv = float(val)
         if math.isfinite(fv):
             out[sk] = fv
-    if not _style_complete(out, names):
+    if not _style_complete(out, required):
+        global _style_miss_logged
+        if not _style_miss_logged:
+            _style_miss_logged = True
+            missing = [n for n in required if n not in out]
+            logger.info(
+                "open_pit style incomplete missing=%s have=%s",
+                ",".join(missing[:12]),
+                len(out),
+            )
         return {}
     return out
 
@@ -427,6 +564,8 @@ def _feature_item(
     prev_close: Optional[float],
     quote: Optional[dict],
     open_source: Optional[str],
+    index_bars: Optional[Sequence[dict]] = None,
+    fundamentals: Optional[dict] = None,
 ) -> Tuple[Optional[dict], str]:
     """返回 ``(item, "")``。失败时 item 为空，reason 为 ``hist_short`` / ``style_short``。"""
     from core.signal.factors.alpha_oo import inject_raw_aoo
@@ -468,7 +607,13 @@ def _feature_item(
         )
     except Exception:  # noqa: BLE001
         logger.debug("open_pit tau z feats failed for %s", code, exc_info=True)
-    style = _open_style_scores(hist, ot, prev_close)
+    style = _open_style_scores(
+        hist,
+        ot,
+        prev_close,
+        index_bars=index_bars,
+        fundamentals=fundamentals,
+    )
     if not style:
         return None, "style_short"
     oo = _finite_feat_map(feats, prefixes=("raw_aoo_",))
@@ -508,6 +653,7 @@ def build_open_pit_feature_items(
     cycle_day: str,
     universe_codes: Optional[Sequence[str]] = None,
     quotes: Optional[Dict[str, dict]] = None,
+    progress_cb: ProgressCb = None,
 ) -> Tuple[List[dict], List[dict], Dict[str, Any]]:
     """全池抽开盘特征。覆盖不足时返回空列表，``meta.ok`` 为假，调用方拒单。"""
     from core.research.materialize.cover_policy import LAKE_COVER_FRAC, cover_need
@@ -518,13 +664,25 @@ def build_open_pit_feature_items(
     if len(day) < 10 or len(pool) < 2:
         return [], [], {"ok": False, "reason": "bad_day_or_pool", "cycle_day": day}
 
+    n_pool = len(pool)
+    _emit_open_pit(progress_cb, 0, n_pool, f"补齐 {day} 开盘 L2：拉今开 {n_pool}…")
     qmap = dict(quotes) if isinstance(quotes, dict) else _batch_quotes(pool)
+    _emit_open_pit(progress_cb, 0, n_pool, f"补齐 {day} 开盘 L2：读日线 {n_pool}…")
     bars_by = _load_hist_bars(pool)
+    index_bars = _load_open_style_index(day)
     items: List[dict] = []
     rejected: List[dict] = []
     n_open = 0
     n_style_gap = 0
-    for code in pool:
+    n_hist_gap = 0
+    for i, code in enumerate(pool):
+        if i == 0 or i % 80 == 0:
+            _emit_open_pit(
+                progress_cb,
+                i,
+                n_pool,
+                f"补齐 {day} 开盘 L2：风格 {i}/{n_pool}…",
+            )
         hist = _hist_through_prev(bars_by.get(code) or [], cycle_day=day)
         quote = qmap.get(code) if isinstance(qmap.get(code), dict) else None
         ot, pc, src = _open_and_prev(cycle_day=day, quote=quote, hist=hist)
@@ -540,11 +698,16 @@ def build_open_pit_feature_items(
             prev_close=pc,
             quote=quote,
             open_source=src,
+            index_bars=index_bars,
+            fundamentals=_open_style_fundamentals(code, day),
         )
         if item is None:
             if why == "style_short":
                 n_style_gap += 1
                 rejected.append({"stock_code": code, "reason": f"风格因子不足 {day}"})
+            elif why == "hist_short":
+                n_hist_gap += 1
+                rejected.append({"stock_code": code, "reason": f"日线不足 {day}"})
             else:
                 rejected.append({"stock_code": code, "reason": f"open-pit 特征不足 {day}"})
             continue
@@ -560,6 +723,8 @@ def build_open_pit_feature_items(
         "n_open": n_open,
         "n_items": len(items),
         "n_style_gap": n_style_gap,
+        "n_hist_gap": n_hist_gap,
+        "n_index": len(index_bars),
         "need_open": need,
         "cover_frac": LAKE_COVER_FRAC,
         "quotes": qmap,

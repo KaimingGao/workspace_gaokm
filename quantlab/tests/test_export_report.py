@@ -120,8 +120,6 @@ class TestQuantReportIndex(unittest.TestCase):
 
 class TestP26ReportShareUrl(unittest.TestCase):
     def test_share_url_in_list(self):
-        import tempfile
-
         with tempfile.TemporaryDirectory() as tmp:
             path = os.path.join(tmp, "quant_daily_20260719.html")
             with open(path, "w", encoding="utf-8") as f:

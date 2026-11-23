@@ -1125,8 +1125,6 @@ class TestOpenDayYhat(unittest.TestCase):
         self.assertAlmostEqual(float(out[0].get("y_oo")), 1.2, places=3)
 
     def test_attach_open_heads_stamps_pool_cs_and_open_minute_z(self):
-        from unittest.mock import patch
-
         from core.backtest.paper_replay import _attach_open_yhat_heads
 
         entries = [
@@ -2562,8 +2560,6 @@ class TestReplayMinuteFill(unittest.TestCase):
 
 class TestReplayCalendar(unittest.TestCase):
     def _iso_bars(self, n, *, start="2026-01-05"):
-        from datetime import datetime, timedelta
-
         d0 = datetime.strptime(start, "%Y-%m-%d").date()
         out = []
         for i in range(n):
@@ -2929,8 +2925,6 @@ class TestOpenTcRankBackfill(unittest.TestCase):
 
     def test_refresh_prefix_passes_zscore_codes(self):
         """晚钟重挂 τc_rank 须带 zscore_codes=可交易（避混合钟）。"""
-        from unittest.mock import patch
-
         from core.backtest.replay_scoring import refresh_tau_heads_after_prefix
 
         dates = [f"2026-03-{i:02d}" for i in range(1, 16)]
@@ -4023,8 +4017,6 @@ class TestHoldingOrigin(_QuotePatchMixin, unittest.TestCase):
 
     def test_mark_to_market_today_pnl_uses_reset_anchor(self):
         """当日回零后，今日收益相对回零价，不再吃昨收涨跌幅。"""
-        from datetime import datetime
-
         today = datetime.now().strftime("%Y-%m-%d")
         paper = _paper(
             cash=5000.0,
@@ -4058,6 +4050,52 @@ class TestHoldingOrigin(_QuotePatchMixin, unittest.TestCase):
         self.assertEqual(summary["today_pnl_basis"], "reset")
         self.assertEqual(summary["today_pnl"], 100.0)
         self.assertEqual(summary["today_pnl_pct"], 1.23)
+
+    def test_today_pnl_zero_after_cash_reset(self) -> None:
+        """空仓回零没有价格锚时，今日收益相对回零净值，不再减昨收账本。"""
+        today = datetime.now().strftime("%Y-%m-%d")
+        paper = _paper(cash=199999.77, holdings=[])
+        paper["initial_cash"] = 199999.77
+        paper["session_nav"] = {"2026-11-17": 205145.77}
+        paper["pnl_anchor"] = {
+            "ts": f"{today}T14:51:13",
+            "date": today,
+            "equity": 199999.77,
+            "cash": 199999.77,
+            "prices": {},
+        }
+        summary = mark_to_market(paper)
+        self.assertEqual(summary["today_pnl_basis"], "reset")
+        self.assertEqual(summary["today_pnl"], 0.0)
+        self.assertEqual(summary["today_pnl_pct"], 0.0)
+
+    def test_next_session_ignores_prereset_nav(self) -> None:
+        """回零次日没有钉住净值时，昨收用回零价，不减回零前的账本。"""
+        from datetime import datetime as dt
+
+        class _Next(dt):
+            @classmethod
+            def now(cls, tz=None):
+                n = dt(2026, 11, 24, 10, 0)
+                return n.replace(tzinfo=tz) if tz else n
+
+        paper = _paper(cash=199999.77, holdings=[])
+        paper["initial_cash"] = 199999.77
+        paper["session_nav"] = {"2026-11-17": 205145.77}
+        paper["pnl_anchor"] = {
+            "ts": "2026-11-23T15:42:21",
+            "date": "2026-11-23",
+            "equity": 199999.77,
+            "cash": 199999.77,
+            "prices": {},
+        }
+        with patch("core.paper.exec.datetime", _Next), patch(
+            "core.signal.session_pit.oo_cycle_date", return_value="2026-11-24"
+        ):
+            summary = mark_to_market(paper)
+        self.assertEqual(summary["today_pnl_basis"], "prev_nav")
+        self.assertEqual(summary["today_pnl"], 0.0)
+        self.assertEqual(summary["today_pnl_pct"], 0.0)
 
     def test_mark_to_market_origin_summary(self):
         paper = _paper(
@@ -4308,6 +4346,14 @@ class TestResetClearsStaleNorthStar(unittest.TestCase):
                     "detail": "矩阵 live 调仓",
                 }
             )
+            paper["session_nav"] = {
+                "2026-11-17": 205145.77,
+                "2026-11-05": 211346.56,
+            }
+            exe = paper.setdefault("rules", {}).setdefault("execution", {})
+            exe["dual_horizon"] = {"enabled": True}
+            exe["monitor_halt_buys"] = True
+            exe["coupling"] = {"t0_vs_stance": "independent"}
             save_paper(paper, path)
             with patch(
                 "services.paper_account.mark_to_market", return_value=summary
@@ -4343,6 +4389,15 @@ class TestResetClearsStaleNorthStar(unittest.TestCase):
             self.assertIsNone(saved["last_ops_report"]["monitor_metrics"]["calmar"])
             self.assertEqual(
                 saved["last_ops_report"]["monitor_metrics"]["max_drawdown_pct"], 0.0
+            )
+            anchor_day = saved["pnl_anchor"]["date"]
+            self.assertEqual(list(saved["session_nav"]), [anchor_day])
+            self.assertEqual(saved["session_nav"][anchor_day], 199999.99)
+            exe_saved = (saved.get("rules") or {}).get("execution") or {}
+            self.assertNotIn("dual_horizon", exe_saved)
+            self.assertNotIn("monitor_halt_buys", exe_saved)
+            self.assertEqual(
+                (exe_saved.get("coupling") or {}).get("t0_vs_stance"), "independent"
             )
 
 
@@ -4905,9 +4960,6 @@ class TestNextOpenCommit(unittest.TestCase):
 
     def test_manual_sell_stages_pending_after_close(self):
         """收盘后手动清仓 → 挂次日开盘单，不改持仓。"""
-        import json
-        import tempfile
-
         from services.paper_service import PaperService
 
         with tempfile.TemporaryDirectory() as tmp:
@@ -4960,9 +5012,6 @@ class TestNextOpenCommit(unittest.TestCase):
 
     def test_manual_sell_stages_same_day_buy_for_next_open(self):
         """收盘后挂次日开盘卖：今日买入不受 T+1 拦挂（成交日已过 T+1）。"""
-        import json
-        import tempfile
-
         from services.paper_service import PaperService
 
         with tempfile.TemporaryDirectory() as tmp:

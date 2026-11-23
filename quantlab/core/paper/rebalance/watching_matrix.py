@@ -2246,7 +2246,9 @@ def simulate_watching_matrix_preview(
             max_turnover_pct = None
     from core.paper.rebalance.cash_reserve import resolve_min_cash_pct
 
+    from core.backtest.replay_scoring import replay_rank_blend
     from core.market.calendar import resolve_session_date
+    from core.paper.rebalance.live_plan import live_buy_order_table
 
     plan = plan_rank_lot_day(
         scored=list(item_by_code.values()),
@@ -2260,6 +2262,7 @@ def simulate_watching_matrix_preview(
         sentiment_as_of=resolve_session_date(),
         # 手动执行复现开盘信息集。自动路径不传，仍跟 live_fill_clock。
         sentiment_clock="09:30" if open_replay else None,
+        rank_blend=replay_rank_blend(live_buy_order_table()),
     )
     oos_excluded = sum(
         1

@@ -8,25 +8,8 @@ import unittest
 
 import numpy as np
 
+from tests.conftest import _panel_bars as _bars
 
-def _bars(n: int = 80, start: float = 10.0, seed: int = 0):
-    px = start
-    out = []
-    for i in range(n):
-        o = px * (1.0 + (0.01 if (i + seed) % 5 == 0 else 0.0))
-        c = o * (1.0 + ((i % 7) - 3) * 0.002)
-        out.append(
-            {
-                "date": f"2024-{(i // 28) + 1:02d}-{(i % 28) + 1:02d}",
-                "open": round(o, 4),
-                "high": round(max(o, c) * 1.01, 4),
-                "low": round(min(o, c) * 0.99, 4),
-                "close": round(c, 4),
-                "volume": 1_000_000 + i * 1000,
-            }
-        )
-        px = c
-    return out
 
 class TestIncrementalPanel(unittest.TestCase):
     def setUp(self) -> None:
@@ -1043,7 +1026,6 @@ class TestFamilyForTc(unittest.TestCase):
         self.assertEqual(family_for_tc(tau_hm="open", rank=True), FAMILY_TC_RANK)
 
     def test_prefix_live_from_lake(self) -> None:
-        import tempfile
         from unittest.mock import patch
 
         from core.research.feature_lake import write_stock_panel
@@ -1114,8 +1096,6 @@ class TestFamilyForTc(unittest.TestCase):
             tmp.cleanup()
 
     def test_load_training_matrix_from_l1(self) -> None:
-        import tempfile
-
         from core.research.feature_lake import write_stock_panel
         from core.research.lake_bridge import (
             FAMILY_OO,
@@ -1166,8 +1146,6 @@ class TestFamilyForTc(unittest.TestCase):
             tmp.cleanup()
 
     def test_minute_sync_does_not_overwrite_open(self) -> None:
-        import tempfile
-
         from core.research.feature_lake import load_day_rows, write_stock_panel
         from core.research.lake_bridge import FAMILY_TC, family_for_tc, sync_panel_to_lake
         from core.research.materialize.consumer import materialize_writer

@@ -5,6 +5,10 @@ from __future__ import annotations
 import os
 import unittest
 
+from tests.conftest import _has_lightgbm
+from tests.conftest import _minute_bar as _bar
+from tests.conftest import _session_times_5m as _times_am_pm
+
 
 class SelectHorizonBackendTests(unittest.TestCase):
     def test_select_by_auc(self):
@@ -183,34 +187,6 @@ class HorizonDualMergeTests(unittest.TestCase):
         )
         # 包级择优=tree；引擎名必须仍是 lightgbm（勿写成 tree）
         self.assertEqual((out.get("return_model") or {}).get("backend"), "lightgbm")
-
-def _has_lightgbm() -> bool:
-    try:
-        import lightgbm  # noqa: F401
-
-        return True
-    except ImportError:
-        return False
-
-def _bar(dkey: str, hm: str, close: float, open_px: float | None = None):
-    o = open_px if open_px is not None else close
-    return {
-        "date": dkey,
-        "time": hm,
-        "open": round(o, 4),
-        "high": round(max(o, close), 4),
-        "low": round(min(o, close), 4),
-        "close": round(close, 4),
-        "volume": 1000,
-    }
-
-def _times_am_pm():
-    out = []
-    for total in range(9 * 60 + 30, 11 * 60 + 30 + 1, 5):
-        out.append(f"{total // 60:02d}:{total % 60:02d}")
-    for total in range(13 * 60, 15 * 60 + 1, 5):
-        out.append(f"{total // 60:02d}:{total % 60:02d}")
-    return out
 
 def _stock(code: str, start: float, n_days: int = 40):
     from datetime import date, timedelta

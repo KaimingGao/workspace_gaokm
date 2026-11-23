@@ -247,7 +247,7 @@ class TestT0Slots(unittest.TestCase):
         self.assertFalse(out.get("trades"), out)
 
     def test_slot_dict_cannot_override_shared_strategy(self):
-        from core.t0.config import load_t0_rules, normalize_t0_slots
+        from core.t0.config import normalize_t0_slots
 
         slots = normalize_t0_slots(
             [

@@ -160,27 +160,18 @@ Z_OO_DROP_WHEN_AOO_CORE: frozenset = frozenset(
 OPEN_OO_DROP_Z: frozenset = frozenset({"alpha_th", "tail_anomaly", "money_flow"})
 
 
-def open_oo_neutral_value(name: str) -> Optional[float]:
-    """旧 225 / 68 列权重仍点名这些列时，填回当时写入的 50。"""
-    from core.signal.factors.z_oo import is_z_oo_key, to_legacy_key
+def open_aoo_z_names() -> List[str]:
+    """开盘 ŷ_oo 的 ``z_oo_*`` 列序。
 
-    key = str(name or "")
-    leg = to_legacy_key(key) if is_z_oo_key(key) else key
-    if leg in OPEN_OO_DROP_Z:
-        return 50.0
-    return None
-
-
-def open_aoo_z_names(*, drop_open_const: bool = False) -> List[str]:
-    """开盘 ŷ_oo 的 ``z_oo_*`` 列序。重叠的 momentum / gap_risk / overheat 不在此列。"""
+    重叠的 momentum / gap_risk / overheat 不在此列。
+    ``alpha_th`` / 尾盘 / 资金流是开盘常数，也不在此列。
+    """
     from core.signal.factors.z_oo import Z_OO_SKIP_PACKS, to_z_oo_key, z_oo_legacy_keys
 
     out: List[str] = []
     seen = set()
     for name in z_oo_legacy_keys():
-        if name in Z_OO_DROP_WHEN_AOO_CORE:
-            continue
-        if drop_open_const and name in OPEN_OO_DROP_Z:
+        if name in Z_OO_DROP_WHEN_AOO_CORE or name in OPEN_OO_DROP_Z:
             continue
         canon = to_z_oo_key(name)
         if not canon or canon in Z_OO_SKIP_PACKS or canon in seen:
@@ -190,9 +181,9 @@ def open_aoo_z_names(*, drop_open_const: bool = False) -> List[str]:
     return out
 
 
-def open_aoo_full_names(*, drop_open_const: bool = False) -> List[str]:
+def open_aoo_full_names() -> List[str]:
     """开盘 aoo_full：``z_oo_*`` 再接全部 ``raw_aoo_*``。"""
-    return open_aoo_z_names(drop_open_const=drop_open_const) + [
+    return open_aoo_z_names() + [
         f"{ALPHA_OO_RAW_PREFIX}{k}" for k in ALPHA_OO_FIELD_NAMES
     ]
 
@@ -308,6 +299,7 @@ def expand_oo_feature_names(
     from core.signal.factors.z_oo import (
         Z_OO_SKIP_PACKS,
         is_z_oo_key,
+        to_legacy_key,
         to_z_oo_key,
     )
 
@@ -316,7 +308,8 @@ def expand_oo_feature_names(
     seen = set()
     for n in base:
         k = str(n or "").strip()
-        if not k or k in Z_OO_SKIP_PACKS:
+        leg = to_legacy_key(k) if is_z_oo_key(k) else k
+        if not k or k in Z_OO_SKIP_PACKS or leg in OPEN_OO_DROP_Z:
             continue
         if is_alpha_oo_raw_key(k):
             canon = k

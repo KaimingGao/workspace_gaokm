@@ -115,6 +115,8 @@ def _next_snapshot_ts(paper: dict) -> str:
 
 # 毒字段：ŷ 门槛由 score_display.resolve_*_floor 统一管理，禁止留在 paper.rules（C2 / P-V1）
 _TOXIC_RULE_KEYS = ("min_score", "min_hold_score")
+# 执行配置里已无读者的旧块。读盘丢掉，避免下次整表保存又写回去。
+_DEAD_EXECUTION_KEYS = ("dual_horizon", "monitor_halt_buys")
 
 
 def validate_paper(data: dict, *, on_load: bool = True) -> List[str]:
@@ -177,6 +179,26 @@ def validate_paper(data: dict, *, on_load: bool = True) -> List[str]:
             except (TypeError, ValueError):
                 rules.pop(rk, None)
                 warnings.append(f"dropped rules.{rk} (invalid: {raw!r})")
+        exe = rules.get("execution")
+        if isinstance(exe, dict):
+            for dead in _DEAD_EXECUTION_KEYS:
+                if dead in exe:
+                    exe.pop(dead, None)
+                    warnings.append(f"stripped rules.execution.{dead}")
+
+    anchor = data.get("pnl_anchor")
+    anchor_day = ""
+    if isinstance(anchor, dict):
+        anchor_day = str(anchor.get("date") or "")[:10]
+    book = data.get("session_nav")
+    if len(anchor_day) == 10 and isinstance(book, dict):
+        stale = [day for day in list(book) if str(day)[:10] < anchor_day]
+        for day in stale:
+            book.pop(day, None)
+        if stale:
+            warnings.append(
+                f"stripped session_nav before reset anchor {anchor_day}: {len(stale)}"
+            )
 
     if on_load:
         for w in warnings:

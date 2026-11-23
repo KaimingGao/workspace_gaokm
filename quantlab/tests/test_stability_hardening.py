@@ -80,7 +80,6 @@ class TestFileLockAndPaperTrim(unittest.TestCase):
     def test_atomic_write_json_concurrent_unique_tmp(self):
         """并发写同一路径不得因共用 .tmp 触发 FileNotFoundError。"""
         import json
-        import threading
 
         from core.io_atomic import atomic_write_json
 

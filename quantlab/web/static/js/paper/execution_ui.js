@@ -408,10 +408,6 @@ export function fillPathMatrixForm(root, execution) {
     if (clockEl.querySelector(`option[value="${v}"]`)) clockEl.value = v;
   }
   applyLiveFillClockUi(pm.live_fill_clock || "09:30");
-  applyLiveFusionWeightsUi(
-    pm.fusion_w_oo != null ? pm.fusion_w_oo : 0.9,
-    pm.fusion_w_oc != null ? pm.fusion_w_oc : 0.1
-  );
   let lotBase = clampLotAmount(pm.lot_base_amount, 10000);
   let lotStrong = clampLotAmount(
     pm.lot_strong_amount,
@@ -420,14 +416,6 @@ export function fillPathMatrixForm(root, execution) {
   if (lotStrong < lotBase) lotStrong = lotBase;
   set("pm_lot_base_amount", lotBase);
   set("pm_lot_strong_amount", lotStrong);
-}
-
-function _normWeightPair(a, b) {
-  let x = Math.max(0, Math.min(Number.isFinite(a) ? a : 0.5, 1));
-  let y = Math.max(0, Math.min(Number.isFinite(b) ? b : 0.5, 1));
-  const s = x + y;
-  if (s <= 1e-12) return { a: 0.5, b: 0.5 };
-  return { a: x / s, b: y / s };
 }
 
 /** 收集 rank_lots / path_matrix 保存体（只改 rebalance_timing，不动 t0）。 */
@@ -643,85 +631,11 @@ export function applyLiveFillClockUi(raw, { force = false } = {}) {
   return clock;
 }
 
-/** 启动时间建议配重：≤09:30 偏 ŷ_oo；>09:30 偏分钟 ŷ_τc。 */
-export function liveFusionWeightsForClock(raw) {
-  const clock = String(raw || "09:30").replace("：", ":").trim().slice(0, 5);
-  if (clock && clock > "09:30") {
-    return { fusion_w_oo: 0.1, fusion_w_oc: 0.9 };
-  }
-  return { fusion_w_oo: 0.9, fusion_w_oc: 0.1 };
-}
-
-function _clampLiveWeight(raw, fallback = 0.5) {
-  const n = Number(raw);
-  if (!Number.isFinite(n)) return fallback;
-  const stepped = Math.round(Math.max(0, Math.min(1, n)) / 0.05) * 0.05;
-  return Math.round(stepped * 1000) / 1000;
-}
-
-function _paintLiveBlendSlider(oo) {
-  const el = document.getElementById("paper-live-w-oo");
-  if (!el) return null;
-  const wOo = _clampLiveWeight(oo, 0.9);
-  const wTc = Math.round((1 - wOo) * 1000) / 1000;
-  if (document.activeElement !== el) el.value = String(wOo);
-  el.setAttribute("aria-valuenow", String(wOo));
-  el.setAttribute(
-    "aria-valuetext",
-    `w_oo ${wOo.toFixed(2)} · w_τc ${wTc.toFixed(2)}`
-  );
-  const ooVal = document.getElementById("paper-live-w-oo-value");
-  const tcVal = document.getElementById("paper-live-w-tc-value");
-  if (ooVal) ooVal.textContent = wOo.toFixed(2);
-  if (tcVal) tcVal.textContent = wTc.toFixed(2);
-  return { fusion_w_oo: wOo, fusion_w_oc: wTc };
-}
-
-/** 同步 Follow 侧单条配重滑条（左 w_oo · 右 w_τc）。 */
-export function applyLiveFusionWeightsUi(wOo, wOc, { force = false } = {}) {
-  const el = document.getElementById("paper-live-w-oo");
-  if (!el) return null;
-  if (!force && document.activeElement === el) return readLiveFusionWeights();
-  const pair = _normWeightPair(
-    _clampLiveWeight(wOo, 0.9),
-    _clampLiveWeight(wOc, 0.1)
-  );
-  return _paintLiveBlendSlider(pair.a);
-}
-
-/** 按当前滑条位置刷新两端读数（拖动中）。 */
-export function syncLiveFusionWeightSliders() {
-  const el = document.getElementById("paper-live-w-oo");
-  if (!el) return null;
-  return _paintLiveBlendSlider(el.value);
-}
-
-export function readLiveFusionWeights() {
-  const el = document.getElementById("paper-live-w-oo");
-  if (!el) return null;
-  const wOo = _clampLiveWeight(el.value, 0.9);
-  return {
-    fusion_w_oo: wOo,
-    fusion_w_oc: Math.round((1 - wOo) * 1000) / 1000,
-  };
-}
-
-/** 按当前启动时间写入建议配重到滑条。 */
-export function applyLiveFusionWeightsForClock(raw, opts) {
-  const preset = liveFusionWeightsForClock(raw);
-  return applyLiveFusionWeightsUi(preset.fusion_w_oo, preset.fusion_w_oc, opts);
-}
-
-/** 仅收集 live 启动时间 + fuse 权（交易执行页）；不改回测 fill_clock。 */
+/** 仅收集 live 启动时间（交易执行页）；不改回测 fill_clock / fuse 权（fusion_w_* 跟历史回测）。 */
 export function collectLiveFillClockPatch() {
   const clock = readLiveFillClock();
   if (!clock) return null;
-  const weights = readLiveFusionWeights() || liveFusionWeightsForClock(clock);
-  const lots = {
-    live_fill_clock: clock,
-    fusion_w_oo: weights.fusion_w_oo,
-    fusion_w_oc: weights.fusion_w_oc,
-  };
+  const lots = { live_fill_clock: clock };
   return {
     lock: true,
     rebalance_timing: {

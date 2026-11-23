@@ -497,7 +497,7 @@ class TestEodNextFusion(unittest.TestCase):
 
     def test_align_refresh_false_keeps_offline_eod_next_at_midday(self):
         """仅本地仓 asof 昨收：score_one 标 eod_next；二次 align 不得用盘中时钟翻成 intradate。"""
-        from datetime import datetime, timedelta, timezone
+        from datetime import timedelta, timezone
         from unittest.mock import patch
 
         from core.signal.dual_score import align_trade_score_fields
@@ -527,7 +527,7 @@ class TestEodNextFusion(unittest.TestCase):
         self.assertEqual(flipped["dual_score_window"], "intraday")
 
     def test_book_fields_preserves_eod_next_window(self):
-        from datetime import datetime, timedelta, timezone
+        from datetime import timedelta, timezone
         from unittest.mock import patch
 
         from core.signal.dual_score import dual_score_book_fields
@@ -551,7 +551,7 @@ class TestEodNextFusion(unittest.TestCase):
 
     def test_intraday_repairs_stale_eod_next_zero_w_tau(self):
         """盘中：旧簿 eod_next 的 w_τ=0 残留时，读路径须恢复双头融合。"""
-        from datetime import datetime, timedelta, timezone
+        from datetime import timedelta, timezone
         from unittest.mock import patch
 
         from core.signal.dual_score import align_trade_score_fields

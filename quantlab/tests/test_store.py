@@ -685,7 +685,7 @@ class TestDailyStoreSqlite(_StoreBackendMixin, unittest.TestCase):
         self.assertAlmostEqual(bar_amount(got[0]), float(got[0]["volume"]) * float(got[0]["close"]))
 
     def test_covered_minute_dates_require_enough_codes(self):
-        from core.store import list_minute_covered_dates, save_minute_cache
+        from core.store import list_minute_covered_dates
 
         def _bar(day):
             return {

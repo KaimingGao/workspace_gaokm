@@ -787,8 +787,6 @@ class TestV0SampleDiscipline(unittest.TestCase):
         self.assertIn("NOPE999", empty["empty_codes"])
 
     def test_ingest_real_history_drops_synthetic(self):
-        from unittest.mock import patch
-
         from core.sample_ops import (
             fundamentals_history_coverage,
             ingest_real_fundamentals_history,
@@ -940,7 +938,7 @@ class TestV3WeightCompareAndOutcomeGate(unittest.TestCase):
                 }
             ],
         }
-        with tempfile.TemporaryDirectory() as td:
+        with tempfile.TemporaryDirectory():
             # isolate empty fund store by pointing coverage to empty dir via monkeypatch hard —
             # sample_status uses default store; just assert risk gate field
             st = sample_status(paper=paper)

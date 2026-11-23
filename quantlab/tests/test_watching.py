@@ -34,7 +34,6 @@ class TestWatching(unittest.TestCase):
             WATCHING_MAX_SIZE,
             clamp_watching_max_size,
             set_watching_max_size,
-            write_watching,
         )
 
         self.assertEqual(WATCHING_DEFAULT_SIZE, 300)
@@ -108,12 +107,6 @@ class TestWatching(unittest.TestCase):
                     {"stock_code": "601398", "stock_name": "工商银行"},
                 ],
             }
-            fake_quote = {
-                "success": True,
-                "stock_code": "600519",
-                "stock_name": "贵州茅台",
-            }
-
             with patch(
                 "adapters.screen.engine.StockScreener"
             ) as mock_cls, patch(
@@ -267,7 +260,7 @@ class TestWatching(unittest.TestCase):
         self.assertIsNone(out["items"][1]["high"])
 
     def test_add_watchlist_item(self):
-        from core.watching.store import add_watchlist_item, write_watching
+        from core.watching.store import add_watchlist_item
 
         with tempfile.TemporaryDirectory() as tmp:
             path = os.path.join(tmp, "watching.json")
@@ -296,7 +289,7 @@ class TestWatching(unittest.TestCase):
             self.assertEqual(uni.get("sources") or [], [])
 
     def test_remove_watchlist_item(self):
-        from core.watching.store import remove_watchlist_item, write_watching
+        from core.watching.store import remove_watchlist_item
 
         with tempfile.TemporaryDirectory() as tmp:
             path = os.path.join(tmp, "watching.json")
@@ -317,7 +310,7 @@ class TestWatching(unittest.TestCase):
             self.assertEqual(uni.get("sources") or [], [])
 
     def test_sync_paper_watchlist_subset(self):
-        from core.watching.store import sync_paper_watchlist, write_watching
+        from core.watching.store import sync_paper_watchlist
 
         def _fake_query(code):
             return {

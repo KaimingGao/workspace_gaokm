@@ -179,18 +179,28 @@ def restore_rank_scores(rows: Sequence[dict], snap: Mapping[str, Mapping[str, An
                 row[key] = value
 
 
-def apply_replay_day_rank_blend(
+def apply_buy_order_blend(
     items: Sequence[dict],
-    table: Optional[Mapping[str, Any]],
-) -> Optional[Dict[str, Dict[str, Any]]]:
-    """后端不同时把当日 ``y_*_rank_score`` 换成分位，返回原始分快照。同后端不改。"""
-    if replay_rank_blend(table) != "day_rank":
-        return None
+) -> Dict[str, Dict[str, Any]]:
+    """把当日 ``y_*_rank_score`` 换成越高越好的分位，返回原始分快照。
+
+    只由 ``plan_rank_lot_day(rank_blend="day_rank")`` 调用。名次 1..n 按换算前的原始分编写。
+    """
     snap = snapshot_rank_scores(items)
     from core.research.yhat_factory_backtest import stamp_day_ranks
 
     stamp_day_ranks([{"scored": list(items or [])}], blend="day_rank")
     return snap
+
+
+def apply_replay_day_rank_blend(
+    items: Sequence[dict],
+    table: Optional[Mapping[str, Any]],
+) -> Optional[Dict[str, Dict[str, Any]]]:
+    """后端不同时换分位。同后端不改。生产路径走 ``plan_rank_lot_day``。"""
+    if replay_rank_blend(table) != "day_rank":
+        return None
+    return apply_buy_order_blend(items)
 
 
 def stamp_replay_arm_day(items: Sequence[dict], table: Mapping[str, Any], day: str) -> None:

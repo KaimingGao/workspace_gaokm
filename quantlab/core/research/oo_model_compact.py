@@ -69,7 +69,7 @@ def _registered_ridge_names(*, drop_aoo_overlap: bool = False) -> List[str]:
             seen.add(k)
             out.append(k)
         return out
-    return open_aoo_z_names(drop_open_const=True)
+    return open_aoo_z_names()
 
 
 class OoPanelMatrix:

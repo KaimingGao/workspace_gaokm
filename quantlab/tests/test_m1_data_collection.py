@@ -211,7 +211,7 @@ class TestIncrementalFetch(unittest.TestCase):
             {"date": "2024-01-02", "open": 1, "high": 1, "low": 1, "close": 1.2, "volume": 1},
             {"date": "2024-01-03", "open": 1, "high": 1, "low": 1, "close": 1.3, "volume": 1},
         ]
-        with tempfile.TemporaryDirectory() as td, patch(
+        with tempfile.TemporaryDirectory(), patch(
             "adapters.market.history.resolve_market_code", return_value=("CN", "600519")
         ), patch(
             "adapters.market.history.load_daily_cache",

@@ -220,8 +220,6 @@ class TestMinuteStatus(unittest.TestCase):
         self.assertNotIn("lookback_days", warm.call_args.kwargs)
 
     def test_expected_minute_asof_before_open(self):
-        from datetime import datetime
-
         from quant.research.minute_status import expected_minute_asof
 
         # 交易日开盘前 → 上一交易日

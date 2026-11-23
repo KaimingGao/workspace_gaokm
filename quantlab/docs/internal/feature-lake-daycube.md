@@ -124,9 +124,12 @@ API 要点：
 目录：`DAY_CUBE_DIR`（默认 `data/cache/day_cubes`）
 
 ```text
+{DAY_CUBE_DIR}/v{FEATURE_SCHEMA}/{universe_hash}/universe.json
 {DAY_CUBE_DIR}/v{FEATURE_SCHEMA}/{universe_hash}/{clock}/{date}.npz
 {DAY_CUBE_DIR}/v{FEATURE_SCHEMA}/{universe_hash}/{clock}/{date}.meta.json
 ```
+
+`universe.json` 写在哈希目录下，不是按日一份。`plaintext` 是排序去重后的代码用英文逗号拼接的原文字符串，目录名是它的 SHA1 前 12 位。某一天立方里的代码可以少于此名单。
 
 | 字段 | 含义 |
 |------|------|

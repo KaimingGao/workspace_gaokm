@@ -2,10 +2,11 @@
 
 布局::
 
+    {DAY_CUBE_DIR}/v{SCHEMA}/{universe_hash}/universe.json
     {DAY_CUBE_DIR}/v{SCHEMA}/{universe_hash}/{clock}/{date}.npz
     {DAY_CUBE_DIR}/v{SCHEMA}/{universe_hash}/{clock}/{date}.meta.json
 
-``clock``：``eod`` / ``open`` / ``tau_HHMM``。
+``universe.json`` 记下这个目录名对应的代码名单。``clock``：``eod`` / ``open`` / ``tau_HHMM``。
 
 开关：``QUANTLAB_DAY_CUBE=0`` 绕过磁盘；内存构建仍可用。
 """
@@ -99,6 +100,8 @@ class DayCube:
     clock: str = "open"
     slim: Dict[str, Any] = field(default_factory=dict)
     schema: int = FEATURE_SCHEMA
+    # 参与哈希的完整名单。矩阵 ``codes`` 可以少几只（当天没有特征行）。
+    universe_codes: List[str] = field(default_factory=list)
 
     def z_matrix(self, *, min_names: int = 2, eps: float = 1e-12) -> np.ndarray:
         """用预计算 μ/σ 做 z；与 ``cross_section_zscore_matrix`` 单组语义对齐。"""
@@ -228,6 +231,7 @@ def build_day_cube(
         universe_hash=uh,
         clock=_safe_clock(clock),
         slim=dict(slim or {}),
+        universe_codes=list(uh_codes),
     )
 
 
@@ -251,6 +255,7 @@ def build_from_matrix(
     if x_arr.shape[0] != len(code_list) or x_arr.shape[1] != len(name_list):
         return None
     mu, sd = _compute_mu_sigma(x_arr, min_names=min_names)
+    uh_codes = _universe_code_list(code_list)
     return DayCube(
         date=day,
         codes=list(code_list),
@@ -258,9 +263,10 @@ def build_from_matrix(
         X_raw=x_arr,
         z_mean=mu,
         z_std=sd,
-        universe_hash=universe_hash(code_list),
+        universe_hash=universe_hash(uh_codes),
         clock=_safe_clock(clock),
         slim=dict(slim or {}),
+        universe_codes=uh_codes,
     )
 
 
@@ -296,6 +302,7 @@ def build_aligned_cube(
         universe_hash=universe_hash(uh_codes),
         clock=_safe_clock(clock),
         slim=dict(slim or {}),
+        universe_codes=list(uh_codes),
     )
 
 
@@ -303,6 +310,50 @@ def _disk_paths(uh: str, clock: str, date: str) -> Dict[str, str]:
     root = os.path.join(_root(), f"v{FEATURE_SCHEMA}", str(uh), _safe_clock(clock))
     base = os.path.join(root, str(date)[:10])
     return {"dir": root, "npz": base + ".npz", "meta": base + ".meta.json"}
+
+
+def universe_note_path(uh: str) -> str:
+    """哈希目录下的名单说明。同一份名单只写一次，不按日重复。"""
+    return os.path.join(_root(), f"v{FEATURE_SCHEMA}", str(uh), "universe.json")
+
+
+def write_universe_note(codes: Sequence[str]) -> bool:
+    """把哈希的原始名单写到对应目录。名单对不上哈希、或文件已在，则不改写。"""
+    listed = _universe_code_list(codes)
+    uh = universe_hash(listed)
+    if not listed or uh == "empty":
+        return False
+    path = universe_note_path(uh)
+    if os.path.isfile(path):
+        return True
+    payload = {
+        "universe_hash": uh,
+        "schema": FEATURE_SCHEMA,
+        "n_codes": len(listed),
+        "algorithm": "sha1(','.join(sorted(unique(codes))))[:12]",
+        "note": (
+            "目录名是 plaintext 的 SHA1 十六进制前 12 位。"
+            "plaintext 是排序、去重后的股票代码，用英文逗号拼接，与传入顺序无关。"
+            "某一天立方里的代码可以少于此名单（当天没有特征行），哈希仍用这份完整名单。"
+        ),
+        "codes": listed,
+        "plaintext": ",".join(listed),
+    }
+    try:
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        _atomic_write_json(path, payload, indent=2)
+    except Exception:
+        logger.debug("day cube universe note failed %s", path, exc_info=True)
+        return False
+    return True
+
+
+def _note_codes_for_cube(cube: "DayCube") -> List[str]:
+    """只在名单确实哈希到这个目录时才落说明，避免用缺行子集冒充明文。"""
+    listed = _universe_code_list(cube.universe_codes) or _universe_code_list(cube.codes)
+    if universe_hash(listed) != cube.universe_hash:
+        return []
+    return listed
 
 
 def _mem_key(uh: str, clock: str, date: str) -> str:
@@ -325,8 +376,16 @@ def _atomic_write_bytes(path: str, data: bytes) -> None:
         raise
 
 
-def _atomic_write_json(path: str, payload: Dict[str, Any]) -> None:
-    raw = json.dumps(payload, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
+def _atomic_write_json(
+    path: str,
+    payload: Dict[str, Any],
+    *,
+    indent: Optional[int] = None,
+) -> None:
+    if indent is None:
+        raw = json.dumps(payload, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
+    else:
+        raw = (json.dumps(payload, ensure_ascii=False, indent=indent) + "\n").encode("utf-8")
     _atomic_write_bytes(path, raw)
 
 
@@ -386,6 +445,9 @@ def save_day_cube(cube: DayCube) -> bool:
     except Exception:
         logger.debug("day cube save meta failed %s", paths["meta"], exc_info=True)
         return False
+    note_codes = _note_codes_for_cube(cube)
+    if note_codes:
+        write_universe_note(note_codes)
     _MEMORY[_mem_key(cube.universe_hash, cube.clock, cube.date)] = cube
     return True
 

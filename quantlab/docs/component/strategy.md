@@ -18,8 +18,8 @@ API：`GET/POST /api/paper/t0/worker`（启停 + 状态）· `GET /api/paper/t0/
 手动补跑：Follow「手动预演 / 手动落账」· `POST /api/paper/t0`（不依赖 Worker）。`run_web.py` lifespan 启动时若 worker 开关为 ON 则自动 restore；进程退出 stop。  
 外部 cron 仍可用 `schedule_jobs.run_paper_t0`。收盘 `paper_daily` 链式触发已下线；自动做 T 默认 `after_close`，由交易执行的做 T worker 自己跑。
 
-**自动调仓落账（Web Worker）**：Follow「策略调仓」运行卡与做 T 同结构（进程面板 → 面板外盯盘框）。每个交易日在已保存 **fill_clock～10:00** 现价成交一次（默认 09:30），过点不补跑。开关与 last_run / desk 写 `data/rebalance_auto_worker.json`。  
-API：`GET/POST /api/paper/rebalance/worker`（`worker` + `desk`）。盯盘落账前按持仓占位监视，落账后开/加/减/清/持，并列出形态闸跳过（未下单，说明写原因）；上次落账文案 `时间 · 自动|手动 · 卖 n · 买 n`。「手动执行」复现 09:30 开盘预估分（不含开仓/加仓、不写账），不受 fill_clock～10:00 窗口限制。自动 Worker 过点不补跑、不挂开盘单。做 T worker 在调仓未完成且仍在开盘窗内会等待。
+**自动调仓落账（Web Worker）**：Follow「策略调仓」运行卡与做 T 同结构（进程面板 → 面板外盯盘框）。每个交易日在已保存 **live_fill_clock～10:00** 现价成交一次（默认 09:30；与回测 `fill_clock` 分立），过点不补跑。fuse 权跟历史回测已保存 `fusion_w_*`。开关与 last_run / desk 写 `data/rebalance_auto_worker.json`。  
+API：`GET/POST /api/paper/rebalance/worker`（`worker` + `desk`）。盯盘落账前按持仓占位监视，落账后开/加/减/清/持，并列出形态闸跳过（未下单，说明写原因）；上次落账文案 `时间 · 自动|手动 · 卖 n · 买 n`。「手动执行」复现 09:30 开盘预估分（不含开仓/加仓、不写账），不受 live 启动时间～10:00 窗口限制。自动 Worker 过点不补跑、不挂开盘单。做 T worker 在调仓未完成且仍在开盘窗内会等待。
 ---
 
 ## 黑盒工厂直觉

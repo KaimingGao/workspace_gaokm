@@ -213,7 +213,6 @@ class TestOoRidgeCompact(unittest.TestCase):
         self.assertTrue(np.allclose(x1, x2, equal_nan=True))
 
     def test_resolve_workers_caps_and_keeps_small_jobs_serial(self) -> None:
-        import os
         from unittest.mock import patch
 
         from core.research.oo_model_compact import _resolve_workers

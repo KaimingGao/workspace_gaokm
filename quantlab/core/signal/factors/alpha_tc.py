@@ -254,17 +254,6 @@ def open_tau_excluded_names() -> frozenset:
     return _OPEN_TAU_EXCLUDED
 
 
-def open_tau_neutral_value(name: str) -> Optional[float]:
-    """旧开盘权重仍点名这些列时，填回训练时的常数。不是这类列则返回 None。"""
-    key = str(name or "")
-    if key not in open_tau_excluded_names():
-        return None
-    if is_alpha_tc_raw_key(key):
-        bare = key[len(ALPHA_TC_RAW_PREFIX) :]
-        return float(_prefix_neutral("open").get(bare, 0.0))
-    return 0.0
-
-
 def filter_open_tau_names(names: Sequence[str]) -> List[str]:
     """开盘面板列序：去掉分钟常数，其余列保持原顺序。"""
     drop = open_tau_excluded_names()

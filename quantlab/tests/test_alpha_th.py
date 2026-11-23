@@ -46,7 +46,7 @@ def test_alpha_th_field_count():
     assert len(set(ALPHA_TH_FIELD_NAMES)) == 63
 
 def test_alpha_th_feat_labels_cover_fields():
-    from core.signal.factors.alpha_th import ATH_FEAT_LABELS, ath_raw_key
+    from core.signal.factors.alpha_th import ATH_FEAT_LABELS
     from core.signal.factors.meta.registry import factor_label
 
     for bare in ALPHA_TH_FIELD_NAMES:

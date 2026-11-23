@@ -23,6 +23,45 @@ def _emit(cb: ProgressCb, cur: int, tot: int, msg: str) -> None:
         logger.debug("session open materialize progress failed", exc_info=True)
 
 
+def resolve_session_open_codes(
+    codes: Sequence[str] | None = None,
+    *,
+    watching_limit: int = 0,
+) -> tuple:
+    """会话日 open 立方用交易执行已保存的调仓池。
+
+    显式 ``codes`` 优先。否则读 paper 的 ``feature_set``：沪深300 或大池。
+    调仓按这份名单的 hash 读立方，写成观察池全量对不上。
+    返回 ``(codes, feature_set)``。显式名单时 feature_set 为空。
+    """
+    from core.research.materialize.orchestrate import resolve_materialize_codes
+    from core.watching.store import WATCHING_MAX_SIZE
+
+    cap = max(2, int(watching_limit or WATCHING_MAX_SIZE))
+    if codes:
+        return (
+            resolve_materialize_codes(codes=codes, watching_limit=cap),
+            "",
+        )
+    try:
+        from core.paper.ledger import load_paper
+        from core.paper.rebalance.live_plan import live_feature_set
+        from core.universe.feature_sets import codes_for_feature_set
+
+        paper = load_paper()
+        fs = live_feature_set(paper if isinstance(paper, dict) else None)
+        chosen = [
+            str(c).strip()
+            for c in codes_for_feature_set(fs, fetch=False)
+            if str(c).strip()
+        ]
+        if len(chosen) >= 2:
+            return chosen[:cap], fs
+    except Exception:  # noqa: BLE001
+        logger.debug("session open live universe failed", exc_info=True)
+    return resolve_materialize_codes(codes=None, watching_limit=cap), ""
+
+
 def session_open_materialize_request(cycle_day: str) -> Dict[str, Any]:
     """给 ``MaterializeRequired.request`` / 前端一键补齐用。"""
     day = str(cycle_day or "")[:10]
@@ -51,7 +90,6 @@ def materialize_session_open_l2(
     from core.paper.rebalance.open_pit_score import build_open_pit_feature_items
     from core.research.batch_score import features_by_code_from_items
     from core.research.day_cube import build_day_cube, remember, save_day_cube
-    from core.research.materialize.orchestrate import resolve_materialize_codes
     from core.signal.session_pit import oo_cycle_date
     from core.watching.store import WATCHING_MAX_SIZE
 
@@ -73,23 +111,36 @@ def materialize_session_open_l2(
         out["error"] = "无会话日"
         return out
 
-    code_list = resolve_materialize_codes(codes=codes, watching_limit=limit)
+    code_list, feature_set = resolve_session_open_codes(
+        codes, watching_limit=limit
+    )
     out["n_universe"] = len(code_list)
+    if feature_set:
+        out["feature_set"] = feature_set
     if len(code_list) < 2:
-        out["error"] = "观察池/宇宙不足 2 只"
+        out["error"] = "调仓池不足 2 只"
         return out
 
-    _emit(progress_cb, 0, 3, f"补齐 {day} 开盘 L2：拉今开…")
+    _emit(
+        progress_cb,
+        0,
+        3,
+        f"补齐 {day} 开盘 L2：拉今开 {len(code_list)}…",
+    )
     scored, rejected, meta = build_open_pit_feature_items(
         code_list,
         cycle_day=day,
         universe_codes=code_list,
+        progress_cb=progress_cb,
     )
     if not meta.get("ok"):
         out["error"] = (
             f"会话日 {day} 开盘截面覆盖不足"
             f"（open={meta.get('n_open')}/{meta.get('n_universe')}"
-            f" items={meta.get('n_items')} reason={meta.get('reason')}）"
+            f" items={meta.get('n_items')}"
+            f" style_gap={meta.get('n_style_gap')}"
+            f" hist_gap={meta.get('n_hist_gap')}"
+            f" reason={meta.get('reason')}）"
         )
         out["meta"] = {
             k: meta.get(k)
@@ -97,6 +148,8 @@ def materialize_session_open_l2(
                 "n_open",
                 "n_items",
                 "n_style_gap",
+                "n_hist_gap",
+                "n_index",
                 "need_open",
                 "reason",
                 "cover_frac",
@@ -165,8 +218,10 @@ def materialize_session_open_l2(
     out["elapsed_s"] = round(time.perf_counter() - t0, 2)
     _emit(progress_cb, 3, 3, f"已补齐 {day} 开盘 L2 · {out['elapsed_s']}s")
     logger.info(
-        "session open L2 materialized day=%s n_items=%s n_cube=%s elapsed=%.1fs",
+        "session open L2 materialized day=%s feature_set=%s n_universe=%s n_items=%s n_cube=%s elapsed=%.1fs",
         day,
+        out.get("feature_set") or "-",
+        out.get("n_universe"),
         out["n_items"],
         out.get("n_cube_codes"),
         out["elapsed_s"],

@@ -24,12 +24,11 @@ from core.research.yhat_factory_weights import (
 from core.research.yhat_tf_desk import factory_scope
 from core.research.yhat_transformer.train import _clip_inplace_rows
 
-from tests.test_yhat_factory_versions import _job, _last
+from tests.conftest import _yhat_factory_job as _job
+from tests.conftest import _yhat_factory_last as _last
 
 
 def _patch_store(td: str):
-    import unittest.mock as mock
-
     return mock.patch.multiple(
         "core.research.yhat_tf_desk",
         YHAT_TF_DIR=td,

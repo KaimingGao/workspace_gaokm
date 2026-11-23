@@ -50,8 +50,6 @@ class TestGoldenQuantCase(unittest.TestCase):
 
 class TestInferQuantHealthRouting(unittest.TestCase):
     def test_infer_health_task(self):
-        from agent.routing import infer_quant_task
-
         self.assertEqual(infer_quant_task("量化系统状态怎么样"), "health")
 
 # --- test_p18_quant.py::TestQuantHealthGolden ---
@@ -179,6 +177,7 @@ class TestP24WebBridgeApi(unittest.TestCase):
             from fastapi.testclient import TestClient
 
             import web.app as web_app
+            import web.deps as deps
         except ImportError:
             self.skipTest("fastapi not installed")
 
@@ -304,14 +303,10 @@ class TestP26Api(unittest.TestCase):
 
 class TestP31EvalRouting(unittest.TestCase):
     def test_build_eval_routing_map_from_quant_ops(self):
-        from quant.ops.eval_routing_map import build_eval_routing_map
-
         out = build_eval_routing_map()
         self.assertTrue(out["success"])
         self.assertGreaterEqual(out["with_expect"], 5)
     def test_eval_service_uses_quant_ops(self):
-        from services.eval_service import EvalService
-
         out = EvalService().list_routing()
         self.assertTrue(out["success"])
 

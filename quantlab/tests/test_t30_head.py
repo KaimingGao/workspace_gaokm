@@ -3,31 +3,12 @@
 from __future__ import annotations
 
 import unittest
-
-from tests.job_slot_isolation import isolated_live_slot
 from datetime import date, timedelta
 
+from tests.conftest import _minute_bar_with_datetime as _bar
+from tests.conftest import _session_times_5m as _times_am_pm
+from tests.job_slot_isolation import isolated_live_slot
 
-def _bar(dkey: str, hm: str, close: float, open_px: float | None = None, volume: float = 1000):
-    o = open_px if open_px is not None else close
-    return {
-        "date": dkey,
-        "time": hm,
-        "datetime": f"{dkey} {hm}:00",
-        "open": round(o, 4),
-        "high": round(max(o, close), 4),
-        "low": round(min(o, close), 4),
-        "close": round(close, 4),
-        "volume": volume,
-    }
-
-def _times_am_pm():
-    out = []
-    for total in range(9 * 60 + 30, 11 * 60 + 30 + 1, 5):
-        out.append(f"{total // 60:02d}:{total % 60:02d}")
-    for total in range(13 * 60, 15 * 60 + 1, 5):
-        out.append(f"{total // 60:02d}:{total % 60:02d}")
-    return out
 
 class SessionClockTests(unittest.TestCase):
     def test_add_session_minutes_lunch_and_close(self):

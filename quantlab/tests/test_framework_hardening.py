@@ -225,8 +225,6 @@ class TestPortsAdapters(unittest.TestCase):
         self.assertEqual(offenders, [])
 
     def test_skill_quote_uses_data_service(self):
-        from unittest.mock import patch
-
         from skills.quote.engine import QuoteEngine
 
         with patch(

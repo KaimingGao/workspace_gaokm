@@ -862,6 +862,7 @@ class PaperAccountMixin:
 
         同时写入当日 ``pnl_anchor``（回零价），使「今日收益」当日不再相对昨收，
         与累计收益同起点；下一自然日自动失效，恢复按昨收。
+        ``session_nav`` 只留回零日，避免次日把回零前的净值当成昨收。
         """
         if not os.path.isfile(self.path):
             raise FileNotFoundError("请先初始化模拟账户")
@@ -895,19 +896,20 @@ class PaperAccountMixin:
                 "cash": summary.get("cash"),
                 "prices": prices,
             }
+            baseline = round(equity, 2)
             paper["snapshots"] = [
                 {
                     "ts": ts,
-                    "equity": round(equity, 2),
+                    "equity": baseline,
                     "cash": summary.get("cash"),
                     "stock_value": summary.get("stock_value"),
                     "total_pnl_pct": 0.0,
                     "position_count": summary.get("position_count"),
                 }
             ]
+            paper["session_nav"] = {ts[:10]: baseline} if baseline > 0 else {}
             paper["updated_at"] = ts
             _blank_stale_risk_kpis(paper)
-            baseline = round(equity, 2)
             append_operation_log(
                 paper,
                 "reset",

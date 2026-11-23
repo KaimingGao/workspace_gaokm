@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import os
 import tempfile
 import unittest
@@ -361,6 +362,30 @@ class TestDayCube(unittest.TestCase):
         self.assertEqual(cube.codes, ["000001", "000002"])
         self.assertEqual(cube.universe_hash, universe_hash(full))
         self.assertNotEqual(cube.universe_hash, universe_hash(cube.codes))
+        from core.research.day_cube import universe_note_path
+
+        with open(universe_note_path(cube.universe_hash), encoding="utf-8") as fh:
+            note = json.load(fh)
+        self.assertEqual(note["plaintext"], ",".join(sorted(full)))
+        self.assertEqual(note["codes"], sorted(full))
+        self.assertEqual(universe_hash(note["plaintext"].split(",")), cube.universe_hash)
+
+        from core.research.day_cube import DayCube, save_day_cube
+
+        thin = DayCube(
+            date="2026-10-17",
+            codes=["000001", "000002"],
+            names=["gap_pct"],
+            X_raw=np.ones((2, 1), dtype=np.float64),
+            z_mean=np.zeros(1, dtype=np.float64),
+            z_std=np.ones(1, dtype=np.float64),
+            universe_hash=cube.universe_hash,
+            clock="0935",
+        )
+        self.assertTrue(save_day_cube(thin))
+        with open(universe_note_path(cube.universe_hash), encoding="utf-8") as fh:
+            again = json.load(fh)
+        self.assertEqual(again["codes"], sorted(full))
         clear_memory()
         self.assertIsNotNone(load_day_cube("2026-10-16", full, clock="0935"))
         self.assertIsNone(

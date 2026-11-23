@@ -33,6 +33,17 @@ def _bars(n: int = 70, *, last_day: str = "2026-10-27") -> list:
 
 
 class TestOpenPitScore(unittest.TestCase):
+    def setUp(self) -> None:
+        # 单测不打指数网。生产路径在 build 里拉基准指数。
+        self._idx = patch(
+            "core.paper.rebalance.open_pit_score._load_open_style_index",
+            return_value=[],
+        )
+        self._idx.start()
+
+    def tearDown(self) -> None:
+        self._idx.stop()
+
     def test_build_items_marks_open_pit_and_close0(self) -> None:
         from core.paper.rebalance.open_pit_score import build_open_pit_feature_items
 
@@ -156,7 +167,9 @@ class TestOpenPitScore(unittest.TestCase):
         self.assertNotIn("gap_risk", names)
         self.assertNotIn("overheat", names)
         self.assertNotIn("money_flow", names)
+        self.assertNotIn("tail_anomaly", names)
         self.assertIn("volume_price", names)
+        self.assertIn("idio_momentum", names)
         self.assertAlmostEqual(float(seen["change"]), (29.06 / 28.89 - 1.0) * 100.0, places=3)
         row = next(it for it in scored if it["stock_code"] == "600887")
         subs = row.get("sub_scores") or {}
@@ -169,6 +182,49 @@ class TestOpenPitScore(unittest.TestCase):
 
         self.assertEqual(_open_style_hist(_bars(40)), [])
         self.assertEqual(len(_open_style_hist(_bars(80))), 61)
+
+    def test_idio_required_when_index_present(self) -> None:
+        from core.paper.rebalance.open_pit_score import build_open_pit_feature_items
+
+        codes = ["600887", "000001"]
+        hist = {c: _bars(70, last_day="2026-10-27") for c in codes}
+        index = [
+            {"date": b["date"], "close": 3000.0 + i}
+            for i, b in enumerate(hist["600887"])
+        ]
+        quotes = {
+            "600887": {"success": True, "open": 29.06, "prev_close": 28.89},
+            "000001": {"success": True, "open": 11.0, "prev_close": 10.5},
+        }
+
+        def _fake(window, **kwargs):
+            self.assertEqual(
+                [b["date"] for b in kwargs.get("index_bars") or []],
+                [b["date"] for b in index],
+            )
+            names = kwargs.get("factor_names") or ()
+            return {str(n): 50.0 for n in names if n != "idio_momentum"}
+
+        with patch(
+            "core.paper.rebalance.open_pit_score._load_hist_bars", return_value=hist
+        ), patch(
+            "core.paper.rebalance.open_pit_score._load_open_style_index",
+            return_value=index,
+        ), patch(
+            "core.research.oo_panel._research_sub_scores", side_effect=_fake
+        ):
+            scored, rejected, meta = build_open_pit_feature_items(
+                codes,
+                cycle_day="2026-10-28",
+                universe_codes=codes,
+                quotes=quotes,
+            )
+        self.assertFalse(meta.get("ok"))
+        self.assertEqual(scored, [])
+        self.assertEqual(meta.get("reason"), "style_cover_short")
+        self.assertEqual(meta.get("n_style_gap"), 2)
+        self.assertEqual(meta.get("n_index"), len(index))
+        self.assertTrue(all("风格因子不足" in str(r.get("reason")) for r in rejected))
 
     def test_missing_style_refuses_pool(self) -> None:
         from core.paper.rebalance.open_pit_score import build_open_pit_feature_items
@@ -480,7 +536,6 @@ class TestOpenPitQuoteCacheBust(unittest.TestCase):
 
     def test_batch_quotes_invalidates_empty_open_cache(self) -> None:
         import time
-        from unittest.mock import patch
 
         from adapters.market.quote_api import StockAPI
         from core.paper.rebalance.open_pit_score import _batch_quotes, _open_and_prev
@@ -525,8 +580,6 @@ class TestOpenPitQuoteCacheBust(unittest.TestCase):
         self.assertAlmostEqual(float(ot), 31.0, places=4)
 
     def test_batch_quotes_retries_codes_still_missing_open(self) -> None:
-        from unittest.mock import patch
-
         from adapters.market.quote_api import StockAPI
         from core.paper.rebalance.open_pit_score import _batch_quotes
 

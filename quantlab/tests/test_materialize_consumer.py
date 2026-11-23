@@ -272,7 +272,6 @@ class ConsumerCoverageTest(unittest.TestCase):
 
     def test_replay_gap_skips_session_day_until_daily_bar_lands(self) -> None:
         """15:05 后时钟 as-of 已是当天，本地日线还没有这根时不算硬缺。"""
-        from datetime import datetime
         from unittest.mock import patch
 
         from core.research.materialize.consumer import bind_materialize_writer
@@ -675,8 +674,6 @@ class ConsumerCoverageTest(unittest.TestCase):
         self.assertNotIn("raw_aoo_GAP", seen["tau"])
 
     def test_snap_clock_to_latest_cube(self) -> None:
-        import os
-        import tempfile
         from unittest.mock import patch
 
         from core.research.day_cube import snap_clock_to_disk

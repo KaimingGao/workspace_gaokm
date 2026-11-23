@@ -108,6 +108,33 @@ def stamp_live_execution_heads(
     return True
 
 
+def live_buy_order_table() -> Dict[str, Any]:
+    """live 买序用的排序头后端卡，与回测 ``replay_rank_blend`` 读同一字段。"""
+    cached = _SCORE_CACHE.get("table")
+    if isinstance(cached, dict):
+        cards = cached.get("cards")
+        if isinstance(cards, dict) and cards.get("oo_rank") and cards.get("tc_rank"):
+            return cached
+    from core.research.holdout import MODEL_ROLE_LIVE, scoring_model_role_context
+    from core.research.yhat_factory_backtest import enabled_replay_specs
+
+    try:
+        with scoring_model_role_context(MODEL_ROLE_LIVE):
+            specs = enabled_replay_specs()
+    except Exception:  # noqa: BLE001
+        logger.debug("live buy-order specs failed", exc_info=True)
+        return {}
+    cards: Dict[str, Any] = {}
+    heads: List[str] = []
+    for spec in specs:
+        head = str(spec.get("head") or "")
+        if not head:
+            continue
+        heads.append(head)
+        cards[head] = {"backend": str(spec.get("backend") or "")}
+    return {"heads": heads, "cards": cards}
+
+
 def _execution_arm_table(day: str, feature_set: str) -> Dict[str, Any]:
     from core.research.yhat_factory_backtest import (
         enabled_replay_specs,

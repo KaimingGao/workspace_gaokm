@@ -40,7 +40,7 @@ class TestBacktestEngine(unittest.TestCase):
         from core.backtest.engine import scan_signal_parameters, stratify_by_score
 
         bars = _rising_bars(50)
-        result = backtest_signal_on_bars(
+        backtest_signal_on_bars(
             bars, horizon_days=3, min_score=50.0, min_history=10
         )
         buckets = stratify_by_score(

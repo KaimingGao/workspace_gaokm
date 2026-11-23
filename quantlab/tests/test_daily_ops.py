@@ -368,8 +368,6 @@ class TestSignalConfigApi(unittest.TestCase):
 
 class TestQuantPaperCli(unittest.TestCase):
     def test_cli_preset_quant_paper_resolves(self):
-        from quant.ops.daily_presets import resolve_daily_preset
-
         out = resolve_daily_preset("quant_paper")
         self.assertEqual(out["preset"], "quant_paper")
         self.assertTrue(out["flags"]["paper_rebalance"])

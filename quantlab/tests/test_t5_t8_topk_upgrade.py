@@ -171,7 +171,6 @@ class TestPromoteHintsShape(unittest.TestCase):
 
     def test_ttl_hours_clamp(self):
         """与前端 readPromoteTtlHours：1–168 夹紧。"""
-
         def clamp(h: float) -> int:
             return max(1, min(168, round(h)))
 

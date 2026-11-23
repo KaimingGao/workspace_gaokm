@@ -93,7 +93,7 @@ class TestOoLgbCsZInfer(unittest.TestCase):
     def test_matrix_cs_without_dates_refuses(self):
         import numpy as np
 
-        from core.research.oo_lgb import SCHEMA_OO_LGB, predict_oo_lgb_matrix
+        from core.research.oo_lgb import predict_oo_lgb_matrix
 
         blob = {
             "feature_names": ["f1"],
@@ -151,7 +151,7 @@ class TestOoLgbCsZInfer(unittest.TestCase):
     def test_predict_bad_index_returns_none(self):
         import numpy as np
 
-        from core.research.oo_lgb import SCHEMA_OO_LGB, predict_oo_lgb_matrix
+        from core.research.oo_lgb import predict_oo_lgb_matrix
 
         blob = {
             "feature_names": ["f1"],

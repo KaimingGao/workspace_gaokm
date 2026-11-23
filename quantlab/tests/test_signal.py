@@ -1,5 +1,3 @@
-import os
-import sys
 import unittest
 
 from adapters.market.history import bars_from_quote_fallback, normalize_bars

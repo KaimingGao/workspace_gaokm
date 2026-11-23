@@ -979,6 +979,7 @@ def simulate_scored_days(
     *,
     cfg: Optional[Mapping[str, Any]] = None,
     start_cash: float = START_CASH,
+    rank_blend: str = "raw",
 ) -> Dict[str, Any]:
     """已打分的交易日 → 累计收益、超额、回撤和决策指标。价格是 09:30 开盘。"""
     from core.paper.rebalance.rank_lots import get_rank_lot_cfg, plan_rank_lot_day
@@ -1023,6 +1024,7 @@ def simulate_scored_days(
             opens=prices,
             bars_by_code=bars,
             sentiment_clock=FILL_CLOCK,
+            rank_blend=rank_blend,
         )
         applied = _apply_matrix_trades(
             paper,
@@ -1242,11 +1244,17 @@ def run_factory_backtest(
             os.environ["QUANTLAB_FEATURE_SET"] = prev_feature
     kept = _clip_days(scored, window_start, window_end)
     if spec.get("mix"):
-        stamp_day_ranks(kept, blend=str(spec.get("rank_blend") or "raw"))
+        # 名次留在原始分上。买序分位只在 plan_rank_lot_day 里换，算完写回原始分。
+        stamp_day_ranks(kept, blend="raw")
     print(f"计入收益 {len(kept)} 日", flush=True)
     if not kept:
         raise ValueError("评测窗内没有交易日")
-    report = simulate_scored_days(kept, cfg=planner, start_cash=cash)
+    report = simulate_scored_days(
+        kept,
+        cfg=planner,
+        start_cash=cash,
+        rank_blend=str(spec.get("rank_blend") or "raw"),
+    )
     print(
         f"模拟结束 买 {report.get('n_buys')} 卖 {report.get('n_sells')} "
         f"期末权益 {report.get('end_equity')}",
@@ -1310,19 +1318,8 @@ def apply_seq_clip(X: np.ndarray, gap: np.ndarray, clip: Optional[Mapping[str, A
     np.clip(gap, gap_lo, gap_hi, out=gap)
 
 
-def _open_legacy_fill(name: str) -> Optional[float]:
-    """旧开盘权重点名已裁列时的填值。τc 分钟列用中性值，oo 常数包分用 50。"""
-    from core.signal.factors.alpha_oo import open_oo_neutral_value
-    from core.signal.factors.alpha_tc import open_tau_neutral_value
-
-    fill = open_tau_neutral_value(name)
-    if fill is not None:
-        return fill
-    return open_oo_neutral_value(name)
-
-
 def take_factor_columns(X: np.ndarray, names: Sequence[str], want: Sequence[str]) -> np.ndarray:
-    """按权重列序取列。开盘已裁掉的常数列，用训练时的值补回。"""
+    """按权重列序取列。面板里没有的列直接失败，不再补常数。"""
     have = {str(n): i for i, n in enumerate(names)}
     src = np.asarray(X)
     out = np.empty((int(src.shape[0]), len(list(want))), dtype=np.float64)
@@ -1330,82 +1327,9 @@ def take_factor_columns(X: np.ndarray, names: Sequence[str], want: Sequence[str]
         key = str(name)
         i = have.get(key)
         if i is None:
-            fill = _open_legacy_fill(key)
-            if fill is None:
-                raise ValueError(f"因子列缺失 {key}")
-            out[:, j] = float(fill)
-            continue
+            raise ValueError(f"因子列缺失 {key}")
         out[:, j] = src[:, i]
     return np.ascontiguousarray(out, dtype=np.float64)
-
-
-def _legacy_seq_names(want_n: int) -> Optional[List[str]]:
-    """旧开盘序列列序。对得上列宽才返回。"""
-    from core.signal.factors.alpha_oo import apply_aoo_core_policy, open_aoo_full_names
-    from core.signal.factors.alpha_tc import open_atc_full_names, select_atc_core_names
-
-    tc_full = open_atc_full_names()
-    tc_core = select_atc_core_names(tc_full)
-    oo_full = open_aoo_full_names(drop_open_const=False)
-    oo_core = apply_aoo_core_policy(oo_full)
-    if want_n == len(tc_full):
-        return tc_full
-    if want_n == len(tc_core):
-        return tc_core
-    if want_n == len(oo_full):
-        return oo_full
-    if want_n == len(oo_core):
-        return oo_core
-    return None
-
-
-def align_seq_open_width(seq: Any, d_seq_in: int) -> Any:
-    """旧开盘序列仍含已裁常数列时，按原列序补回。
-
-    τc 分钟列补中性值，oo 的 ``alpha_th`` / 尾盘 / 资金流补 50。
-    列序对不上时原样返回，交给后面的列宽校验。
-    """
-    try:
-        X = seq.X
-        width = int(X.shape[-1])
-        ndim = int(X.ndim)
-    except Exception:  # noqa: BLE001
-        return seq
-    want_n = int(d_seq_in or 0)
-    if want_n <= 0 or width == want_n or ndim != 3:
-        return seq
-    X = np.asarray(X)
-    from core.research.yhat_transformer.seq_dataset import SeqPanel
-
-    want = _legacy_seq_names(want_n)
-    if not want:
-        return seq
-    have = [str(n) for n in (getattr(seq, "feature_names", ()) or ())]
-    if len(have) != width:
-        return seq
-    index = {n: i for i, n in enumerate(have)}
-    want_set = set(want)
-    if any(n not in want_set for n in have):
-        return seq
-    missing = [n for n in want if n not in index]
-    if not missing or any(_open_legacy_fill(n) is None for n in missing):
-        return seq
-    out = np.empty((X.shape[0], X.shape[1], len(want)), dtype=np.float32)
-    for j, name in enumerate(want):
-        i = index.get(name)
-        if i is None:
-            out[:, :, j] = np.float32(_open_legacy_fill(name))
-        else:
-            out[:, :, j] = X[:, :, i]
-    return SeqPanel(
-        X=out,
-        gap=np.asarray(seq.gap),
-        y=np.asarray(seq.y),
-        dates=list(seq.dates),
-        codes=list(seq.codes),
-        seq_len=int(getattr(seq, "seq_len", 0) or X.shape[1]),
-        feature_names=tuple(want),
-    )
 
 
 def _bar_day(row: Mapping[str, Any]) -> str:
@@ -1657,8 +1581,6 @@ def _scores_for_head(
     if not keep:
         return {}
     names = [str(n) for n in panel.feature_names]
-    if seq is not None:
-        seq = align_seq_open_width(seq, int(meta.get("d_seq_in") or 0))
     # ŷ_oo：缺测不加项。ŷ_τc：任一入模列缺测则整行不算。排序头仍把缺测填 0。
     missing = str(meta.get("missing") or "")
     keep_missing = backend == "ridge" and missing in ("skip", "complete")
@@ -1828,7 +1750,7 @@ def score_open_window(
         pack = str(meta.get("factor_pack") or "")
         head_backend = head_backends[head]
         aligned = head_backend == "transformer"
-        with_age = aligned and _saved_transformer_arch(meta) >= 2
+        with_age = aligned
         through_decision = bool(meta.get("seq_through_decision"))
         seq_z_key = (
             (bool(meta.get("seq_cs_z")), meta.get("z_clip") if meta.get("seq_cs_z") else None)
@@ -2027,6 +1949,161 @@ def _bars_for_replay_score(
     return out or stock_bars
 
 
+def _open_cube_for_day(day: str):
+    """当前截面的官方 open 立方。没有或读失败则 None。"""
+    day_s = str(day or "")[:10]
+    if len(day_s) < 10:
+        return None
+    try:
+        from core.research.day_cube import load_day_cube
+        from core.research.materialize.cube_z import universe_codes
+
+        codes = [str(c).strip() for c in universe_codes() if str(c).strip()]
+        if len(codes) < 2:
+            return None
+        return load_day_cube(day_s, codes, clock="open")
+    except Exception:  # noqa: BLE001
+        logger.debug("session open cube lookup failed day=%s", day_s, exc_info=True)
+        return None
+
+
+def _bars_plus_session_open(
+    stock_bars: Mapping[str, Sequence[dict]],
+    day: str,
+    cube: Any,
+) -> Dict[str, List[dict]]:
+    """给缺这一天日线的票补一根今开，序列缺口才有 (code, day)。
+
+    今开 = 昨收 × (1 + 立方 gap_pct)。不改已有日线，也不写回调用方的列表。
+    """
+    day_s = str(day or "")[:10]
+    names = [str(n) for n in (getattr(cube, "names", None) or [])]
+    try:
+        gap_i = names.index("gap_pct")
+    except ValueError:
+        gap_i = -1
+    raw = np.asarray(getattr(cube, "X_raw", None))
+    code_at = {
+        str(c).strip(): i
+        for i, c in enumerate(getattr(cube, "codes", None) or [])
+        if str(c).strip()
+    }
+    out: Dict[str, List[dict]] = {}
+    for code, bars in (stock_bars or {}).items():
+        code_s = str(code).strip()
+        rows = [b for b in (bars or []) if isinstance(b, dict)]
+        if any(str(b.get("date") or b.get("trade_date") or "")[:10] == day_s for b in rows):
+            out[code_s] = rows
+            continue
+        prev = None
+        for bar in rows:
+            d = str(bar.get("date") or bar.get("trade_date") or "")[:10]
+            if len(d) >= 10 and d < day_s:
+                prev = bar
+        try:
+            prev_c = float((prev or {}).get("close") or 0.0)
+        except (TypeError, ValueError):
+            prev_c = 0.0
+        if prev_c <= 0:
+            out[code_s] = rows
+            continue
+        gap = 0.0
+        i = code_at.get(code_s)
+        if i is not None and gap_i >= 0 and raw.ndim == 2 and i < raw.shape[0]:
+            try:
+                g = float(raw[i, gap_i])
+            except (TypeError, ValueError):
+                g = float("nan")
+            if g == g:
+                gap = g
+        op = prev_c * (1.0 + gap / 100.0)
+        if op <= 0 or op != op:
+            out[code_s] = rows
+            continue
+        out[code_s] = rows + [
+            {
+                "date": day_s,
+                "trade_date": day_s,
+                "open": op,
+                "high": op,
+                "low": op,
+                "close": op,
+            }
+        ]
+    return out
+
+
+def _panel_plus_session_open(panel: Any, day: str, cube: Any) -> Any:
+    """把会话日立方的 raw 接到因子面板末尾。已有这一天则原样返回。
+
+    面板缓存停在最近一根日线。live 的 only_day 对不上，四头预估窗口是空的，
+    成交明细里的模型分就被清掉。这里补上立方行，y 记 0，只为让推理留下这一天。
+    """
+    from core.research.yhat_transformer.factor_panel import FactorPanel
+
+    day_s = str(day or "")[:10]
+    if panel is None or cube is None or len(day_s) < 10:
+        return panel
+    dates = [str(d)[:10] for d in (getattr(panel, "dates", None) or [])]
+    if day_s in dates:
+        return panel
+    feat = [str(n) for n in (getattr(panel, "feature_names", None) or [])]
+    cube_names = [str(n) for n in (getattr(cube, "names", None) or [])]
+    raw = np.asarray(getattr(cube, "X_raw", None))
+    if not feat or raw.ndim != 2 or not cube_names:
+        return panel
+    at = {name: i for i, name in enumerate(cube_names)}
+    code_at = {
+        str(c).strip(): i
+        for i, c in enumerate(getattr(cube, "codes", None) or [])
+        if str(c).strip()
+    }
+    want = list(dict.fromkeys(str(c).strip() for c in (getattr(panel, "codes", None) or []) if str(c).strip()))
+    extra = []
+    extra_codes = []
+    for code in want:
+        i = code_at.get(code)
+        if i is None or i >= raw.shape[0]:
+            continue
+        vec = np.full(len(feat), np.nan, dtype=np.float32)
+        src = raw[i]
+        for j, name in enumerate(feat):
+            k = at.get(name)
+            if k is None or k >= src.shape[0]:
+                continue
+            try:
+                val = float(src[k])
+            except (TypeError, ValueError):
+                continue
+            if val == val:
+                vec[j] = np.float32(val)
+        if not np.isfinite(vec).any():
+            continue
+        extra.append(vec)
+        extra_codes.append(code)
+    if not extra:
+        return panel
+    block = np.stack(extra).astype(np.float32, copy=False)
+    base_x = np.asarray(panel.X, dtype=np.float32)
+    base_y = np.asarray(panel.y, dtype=np.float32)
+    logger.info(
+        "session open row appended day=%s n=%s cols=%s",
+        day_s,
+        len(extra_codes),
+        int(block.shape[1]),
+    )
+    return FactorPanel(
+        X=np.concatenate([base_x, block], axis=0),
+        y=np.concatenate(
+            [base_y, np.zeros(len(extra_codes), dtype=np.float32)],
+            axis=0,
+        ),
+        dates=list(dates) + [day_s] * len(extra_codes),
+        codes=list(getattr(panel, "codes", None) or []) + extra_codes,
+        feature_names=list(feat),
+    )
+
+
 def score_enabled_replay_heads(
     stock_bars: Mapping[str, Sequence[dict]],
     *,
@@ -2067,6 +2144,11 @@ def score_enabled_replay_heads(
 
     factor_seq = is_factor_seq(feat_set)
     seq = None
+    day_only = str(only_day or "")[:10]
+    session_cube = _open_cube_for_day(day_only) if len(day_only) >= 10 else None
+    seq_bars: Mapping[str, Sequence[dict]] = stock_bars
+    if session_cube is not None:
+        seq_bars = _bars_plus_session_open(stock_bars, day_only, session_cube)
     full_by_family: Dict[str, Any] = {}
     if any(str(s.get("backend") or "") == "transformer" for s in specs) and not factor_seq:
         raise ValueError("价量序列已下线，只用 seq_core / seq_full")
@@ -2078,7 +2160,7 @@ def score_enabled_replay_heads(
             meta = spec.get("meta") if isinstance(spec.get("meta"), dict) else {}
             pack = str(meta.get("factor_pack") or "")
             transformer = str(spec.get("backend") or "") == "transformer"
-            with_age = transformer and _saved_transformer_arch(meta) >= 2
+            with_age = transformer
             through_decision = bool(meta.get("seq_through_decision"))
             z_bit = ""
             if transformer and factor_seq and meta.get("seq_cs_z"):
@@ -2093,7 +2175,10 @@ def score_enabled_replay_heads(
                 if transformer and factor_seq:
                     family = _head_family(head)
                     if family not in full_by_family:
-                        full_by_family[family] = _full_factor_panel(stock_bars, head)
+                        built = _full_factor_panel(stock_bars, head)
+                        full_by_family[family] = _panel_plus_session_open(
+                            built, day_only, session_cube
+                        )
                     full = full_by_family[family]
                     panel = full
                     if str(pack).endswith("_core"):
@@ -2108,7 +2193,7 @@ def score_enabled_replay_heads(
                             atc_core_only=family == "tc",
                         )
                     seq_h = _factor_seq_panel(
-                        stock_bars,
+                        seq_bars,
                         head,
                         feat_set,
                         seq_len,
@@ -2124,7 +2209,11 @@ def score_enabled_replay_heads(
                     _stamp_seq_cs_z(seq_a, meta)
                     panels[key] = (fac_a, seq_a)
                 else:
-                    panel = _factor_panel(stock_bars, head, pack)
+                    panel = _panel_plus_session_open(
+                        _factor_panel(stock_bars, head, pack),
+                        day_only,
+                        session_cube,
+                    )
                     if seq is not None and transformer:
                         from core.research.yhat_transformer.factor_panel import (
                             align_seq_and_factor,
@@ -2139,7 +2228,6 @@ def score_enabled_replay_heads(
             dates = [str(d)[:10] for d in fac_a.dates]
             if not dates:
                 continue
-            day_only = str(only_day or "")[:10]
             if len(day_only) >= 10:
                 window_start = window_end = day_only
             else:

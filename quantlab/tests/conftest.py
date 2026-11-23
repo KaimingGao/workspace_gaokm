@@ -147,3 +147,182 @@ def _dated_bars_and_minutes(n: int, *, seed: int = 3):
                 }
             )
     return bars, minutes
+
+
+# ---------------------------------------------------------------------------
+# Horizon / T0 共享夹具
+# ---------------------------------------------------------------------------
+
+
+def _session_times_5m():
+    out = []
+    for total in range(9 * 60 + 30, 11 * 60 + 30 + 1, 5):
+        out.append(f"{total // 60:02d}:{total % 60:02d}")
+    for total in range(13 * 60, 15 * 60 + 1, 5):
+        out.append(f"{total // 60:02d}:{total % 60:02d}")
+    return out
+
+
+def _minute_bar_with_datetime(
+    dkey: str,
+    hm: str,
+    close: float,
+    open_px: float | None = None,
+    volume: float = 1000,
+):
+    o = open_px if open_px is not None else close
+    return {
+        "date": dkey,
+        "time": hm,
+        "datetime": f"{dkey} {hm}:00",
+        "open": round(o, 4),
+        "high": round(max(o, close), 4),
+        "low": round(min(o, close), 4),
+        "close": round(close, 4),
+        "volume": volume,
+    }
+
+
+def _minute_bar(dkey: str, hm: str, close: float, open_px: float | None = None):
+    o = open_px if open_px is not None else close
+    return {
+        "date": dkey,
+        "time": hm,
+        "open": round(o, 4),
+        "high": round(max(o, close), 4),
+        "low": round(min(o, close), 4),
+        "close": round(close, 4),
+        "volume": 1000,
+    }
+
+
+def _horizon_tree_stock(code: str, start: float, n_days: int = 40):
+    d0 = date(2025, 6, 2)
+    daily = []
+    minutes = []
+    px = start
+    times = _session_times_5m()
+    i = 0
+    day = d0
+    while len(daily) < n_days:
+        if day.weekday() < 5:
+            dkey = day.isoformat()
+            bars_m = []
+            for j, hm in enumerate(times):
+                c = px + (0.04 if j % 2 else 0.0) + j * 0.002 + (i % 3) * 0.01
+                bars_m.append(_minute_bar(dkey, hm, c, open_px=px))
+            minutes.extend(bars_m)
+            close = bars_m[-1]["close"]
+            daily.append(
+                {
+                    "date": dkey,
+                    "open": px,
+                    "high": max(px, close) * 1.01,
+                    "low": min(px, close) * 0.99,
+                    "close": close,
+                    "volume": 1e6,
+                    "prev_close": px * 0.995,
+                }
+            )
+            px = close
+            i += 1
+        day = day + timedelta(days=1)
+    return {"code": code, "bars": daily, "minute_bars": minutes}
+
+
+def _has_lightgbm() -> bool:
+    try:
+        import lightgbm  # noqa: F401
+
+        return True
+    except ImportError:
+        return False
+
+
+def _pack_cross_section_day(date_s, codes, xs, ys):
+    names = list(xs[0].keys()) if xs else []
+    X = np.array(
+        [
+            [float(row[n]) if row.get(n) is not None else np.nan for n in names]
+            for row in xs
+        ],
+        dtype=np.float64,
+    )
+    return {"date": date_s, "codes": codes, "ys": ys, "X": X, "names": names}
+
+
+def _t0_window_heads(up=True):
+    p = 0.8 if up else 0.2
+    return {
+        "y_τ30": p,
+        "y_t30": p,
+        "y_τ45": p,
+        "y_t45": p,
+        "y_τ60": p,
+        "y_t60": p,
+        "y_τ75": p,
+        "y_t75": p,
+        "y_τ90": p,
+        "y_t90": p,
+    }
+
+
+def _panel_bars(n: int = 80, start: float = 10.0, seed: int = 0):
+    px = start
+    out = []
+    for i in range(n):
+        o = px * (1.0 + (0.01 if (i + seed) % 5 == 0 else 0.0))
+        c = o * (1.0 + ((i % 7) - 3) * 0.002)
+        out.append(
+            {
+                "date": f"2024-{(i // 28) + 1:02d}-{(i % 28) + 1:02d}",
+                "open": round(o, 4),
+                "high": round(max(o, c) * 1.01, 4),
+                "low": round(min(o, c) * 0.99, 4),
+                "close": round(c, 4),
+                "volume": 1_000_000 + i * 1000,
+            }
+        )
+        px = c
+    return out
+
+
+def _yhat_factory_job(run_id: str, pid: int = 7, **extra):
+    job = {
+        "run_id": run_id,
+        "pid": pid,
+        "head": "oo",
+        "params": {
+            "pool_n": 800,
+            "lookback": 900,
+            "holdout_trading_days": 60,
+            "t_sample_pct": 10,
+            "full_aoo": False,
+            "loss": "mse",
+        },
+        "started_at": "2026-11-16T01:02:03",
+        "finished_at": "2026-11-16T01:08:00",
+        "cli": "python holdout.py --head oo",
+    }
+    job.update(extra)
+    return job
+
+
+def _yhat_factory_last(**extra):
+    last = {
+        "action": "holdout_result",
+        "head": "oo",
+        "metrics": {
+            "cs_rank_ic": 0.042,
+            "mse": 6.5,
+            "arm": "T",
+            "arms": {"T": {"success": True, "cs_rank_ic": 0.042}},
+            "splits": {"T": {"n_train": 10, "n_test": 4, "eval_start": "2026-01-02"}},
+        },
+        "parity": {"formal": False, "eval_shared": True},
+        "eval_universe": {"eval_shared": True, "eval_start": "2026-01-02", "n_shared": 4},
+        "message": "Holdout 完成",
+        "updated_at": "2026-11-16T01:08:00",
+    }
+    last.update(extra)
+    return last

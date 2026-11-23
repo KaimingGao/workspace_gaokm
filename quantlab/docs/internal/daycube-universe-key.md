@@ -62,6 +62,8 @@ universe_hash(codes) = sha1( ",".join(sorted(unique(codes))) ) 的前 12 位十�
 
 实现：`core/research/feature_registry.py` 的 `universe_hash`。排序去重，与名单顺序无关。多一只或少一只，前 12 位就换成另一条路径。读取不做「差不多就行」的子集匹配。`load_day_cube` 用调用方传入的名单重算哈希，再对 meta 里的 `universe_hash`；不一致就返回空。
 
+这份名单的原文字符串写在哈希目录的 `universe.json`（`plaintext` 字段）。某一天立方里的代码可以少于此名单，说明文件仍是完整名单，不按日重写。
+
 做 T 读取：
 
 ```text

@@ -68,7 +68,6 @@ class TestP28QuantPackage(unittest.TestCase):
         self.assertIs(QuantEngine, CanonicalEngine)
     def test_skill_registry(self):
         from agent.registry import SKILL_SPECS
-        from quant.skill.engine import AVAILABLE_TASKS
 
         self.assertIn("portfolio_bridge", AVAILABLE_TASKS)
         quant_spec = next(spec for name, spec in SKILL_SPECS if name == "quant")
@@ -78,8 +77,6 @@ class TestP28QuantPackage(unittest.TestCase):
 
 class TestP32QuantPackageInfo(unittest.TestCase):
     def test_build_quant_package_info(self):
-        from quant.ops.package_info import build_quant_package_info
-
         out = build_quant_package_info()
         self.assertTrue(out["success"])
         self.assertEqual(out["package"], "quant")
@@ -197,8 +194,6 @@ class TestP40GithubCiImportAudit(unittest.TestCase):
         repro_idx = text.index("repro evals")
         self.assertLess(audit_idx, repro_idx)
     def test_eval_summary_lists_github_ci(self):
-        from services.eval_service import EvalService
-
         cmds = EvalService().summary()["ci_commands"]
         self.assertIn("github", cmds)
         self.assertIn("import audit", cmds["github"])

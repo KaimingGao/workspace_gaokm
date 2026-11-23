@@ -10,14 +10,8 @@ from unittest.mock import patch
 
 import numpy as np
 
-
-def _has_lightgbm() -> bool:
-    try:
-        import lightgbm  # noqa: F401
-
-        return True
-    except ImportError:
-        return False
+from tests.conftest import _has_lightgbm
+from tests.conftest import _pack_cross_section_day as _pack_day
 
 
 def _l2_as_batch_cs(x, names, groups, **_kw):
@@ -50,17 +44,6 @@ def _patch_rank_l2_as_batch():
 
     return _ctx()
 
-
-def _pack_day(date_s, codes, xs, ys):
-    names = list(xs[0].keys()) if xs else []
-    X = np.array(
-        [
-            [float(row[n]) if row.get(n) is not None else np.nan for n in names]
-            for row in xs
-        ],
-        dtype=np.float64,
-    )
-    return {"date": date_s, "codes": codes, "ys": ys, "X": X, "names": names}
 
 def _synth_days(n_days: int = 40, n_names: int = 24, seed: int = 0):
     """特征与 y 正相关的合成截面日。"""
@@ -329,8 +312,6 @@ def _synth_varying_pool_days(seed: int = 0):
     旧版默认 label_gain=[0,1,3,...,2^30-1] 仅 31 项，label>=31 即抛
     "Label X is not less than the number of label mappings (31)"。
     """
-    from datetime import date, timedelta
-
     pool_sizes = [31, 41, 55, 33, 28, 47, 39, 50, 22, 44,
                   36, 52, 30, 25, 49, 38, 42, 29, 35, 46]
     days = []
@@ -428,7 +409,6 @@ class TestRankLabels(unittest.TestCase):
             _apply_z_clip,
             _resolve_z_clip,
         )
-        import numpy as np
 
         self.assertEqual(LAMBDARANK_TRUNCATION_LEVEL, 100)
         self.assertEqual(LAMBDARANK_Z_CLIP, 3.0)
@@ -1577,8 +1557,6 @@ class TestRankCrossSectionZ(unittest.TestCase):
 class TestOoRankLookback(unittest.TestCase):
     def test_fit_lookback_drops_feature_pad(self):
         """垫根可以进面板；标签隔离 1 日后，LambdaRank 只看见训练窗。"""
-        from datetime import date, timedelta
-
         from core.research.oo_rank_lambdarank import fit_oo_rank_report
 
         start = date(2024, 1, 1)

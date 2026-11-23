@@ -111,14 +111,22 @@ def _prev_session_equity(paper: dict, today_str: str) -> Optional[float]:
     """上一会话收盘净值。
 
     先读 ``session_nav``（按日钉住，不随盘中 120 点裁掉），再扫快照。
-    同一日以后出现的点为准。
+    同一日以后出现的点为准。回零日之前的点不算昨收。
     """
+    anchor_day = ""
+    anchor = paper.get("pnl_anchor") if isinstance(paper, dict) else None
+    if isinstance(anchor, dict):
+        raw_day = str(anchor.get("date") or "")[:10]
+        if len(raw_day) == 10:
+            anchor_day = raw_day
     best_day = ""
     best_eq: Optional[float] = None
 
     def _take(day: str, equity: Any) -> None:
         nonlocal best_day, best_eq
         if len(day) != 10 or day >= today_str:
+            return
+        if anchor_day and day < anchor_day:
             return
         try:
             eq = float(equity)
@@ -535,7 +543,8 @@ def mark_to_market(paper: dict) -> Dict[str, Any]:
 
     # 今日收益 = 当前账户净值 − 上一会话收盘净值。
     # 收盘净值在 session_nav；快照被裁掉时，用当日成交倒回昨持仓再按昨收复原。
-    # 当日回零后改相对回零价。两者都没有时，才按持仓涨跌幅估算。
+    # 当日回零后改相对回零时的账户净值（空仓没有价格锚，也要归零）。
+    # 两者都没有时，才按持仓涨跌幅估算。
     today_pnl: Optional[float] = None
     today_pnl_pct: Optional[float] = None
     today_pnl_basis = "prev_close"
@@ -543,13 +552,16 @@ def mark_to_market(paper: dict) -> Dict[str, Any]:
     today_str = now.strftime("%Y-%m-%d")
     session_key = _pnl_session_key(now)
     anchor_date = str((anchor or {}).get("date") or "")[:10]
-    anchor_prices = (anchor or {}).get("prices") if isinstance(anchor, dict) else None
-    use_reset_anchor = (
-        bool(anchor)
-        and anchor_date == today_str
-        and isinstance(anchor_prices, dict)
-        and bool(anchor_prices)
-    )
+    anchor_equity_any: Optional[float] = None
+    if anchor and len(anchor_date) == 10:
+        try:
+            anchor_equity_any = float(anchor.get("equity"))
+        except (TypeError, ValueError):
+            anchor_equity_any = None
+        if anchor_equity_any is None or anchor_equity_any <= 1e-6:
+            anchor_equity_any = None
+    anchor_equity = anchor_equity_any if anchor_date == today_str else None
+    use_reset_anchor = anchor_equity is not None
     prev_nav = _prev_session_equity(paper, session_key)
     # 日历已跨过会话日（周末 / 下一开盘前）：今日尚未开盘，盯市停在昨收 → 0
     session_idle = (
@@ -560,48 +572,34 @@ def mark_to_market(paper: dict) -> Dict[str, Any]:
     )
     if prev_nav is None and not session_idle and not use_reset_anchor:
         prev_nav = _infer_prev_session_equity(paper, session_key)
+    # 回零日没钉进 session_nav、也倒不出昨收时，用回零价，不用更早的旧账本。
+    if (
+        prev_nav is None
+        and not use_reset_anchor
+        and anchor_equity_any is not None
+        and anchor_date < session_key
+    ):
+        prev_nav = anchor_equity_any
 
     if session_idle:
         today_pnl = 0.0
         today_pnl_pct = 0.0
         today_pnl_basis = "prev_close"
+    elif use_reset_anchor:
+        today_pnl = round(float(equity) - float(anchor_equity), 2)
+        today_pnl_pct = (
+            round(today_pnl / float(anchor_equity) * 100.0, 2)
+            if float(anchor_equity) > 1e-6
+            else 0.0
+        )
+        today_pnl_basis = "reset"
     elif not rows:
         today_pnl = 0.0
         today_pnl_pct = 0.0
-        if use_reset_anchor:
-            today_pnl_basis = "reset"
-        elif prev_nav is not None:
+        if prev_nav is not None:
             today_pnl = round(float(equity) - prev_nav, 2)
             today_pnl_pct = round(today_pnl / prev_nav * 100.0, 2) if prev_nav > 1e-6 else 0.0
             today_pnl_basis = "prev_nav"
-    elif use_reset_anchor:
-        day_sum = 0.0
-        n_anchored = 0
-        for row in rows:
-            code = str(row.get("stock_code") or "").strip()
-            px = row.get("price")
-            sh = row.get("shares")
-            if not code or px is None or sh is None:
-                continue
-            ap = anchor_prices.get(code)
-            if ap is None:
-                continue
-            try:
-                day_sum += (float(px) - float(ap)) * float(sh)
-                n_anchored += 1
-            except (TypeError, ValueError):
-                continue
-        if n_anchored > 0:
-            today_pnl = round(day_sum, 2)
-            today_pnl_basis = "reset"
-            try:
-                base = float((anchor or {}).get("equity") or 0)
-            except (TypeError, ValueError):
-                base = 0.0
-            if base <= 1e-6:
-                base = float(equity) - today_pnl
-            if base > 1e-6:
-                today_pnl_pct = round(today_pnl / base * 100.0, 2)
     elif prev_nav is not None:
         today_pnl = round(float(equity) - prev_nav, 2)
         today_pnl_pct = round(today_pnl / prev_nav * 100.0, 2)
