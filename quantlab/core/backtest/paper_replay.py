@@ -407,6 +407,7 @@ def backtest_paper_replay(
                         "codes_fp": info.get("codes_fp"),
                         "bars_fp": info.get("bars_fp"),
                         "model_fp": info.get("model_fp"),
+                        "suite_fp": info.get("suite_fp"),
                     }
                     write_run_meta(
                         score_cache_key,
@@ -417,6 +418,9 @@ def backtest_paper_replay(
                             "horizon_days": max(1, int(yhat_horizon_days or 1)),
                             "n_codes": len(stock_bars),
                             "codes_fp": info.get("codes_fp"),
+                            "model_fp": info.get("model_fp"),
+                            "suite_fp": info.get("suite_fp"),
+                            "arm_t_runs": (arm_table or {}).get("runs") or {},
                             "lookback": int(lookback) if lookback is not None else None,
                         },
                     )
@@ -661,7 +665,10 @@ def backtest_paper_replay(
 
                     day_inputs_fp = day_inputs_index.fingerprint(i)
                     scored = load_day(
-                        score_cache_key, day, inputs_fp=day_inputs_fp
+                        score_cache_key,
+                        day,
+                        inputs_fp=day_inputs_fp,
+                        suite_fp=str(score_cache_stats.get("suite_fp") or ""),
                     )
                     if scored is not None:
                         score_cache_stats["hits"] = (
@@ -721,6 +728,7 @@ def backtest_paper_replay(
                         day,
                         scored,
                         inputs_fp=day_inputs_fp,
+                        suite_fp=str(score_cache_stats.get("suite_fp") or ""),
                     ):
                         score_cache_stats["writes"] = (
                             int(score_cache_stats.get("writes") or 0) + 1

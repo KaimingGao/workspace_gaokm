@@ -9,6 +9,10 @@
 昨收窗全量 bar 屑 + 今开），加载时校验。schema 8：开盘行含
 ŷ / oo_rank / τc_rank；小名单可带四份因子组成，全池组成在 plan 后懒补。
 v7 只写了 τc_rank，v6 只有名次；命中后其余悬停仍空，故整库不读。
+模型指纹含：旧槽位 JSON **以及** 工厂已启用执行/研究套（``arms.json`` +
+各头 ``{run_id}.weights/**`` 内容）；换启用版本必须换 ``run_key``。
+日包另存 ``suite_fp``（工厂套短指纹）；加载时与当前套不一致则 miss
+（旧包无该字段也 miss），与 ``run_key`` 双闸。
 模型文件按内容 hash（``mtime+size`` memo）；窗内任意一根变更都会 miss。
 开盘缓存含 oo_rank **与** τc_rank（09:30 命中整包复用；可交易集全缺
 τc_rank 才补挂）。``fill_clock≠09:30`` 走 ``refresh_tau_heads_after_prefix``
@@ -296,12 +300,141 @@ def day_open_inputs_fingerprint(
     return idx.fingerprint(day_i)
 
 
+def _weight_dir_files(root: Optional[str]) -> List[str]:
+    """权重目录内文件（排序），供内容指纹。"""
+    base = str(root or "").strip()
+    if not base or not os.path.isdir(base):
+        return []
+    out: List[str] = []
+    try:
+        for dirpath, _dirnames, filenames in os.walk(base):
+            for name in sorted(filenames):
+                out.append(os.path.join(dirpath, name))
+    except OSError:
+        return []
+    return sorted(out)
+
+
+def _factory_replay_suite_bits(role: str) -> List[str]:
+    """已启用工厂套：arms + 各头启用 run_id 与 weights 内容。
+
+    历史回测 / live 开盘分走 ``score_enabled_replay_heads``，必须进 ``model_fp``；
+    只哈希旧槽位 JSON 会在换执行套后误命中缓存。
+    """
+    bits: List[str] = []
+    try:
+        from core.research.holdout import (
+            MODEL_ROLE_LIVE,
+            scoring_model_role_context,
+        )
+        from core.research.yhat_factory_versions import list_factory_versions
+        from core.research.yhat_factory_weights import version_weights_dir
+        from core.research.yhat_hub_arms import HEADS, arms_path, read_hub_arms
+        from core.research.yhat_tf_desk import factory_scope
+    except Exception:  # noqa: BLE001
+        logger.debug("replay score cache factory imports failed", exc_info=True)
+        return ["factory:unavailable"]
+
+    role_n = str(role or "research").strip().lower()
+    suite = "live" if role_n == MODEL_ROLE_LIVE or role_n == "live" else "research"
+    bits.append(_file_content_fp(arms_path()))
+    try:
+        with scoring_model_role_context(role_n):
+            arms = read_hub_arms()
+            for head in HEADS:
+                fac = str(arms.get(head) or "T")
+                vid = ""
+                wdir = ""
+                try:
+                    with factory_scope(fac):
+                        listed = list_factory_versions(
+                            head, factory=fac, suite=suite
+                        )
+                        vid = str((listed or {}).get("enabled_id") or "").strip()
+                        items = (listed or {}).get("items") or []
+                        hit = next(
+                            (
+                                it
+                                for it in items
+                                if isinstance(it, dict)
+                                and str(it.get("id") or "") == vid
+                            ),
+                            None,
+                        )
+                        if not isinstance(hit, dict) or not hit.get("weights_ref"):
+                            vid = ""
+                        # 必须在 factory_scope 内解析，目录挂在各厂 store 下。
+                        if vid:
+                            wdir = str(version_weights_dir(head, vid) or "")
+                except Exception:  # noqa: BLE001
+                    logger.debug(
+                        "replay score cache factory list failed head=%s",
+                        head,
+                        exc_info=True,
+                    )
+                    vid = ""
+                    wdir = ""
+                bits.append(f"arm:{head}:{fac}:{suite}:{vid or 'none'}")
+                if not vid:
+                    continue
+                files = _weight_dir_files(wdir)
+                if not files:
+                    bits.append(f"weights:{head}:{vid}:missing")
+                    continue
+                for path in files:
+                    bits.append(_file_content_fp(path))
+    except Exception:  # noqa: BLE001
+        logger.warning(
+            "replay score cache factory suite bits failed", exc_info=True
+        )
+        bits.append("factory:err")
+    return bits
+
+
+def _digest_factory_bits(bits: Sequence[str]) -> str:
+    return hashlib.sha1("|".join(bits).encode("utf-8")).hexdigest()[:20]
+
+
+def _warn_incomplete_factory_bits(
+    score_model_role: str, bits: Sequence[str]
+) -> None:
+    bad = [
+        b
+        for b in bits
+        if b in ("factory:unavailable", "factory:err")
+        or str(b).endswith(":missing")
+    ]
+    if not bad:
+        return
+    logger.warning(
+        "replay score cache factory suite incomplete role=%s bad=%s",
+        score_model_role,
+        bad[:12],
+    )
+
+
+def factory_suite_fingerprint(
+    score_model_role: str,
+    *,
+    bits: Optional[Sequence[str]] = None,
+) -> str:
+    """工厂已启用套短指纹；写入日包 ``suite_fp``，加载时对账。"""
+    role = str(score_model_role or "research")
+    use = list(bits) if bits is not None else _factory_replay_suite_bits(role)
+    _warn_incomplete_factory_bits(role, use)
+    return _digest_factory_bits(use)
+
+
 def model_suite_fingerprint(
     *,
     score_model_role: str,
     score_backend: str,
+    factory_bits: Optional[Sequence[str]] = None,
 ) -> str:
-    """研究/执行套与相关落盘模型文件**内容**指纹。"""
+    """研究/执行套与相关落盘模型文件**内容**指纹。
+
+    含旧槽位 JSON，以及工厂已启用四头权重（换执行套必换键）。
+    """
     role = str(score_model_role or "research").strip().lower()
     backend = str(score_backend or "ridge").strip().lower()
     paths: List[str] = []
@@ -356,6 +489,12 @@ def model_suite_fingerprint(
 
     bits = [f"role={role}", f"backend={backend}"]
     bits.extend(_file_content_fp(p) for p in paths)
+    fac = (
+        list(factory_bits)
+        if factory_bits is not None
+        else _factory_replay_suite_bits(role)
+    )
+    bits.extend(fac)
     return hashlib.sha1("|".join(bits).encode("utf-8")).hexdigest()[:20]
 
 
@@ -459,6 +598,7 @@ def save_day(
     rows: Sequence[dict],
     *,
     inputs_fp: str = "",
+    suite_fp: str = "",
 ) -> bool:
     if not enabled():
         return False
@@ -470,6 +610,7 @@ def save_day(
             "schema": REPLAY_SCORE_CACHE_SCHEMA,
             "day": d,
             "inputs_fp": str(inputs_fp or ""),
+            "suite_fp": str(suite_fp or ""),
             "n": len(rows or []),
             "rows": slim_day_items(rows),
         }
@@ -488,6 +629,7 @@ def load_day(
     day: str,
     *,
     inputs_fp: Optional[str] = None,
+    suite_fp: Optional[str] = None,
 ) -> Optional[List[dict]]:
     if not enabled():
         return None
@@ -505,6 +647,12 @@ def load_day(
         if inputs_fp is not None:
             cached = str(doc.get("inputs_fp") or "")
             if not cached or cached != str(inputs_fp):
+                return None
+        if suite_fp is not None:
+            # 显式传入则对账：旧包无 suite_fp、或与当前工厂套不一致 → miss
+            expect = str(suite_fp or "").strip()
+            got = str(doc.get("suite_fp") or "").strip()
+            if not expect or not got or got != expect:
                 return None
         rows = doc.get("rows")
         if not isinstance(rows, list):
@@ -637,9 +785,12 @@ def build_run_key_for_bars(
 ) -> Dict[str, str]:
     codes_fp = codes_universe_fingerprint(stock_bars)
     bars_fp = bars_universe_fingerprint(stock_bars)
+    fac_bits = _factory_replay_suite_bits(str(score_model_role or "research"))
+    suite_fp = factory_suite_fingerprint(score_model_role, bits=fac_bits)
     model_fp = model_suite_fingerprint(
         score_model_role=score_model_role,
         score_backend=score_backend,
+        factory_bits=fac_bits,
     )
     run_key = make_run_key(
         codes_fp=codes_fp,
@@ -654,4 +805,5 @@ def build_run_key_for_bars(
         "codes_fp": codes_fp,
         "bars_fp": bars_fp,
         "model_fp": model_fp,
+        "suite_fp": suite_fp,
     }

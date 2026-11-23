@@ -1119,7 +1119,7 @@ class TestRebalanceDesk(unittest.TestCase):
                 "stock_code": "688498",
                 "stock_name": "源杰科技",
                 "action": "skip",
-                "reason": "形态闸·高波弱开(vol_p=0.97≥0.9, a1=-2.29% < 0.00%)",
+                "reason": "形态闸·高波弱开(vol_p=0.97≥0.95, a1=-2.29% < 0.00%)",
             }
         )
         report.append(

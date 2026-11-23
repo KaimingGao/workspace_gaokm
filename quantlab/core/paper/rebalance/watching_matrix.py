@@ -2293,6 +2293,7 @@ def simulate_watching_matrix_preview(
     from core.market.calendar import resolve_session_date
     from core.paper.rebalance.live_plan import live_buy_order_table
 
+    session_day = resolve_session_date()
     plan = plan_rank_lot_day(
         scored=list(item_by_code.values()),
         holdings=list(paper.get("holdings") or []),
@@ -2300,9 +2301,11 @@ def simulate_watching_matrix_preview(
         prices=prices,
         opens=opens,
         cfg=rl_cfg,
+        # 与回测同一决策日：形态闸 as_of 切片昨收，避免 live 只传 sentiment 时漏日。
+        as_of=session_day,
         max_turnover_pct=max_turnover_pct,
         min_cash_pct=resolve_min_cash_pct(rules),
-        sentiment_as_of=resolve_session_date(),
+        sentiment_as_of=session_day,
         # 手动执行复现开盘信息集。自动路径不传，仍跟 live_fill_clock。
         sentiment_clock="09:30" if open_replay else None,
         rank_blend=replay_rank_blend(live_buy_order_table()),

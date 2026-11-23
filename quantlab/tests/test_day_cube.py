@@ -107,6 +107,153 @@ class TestDayCube(unittest.TestCase):
         )
         self.assertEqual(list(covered.names), tc)
 
+    def test_stacked_panel_missing_row_stays_on_requested_universe(self) -> None:
+        from core.research.day_cube import (
+            build_day_cube,
+            cubes_from_stacked_panel,
+            load_day_cube,
+            save_day_cube,
+        )
+        from core.research.feature_registry import universe_hash
+
+        full = ["a", "b", "c"]
+        slim = {
+            "a": {"gap_pct": 1.0},
+            "b": {"gap_pct": 2.0},
+            "c": {"gap_pct": 3.0},
+        }
+        existing = build_day_cube(
+            "2024-07-01", slim, names=["gap_pct"], clock="open", universe_codes=full
+        )
+        self.assertTrue(save_day_cube(existing))
+        x = np.array([[1.0, 2.0], [3.0, 4.0]], dtype=np.float64)
+        names = ["z_oo_x", "raw_aoo_y"]
+        kept = cubes_from_stacked_panel(
+            ["2024-07-01", "2024-07-01"],
+            ["a", "b"],
+            x,
+            names,
+            clock="open",
+            persist=True,
+            universe_codes=full,
+        )
+        self.assertNotIn("2024-07-01", kept)
+        after = load_day_cube("2024-07-01", full, clock="open", remember=False)
+        self.assertIsNotNone(after)
+        self.assertEqual(list(after.names), ["gap_pct"])
+        self.assertIsNone(
+            load_day_cube("2024-07-01", ["a", "b"], clock="open", remember=False)
+        )
+
+        fresh = cubes_from_stacked_panel(
+            ["2024-07-04", "2024-07-04"],
+            ["a", "b"],
+            x,
+            names,
+            clock="open",
+            persist=True,
+            universe_codes=full,
+        )
+        self.assertIn("2024-07-04", fresh)
+        self.assertEqual(fresh["2024-07-04"].universe_hash, universe_hash(full))
+        self.assertEqual(fresh["2024-07-04"].codes, ["a", "b"])
+        hit = load_day_cube("2024-07-04", full, clock="open", remember=False)
+        self.assertIsNotNone(hit)
+        self.assertEqual(hit.universe_hash, universe_hash(full))
+        self.assertIsNone(
+            load_day_cube("2024-07-04", ["a", "b"], clock="open", remember=False)
+        )
+
+    def test_thin_panel_skips_when_active_universe_has_day(self) -> None:
+        """缺行子集即使当宇宙传入，正式截面已有该日也不另开目录。"""
+        from unittest import mock
+
+        from core.research.day_cube import (
+            build_day_cube,
+            cubes_from_stacked_panel,
+            load_day_cube,
+            save_day_cube,
+        )
+        from core.research.feature_registry import universe_hash
+
+        full = ["a", "b", "c"]
+        slim = {
+            "a": {"gap_pct": 1.0},
+            "b": {"gap_pct": 2.0},
+            "c": {"gap_pct": 3.0},
+        }
+        existing = build_day_cube(
+            "2024-08-01", slim, names=["gap_pct"], clock="open", universe_codes=full
+        )
+        self.assertTrue(save_day_cube(existing))
+        x = np.array([[1.0, 2.0], [3.0, 4.0]], dtype=np.float64)
+        with mock.patch(
+            "core.research.day_cube._active_cube_universes",
+            return_value=[full],
+        ):
+            kept = cubes_from_stacked_panel(
+                ["2024-08-01", "2024-08-01"],
+                ["a", "b"],
+                x,
+                ["z_oo_x", "raw_aoo_y"],
+                clock="open",
+                persist=True,
+                universe_codes=["a", "b"],
+            )
+        self.assertNotIn("2024-08-01", kept)
+        self.assertIsNotNone(
+            load_day_cube("2024-08-01", full, clock="open", remember=False)
+        )
+        self.assertIsNone(
+            load_day_cube("2024-08-01", ["a", "b"], clock="open", remember=False)
+        )
+        self.assertEqual(universe_hash(full), existing.universe_hash)
+
+    def test_thin_panel_promotes_row_subset_to_active_universe(self) -> None:
+        from unittest import mock
+
+        from core.research.day_cube import cubes_from_stacked_panel, load_day_cube
+        from core.research.feature_registry import universe_hash
+
+        full = ["a", "b", "c"]
+        x = np.array([[1.0, 2.0], [3.0, 4.0]], dtype=np.float64)
+        with mock.patch(
+            "core.research.day_cube._active_cube_universes",
+            return_value=[full],
+        ):
+            # 未传宇宙，且行只是截面子集 → 写到正式键下。
+            out = cubes_from_stacked_panel(
+                ["2024-08-02", "2024-08-02"],
+                ["a", "b"],
+                x,
+                ["z_oo_x", "raw_aoo_y"],
+                clock="open",
+                persist=True,
+            )
+            # 传入「有行集合」冒充宇宙 → 同样升到正式键。
+            out2 = cubes_from_stacked_panel(
+                ["2024-08-03", "2024-08-03"],
+                ["a", "b"],
+                x,
+                ["z_oo_x", "raw_aoo_y"],
+                clock="open",
+                persist=True,
+                universe_codes=["a", "b"],
+            )
+        self.assertIn("2024-08-02", out)
+        self.assertEqual(out["2024-08-02"].universe_hash, universe_hash(full))
+        self.assertIn("2024-08-03", out2)
+        self.assertEqual(out2["2024-08-03"].universe_hash, universe_hash(full))
+        self.assertIsNotNone(
+            load_day_cube("2024-08-02", full, clock="open", remember=False)
+        )
+        self.assertIsNotNone(
+            load_day_cube("2024-08-03", full, clock="open", remember=False)
+        )
+        self.assertIsNone(
+            load_day_cube("2024-08-02", ["a", "b"], clock="open", remember=False)
+        )
+
     def test_column_miss_error_names_days_inside_the_span(self) -> None:
         from unittest import mock
 

@@ -294,6 +294,53 @@ class TestReplayScoreCache(unittest.TestCase):
         # 未传 inputs_fp：兼容读取（不校验）
         self.assertIsNotNone(load_day("rkday", "2024-02-01"))
 
+    def test_day_suite_fp_gate(self) -> None:
+        """日包 suite_fp 与当前工厂套不一致（或旧包缺字段）必须 miss。"""
+        from core.backtest.replay_score_cache import load_day, save_day
+
+        rows = [{"stock_code": "600000", "y_oo": 0.01}]
+        self.assertTrue(
+            save_day(
+                "rksuite",
+                "2024-02-02",
+                rows,
+                inputs_fp="fp_a",
+                suite_fp="suite_v1",
+            )
+        )
+        self.assertIsNotNone(
+            load_day(
+                "rksuite",
+                "2024-02-02",
+                inputs_fp="fp_a",
+                suite_fp="suite_v1",
+            )
+        )
+        self.assertIsNone(
+            load_day(
+                "rksuite",
+                "2024-02-02",
+                inputs_fp="fp_a",
+                suite_fp="suite_v2",
+            )
+        )
+        # 旧包无 suite_fp：显式对账时 miss
+        self.assertTrue(
+            save_day("rksuite_old", "2024-02-03", rows, inputs_fp="fp_a")
+        )
+        self.assertIsNone(
+            load_day(
+                "rksuite_old",
+                "2024-02-03",
+                inputs_fp="fp_a",
+                suite_fp="suite_v1",
+            )
+        )
+        # 未传 suite_fp：不校验（兼容）
+        self.assertIsNotNone(
+            load_day("rksuite", "2024-02-02", inputs_fp="fp_a")
+        )
+
     def test_disabled_skips_io(self) -> None:
         from core.backtest.replay_score_cache import load_day, save_day
 
@@ -452,6 +499,92 @@ class TestReplayScoreCache(unittest.TestCase):
         clear_content_fp_memo()
         c = _file_content_fp(path)
         self.assertNotEqual(a, c)
+
+    def test_model_suite_fingerprint_tracks_factory_weights(self) -> None:
+        """换工厂启用权重必须换 model_fp（不能只盯旧槽位 JSON）。"""
+        from contextlib import contextmanager
+
+        from core.backtest.replay_score_cache import (
+            clear_content_fp_memo,
+            model_suite_fingerprint,
+        )
+
+        root = os.path.join(self._tmpdir.name, "factory")
+        arms = os.path.join(root, "arms.json")
+        os.makedirs(root, exist_ok=True)
+        with open(arms, "w", encoding="utf-8") as fh:
+            fh.write('{"arms":{"oo":"R","tc":"R","oo_rank":"L","tc_rank":"R"}}\n')
+
+        def _wdir(vid: str) -> str:
+            path = os.path.join(root, f"{vid}.weights")
+            os.makedirs(path, exist_ok=True)
+            return path
+
+        w1 = _wdir("oo-v1")
+        with open(os.path.join(w1, "meta.json"), "w", encoding="utf-8") as fh:
+            fh.write('{"backend":"ridge","w":[1]}\n')
+        with open(os.path.join(w1, "ridge.json"), "w", encoding="utf-8") as fh:
+            fh.write('{"coef":[0.1]}\n')
+
+        state = {"vid": "oo-v1", "wdir": w1}
+
+        @contextmanager
+        def _scope(_fac: str):
+            yield _fac
+
+        def _list(_head: str, factory: str = "", suite: str = ""):
+            vid = state["vid"]
+            return {
+                "enabled_id": vid,
+                "items": [{"id": vid, "weights_ref": f"{vid}.weights"}],
+            }
+
+        def _weights_dir(_head: str, version_id: str) -> str:
+            return state["wdir"]
+
+        with patch(
+            "core.research.yhat_hub_arms.arms_path", return_value=arms
+        ), patch(
+            "core.research.yhat_hub_arms.read_hub_arms",
+            return_value={
+                "oo": "R",
+                "tc": "R",
+                "oo_rank": "L",
+                "tc_rank": "R",
+            },
+        ), patch(
+            "core.research.yhat_tf_desk.factory_scope", side_effect=_scope
+        ), patch(
+            "core.research.yhat_factory_versions.list_factory_versions",
+            side_effect=_list,
+        ), patch(
+            "core.research.yhat_factory_weights.version_weights_dir",
+            side_effect=_weights_dir,
+        ):
+            clear_content_fp_memo()
+            fp1 = model_suite_fingerprint(
+                score_model_role="live", score_backend="ridge"
+            )
+            with open(os.path.join(w1, "ridge.json"), "w", encoding="utf-8") as fh:
+                fh.write('{"coef":[9.9]}\n')
+            clear_content_fp_memo()
+            fp2 = model_suite_fingerprint(
+                score_model_role="live", score_backend="ridge"
+            )
+            self.assertNotEqual(fp1, fp2)
+
+            w2 = _wdir("oo-v2")
+            with open(os.path.join(w2, "meta.json"), "w", encoding="utf-8") as fh:
+                fh.write('{"backend":"ridge","w":[2]}\n')
+            with open(os.path.join(w2, "ridge.json"), "w", encoding="utf-8") as fh:
+                fh.write('{"coef":[0.2]}\n')
+            state["vid"] = "oo-v2"
+            state["wdir"] = w2
+            clear_content_fp_memo()
+            fp3 = model_suite_fingerprint(
+                score_model_role="live", score_backend="ridge"
+            )
+            self.assertNotEqual(fp2, fp3)
 
 if __name__ == "__main__":
     unittest.main()

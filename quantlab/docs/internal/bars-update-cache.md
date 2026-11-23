@@ -152,7 +152,7 @@ Ready 默认要求最近 40 个交易日无缺，且 `fetched_at` 未超过 24 �
 | `data/store/news.db` | 舆情标题仓（SSOT） | 只向前追加；表列标签 / as_of |
 | `data/store/news_snap/` | 东财短 TTL 快照 | 与标题仓分目录，避免互相覆盖 |
 | 现价内存 | 腾讯 quote | 60 秒；过期上限 30 分钟 |
-| 调仓打分 | `replay_score_cache` | 按开盘日输入指纹；只缓存 09:30 的打分，其它成交时刻命中后仍重算 |
+| 调仓打分 | `replay_score_cache` | `run_key`=`codes`+`model_fp`（含工厂已启用权重）+窗长；按日校 `inputs_fp`+`suite_fp`；只缓存 09:30 的打分，其它成交时刻命中后仍重算 |
 
 日线主键是 `(code, date, adjust_policy, market)`。写入是按日覆盖，不整段删除；这次没带到的日期留在库里，超过 1200 根再从最早的日期裁掉。
 

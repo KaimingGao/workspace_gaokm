@@ -768,6 +768,100 @@ def _open_panel_drops_tc(clock: str, names: Sequence[str]) -> bool:
     )
 
 
+def _active_cube_universes() -> List[List[str]]:
+    """当前仍会读的截面名单：FEATURE_SET / 观察池 / 拟合池。"""
+    out: List[List[str]] = []
+    seen: set = set()
+
+    def _take(raw: Sequence[str]) -> None:
+        listed = _universe_code_list(raw)
+        if len(listed) < 2:
+            return
+        key = universe_hash(listed)
+        if key in seen:
+            return
+        seen.add(key)
+        out.append(listed)
+
+    try:
+        from core.research.materialize.coverage import read_cube_codes
+
+        _take(read_cube_codes())
+    except Exception:  # noqa: BLE001
+        logger.debug("active cube universe read_cube_codes failed", exc_info=True)
+    try:
+        from core.universe.feature_sets import materialize_universes
+
+        for _name, lst in materialize_universes(fetch=False):
+            _take(lst)
+    except Exception:  # noqa: BLE001
+        logger.debug("active cube universe feature sets failed", exc_info=True)
+    return out
+
+
+def _resolve_panel_universe(
+    universe_codes: Optional[Sequence[str]],
+    row_codes: Sequence[str],
+) -> List[str]:
+    """目录键：完整请求名单优先；「只等于面板行」的子集升到当前截面。
+
+    未传名单时，若面板行落在 ``read_cube_codes`` / FEATURE_SET 内，用那份截面。
+    这样缺行日不会再按 297 只另开哈希。
+    """
+    listed = _universe_code_list(universe_codes)
+    rows = _universe_code_list(row_codes)
+    row_set = set(rows)
+    actives = _active_cube_universes()
+    primary = actives[0] if actives else []
+    primary_set = set(primary)
+    if listed:
+        listed_set = set(listed)
+        # 调用方若把「有行代码」当成宇宙，升到当前截面。
+        if (
+            primary_set
+            and listed_set == row_set
+            and listed_set < primary_set
+            and listed_set <= primary_set
+        ):
+            return primary
+        return listed
+    if primary_set and row_set and row_set <= primary_set:
+        return primary
+    for active in actives[1:]:
+        if row_set and row_set <= set(active):
+            return active
+    return rows
+
+
+def _thin_open_day_occupied(
+    day: str,
+    *,
+    clock: str,
+    probe: Sequence[str],
+    row_codes: Sequence[str],
+) -> bool:
+    """薄开盘面板：任一相关正式宇宙已有该日 open，就视为占用。"""
+    row_set = set(_universe_code_list(row_codes))
+    candidates: List[Sequence[str]] = []
+    if probe:
+        candidates.append(probe)
+    candidates.extend(_active_cube_universes())
+    seen: set = set()
+    for univ in candidates:
+        listed = _universe_code_list(univ)
+        if len(listed) < 2:
+            continue
+        key = universe_hash(listed)
+        if key in seen:
+            continue
+        seen.add(key)
+        if row_set and not row_set <= set(listed):
+            continue
+        if day_cube_status(day, listed, clock=clock) != "miss":
+            return True
+    return False
+
+
 def cubes_from_stacked_panel(
     dates: Sequence[str],
     codes: Sequence[str],
@@ -776,11 +870,17 @@ def cubes_from_stacked_panel(
     *,
     clock: str = "open",
     persist: bool = True,
+    universe_codes: Optional[Sequence[str]] = None,
 ) -> Dict[str, DayCube]:
     """训练堆叠面板 → 按日 DayCube（codes 与行一一对应）。
 
+    ``universe_codes`` 是目录键。传入时按这份完整名单哈希，也按它判断当天是否已有立方。
+    某一天少几行只少矩阵里的代码，不另开目录。未传时：当日行若落在当前截面内，
+    用当前截面；否则退回当天矩阵里的代码。
+
     oo 面板只有 ``z_oo_*`` / ``raw_aoo_*``。已有 open 立方（哪怕是薄的）不再被它覆盖，
     否则 Arm·T 截面 z 会缺 ``z_τc_*``。当天还没有立方时仍可落盘。
+    薄开盘立方还会检查其它正式宇宙：目标日已在沪深300 / 1600 等键下，就不另开子集目录。
     """
     date_list = [str(d)[:10] for d in dates]
     code_list = [str(c).strip() for c in codes]
@@ -790,22 +890,41 @@ def cubes_from_stacked_panel(
     if x_arr.ndim != 2 or len(date_list) != x_arr.shape[0] or len(code_list) != x_arr.shape[0]:
         return out
     drop_tc = _open_panel_drops_tc(clock, name_list)
+    lookup = _resolve_panel_universe(universe_codes, code_list)
     buckets: Dict[str, List[int]] = {}
     for i, d in enumerate(date_list):
         buckets.setdefault(d, []).append(i)
+    skipped_existing = 0
     for day, idxs in buckets.items():
         sub_codes = [code_list[i] for i in idxs]
         sub_X = x_arr[np.asarray(idxs, dtype=np.int64)]
-        cube = build_from_matrix(day, sub_codes, sub_X, name_list, clock=clock)
+        day_lookup = lookup or _universe_code_list(sub_codes)
+        cube = build_aligned_cube(
+            day,
+            sub_codes,
+            sub_X,
+            name_list,
+            clock=clock,
+            universe_codes=day_lookup or None,
+        )
         if cube is None:
             continue
         if persist:
-            if drop_tc and day_cube_status(day, sub_codes, clock=clock) != "miss":
+            if drop_tc and _thin_open_day_occupied(
+                day, clock=clock, probe=day_lookup, row_codes=sub_codes
+            ):
+                skipped_existing += 1
                 continue
             save_day_cube(cube)
         else:
             remember(cube)
         out[day] = cube
+    if skipped_existing:
+        logger.info(
+            "stacked panel skipped %s open days with existing cube uh=%s",
+            skipped_existing,
+            universe_hash(lookup) if lookup else "day",
+        )
     return out
 
 

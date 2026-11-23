@@ -16,7 +16,7 @@
     live、历史回测、回测中心走 plan_rank_lot_day 的同一个 rank_blend。
   - 过入场（y_oo_fuse>fuse_enter）→ 按 rank_score 降序开仓或加仓；
     缺 rank_score 回退 y_oo_fuse 降序；可选 y_*>0（只看 ŷ_oo / ŷ_τc；缺分不拦）
-  - 可选形态硬闸（默认关，门槛写死）：高波弱开（vol_p≥0.9 且 a1<0）、
+  - 可选形态硬闸（默认关，门槛写死）：高波弱开（vol_p≥0.95 且 a1<0）、
     异常低开（a1≤−8%）、或开盘已到板块涨停价 → 禁止新开/加仓（已持仓不清仓）
   - 舆情标签始终读本地新闻库并写入明细；规则栏已下掉软先验闸（配置恒关），不改 fuse/rank 阈值
   - 已持仓且未过入场、缺 y_oo_fuse、或 hard_reject → 清仓（T+1 可卖部分；形态闸不清仓）
@@ -1578,7 +1578,8 @@ def _plan_rank_lot_day(
         )
 
         if morph_gate_enabled(cfg):
-            day_s = str(as_of or "").strip()
+            # live/手动常只传 sentiment_as_of；形态闸必须有决策日，否则会吃到当日 K 收盘、或 fail-open。
+            day_s = str(as_of or sentiment_as_of or "").strip()
             bars_src = "none"
             bars_by: Dict[str, Sequence[Mapping[str, Any]]] = {}
             if isinstance(bars_by_code, Mapping) and bars_by_code:

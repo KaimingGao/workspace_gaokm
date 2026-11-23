@@ -542,6 +542,8 @@ def _maybe_materialize_day_cubes(
 ) -> None:
     """按股块还原 code 列。当天还没有 open 立方时落一份 oo 面板。
 
+    目录键是本次组装的完整代码名单；若名单落在当前 FEATURE_SET / 观察池内，
+    升到那份截面，避免按缺行子集另开哈希。当天缺行不换目录。
     已有立方不覆盖：这份面板没有 τc 列，盖上去 Arm·T 截面 z 会缺 ``z_τc_*``。
     """
     from core.research.materialize.consumer import consumer_read_only
@@ -549,8 +551,19 @@ def _maybe_materialize_day_cubes(
     if consumer_read_only():
         return
     try:
-        from core.research.day_cube import cubes_from_stacked_panel
+        from core.research.day_cube import (
+            _resolve_panel_universe,
+            cubes_from_stacked_panel,
+        )
 
+        universe: List[str] = []
+        seen_codes: set = set()
+        for item in items:
+            code = str(item[0] if isinstance(item, (tuple, list)) else "").strip()
+            if not code or code in seen_codes:
+                continue
+            seen_codes.add(code)
+            universe.append(code)
         code_rows: List[str] = []
         for part, item in zip(parts, items):
             if part is None:
@@ -561,10 +574,25 @@ def _maybe_materialize_day_cubes(
             if not code or n_i <= 0:
                 continue
             code_rows.extend([code] * n_i)
-        if code_rows and len(code_rows) == int(x.shape[0]):
-            cubes_from_stacked_panel(
-                dates, code_rows, x, names, clock="open", persist=True
-            )
+        if not code_rows or len(code_rows) != int(x.shape[0]):
+            if code_rows:
+                logger.warning(
+                    "oo assemble day_cube skipped: code_rows=%s x_rows=%s",
+                    len(code_rows),
+                    int(x.shape[0]),
+                )
+            return
+        # 组装名单优先；未覆盖到当前截面时由 cubes_from_stacked_panel 再解析。
+        lookup = _resolve_panel_universe(universe, code_rows)
+        cubes_from_stacked_panel(
+            dates,
+            code_rows,
+            x,
+            names,
+            clock="open",
+            persist=True,
+            universe_codes=lookup or universe,
+        )
     except Exception:  # noqa: BLE001
         logger.debug("oo assemble day_cube materialize failed", exc_info=True)
 

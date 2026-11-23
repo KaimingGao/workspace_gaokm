@@ -11,7 +11,7 @@ class MorphGateUnitTests(unittest.TestCase):
 
         self.assertTrue(
             is_morph_gate_reason(
-                "形态闸·高波弱开(vol_p=0.97≥0.9, a1=-2.29% < 0.00%)"
+                "形态闸·高波弱开(vol_p=0.97≥0.95, a1=-2.29% < 0.00%)"
             )
         )
         self.assertTrue(is_morph_gate_reason("  形态闸·异常低开(a1=-8.00% ≤ −8.00%)"))
@@ -102,7 +102,7 @@ class MorphGateUnitTests(unittest.TestCase):
         )
 
     def test_cfg_thresholds_ignored_hardcoded(self):
-        """旧 cfg 门槛字段被忽略；产品写死 vol_p≥0.9∧a1<0 / a1≤−8%。"""
+        """旧 cfg 门槛字段被忽略；产品写死 vol_p≥0.95∧a1<0 / a1≤−8%。"""
         from core.paper.rebalance.morph_gate import morph_gate_skip_reason
 
         cfg = {
@@ -117,13 +117,20 @@ class MorphGateUnitTests(unittest.TestCase):
             "异常低开",
             morph_gate_skip_reason({"morph_a1": -0.08}, cfg) or "",
         )
-        # 高波弱开：绝对 vol20_min 不再参与；cfg 抬高分位也不拦 vol_p=0.95
+        # 高波弱开：绝对 vol20_min 不再参与；cfg 抬高分位也不改写死 0.95
         skip = morph_gate_skip_reason(
             {"morph_a1": -0.02, "morph_vol_p": 0.95, "morph_vol20": 0.2},
             cfg,
         )
         self.assertIsNotNone(skip)
         self.assertIn("高波弱开", skip or "")
+        # 0.9≤vol_p<0.95 不再拦（此前会清空强档）
+        self.assertIsNone(
+            morph_gate_skip_reason(
+                {"morph_a1": -0.02, "morph_vol_p": 0.91, "morph_vol20": 0.2},
+                cfg,
+            )
+        )
 
     def test_stamp_cs_percentile(self):
         from core.paper.rebalance.morph_gate import stamp_morph_cs_on_items
@@ -514,6 +521,70 @@ class MorphGateUnitTests(unittest.TestCase):
         self.assertIsNone(
             morph_gate_skip_reason({"morph_a1": 0.9, "morph_vol_p": 0.99}, cfg)
         )
+
+    def test_plan_morph_uses_sentiment_as_of_when_as_of_missing(self):
+        """live/手动常只传 sentiment_as_of；形态闸仍须按决策日切昨收。"""
+        from core.paper.rebalance.rank_lots import plan_rank_lot_day
+
+        as_of = "2024-04-25"
+        bars_by = {}
+        scored = []
+        opens = {}
+        prices = {}
+        for i in range(1, 12):
+            code = f"{i:06d}"
+            prev = 10.0
+            # 含当日 K：若误用当日收盘当昨收，a1 会偏；有 as_of 应切掉。
+            bars_by[code] = [
+                {"date": "2024-04-23", "open": prev, "close": prev},
+                {"date": "2024-04-24", "open": prev, "close": prev},
+                {"date": as_of, "open": prev * 0.95, "close": prev * 1.2},
+            ]
+            open_t = prev * 0.97  # 弱开，相对昨收 -3%
+            opens[code] = open_t
+            prices[code] = open_t
+            scored.append(
+                {
+                    "stock_code": code,
+                    "predicted_score": 2.0,
+                    "y_τc": 1.0,
+                    "y_oo_rank": i,
+                    "y_τc_rank": i,
+                    "y_oo_rank_score": 1.0,
+                    "y_tc_rank_score": 1.0,
+                }
+            )
+        # 抬高全池波动分位：末几根放量
+        for code, rows in bars_by.items():
+            for j, row in enumerate(rows):
+                row["volume"] = 1_000_000 * (j + 1) * (3 if code == "000011" else 1)
+        bars_by["000011"][-2]["volume"] = 50_000_000
+        opens["000011"] = 10.0 * 0.97
+        prices["000011"] = opens["000011"]
+
+        out = plan_rank_lot_day(
+            scored=scored,
+            holdings=[],
+            cash=200_000.0,
+            prices=prices,
+            opens=opens,
+            cfg={
+                "fuse_enter": 0.0,
+                "fuse_strong": 0.0,
+                "morph_gate_enabled": True,
+                "lot_base_amount": 10_000,
+                "lot_strong_amount": 10_000,
+                "oo_rank_max": 100,
+                "top_k": 15,
+            },
+            # 故意不传 as_of，只传 sentiment_as_of（对齐 live）
+            sentiment_as_of=as_of,
+            bars_by_code=bars_by,
+        )
+        stamped = next(row for row in scored if row["stock_code"] == "000011")
+        self.assertIsNotNone(stamped.get("morph_a1"))
+        # 昨收=10，开=9.7 → a1≈-3%；若误吃当日收 12，a1 会变成 9.7/12-1
+        self.assertAlmostEqual(float(stamped["morph_a1"]), -0.03, places=3)
 
     def test_stamp_opens_int_keys_and_none_items(self):
         from core.paper.rebalance.morph_gate import try_stamp_morph_from_opens
