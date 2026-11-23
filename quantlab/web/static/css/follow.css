@@ -9898,6 +9898,26 @@ body[data-page="follow"] .paper-t0-manual-actions, body[data-page="replay"] .pap
   border-top: 1px dashed color-mix(in srgb, var(--border) 65%, transparent);
 }
 
+/* 手动执行 / 手动预演：对齐空持仓「去观察台建仓」，盖过 .follow-ops 的浅投影 */
+body[data-page="follow"] .follow-ops #paper-adjust.dialog-btn,
+body[data-page="follow"] .follow-ops #paper-t0-run.dialog-btn {
+  padding: 10px 20px;
+  border: none;
+  box-shadow: 0 2px 8px rgba(37, 99, 235, 0.4), inset 0 1px 0 rgba(255, 255, 255, 0.1);
+}
+
+body[data-page="follow"] .follow-ops #paper-adjust.dialog-btn:hover:not(:disabled),
+body[data-page="follow"] .follow-ops #paper-t0-run.dialog-btn:hover:not(:disabled) {
+  transform: translateY(-1px);
+  box-shadow: 0 4px 16px rgba(37, 99, 235, 0.5), inset 0 1px 0 rgba(255, 255, 255, 0.2);
+}
+
+body[data-page="follow"] .follow-ops #paper-adjust.dialog-btn:active:not(:disabled),
+body[data-page="follow"] .follow-ops #paper-t0-run.dialog-btn:active:not(:disabled) {
+  transform: translateY(0);
+  box-shadow: 0 1px 4px rgba(37, 99, 235, 0.4), inset 0 1px 0 rgba(0, 0, 0, 0.2);
+}
+
 body[data-page="follow"] .follow-rebalance-exec-actions #paper-path-matrix-status:empty {
   display: none;
 }

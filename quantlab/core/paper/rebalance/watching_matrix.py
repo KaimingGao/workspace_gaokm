@@ -116,6 +116,9 @@ def _watching_codes(*, include_held: Sequence[str] = ()) -> Tuple[List[str], Dic
 
 # 持仓表 / 盯盘 / 交易记录展示用名次字段。
 LIVE_RANK_CORE_KEYS = (
+    "y_oo",
+    "y_τc",
+    "y_oo_fuse",
     "y_oo_rank",
     "y_oo_rank_hat",
     "y_oo_rank_n",
@@ -822,6 +825,45 @@ def _cube_family_feats(feats: Dict[str, float]) -> Tuple[dict, dict]:
     return oo, tau
 
 
+def _attach_open_promote(
+    pit: Dict[str, Any],
+    *,
+    cube: Any,
+    scored: Optional[Sequence[dict]],
+    fuse_enter: Any,
+) -> Dict[str, Any]:
+    """终态复现时补上早盘对照，并把同一句写进出分行供 tip 使用。"""
+    out = dict(pit or {})
+    day = str(out.get("day") or getattr(cube, "date", "") or "")[:10]
+    lookup = list(
+        getattr(cube, "universe_codes", None) or getattr(cube, "codes", None) or []
+    )
+    if len(day) < 10 or len(lookup) < 2:
+        return out
+    try:
+        from core.research.open_promote_report import (
+            apply_score_delta,
+            promote_line_for_codes,
+        )
+
+        try:
+            thresh = float(fuse_enter or 0.0)
+        except (TypeError, ValueError):
+            thresh = 0.0
+        apply_score_delta(day, lookup, scored or [], thresh)
+        line = promote_line_for_codes(day, lookup)
+    except Exception:  # noqa: BLE001
+        logger.debug("attach open promote failed", exc_info=True)
+        return out
+    if not line:
+        return out
+    out["open_promote_line"] = line
+    for it in scored or []:
+        if isinstance(it, dict):
+            it["open_promote_line"] = line
+    return out
+
+
 def _pit_summary_from_cube(
     cube: Any,
     scored: Optional[Sequence[dict]] = None,
@@ -838,6 +880,7 @@ def _pit_summary_from_cube(
             slim = getattr(cube, "slim", None)
             if isinstance(slim, dict) and slim.get("missing_open_n") is not None:
                 out["missing_open_n"] = slim.get("missing_open_n")
+            # open_promote_line / ŷ 差由 stamp 路径的 _attach_open_promote 统一挂上
         elif scored:
             for it in scored:
                 if not isinstance(it, dict):
@@ -2535,7 +2578,12 @@ def simulate_watching_matrix_preview(
         "open_replay": bool(open_replay),
         "strategy_id": strategy_id,
         "strategy_label": strategy_label,
-        "pit": _pit_summary_from_cube(score_day_cube, scored),
+        "pit": _attach_open_promote(
+            _pit_summary_from_cube(score_day_cube, scored),
+            cube=score_day_cube,
+            scored=scored,
+            fuse_enter=rl_cfg.get("fuse_enter"),
+        ),
         "ops_report": {
             "strategy_id": strategy_id,
             "strategy_label": strategy_label,

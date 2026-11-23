@@ -17,7 +17,7 @@
 ### 1.2 根因（修复前）
 
 - 开盘窗内当日官方开盘立方尚未物化（当日日线未入库）。
-- `_lake_score_day_candidates` 依次尝试会话日 → `expected_latest_daily_bar_date`（15:05 前 = 上一交易日）→ 再前一日；读到昨日立方后打 `lake_score_fallback_from` **仍返回分数**，自动调仓不读该标记直接下单。
+- （已删）`_lake_score_day_candidates` 曾依次尝试会话日 → `expected_latest_daily_bar_date`（15:05 前 = 上一交易日）→ 再前一日；读到昨日立方后打 `lake_score_fallback_from` **仍返回分数**，自动调仓不读该标记直接下单。
 - 昨日立方的 ŷ_oo 标签是 `open[T−1]→open[T]`，集合竞价给出今开后这段收益**已实现**，不是产品要估的 `open[T]→open[T+1]`；界面 tip「T−1 因子」不能当作因子截止日的证明。
 
 ### 1.3 与回测的对比
@@ -98,6 +98,7 @@
 - 不再用「已实现的昨开→今开」ŷ_oo 开仓；缺立方拒单，去掉静默错日成交。
 - **历史 tip**：旧行 `lake_score_fallback_from` / `_score_source=open_pit` 仍可展示；新路径消费为 `day_cube` 并透传 `pit_phase` / `open_source`。
 - 盘中 provisional 与晚间 final **同会话日**但 μ/σ 可能因成员漂移重标定；成交记录保留下单时 ŷ，tip 对临时立方注明勿拿终态对账。
+- **早盘对照摘要**：日线物化删/盖会话日 open 前，把临时立方与当日 `live_rank_snapshot` 抄到 `data/run/open_promote/{day}/`；晋升终态后写 `summary.json`（今开列 / 历史列 / 股票集合；有早盘分数时再补 ŷ·名次·跨门槛）。交易执行「09:30 复现」`pit.open_promote_line` 与分数 tip 同一句；数据中心日线物化完成态只加「今日 open 已升终态」。无临时副本或未晋升则不写空 0。
 
 ---
 
@@ -117,7 +118,8 @@
 | 3 | 立方已存在 | 直接读；透传 phase；不临时拼截面 |
 | 4 | 盘中 / 晚间物化 | 盘中 provisional（quote）；日线齐后 final（daily）；warmup 禁假健康跳过 |
 | 5 | 回测日 T | 仍读当日湖；未完成会话日仍被 clip，不靠昨日顶替 |
-| 6 | tip | 新出分：`≤T−1日线 + 今开(行情\|日线) · 临时立方\|终态`；历史 fallback / open_pit 仍可识别 |
+| 6 | tip | 新出分：`≤T−1日线 + 今开(行情\|日线) · 临时立方\|终态`；有 `open_promote_line` 时接对照摘要，否则临时立方仍提示收盘后可能重标定；历史 fallback / open_pit 仍可识别 |
+| 7 | 晋升对照 | 临时→终态后 `data/run/open_promote/{day}/…/summary.json` 有 `line`；09:30 复现 meta 含同一句；日线物化 DONE 含「今日 open 已升终态」 |
 
 ---
 
@@ -154,9 +156,9 @@
 
 ## 14. 状态
 
-- **现行**：消费只读会话日 L2；`ensure_session_open_l2` 唯一写手调度（行情临时 → 日线终态）；warmup 禁 provisional/legacy 假健康；tip / 账本透传 provenance；显式分钟钟拒 snap-to-open。单测：`tests/test_pit_session.py` · `test_open_pit_score.py` · `ConsumerCoverageTest` · JS guards。
+- **现行**：消费只读会话日 L2；`ensure_session_open_l2` 唯一写手调度（行情临时 → 日线终态）；warmup 禁 provisional/legacy 假健康；tip / 账本透传 provenance；显式分钟钟拒 snap-to-open；早盘→终态对照见 `open_promote_report`（09:30 复现 / tip）。单测：`tests/test_pit_session.py` · `test_open_pit_score.py` · `test_open_promote_report.py` · `ConsumerCoverageTest` · JS guards。
 - **2026-11-06**：持仓盯市空今开 60s 缓存 → open-pit 前 `invalidate_codes`（`TestOpenPitQuoteCacheBust`）。
 - **2026-11-09**：`live_rank_snapshot` 绑 `universe_fp`；`refresh_live_open_ranks` 只认会话日立方；删消费侧 fallback / `score_open_pit_pool`；Web `do_session_open_l2` 自动补齐。
 - **2026-11-09（PIT 收敛）**：`pit_session.py` · provenance meta · tip 改标 · 成员漂移闸 · refuse snap-to-open。
 - **2026-11-09（下掉）**：回测页 Follow↔Replay 钟权对账横幅（回测/live 钟本就分立，提示噪音大于收益）。
-- **未开（可选）**：成交表「成交时 provisional vs 当前 final」对照列——账本已透传 phase，UI 列另开。
+- **2026-11-23**：`open_promote_report` 留临时立方对照；tip / 09:30 复现挂 `open_promote_line`；数据中心日线物化 DONE「今日 open 已升终态」。成交表单独对照列不再另开。

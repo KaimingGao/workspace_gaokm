@@ -350,8 +350,10 @@ function formatEodAsOfHint(raw) {
     if (day && tradeDay && day !== tradeDay) {
       base += ` · 因子截止 ${day}`;
     }
-    // 账本腿：成交时临时立方 ≠ 晚间终态，提醒勿拿终态对成交 ŷ
-    if (pitPhase === "provisional") {
+    // 账本腿：成交时临时立方 ≠ 晚间终态。有对照摘要时用数字，否则只提醒。
+    if (raw && raw.open_promote_line) {
+      base += ` · ${raw.open_promote_line}`;
+    } else if (pitPhase === "provisional") {
       base += " · 成交/出分时临时；收盘后终态可能重标定";
     }
     return anom ? `${base} · ${anom}` : base;

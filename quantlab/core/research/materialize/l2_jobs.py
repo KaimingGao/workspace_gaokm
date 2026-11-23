@@ -221,6 +221,12 @@ def _materialize_l2_open_only(
     """开盘钟：按钟 warmup。没有分钟钟时走这条，进度刻度与原来一致。"""
     # 近端优先，避免千日回看从历史尾巴开始烘、做 T 近端一直缺立方
     warm_days = list(reversed(list(day_list or [])))
+    try:
+        from core.research.open_promote_report import hold_provisional_opens
+
+        hold_provisional_opens()
+    except Exception:  # noqa: BLE001
+        logger.debug("hold provisional open before l2 open failed", exc_info=True)
     for ci, clock in enumerate(clock_list):
         if _cancelled(cancel_cb):
             report["ok"] = False
@@ -485,6 +491,12 @@ def _materialize_l2_with_minute(
             report["ok"] = False
             report["error"] = "cancelled"
             return
+        try:
+            from core.research.open_promote_report import hold_provisional_opens
+
+            hold_provisional_opens()
+        except Exception:  # noqa: BLE001
+            logger.debug("hold provisional open before mixed l2 failed", exc_info=True)
 
         def _open_pcb(done: int, total: int, message: str = "") -> None:
             _step_emit(0, done, total, message or "L2 open")
@@ -935,6 +947,16 @@ def materialize_l2(
     from core.research.materialize.cover_policy import finalize_l2_report
 
     finalize_l2_report(report, clock_list, lake_frac=lake_frac)
+    if any(str(c) == "open" for c in clock_list):
+        try:
+            from core.research.open_promote_report import finish_open_promote
+
+            summary = finish_open_promote()
+            if summary and summary.get("line"):
+                report["open_promoted"] = True
+                report["open_promote_line"] = summary.get("line")
+        except Exception:  # noqa: BLE001
+            logger.debug("open promote summary after l2 failed", exc_info=True)
     report["elapsed_s"] = round(time.perf_counter() - t0, 2)
     if report.get("error") == "cancelled":
         tail = "L2 已取消"

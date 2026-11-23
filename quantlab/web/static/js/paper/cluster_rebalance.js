@@ -78,7 +78,10 @@ export function createClusterRebalanceController(deps) {
       followMatrixPreviewPending = false;
       const pit = data.pit || {};
       const pitBits = [];
-      if (pit.open_source === "quote" || pit.pit_phase === "provisional") {
+      if (pit.open_promote_line) {
+        // 已有早盘→终态对照时不再叠「临时/终态」标签
+        pitBits.push(String(pit.open_promote_line));
+      } else if (pit.open_source === "quote" || pit.pit_phase === "provisional") {
         pitBits.push("临时立方·行情今开");
       } else if (pit.open_source === "daily" || pit.pit_phase === "final") {
         pitBits.push("终态·日线今开");

@@ -357,6 +357,12 @@ def _build_final_open_from_lake(
 
     code_list = [str(c).strip() for c in (codes or []) if str(c or "").strip()]
     need = cover_need(len(code_list), frac=LAKE_COVER_FRAC, minimum=2)
+    try:
+        from core.research.open_promote_report import hold_provisional_opens
+
+        hold_provisional_opens(day)
+    except Exception:  # noqa: BLE001
+        logger.debug("hold provisional open before final build failed", exc_info=True)
     prev_meta = read_open_cube_meta(day, code_list, clock="open") or {}
     prev_n = prev_meta.get("n_codes")
     prev_phase = str(prev_meta.get("phase") or "").strip().lower()
@@ -436,6 +442,15 @@ def _build_final_open_from_lake(
             invalidate_live_rank_snapshot()
         except Exception:  # noqa: BLE001
             logger.debug("invalidate live ranks after open promote failed", exc_info=True)
+        try:
+            from core.research.open_promote_report import finish_open_promote
+
+            summary = finish_open_promote(day)
+            if summary and summary.get("line"):
+                out["open_promote_line"] = summary.get("line")
+                out["open_promoted"] = True
+        except Exception:  # noqa: BLE001
+            logger.debug("open promote summary failed", exc_info=True)
     return out
 
 

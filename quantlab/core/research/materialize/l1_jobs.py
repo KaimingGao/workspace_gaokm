@@ -639,9 +639,16 @@ def materialize_l1(
     """按 family 物化 L1。返回 ``by_family`` 与汇总。
 
     作废只落在 open。分钟钟立方由分钟线物化自己拆、自己建。
+    作废前先把会话日临时 open 立方抄走，供晋升后对照。
     """
     from core.research.day_cube_gc import l2_invalidation_batch
 
+    try:
+        from core.research.open_promote_report import hold_provisional_opens
+
+        hold_provisional_opens()
+    except Exception:  # noqa: BLE001
+        logger.debug("hold provisional open before l1 failed", exc_info=True)
     with l2_invalidation_batch(clocks=["open"]):
         return _materialize_l1_body(
             families,

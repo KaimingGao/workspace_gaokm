@@ -69,6 +69,14 @@ function resultHeadBits(result, { tau = false } = {}) {
     else bits.push(tau ? "物化完成（τ）" : "物化完成");
     if (track.steps_ok) bits.push(`步骤 ${track.steps_ok}`);
     if (track.codes_n != null) bits.push(`${track.codes_n} 只`);
+    // track.headline 已含「今日 open 已升终态」时勿再叠一句
+    if (
+      !tau &&
+      result?.open_promoted &&
+      !String(track.headline || "").includes("今日 open 已升终态")
+    ) {
+      bits.push("今日 open 已升终态");
+    }
     return bits;
   }
   const bits = [tau ? "物化完成（τ）" : "物化完成"];
@@ -90,6 +98,7 @@ function resultHeadBits(result, { tau = false } = {}) {
   }
   const l2bit = summarizeL2(l2.by_clock);
   if (l2bit) bits.push(l2bit);
+  if (!tau && result?.open_promoted) bits.push("今日 open 已升终态");
   return bits;
 }
 

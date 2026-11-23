@@ -204,6 +204,8 @@ def _run_materialize(
         }
         if session.get("needs_final"):
             out["needs_final"] = True
+        if session.get("open_promoted"):
+            out["open_promoted"] = True
         if not out["ok"]:
             out["error"] = str(session.get("error") or "会话日开盘 L2 补齐失败")
         out["track"] = build_materialize_track(out)
@@ -371,6 +373,12 @@ def _run_materialize(
                     )
             if len(parts) > 1:
                 head["feature_set_codes"] = [int(part.get("n_codes") or 0) for part in parts]
+            if any(part.get("open_promoted") for part in parts):
+                head["open_promoted"] = True
+                for part in parts:
+                    if part.get("open_promote_line"):
+                        head["open_promote_line"] = part.get("open_promote_line")
+                        break
             return head
 
         if dual_cards or (open_clks and minute_clks):
@@ -462,6 +470,10 @@ def _run_materialize(
         out["error"] = "materialize failed: " + ",".join(errs)
         if detail:
             out["error"] = f"{out['error']} · {detail}"
+    if (out.get("l2") or {}).get("open_promoted") or (
+        out.get("session_open_l2") or {}
+    ).get("open_promoted"):
+        out["open_promoted"] = True
     from core.research.materialize.track import build_materialize_track
 
     out["track"] = build_materialize_track(out)

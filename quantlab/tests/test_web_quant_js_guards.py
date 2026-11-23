@@ -1205,6 +1205,7 @@ class TestWebQuantJsGuards(unittest.TestCase):
         self.assertIn("临时立方", tip_js)
         self.assertIn("终态", tip_js)
         self.assertIn("收盘后终态可能重标定", tip_js)
+        self.assertIn("open_promote_line", tip_js)
         self.assertIn("今开截面", tip_js)
         self.assertIn("lake_score_fallback_from", tip_js)
         self.assertIn('scoreSrc === "open_pit"', tip_js)
@@ -1221,6 +1222,7 @@ class TestWebQuantJsGuards(unittest.TestCase):
         self.assertNotIn("ensureWarehouseTopup", rb)
         self.assertNotIn("getDataOfflineOnly", rb)
         self.assertIn("open_replay: true", rb)
+        self.assertIn("open_promote_line", rb)
         self.assertNotIn('fillAction === "wait_clock"', rb)
         self.assertNotIn('fillAction === "miss_window"', rb)
         self.assertNotIn('fillAction === "holiday"', rb)
@@ -2040,7 +2042,8 @@ class TestWebQuantJsGuards(unittest.TestCase):
         self.assertIn("wireReplayModelRole", bt_js)
         self.assertIn("paper.replay.desk_prefs", bt_js)
         self.assertIn("rules: false", bt_js)
-        self.assertIn("applyPortfolioBtParams(prefs, { rules: false, desk: true })", bt_js)
+        self.assertIn("applyPortfolioBtParams(deskPrefs, { rules: false, desk: true })", bt_js)
+        self.assertIn("applyPortfolioBtParams(req, { rules: false, desk: !hasPrefs })", bt_js)
         self.assertIn("quantlab-replay-desk-persist", bt_js)
         self.assertIn("上次结果", bt_js)
         self.assertIn("function frozenBtCaliber(ps)", bt_js)
@@ -4515,6 +4518,21 @@ class TestWebQuantJsGuards(unittest.TestCase):
         self.assertIn('id="paper-adjust"', panel)
         self.assertIn("手动执行", panel)
         self.assertIn("不含开仓/加仓", panel)
+        follow_css = self._read("web", "static", "css", "follow.css")
+        self.assertIn(
+            ".follow-ops #paper-adjust.dialog-btn",
+            follow_css,
+            "手动执行应对齐去观察台建仓投影",
+        )
+        self.assertIn(
+            ".follow-ops #paper-t0-run.dialog-btn",
+            follow_css,
+            "手动预演应对齐去观察台建仓投影",
+        )
+        self.assertIn(
+            "0 2px 8px rgba(37, 99, 235, 0.4)",
+            follow_css,
+        )
         self.assertNotIn('id="paper-rebalance-confirm"', panel)
         self.assertIn('id="paper-live-fill-clock"', panel)
         self.assertIn('type="range"', panel)

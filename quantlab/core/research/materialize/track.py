@@ -303,6 +303,9 @@ def build_materialize_track(out: Dict[str, Any] | None) -> Dict[str, Any]:
     except Exception:  # noqa: BLE001
         schema = None
 
+    headline = _headline(kind["label"], stages, elapsed)
+    if doc.get("open_promoted") and not do_tau:
+        headline = f"{headline} · 今日 open 已升终态"
     track: Dict[str, Any] = {
         "id": kind["id"],
         "label": kind["label"],
@@ -312,7 +315,7 @@ def build_materialize_track(out: Dict[str, Any] | None) -> Dict[str, Any]:
         "schema": schema,
         "steps_ok": f"{ok_n}/{planned_n}" if planned_n else "0/0",
         "stages": stages,
-        "headline": _headline(kind["label"], stages, elapsed),
+        "headline": headline,
     }
     err = str(doc.get("error") or "").strip()
     if err:
