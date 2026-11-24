@@ -10,8 +10,11 @@ from core.market.context_merge import (
 )
 from core.market.context_store import (
     load_announcement_snapshot,
+    load_concept_flow_snapshot,
+    load_macro_calendar_snapshot,
     load_macro_snapshot,
     load_market_sentiment_snapshot,
+    load_northbound_snapshot,
     save_market_snapshot,
 )
 from core.market.priors.cross_market import build_cross_market_prior
@@ -36,14 +39,23 @@ def load_market_context(*, max_age_hours: float = 36.0, use_cache: bool = True) 
     macro, macro_meta = load_macro_snapshot(max_age_hours=max_age_hours)
     sentiment, sentiment_meta = load_market_sentiment_snapshot(max_age_hours=max_age_hours)
     announcement, ann_meta = load_announcement_snapshot(max_age_hours=max_age_hours)
+    northbound, north_meta = load_northbound_snapshot(max_age_hours=max_age_hours)
+    concept_flow, flow_meta = load_concept_flow_snapshot(max_age_hours=max_age_hours)
+    macro_calendar, cal_meta = load_macro_calendar_snapshot(max_age_hours=max_age_hours)
     out = {
         "macro": macro,
         "market_sentiment": sentiment,
         "announcement": announcement,
+        "northbound": northbound,
+        "concept_flow": concept_flow,
+        "macro_calendar": macro_calendar,
         "meta": {
             "macro": macro_meta,
             "market_sentiment": sentiment_meta,
             "announcement": ann_meta,
+            "northbound": north_meta,
+            "concept_flow": flow_meta,
+            "macro_calendar": cal_meta,
         },
     }
     if use_cache:
@@ -59,14 +71,26 @@ def invalidate_market_context_cache() -> None:
 
 def ingest_macro(*, lookback: int = 30) -> Dict[str, Any]:
     from core.ports.market import build_macro_snapshot
+    from core.research.macro_history import save_macro_history_index
 
     prior, _meta = load_macro_snapshot(max_age_hours=168.0)
     snap = build_macro_snapshot(lookback=lookback)
     if prior and (snap.get("errors") or not snap.get("success")):
         snap = merge_macro_snapshots(snap, prior)
     path = save_market_snapshot("macro", snap, data_source="macro_ingest")
+    # 日常 ingest 同步刷新近 N 日累计索引；否则页上「近30日」会停在旧 backfill。
+    try:
+        hist_path = save_macro_history_index(snap, source_as_of=snap.get("as_of"))
+    except Exception:
+        logger.debug("macro history index refresh failed", exc_info=True)
+        hist_path = None
     invalidate_market_context_cache()
-    return {"ok": bool(snap.get("success")), "path": path, "snapshot": snap}
+    return {
+        "ok": bool(snap.get("success")),
+        "path": path,
+        "history_path": hist_path,
+        "snapshot": snap,
+    }
 
 
 def ingest_market_sentiment(*, trade_date: Optional[str] = None) -> Dict[str, Any]:
@@ -87,11 +111,56 @@ def ingest_announcement(*, sector_daily_amount: Optional[float] = None) -> Dict[
     return {"ok": bool(snap.get("success")), "path": path, "snapshot": snap}
 
 
+def ingest_northbound() -> Dict[str, Any]:
+    from adapters.macro.flows import build_northbound_snapshot
+
+    snap = build_northbound_snapshot()
+    path = save_market_snapshot("northbound", snap, data_source="northbound_ingest")
+    invalidate_market_context_cache()
+    return {"ok": bool(snap.get("success")), "path": path, "snapshot": snap}
+
+
+def ingest_concept_flow(*, top_n: int = 10) -> Dict[str, Any]:
+    from adapters.macro.flows import build_concept_flow_snapshot
+
+    snap = build_concept_flow_snapshot(top_n=top_n)
+    path = save_market_snapshot("concept_flow", snap, data_source="concept_flow_ingest")
+    invalidate_market_context_cache()
+    return {"ok": bool(snap.get("success")), "path": path, "snapshot": snap}
+
+
+def ingest_macro_calendar() -> Dict[str, Any]:
+    from adapters.macro.flows import build_macro_calendar_hint
+
+    snap = build_macro_calendar_hint()
+    path = save_market_snapshot("macro_calendar", snap, data_source="macro_calendar_ingest")
+    invalidate_market_context_cache()
+    return {"ok": bool(snap.get("success")), "path": path, "snapshot": snap}
+
+
 def ingest_pre_market_bundle(*, lookback: int = 30) -> Dict[str, Any]:
-    """盘前一键：macro + 情绪 + 公告。"""
+    """盘前一键：macro + 情绪 + 公告 + 北向/概念流/日历。"""
     macro_r = ingest_macro(lookback=lookback)
     sent_r = ingest_market_sentiment()
     ann_r = ingest_announcement()
+    north_r: Dict[str, Any] = {}
+    flow_r: Dict[str, Any] = {}
+    cal_r: Dict[str, Any] = {}
+    try:
+        north_r = ingest_northbound()
+    except Exception:
+        logger.debug("northbound ingest skipped", exc_info=True)
+        north_r = {"ok": False}
+    try:
+        flow_r = ingest_concept_flow()
+    except Exception:
+        logger.debug("concept flow ingest skipped", exc_info=True)
+        flow_r = {"ok": False}
+    try:
+        cal_r = ingest_macro_calendar()
+    except Exception:
+        logger.debug("macro calendar ingest skipped", exc_info=True)
+        cal_r = {"ok": False}
     concept_r = None
     try:
         from core.signal.config import load_signal_config
@@ -120,6 +189,9 @@ def ingest_pre_market_bundle(*, lookback: int = 30) -> Dict[str, Any]:
         "macro": macro_r,
         "market_sentiment": sent_r,
         "announcement": ann_r,
+        "northbound": north_r,
+        "concept_flow": flow_r,
+        "macro_calendar": cal_r,
         "concept_graph": concept_r,
         "minute_warmup": minute_r,
         "freshness": ctx.get("freshness"),

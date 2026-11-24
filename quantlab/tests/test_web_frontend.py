@@ -154,7 +154,7 @@ class TestP95P96WebPages(unittest.TestCase):
                 "quant-section-roll-gate",
             ),
             "/watching": ("data-page=\"watching\"", "watching-search-input", "watching-watchlist-table", "观察", "加入纸面", "quant-watching-sync", "watching-build-layer"),
-            "/market-prior": ("data-page=\"strategy\"", "strategy-market-context", "strategy-factor-dict", "strategy-regime-board"),
+            "/market-prior": ("data-page=\"strategy\"", "strategy-section-overview", "strategy-regime-board"),
             "/replay": (
                 "data-page=\"replay\"",
                 "quant-portfolio-run",
@@ -241,6 +241,36 @@ class TestP95P96WebPages(unittest.TestCase):
         self.assertNotIn("生成日报", quant.text)
         self.assertNotIn("quant-daily-fold", quant.text)
         self.assertIn('href="/follow"', quant.text)
+
+    def test_market_prior_page_contract(self):
+        if self.client is None:
+            self.skipTest("fastapi not installed")
+        strategy = self.client.get("/market-prior")
+        self.assertEqual(strategy.status_code, 200)
+        self.assertIn('<p class="dashboard-section-desc strategy-head-path">', strategy.text)
+        self.assertIn('href="#strategy-section-overview">概览</a>', strategy.text)
+        self.assertIn('href="/follow">交易执行</a>', strategy.text)
+        section_markers = (
+            'id="strategy-section-overview"',
+            'id="strategy-section-cross"',
+            'id="strategy-section-events"',
+            'id="strategy-regime-board"',
+        )
+        section_positions = [strategy.text.index(marker) for marker in section_markers]
+        self.assertEqual(section_positions, sorted(section_positions))
+        self.assertEqual(strategy.text.count('class="quant-desk-badge strategy-desk-badge"'), 1)
+        self.assertNotIn("strategy-desk-guard", strategy.text)
+        self.assertNotIn("strategy-market-context", strategy.text)
+        self.assertNotIn("四路看板", strategy.text)
+        self.assertIn('id="strategy-desk-boundary"', strategy.text)
+        self.assertIn('id="strategy-mctx-refresh"', strategy.text)
+        # 刷新行在 M 环境 strip 之上
+        self.assertLess(
+            strategy.text.index('id="strategy-mctx-refresh"'),
+            strategy.text.index('id="quant-macro-context-strip"'),
+        )
+        self.assertNotIn('id="strategy-mctx-spark"', strategy.text)
+        self.assertIn('href="#strategy-section-cross">跨市场</a>', strategy.text)
 
     def test_page_html_helpers(self):
         from web.page_html import clear_html_cache, render_tool_html

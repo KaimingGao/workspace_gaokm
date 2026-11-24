@@ -359,7 +359,7 @@ def _side_nav(active: str) -> str:
     items = "\n          ".join(
         [
             item("dashboard", "/dashboard", "仪表盘", "全局概览 · KPI · 净值曲线", "btn-dashboard"),
-            item("strategy", "/market-prior", "市场先验", "M prior · Regime", "btn-strategy"),
+            item("strategy", "/market-prior", "市场先验", "盘前看板 · Regime", "btn-strategy"),
             item("watching", "/watching", "观察台", "名单 · 建仓入口", "btn-watching"),
             item("data", "/data", "数据中心", "日K · 5m · 物化", "btn-data"),
             item("follow", "/follow", "交易执行", "调仓 · 做T执行", "btn-follow"),

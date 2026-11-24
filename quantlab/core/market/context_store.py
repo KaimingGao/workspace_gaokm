@@ -9,6 +9,9 @@ from core.store import load_snapshot_cache, save_snapshot_cache
 KIND_MACRO = "macro"
 KIND_MARKET_SENTIMENT = "market_sentiment"
 KIND_ANNOUNCEMENT = "announcement"
+KIND_NORTHBOUND = "northbound"
+KIND_CONCEPT_FLOW = "concept_flow"
+KIND_MACRO_CALENDAR = "macro_calendar"
 SNAPSHOT_CODE = "latest"
 
 DEFAULT_MAX_AGE_HOURS = 36.0
@@ -68,6 +71,18 @@ def load_announcement_snapshot(**kw: Any) -> Tuple[Optional[Dict[str, Any]], Dic
     return load_market_snapshot(KIND_ANNOUNCEMENT, **kw)
 
 
+def load_northbound_snapshot(**kw: Any) -> Tuple[Optional[Dict[str, Any]], Dict[str, Any]]:
+    return load_market_snapshot(KIND_NORTHBOUND, **kw)
+
+
+def load_concept_flow_snapshot(**kw: Any) -> Tuple[Optional[Dict[str, Any]], Dict[str, Any]]:
+    return load_market_snapshot(KIND_CONCEPT_FLOW, **kw)
+
+
+def load_macro_calendar_snapshot(**kw: Any) -> Tuple[Optional[Dict[str, Any]], Dict[str, Any]]:
+    return load_market_snapshot(KIND_MACRO_CALENDAR, **kw)
+
+
 def market_context_dir(kind: str) -> str:
     import os
 
@@ -76,13 +91,19 @@ def market_context_dir(kind: str) -> str:
 
 __all__ = [
     "KIND_ANNOUNCEMENT",
+    "KIND_CONCEPT_FLOW",
     "KIND_MACRO",
+    "KIND_MACRO_CALENDAR",
     "KIND_MARKET_SENTIMENT",
+    "KIND_NORTHBOUND",
     "SNAPSHOT_CODE",
     "load_announcement_snapshot",
+    "load_concept_flow_snapshot",
+    "load_macro_calendar_snapshot",
     "load_macro_snapshot",
     "load_market_sentiment_snapshot",
     "load_market_snapshot",
+    "load_northbound_snapshot",
     "market_context_dir",
     "save_market_snapshot",
 ]

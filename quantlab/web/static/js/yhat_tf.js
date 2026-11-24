@@ -1148,11 +1148,27 @@ function versionParts(label) {
   return { stamp: bits[0] || "—", meta: bits.slice(1) };
 }
 
+const VERSION_BADGE = {
+  正: "正式",
+  预: "预训练",
+  过: "过闸",
+  未: "未过闸",
+  败: "失败",
+  半: "部分完成",
+  正式: "正式",
+  预训练: "预训练",
+  过闸: "过闸",
+  未过闸: "未过闸",
+  失败: "失败",
+  部分完成: "部分完成",
+};
+
 function versionChipTone(text, status) {
-  if (text === "进行中") return "warn";
-  if (text === "失败" || status === "error") return "bad";
-  if (text === "未过闸" || text === "部分完成") return "warn";
-  if (text === "正式" || text === "过闸") return "ok";
+  const name = VERSION_BADGE[text] || text;
+  if (name === "进行中") return "warn";
+  if (name === "失败" || status === "error") return "bad";
+  if (name === "未过闸" || name === "部分完成") return "warn";
+  if (name === "正式" || name === "过闸") return "ok";
   return "";
 }
 
@@ -1235,6 +1251,11 @@ function renderVersionMenu(menu, items, currentId, opts) {
       chip.className = "yhat-tf-version-chip";
       const tone = versionChipTone(bit, it.status);
       if (tone) chip.classList.add(`is-${tone}`);
+      const full = VERSION_BADGE[bit];
+      if (full && full !== bit) {
+        chip.title = full;
+        chip.setAttribute("aria-label", full);
+      }
       chip.textContent = bit;
       chips.append(chip);
     }

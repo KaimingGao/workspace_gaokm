@@ -2,22 +2,21 @@
   <div class="dashboard-head-text quant-head-text">
     <p class="dashboard-eyebrow">Prior Desk</p>
     <h2>市场先验</h2>
-    <p id="strategy-meta" class="dashboard-meta quant-meta" aria-live="polite">M prior · 舆情仅观察徽章 · 不静默写盘</p>
+    <p id="strategy-meta" class="dashboard-meta quant-meta" aria-live="polite">盘前看板 · 只读 · 不改 ŷ · 未接调仓</p>
     <p class="dashboard-section-desc strategy-head-path">
       <a class="strategy-hero-link" href="#strategy-section-overview">概览</a>
       →
-      <a class="strategy-hero-link" href="#strategy-market-context">M prior</a>
+      <a class="strategy-hero-link" href="#strategy-section-cross">跨市场</a>
       →
-      <a class="strategy-hero-link" href="/replay">回测</a>
+      <a class="strategy-hero-link" href="#strategy-section-events">事件暴露</a>
+      →
+      <a class="strategy-hero-link" href="#strategy-regime-board">Regime</a>
       ·
       <a class="strategy-hero-link" href="/follow">交易执行</a>
-      ·
-      <a class="strategy-hero-link" href="/quant">研究枢纽</a>
     </p>
   </div>
   <div class="dashboard-head-actions quant-head-actions strategy-head-actions">
-    <span class="quant-desk-badge strategy-desk-badge" title="先验仅人审写盘">人审写盘</span>
-    <span class="strategy-desk-guard" title="禁止静默改 signal_config / weights">不静默</span>
+    <span class="quant-desk-badge strategy-desk-badge" title="只读盘前信息，无可写旋钮">只读看板</span>
   </div>
 </div>
 
@@ -29,185 +28,140 @@
   >
     <header class="dashboard-section-head quant-section-head strategy-section-head">
       <h3 id="strategy-section-overview-title" class="dashboard-section-title">概览</h3>
-      <p class="dashboard-section-desc quant-section-desc">盘前 M 环境 · 科技 / A50 / Regime / Prior · 不改 ŷ</p>
+      <p class="dashboard-section-desc quant-section-desc">M 环境 · 可信度 · 刷新 ingest</p>
     </header>
+    <div class="dashboard-card-head quant-pro-card-head quant-card-head--tools strategy-overview-tools">
+      <p id="strategy-desk-boundary" class="quant-fingerprint quant-card-head-status">非 PIT · 不进 ŷ · 未接调仓</p>
+      <div class="quant-pro-card-tools">
+        <button type="button" id="strategy-mctx-refresh" class="dialog-btn dialog-btn-keep-case">刷新 ingest</button>
+      </div>
+    </div>
     <div id="quant-macro-context-strip" class="quant-macro-context-strip" aria-live="polite"></div>
+    <div class="dashboard-overview-band quant-pro-desk-top strategy-overview-band">
+      <div
+        class="dashboard-kpi-row quant-pro-overview-kpis strategy-trust-kpi-row"
+        id="strategy-trust-grid"
+        aria-label="盘前可信度"
+      >
+        <div class="dashboard-kpi-row-body" id="strategy-trust-body">
+          <p class="strategy-desk-empty">加载可信度…</p>
+        </div>
+      </div>
+    </div>
   </section>
 
-  <!-- 盘前 M prior（上）· Regime（下）：只读状态（配置仍写 signal_config.json） -->
   <section
     class="dashboard-section quant-section strategy-section strategy-section-primary"
-    id="strategy-market-context"
-    aria-labelledby="strategy-section-mctx-title"
+    id="strategy-section-cross"
+    aria-labelledby="strategy-section-cross-title"
   >
     <header class="dashboard-section-head quant-section-head strategy-section-head">
-      <h3 id="strategy-section-mctx-title" class="dashboard-section-title">M prior</h3>
-      <p class="dashboard-section-desc quant-section-desc">四闸缩仓 / 拦开仓 · ŷ 不改 · 人审写入 signal_config</p>
+      <h3 id="strategy-section-cross-title" class="dashboard-section-title">跨市场明细</h3>
+      <p class="dashboard-section-desc quant-section-desc">分项 1D/5D · Lead-Lag · 近30日累计</p>
     </header>
-    <div class="dashboard-card quant-pro-card strategy-ops-card strategy-mctx-panel">
-      <div class="quant-pro-card-body strategy-ops-card-body">
-        <div class="strategy-mctx-matrix" id="strategy-mctx-form" aria-label="人审 M prior">
-          <div class="strategy-mctx-toolbar">
-            <p id="strategy-mctx-head-status" class="quant-fingerprint strategy-mctx-toolbar-status">加载中…</p>
-            <div class="strategy-mctx-toolbar-tools">
-              <canvas
-                class="strategy-mctx-spark"
-                id="strategy-mctx-spark"
-                width="84"
-                height="22"
-                aria-label="海外科技近14日"
-                hidden
-              ></canvas>
-              <button type="button" id="strategy-mctx-refresh" class="dialog-btn dialog-btn-keep-case">刷新 ingest</button>
+    <div class="dashboard-card quant-pro-card strategy-ops-card">
+      <div class="quant-pro-card-body strategy-ops-card-body strategy-desk-pad">
+        <div class="strategy-desk-split strategy-desk-split--cross">
+          <div class="strategy-desk-block strategy-desk-block--series">
+            <div class="strategy-desk-kicker-row">
+              <h4 class="strategy-desk-kicker">分项</h4>
+              <p id="strategy-series-meta" class="strategy-desk-inline-meta"></p>
+            </div>
+            <div id="strategy-series-table" class="strategy-desk-table-wrap" aria-live="polite">
+              <p class="strategy-desk-empty">加载分项…</p>
             </div>
           </div>
-          <div class="strategy-mctx-panels" id="strategy-mctx-grid" aria-live="polite">
-            <section class="strategy-mctx-unit" data-k="cross_market" data-panel="cross" aria-labelledby="strategy-mctx-title-cross">
-              <header class="strategy-mctx-block-head">
-                <h4 id="strategy-mctx-title-cross" class="strategy-mctx-block-title">跨市场</h4>
-                <p class="strategy-mctx-block-note">加载…</p>
-              </header>
-              <div class="strategy-mctx-boxes strategy-mctx-boxes--row4">
-                <label class="strategy-mctx-box" title="cross_market.mode">
-                  <span class="strategy-mctx-box-text">
-                    <span class="strategy-mctx-box-title">模式</span>
-                    <span class="strategy-mctx-box-desc">关闭 / 警告 / 约束</span>
-                  </span>
-                  <select id="strategy-mctx-mode" aria-label="cross_market.mode">
-                    <option value="off">关闭</option>
-                    <option value="risk">警告</option>
-                    <option value="gate">约束</option>
-                  </select>
-                </label>
-                <label class="strategy-mctx-box" title="overseas_tech_1d_pct ≤ 此值触发">
-                  <span class="strategy-mctx-box-text">
-                    <span class="strategy-mctx-box-title">拖累%</span>
-                    <span class="strategy-mctx-box-desc">海外科技 1D</span>
-                  </span>
-                  <input id="strategy-mctx-tech-trigger" type="number" step="0.1" max="0" />
-                </label>
-                <label class="strategy-mctx-box">
-                  <span class="strategy-mctx-box-text">
-                    <span class="strategy-mctx-box-title">缩仓%</span>
-                    <span class="strategy-mctx-box-desc">调仓上限</span>
-                  </span>
-                  <input id="strategy-mctx-scale" type="number" min="0" max="100" step="5" />
-                </label>
-                <label class="strategy-mctx-box strategy-mctx-box--check">
-                  <span class="strategy-mctx-box-text">
-                    <span class="strategy-mctx-box-title">持仓同步</span>
-                    <span class="strategy-mctx-box-desc">缩仓时</span>
-                  </span>
-                  <input type="checkbox" id="strategy-mctx-scale-holds" />
-                </label>
-              </div>
-            </section>
-            <section class="strategy-mctx-unit" data-k="sentiment" data-panel="sentiment" aria-labelledby="strategy-mctx-title-sent">
-              <header class="strategy-mctx-block-head">
-                <h4 id="strategy-mctx-title-sent" class="strategy-mctx-block-title">情绪</h4>
-                <p class="strategy-mctx-block-note">加载…</p>
-              </header>
-              <div class="strategy-mctx-boxes strategy-mctx-boxes--row3">
-                <label class="strategy-mctx-box" title="market_sentiment_prior.mode">
-                  <span class="strategy-mctx-box-text">
-                    <span class="strategy-mctx-box-title">模式</span>
-                    <span class="strategy-mctx-box-desc">关闭 / 警告 / 约束</span>
-                  </span>
-                  <select id="strategy-msp-mode" aria-label="market_sentiment_prior.mode">
-                    <option value="off">关闭</option>
-                    <option value="risk">警告</option>
-                    <option value="gate">约束</option>
-                  </select>
-                </label>
-                <label class="strategy-mctx-box">
-                  <span class="strategy-mctx-box-text">
-                    <span class="strategy-mctx-box-title">缩仓%</span>
-                    <span class="strategy-mctx-box-desc">调仓上限</span>
-                  </span>
-                  <input id="strategy-msp-scale" type="number" min="0" max="100" step="5" />
-                </label>
-                <label class="strategy-mctx-box strategy-mctx-box--check">
-                  <span class="strategy-mctx-box-text">
-                    <span class="strategy-mctx-box-title">持仓同步</span>
-                    <span class="strategy-mctx-box-desc">缩仓时</span>
-                  </span>
-                  <input type="checkbox" id="strategy-msp-scale-holds" />
-                </label>
-              </div>
-            </section>
-            <section class="strategy-mctx-unit" data-k="regulatory" data-panel="reg" aria-labelledby="strategy-mctx-title-reg">
-              <header class="strategy-mctx-block-head">
-                <h4 id="strategy-mctx-title-reg" class="strategy-mctx-block-title">监管</h4>
-                <p class="strategy-mctx-block-note">加载…</p>
-              </header>
-              <div class="strategy-mctx-boxes strategy-mctx-boxes--row2">
-                <label class="strategy-mctx-box" title="regulatory_prior.mode">
-                  <span class="strategy-mctx-box-text">
-                    <span class="strategy-mctx-box-title">模式</span>
-                    <span class="strategy-mctx-box-desc">关闭 / 警告 / 约束</span>
-                  </span>
-                  <select id="strategy-reg-mode" aria-label="regulatory_prior.mode">
-                    <option value="off">关闭</option>
-                    <option value="risk">警告</option>
-                    <option value="gate">约束</option>
-                  </select>
-                </label>
-                <label class="strategy-mctx-box">
-                  <span class="strategy-mctx-box-text">
-                    <span class="strategy-mctx-box-title">缩仓%</span>
-                    <span class="strategy-mctx-box-desc">调仓上限</span>
-                  </span>
-                  <input id="strategy-reg-scale" type="number" min="0" max="100" step="5" />
-                </label>
-              </div>
-            </section>
-            <section class="strategy-mctx-unit" data-k="ipo" data-panel="ipo" aria-labelledby="strategy-mctx-title-ipo">
-              <header class="strategy-mctx-block-head">
-                <h4 id="strategy-mctx-title-ipo" class="strategy-mctx-block-title">IPO</h4>
-                <p class="strategy-mctx-block-note">加载…</p>
-              </header>
-              <div class="strategy-mctx-boxes strategy-mctx-boxes--row3">
-                <label class="strategy-mctx-box" title="ipo_drain_prior.mode">
-                  <span class="strategy-mctx-box-text">
-                    <span class="strategy-mctx-box-title">模式</span>
-                    <span class="strategy-mctx-box-desc">关闭 / 警告 / 约束</span>
-                  </span>
-                  <select id="strategy-ipo-mode" aria-label="ipo_drain_prior.mode">
-                    <option value="off">关闭</option>
-                    <option value="risk">警告</option>
-                    <option value="gate">约束</option>
-                  </select>
-                </label>
-                <label class="strategy-mctx-box">
-                  <span class="strategy-mctx-box-text">
-                    <span class="strategy-mctx-box-title">虹吸</span>
-                    <span class="strategy-mctx-box-desc">流动性比</span>
-                  </span>
-                  <input id="strategy-ipo-drain-ratio" type="number" min="0" step="0.1" />
-                </label>
-                <label class="strategy-mctx-box">
-                  <span class="strategy-mctx-box-text">
-                    <span class="strategy-mctx-box-title">缩仓%</span>
-                    <span class="strategy-mctx-box-desc">调仓上限</span>
-                  </span>
-                  <input id="strategy-ipo-scale" type="number" min="0" max="100" step="5" />
-                </label>
-              </div>
-            </section>
-          </div>
-          <div id="strategy-mctx-status" class="strategy-mctx-meta" hidden aria-live="polite"></div>
-          <div class="strategy-mctx-footer">
-            <div class="strategy-mctx-actions">
-              <label class="strategy-mctx-field" title="market_prior_policy.merge_mode">
-                <span class="strategy-mctx-field-label">合并</span>
-                <select id="strategy-mctx-merge" aria-label="多 prior 合并策略">
-                  <option value="min_scale">最严</option>
-                  <option value="chain">串联</option>
-                </select>
-              </label>
-              <button type="button" id="strategy-mctx-save" class="dialog-btn dialog-btn-keep-case">保存 4 路</button>
-              <p id="strategy-mctx-save-status" class="strategy-prior-status" aria-live="polite"></p>
+          <div class="strategy-desk-block strategy-desk-block--leadlag">
+            <div class="strategy-desk-kicker-row">
+              <h4 class="strategy-desk-kicker">Lead-Lag</h4>
             </div>
+            <div id="strategy-leadlag-card" class="strategy-leadlag-card" aria-live="polite">
+              <p class="strategy-desk-empty">加载校准…</p>
+            </div>
+          </div>
+        </div>
+        <div class="strategy-desk-block strategy-desk-block--wide">
+          <div class="strategy-macro-history-wrap">
+            <div class="strategy-desk-kicker-row">
+              <h4 class="strategy-desk-kicker">近30日累计 · 海外科技 / A50</h4>
+              <div id="strategy-macro-history-legend" class="strategy-macro-history-legend"></div>
+            </div>
+            <div
+              id="strategy-macro-history"
+              class="strategy-macro-history"
+              role="img"
+              aria-label="海外科技与A50近30日"
+            ></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section
+    class="dashboard-section quant-section strategy-section strategy-section-primary"
+    id="strategy-section-events"
+    aria-labelledby="strategy-section-events-title"
+  >
+    <header class="dashboard-section-head quant-section-head strategy-section-head">
+      <h3 id="strategy-section-events-title" class="dashboard-section-title">事件与暴露</h3>
+      <p class="dashboard-section-desc quant-section-desc">监管 / IPO · 观察池与持仓交集 · 不改仓</p>
+    </header>
+    <div class="dashboard-card quant-pro-card strategy-ops-card">
+      <div class="quant-pro-card-body strategy-ops-card-body strategy-desk-pad">
+        <div
+          class="dashboard-kpi-row quant-pro-overview-kpis strategy-events-kpi-row"
+          id="strategy-events-summary"
+          aria-label="事件 KPI"
+        >
+          <div class="dashboard-kpi-row-body" id="strategy-events-kpi-body"></div>
+        </div>
+        <div class="strategy-desk-split strategy-desk-split--events">
+          <div class="strategy-desk-block">
+            <div class="strategy-desk-kicker-row">
+              <h4 class="strategy-desk-kicker">监管命中</h4>
+              <p id="strategy-reg-meta" class="strategy-desk-inline-meta"></p>
+            </div>
+            <div id="strategy-reg-events" class="strategy-event-list" aria-live="polite">
+              <p class="strategy-desk-empty">加载公告…</p>
+            </div>
+          </div>
+          <div class="strategy-desk-block">
+            <div class="strategy-desk-kicker-row">
+              <h4 class="strategy-desk-kicker">IPO / 虹吸</h4>
+              <p id="strategy-ipo-meta" class="strategy-desk-inline-meta"></p>
+            </div>
+            <div id="strategy-ipo-events" class="strategy-event-list" aria-live="polite">
+              <p class="strategy-desk-empty">加载新股…</p>
+            </div>
+          </div>
+        </div>
+        <div
+          class="dashboard-kpi-row quant-pro-overview-kpis strategy-exposure-kpi-row"
+          id="strategy-exposure-kpis"
+          aria-label="暴露 KPI"
+        >
+          <div class="dashboard-kpi-row-body" id="strategy-exposure-kpi-body"></div>
+        </div>
+        <div id="strategy-exposure-chips" class="strategy-chip-row" aria-live="polite"></div>
+        <p id="strategy-exposure-meta" class="strategy-desk-meta" hidden></p>
+        <div class="strategy-desk-block strategy-heatmap-block">
+          <div class="strategy-desk-kicker-row">
+            <h4 class="strategy-desk-kicker">概念资金热力</h4>
+            <p id="strategy-heatmap-meta" class="strategy-desk-inline-meta"></p>
+          </div>
+          <div id="strategy-concept-heatmap" class="strategy-heatmap" aria-live="polite">
+            <p class="strategy-desk-empty">加载概念流…</p>
+          </div>
+        </div>
+        <div class="strategy-desk-split">
+          <div class="strategy-desk-block">
+            <h4 class="strategy-desk-kicker">观察池命中</h4>
+            <div id="strategy-exposure-watching" class="strategy-event-list" aria-live="polite"></div>
+          </div>
+          <div class="strategy-desk-block">
+            <h4 class="strategy-desk-kicker">持仓命中</h4>
+            <div id="strategy-exposure-holdings" class="strategy-event-list" aria-live="polite"></div>
           </div>
         </div>
       </div>
@@ -221,9 +175,7 @@
   >
     <header class="dashboard-section-head quant-section-head strategy-section-head">
       <h3 id="strategy-regime-title" class="dashboard-section-title">Regime</h3>
-      <p class="dashboard-section-desc quant-section-desc">
-        压单票与行业上限 · 科技拖累 defer 至跨市场 · ŷ 不改
-      </p>
+      <p class="dashboard-section-desc quant-section-desc">分档 · 仓位缩放 · overlay defer · ŷ 不改</p>
     </header>
     <div class="dashboard-card quant-pro-card strategy-ops-card strategy-mctx-panel strategy-regime-panel">
       <div class="dashboard-card-head quant-pro-card-head quant-card-head--tools">
@@ -237,33 +189,14 @@
             </div>
           </section>
         </div>
+        <div class="strategy-desk-pad strategy-regime-limits-pad">
+          <div class="strategy-desk-kicker-row">
+            <h4 class="strategy-desk-kicker">仓位缩放对照</h4>
+            <p id="strategy-regime-limits-meta" class="strategy-desk-inline-meta"></p>
+          </div>
+          <div id="strategy-regime-limits" class="strategy-regime-scale-row" aria-live="polite"></div>
+        </div>
       </div>
     </div>
   </section>
-
-  <div class="strategy-ops" aria-label="次要分析">
-    <section
-      class="dashboard-section quant-section strategy-section strategy-section-secondary"
-      id="strategy-factor-dict"
-      aria-labelledby="strategy-factor-dict-title"
-    >
-      <details class="quant-secondary-fold strategy-secondary-fold" id="strategy-factor-dict-fold">
-        <summary class="quant-secondary-fold-sum strategy-secondary-fold-sum">
-          <h3 id="strategy-factor-dict-title" class="dashboard-section-title">因子字典</h3>
-          <p class="dashboard-section-desc quant-section-desc">研究入口 · 悬停见定义</p>
-        </summary>
-        <div class="dashboard-card quant-pro-card strategy-ops-card">
-          <div class="quant-pro-card-body strategy-ops-card-body">
-            <p class="quant-sub strategy-inline-note">
-              因子进模型经组 OLS/Ridge β → ŷ；拟合与落地在
-              <a class="quant-inline-link" href="/quant">研究枢纽</a>。
-              本页仅字典：点击可填入 AI 提问；悬停见定义。
-              不在此页改 weights / 自动 promote。
-            </p>
-            <div id="strategy-factor-dict-list" class="strategy-factor-dict-list"></div>
-          </div>
-        </div>
-      </details>
-    </section>
-  </div>
 </div>

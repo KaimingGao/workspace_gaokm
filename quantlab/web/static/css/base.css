@@ -2893,8 +2893,7 @@ canvas#paper-chart-fallback[hidden] {
 .follow-ops-load-status.is-busy::before,
 .dashboard-updated[data-state="loading"]::before,
 .watching-toolbar-meta.is-busy::before,
-.quant-desk-status-strip.is-busy .quant-desk-status-msg::before,
-.strategy-mctx-meta.is-busy::before {
+.quant-desk-status-strip.is-busy .quant-desk-status-msg::before {
   content: "";
   flex-shrink: 0;
   display: inline-block;
@@ -3010,7 +3009,6 @@ canvas#paper-chart-fallback[hidden] {
   .dashboard-updated[data-state="loading"]::before,
   .watching-toolbar-meta.is-busy::before,
   .quant-desk-status-strip.is-busy .quant-desk-status-msg::before,
-  .strategy-mctx-meta.is-busy::before,
   .dialog-btn.is-busy::after,
   .dialog-btn[aria-busy="true"]::after,
   .ui-busy-spinner,
@@ -3029,8 +3027,7 @@ canvas#paper-chart-fallback[hidden] {
   .follow-ops-load-status.is-busy::before,
   .dashboard-updated[data-state="loading"]::before,
   .watching-toolbar-meta.is-busy::before,
-  .quant-desk-status-strip.is-busy .quant-desk-status-msg::before,
-  .strategy-mctx-meta.is-busy::before {
+  .quant-desk-status-strip.is-busy .quant-desk-status-msg::before {
     background-color: var(--ui-busy);
     box-shadow:
       var(--ui-busy-dot-gap) 0 0 var(--ui-busy),

@@ -3,7 +3,7 @@
 const COMMANDS = [
   { id: "nav-dashboard", label: "前往 · 仪表盘", hint: "/dashboard", href: "/dashboard", keywords: "home 首页 概览 kpi 净值" },
   { id: "nav-watching", label: "前往 · 观察台", hint: "/watching", href: "/watching", keywords: "观察 名单 建仓" },
-  { id: "nav-strategy", label: "前往 · 市场先验", hint: "/market-prior", href: "/market-prior", keywords: "M prior 市场先验 人审 Regime strategy" },
+  { id: "nav-strategy", label: "前往 · 市场先验", hint: "/market-prior", href: "/market-prior", keywords: "M prior 市场先验 看板 Regime 跨市场 情绪 IPO strategy" },
   { id: "nav-follow", label: "前往 · 交易执行", hint: "/follow", href: "/follow", keywords: "模拟 持仓 调仓 做T" },
   { id: "nav-replay", label: "前往 · 历史回测", hint: "/replay", href: "/replay", keywords: "回测 回溯 绩效 grid 做T" },
   { id: "nav-data", label: "前往 · 数据中心", hint: "/data", href: "/data", keywords: "数据 日K 日线 5m 分钟 物化 补齐 强更 新闻 舆情 观察池 重建 对齐 只数" },

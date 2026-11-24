@@ -81,15 +81,45 @@ def merge_macro_snapshots(
     errs = list(prior.get("errors") or [])
     errs.extend(list(fresh.get("errors") or []))
     merged["errors"] = prune_macro_errors(errs, merged.get("series"))
-    # 重算聚合字段
+    # 重算聚合：只吃与最新成分同日的科技序列，避免周五暴跌与周一反弹混均
+    def _last_date(slot: Any) -> str:
+        bars = (slot or {}).get("recent_bars") or []
+        if not bars:
+            return ""
+        return str(bars[-1].get("date") or "")[:10]
+
+    ser = merged.get("series") or {}
+    last_dates = {
+        k: _last_date(ser.get(k))
+        for k in ("sox", "ndx", "qqq", "kweb")
+        if _last_date(ser.get(k))
+    }
+    tech_session = max(last_dates.values()) if last_dates else ""
     tech_rets = []
+    stale_tech = []
     for key in ("sox", "ndx", "qqq", "kweb"):
-        v = (merged.get("series") or {}).get(key, {}).get("change_1d_pct")
-        if v is not None:
-            tech_rets.append(float(v))
+        slot = ser.get(key) or {}
+        chg = slot.get("change_1d_pct")
+        d = last_dates.get(key) or ""
+        if chg is None or not d:
+            continue
+        if tech_session and d != tech_session:
+            stale_tech.append(key)
+            continue
+        tech_rets.append(float(chg))
     merged["overseas_tech_1d_pct"] = (
         round(sum(tech_rets) / len(tech_rets), 4) if tech_rets else prior.get("overseas_tech_1d_pct")
     )
+    merged["tech_session_as_of"] = tech_session or fresh.get("tech_session_as_of") or prior.get(
+        "tech_session_as_of"
+    )
+    merged["stale_tech_keys"] = stale_tech
+    if stale_tech:
+        errs2 = list(merged.get("errors") or [])
+        tag = "tech_stale:" + ",".join(stale_tech) + f"@{tech_session or '?'}"
+        if tag not in errs2:
+            errs2.append(tag)
+        merged["errors"] = prune_macro_errors(errs2, ser)
     merged["liquidity_stress_score"] = fresh.get("liquidity_stress_score")
     if merged["liquidity_stress_score"] is None:
         merged["liquidity_stress_score"] = prior.get("liquidity_stress_score")

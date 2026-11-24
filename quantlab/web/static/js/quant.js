@@ -4006,7 +4006,9 @@ export function initQuant(ctx) {
       page !== "follow" &&
       els.quantDialog &&
       typeof els.quantDialog.showModal === "function";
-    const hasStrategy = !!document.getElementById("strategy-market-context");
+    const hasStrategy =
+      !!document.getElementById("strategy-section-overview") ||
+      !!document.getElementById("strategy-regime-board");
     const hasWatching = !!document.getElementById("quant-watching-list") || !!document.getElementById("quant-watching-meta");
     const hasReplay = !!document.getElementById("quant-portfolio-run");
     try {
@@ -6430,21 +6432,6 @@ export function initQuant(ctx) {
     }
   });
 
-  document.getElementById("strategy-factor-dict-list")?.addEventListener("click", (e) => {
-    const btn = e.target.closest && e.target.closest("[data-factor]");
-    if (!btn) return;
-    e.preventDefault();
-    const name = btn.getAttribute("data-factor") || "";
-    const tip = btn.getAttribute("title") || name;
-    const q = `请解释因子 ${name}：${tip}`;
-    if (typeof window.__quantlabOpenAi === "function") {
-      window.__quantlabOpenAi(q);
-      setTimeout(() => {
-        document.getElementById("ai-drawer-form")?.requestSubmit();
-      }, 40);
-    }
-  });
-
   // 深链到次要块时展开（概览 path rail 已由四头选卡替代）
   const openSecondaryByHash = () => {
     const id = String(location.hash || "").replace(/^#/, "");
@@ -6544,12 +6531,10 @@ export function initQuant(ctx) {
   } else if (page === "watching") {
     watching.loadWatchingDataQuality().catch(() => {});
   }
-  if (hash === "strategy-factor-dict") {
-    const fold = document.getElementById("strategy-factor-dict-fold");
-    if (fold) fold.open = true;
-  }
-
-  if (document.getElementById("strategy-market-context")) {
+  if (
+    document.getElementById("strategy-section-overview") ||
+    document.getElementById("strategy-regime-board")
+  ) {
     strategy.loadStrategyList().catch(() => {});
   }
 
@@ -6560,25 +6545,6 @@ export function initQuant(ctx) {
       strategy.refreshMarketContextPanel?.().catch(() => {});
     });
   }
-  const mctxSaveBtn = document.getElementById("strategy-mctx-save");
-  if (mctxSaveBtn) {
-    mctxSaveBtn.addEventListener("click", (e) => {
-      e.preventDefault();
-      strategy.saveStrategyMarketPrior?.().catch(() => {});
-    });
-  }
-  const mctxModeSync = [
-    ["strategy-mctx-mode", "syncMctxGateOptsVisibility"],
-    ["strategy-msp-mode", "syncMspGateOptsVisibility"],
-    ["strategy-reg-mode", "syncRegGateOptsVisibility"],
-    ["strategy-ipo-mode", "syncIpoGateOptsVisibility"],
-  ];
-  mctxModeSync.forEach(([id, fn]) => {
-    document.getElementById(id)?.addEventListener("change", () => {
-      strategy[fn]?.();
-    });
-  });
-  strategy.loadMarketPriorForm?.().catch(() => {});
   if (page === "strategy") {
     strategy.loadMarketContextPanel?.().catch(() => {});
   }

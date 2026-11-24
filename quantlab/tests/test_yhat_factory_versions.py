@@ -73,7 +73,8 @@ class TestYhatFactoryVersions(unittest.TestCase):
         label = listed["items"][0]["label"]
         self.assertIn("MSE 6.500", label)
         self.assertNotIn("RankIC", label)
-        self.assertIn("预训练", label)
+        self.assertIn("预", label.split(" · "))
+        self.assertNotIn("预训练", label.split(" · "))
 
     def test_live_suite_stays_out_of_research_list(self):
         with tempfile.TemporaryDirectory() as td:
@@ -115,6 +116,18 @@ class TestYhatFactoryVersions(unittest.TestCase):
         self.assertEqual(
             _shown_label("11-16 01:02 · RankIC 0.042 · 10% · full · l2", "L"),
             "11-16 01:02 · RankIC 0.042 · L",
+        )
+        self.assertEqual(
+            _shown_label("11-19 01:36 · RankIC 0.010 · 正式 · 过闸 · 预训练", "T"),
+            "11-19 01:36 · RankIC 0.010 · 正 · 过 · 预 · T",
+        )
+        self.assertEqual(
+            _shown_label("11-19 01:36 · 失败", "T"),
+            "11-19 01:36 · 败 · T",
+        )
+        self.assertEqual(
+            _shown_label("11-19 01:36 · 部分完成 · 未过闸", "L"),
+            "11-19 01:36 · 半 · 未 · L",
         )
 
     def test_rank_head_label_keeps_rank_ic(self):
@@ -371,7 +384,8 @@ class TestYhatFactoryVersions(unittest.TestCase):
                 self.assertFalse(preview["badges"]["formal"])
                 self.assertTrue(preview["badges"]["failed"])
                 label = list_factory_versions("oo", factory="T")["items"][0]["label"]
-                self.assertIn("失败", label)
+                self.assertIn("败", label.split(" · "))
+                self.assertNotIn("失败", label.split(" · "))
 
     def test_ingest_archives_and_skip_does_not(self):
         with tempfile.TemporaryDirectory() as td:

@@ -1,17 +1,18 @@
 import { mergeScoringFloors } from "./scoring.js";
-import { loadAndPaintMacroStrip, runMarketContextIngest } from "../macro_context_ui.js";
+import {
+  loadAndPaintMacroStrip,
+  runMarketContextIngest,
+  paintMacroHistoryChart,
+  macroHistoryLegendHtml,
+} from "../macro_context_ui.js";
 
 /** Quant domain: strategy */
 export function installStrategy(q) {
   const { els, state, escapeHtml, apiFetch } = q;
-  const { factorMetaByName, ensureFactorMeta } = q;
 
   async function loadSignalConfigPanel() {
     try {
-      await ensureFactorMeta();
-      renderFactorDict();
       await loadMarketContextPanel();
-      await loadMarketPriorForm();
       return null;
     } catch (_) {
       return null;
@@ -37,7 +38,10 @@ export function installStrategy(q) {
   function regimeBenchmarkLabel(code) {
     const raw = String(code || "").toLowerCase();
     if (!raw) return "沪深300";
-    if (raw.includes("300") || raw === "hs300" || raw === "csi300") return "沪深300";
+    if (raw.includes("1000") || raw === "csi1000" || raw === "zz1000") return "中证1000";
+    if (raw.includes("500") || raw === "csi500" || raw === "zz500") return "中证500";
+    if (raw.includes("300") || raw === "hs300" || raw === "csi300" || raw.includes("000300"))
+      return "沪深300";
     return String(code);
   }
 
@@ -227,88 +231,13 @@ export function installStrategy(q) {
     return `${(h / 24).toFixed(1)}d`;
   }
 
-  function paintMctxSpark(canvas, data) {
-    if (!canvas || !data || data.length < 2) {
-      if (canvas) canvas.hidden = true;
-      return;
-    }
-    const sctx = canvas.getContext("2d");
-    if (!sctx) return;
-    canvas.hidden = false;
-    const w = canvas.width;
-    const h = canvas.height;
-    const min = Math.min(...data);
-    const max = Math.max(...data);
-    const range = max - min || 1;
-    const step = w / (data.length - 1);
-    const last = data[data.length - 1];
-    const root = document.documentElement;
-    const up = getComputedStyle(root).getPropertyValue("--color-up").trim() || "#f5222d";
-    const down = getComputedStyle(root).getPropertyValue("--color-down").trim() || "#52c41a";
-    sctx.clearRect(0, 0, w, h);
-    sctx.beginPath();
-    data.forEach((v, i) => {
-      const x = i * step;
-      const y = h - ((v - min) / range) * (h - 4) - 2;
-      if (i === 0) sctx.moveTo(x, y);
-      else sctx.lineTo(x, y);
-    });
-    sctx.strokeStyle = last >= 0 ? up : down;
-    sctx.lineWidth = 1.4;
-    sctx.stroke();
-  }
-
-  function paintMctxBox(c) {
-    const unit = document.querySelector(`.strategy-mctx-unit[data-k="${c.k}"]`);
-    if (!unit) return;
-    unit.classList.toggle("is-on", !!c.on);
-    unit.classList.toggle("is-armed", !c.on && !!c.neutral);
-    if (c.tip) unit.setAttribute("title", c.tip);
-    const note = unit.querySelector(".strategy-mctx-block-note");
-    if (!note) return;
-    const live = c.on ? `触发 · ${c.metric}` : c.metric || "—";
-    note.textContent = c.sub && c.sub !== "—" ? `${live} · ${c.sub}` : live;
-    note.classList.remove("is-up", "is-down", "is-flat");
-    if (c.metricTone) note.classList.add(c.metricTone);
-  }
-
-  function paintMctxEmpty(msg) {
-    document.querySelectorAll(".strategy-mctx-unit").forEach((unit) => {
-      unit.classList.remove("is-on", "is-armed");
-      const note = unit.querySelector(".strategy-mctx-block-note");
-      if (!note) return;
-      note.textContent = msg || "—";
-      note.classList.remove("is-up", "is-down", "is-flat");
-    });
-  }
-
-  function setMctxHeadStatus(text, { busy = false, warn = false } = {}) {
-    const head = document.getElementById("strategy-mctx-head-status");
-    if (!head) return;
-    head.textContent = text || "";
-    head.classList.toggle("is-busy", !!busy);
-    head.classList.toggle("is-warn", !!warn && !busy);
-    if (busy) head.setAttribute("aria-busy", "true");
-    else head.removeAttribute("aria-busy");
-  }
-
-  function setMctxMeta(chips) {
-    const st = document.getElementById("strategy-mctx-status");
-    if (!st) return;
-    const list = (chips || []).filter((c) => c && c.t);
-    if (!list.length) {
-      st.hidden = true;
-      st.classList.remove("is-busy");
-      st.innerHTML = "";
-      return;
-    }
-    st.hidden = false;
-    st.innerHTML = list
-      .map(
-        (c) =>
-          `<span class="strategy-mctx-chip ${c.cls || ""}">${escapeHtml(c.t)}</span>`
-      )
-      .join("");
+  function setStrategyMetaStatus(text, { busy = false } = {}) {
+    const meta = document.getElementById("strategy-meta");
+    if (!meta) return;
+    if (text != null && text !== "") meta.textContent = text;
+    meta.classList.toggle("is-busy", !!busy);
+    if (busy) meta.setAttribute("aria-busy", "true");
+    else meta.removeAttribute("aria-busy");
   }
 
   async function loadMarketContextPanel() {
@@ -316,48 +245,18 @@ export function installStrategy(q) {
     if (macroHost) {
       loadAndPaintMacroStrip(macroHost, apiFetch, escapeHtml).catch(() => {});
     }
-    if (!document.querySelector(".strategy-mctx-unit")) return;
-    const spark = document.getElementById("strategy-mctx-spark");
     try {
-      const [ctxRes, priorRes] = await Promise.all([
-        apiFetch("/api/dashboard/market-context"),
-        fetch("/api/signal/config/market-prior").then(async (res) => {
-          const data = await res.json().catch(() => ({}));
-          return res.ok ? data : {};
-        }),
-      ]);
+      const ctxRes = await apiFetch("/api/dashboard/market-context");
       const ctx = ctxRes.ok !== false && ctxRes.data ? ctxRes.data : null;
       if (!ctx || ctx.ok === false) {
-        paintMctxEmpty("盘前上下文未就绪");
         renderRegimeBoard({});
-        setMctxMeta([]);
-        setMctxHeadStatus("无快照", { warn: true });
-        if (spark) spark.hidden = true;
+        paintPriorDesk(null);
+        setStrategyMetaStatus("盘前上下文未就绪");
         return;
       }
-      const mp = priorRes.market_prior || {};
-      const cmCfg = mp.cross_market || {};
-      const mspCfg = mp.market_sentiment_prior || {};
-      const regCfg = mp.regulatory_prior || {};
-      const ipoCfg = mp.ipo_drain_prior || {};
-      const flags = ctx.prior_flags || {};
-      const reg = ctx.regime || {};
-      const macro = ctx.macro || {};
-      const sent = ctx.market_sentiment || {};
       const fresh = ctx.freshness || {};
-      const macroErrHint = (ctx.macro_errors || macro.errors || []).slice(0, 3).join(" · ");
-      const macroBlocking =
-        !!ctx.macro_degraded || macro.overseas_tech_1d_pct == null;
-
-      const activeCount = [
-        flags.cross_market,
-        flags.market_sentiment,
-        flags.regulatory,
-        flags.ipo_drain,
-      ].filter(Boolean).length;
-      const bits = [];
       const age = ageLabel(fresh.parts);
-
+      const bits = [];
       if (fresh.needs_ingest || ctx.macro_degraded) {
         bits.push(ctx.macro_degraded ? "macro 降级" : "需刷新");
       } else if (ctx.data_ready === false) {
@@ -365,343 +264,629 @@ export function installStrategy(q) {
       } else {
         bits.push(age ? `新鲜 ${age}` : "新鲜");
       }
-      if (macroBlocking) bits.push("跨市场空");
-      if (activeCount > 0) bits.push(`触发 ${activeCount}/4`);
-      setMctxHeadStatus(bits.join(" · "), {
-        warn: !!(fresh.needs_ingest || ctx.macro_degraded || macroBlocking),
-      });
-
-      paintMctxSpark(spark, ctx.macro_sparkline || []);
-      renderRegimeBoard(reg);
-
-      const cards = [
-        {
-          k: "cross_market",
-          label: "跨市场",
-          on: flags.cross_market,
-          neutral: !flags.cross_market && String(cmCfg.mode || "off") !== "off",
-          tip:
-            "海外科技/A50 等隔夜冲击。触发后由 cross_market prior 在调仓时缩仓或警告；不改 ŷ。overlay→M 时科技拖累优先走此路。",
-          metric:
-            macro.overseas_tech_1d_pct != null
-              ? fmtPct(macro.overseas_tech_1d_pct)
-              : "—",
-          metricTone: toneClass(macro.overseas_tech_1d_pct),
-          sub:
-            macro.a50_1d_pct != null
-              ? `A50 ${fmtPct(macro.a50_1d_pct)}`
-              : macroBlocking
-                ? macroErrHint || "macro 未就绪"
-                : "海外科技 1D",
-        },
-        {
-          k: "sentiment",
-          label: "情绪",
-          on: flags.market_sentiment,
-          neutral: !flags.market_sentiment && String(mspCfg.mode || "off") !== "off",
-          tip:
-            "炸板率 = 涨停后开板的比例。偏高说明跟风盘脆弱，market_sentiment_prior 可在调仓缩仓；不改 ŷ。",
-          metric:
-            sent.broken_limit_rate != null
-              ? `${(Number(sent.broken_limit_rate) * 100).toFixed(0)}%`
-              : sent.sentiment_cycle_score != null
-                ? String(sent.sentiment_cycle_score)
-                : "—",
-          metricTone: "",
-          sub:
-            sent.broken_limit_rate != null
-              ? flags.market_sentiment
-                ? "涨停后开板 · 偏高"
-                : "涨停后开板占比"
-              : sent.sentiment_cycle_score != null
-                ? "周期分"
-                : "—",
-        },
-        {
-          k: "regulatory",
-          label: "监管",
-          on: flags.regulatory,
-          neutral: !flags.regulatory && String(regCfg.mode || "off") !== "off",
-          tip:
-            "监管/处罚公告与概念映射。命中时 regulatory_prior 可警告或约束开仓；不改 ŷ。",
-          metric: flags.regulatory ? "命中" : "清静",
-          metricTone: flags.regulatory ? "is-down" : "",
-          sub:
-            (ctx.announcement && ctx.announcement.penalty_concepts || [])
-              .slice(0, 2)
-              .join(" · ") || "无处罚概念",
-        },
-        {
-          k: "ipo",
-          label: "IPO",
-          on: flags.ipo_drain,
-          neutral: !flags.ipo_drain && String(ipoCfg.mode || "off") !== "off",
-          tip:
-            "新股对流动性的虹吸（比值/只数）。极端日由 ipo_drain_prior 参与调仓缩仓；不改 ŷ。",
-          metric:
-            ctx.announcement &&
-            ctx.announcement.ipo &&
-            ctx.announcement.ipo.liquidity_drain_ratio != null
-              ? `${Number(ctx.announcement.ipo.liquidity_drain_ratio).toFixed(1)}×`
-              : ctx.announcement &&
-                  ctx.announcement.ipo &&
-                  ctx.announcement.ipo.ipo_today_count != null
-                ? `${ctx.announcement.ipo.ipo_today_count}`
-                : "—",
-          metricTone: "",
-          sub:
-            ctx.announcement &&
-            ctx.announcement.ipo &&
-            ctx.announcement.ipo.liquidity_drain_ratio != null
-              ? "虹吸比"
-              : ctx.announcement &&
-                  ctx.announcement.ipo &&
-                  ctx.announcement.ipo.ipo_today_count != null
-                ? "今日新股"
-                : "—",
-        },
-      ];
-      cards.forEach(paintMctxBox);
-
-      const chips = [];
-      if (reg.macro_overlay_deferred) chips.push({ t: "overlay→跨市场" });
-      setMctxMeta(chips);
+      bits.push("只读 · 不改 ŷ");
+      setStrategyMetaStatus(bits.join(" · "));
+      renderRegimeBoard(ctx.regime || {});
+      paintPriorDesk(ctx);
     } catch (err) {
-      paintMctxEmpty(String(err.message || err));
       renderRegimeBoard({});
-      setMctxMeta([]);
-      setMctxHeadStatus(String(err.message || err), { warn: true });
+      paintPriorDesk(null);
+      setStrategyMetaStatus(String(err.message || err));
+    }
+  }
+
+  function ageText(h) {
+    if (h == null || !Number.isFinite(Number(h))) return "—";
+    const n = Number(h);
+    if (n < 1) return `${Math.round(n * 60)}m`;
+    if (n < 24) return `${n.toFixed(1)}h`;
+    return `${(n / 24).toFixed(1)}d`;
+  }
+
+  function paintPriorDesk(ctx) {
+    const desk = (ctx && ctx.desk) || {};
+    const boundary = document.getElementById("strategy-desk-boundary");
+    if (boundary) {
+      const b = desk.boundary || {};
+      boundary.textContent =
+        b.note || "非 PIT · 不进 ŷ · 未接调仓；仅盘前人看。";
+    }
+
+    const statusLabel = (s) =>
+      ({ fresh: "新鲜", warn: "将过期", stale: "过期", missing: "缺失" }[s] || "—");
+    const kpiTone = (s) => {
+      if (s === "fresh") return "is-quality-good";
+      if (s === "warn") return "is-bad";
+      if (s === "stale" || s === "missing") return "is-quality-bad";
+      return "";
+    };
+    const paintKpiRow = (bodyId, cells) => {
+      const body = document.getElementById(bodyId);
+      if (!body) return;
+      const list = Array.isArray(cells) ? cells : [];
+      if (!list.length) {
+        body.innerHTML = `<p class="strategy-desk-empty">—</p>`;
+        return;
+      }
+      body.innerHTML = list
+        .map((c) => {
+          return (
+            `<div class="dashboard-kpi-card quant-pro-kpi-card strategy-kpi-card ${escapeHtml(
+              c.tone || ""
+            )}">` +
+            `<div class="dashboard-kpi-label quant-pro-kpi-label">${escapeHtml(
+              c.label || "—"
+            )}</div>` +
+            `<div class="dashboard-kpi-value quant-pro-kpi-value">${escapeHtml(
+              String(c.value ?? "—")
+            )}</div>` +
+            `<div class="dashboard-kpi-sub quant-pro-kpi-sub" title="${escapeHtml(
+              c.title || c.sub || ""
+            )}">${escapeHtml(c.sub || "")}</div>` +
+            `</div>`
+          );
+        })
+        .join("");
+    };
+
+    const trustRows = Array.isArray(desk.trust) ? desk.trust : [];
+    if (!trustRows.length) {
+      paintKpiRow("strategy-trust-body", []);
+      const body = document.getElementById("strategy-trust-body");
+      if (body) {
+        body.innerHTML = `<p class="strategy-desk-empty">${
+          ctx ? "无可信度快照 · 点刷新 ingest" : "盘前上下文未就绪"
+        }</p>`;
+      }
+    } else {
+      paintKpiRow(
+        "strategy-trust-body",
+        trustRows.map((r) => {
+          const st = r.status || (r.stale ? "stale" : r.warn ? "warn" : "fresh");
+          return {
+            label: r.label || r.key || "—",
+            value: statusLabel(st),
+            tone: kpiTone(st),
+            sub: `as-of ${r.as_of || "—"} · ${ageText(r.age_hours)}${
+              r.detail ? ` · ${r.detail}` : ""
+            }`,
+            title: r.source || r.source_short || "",
+          };
+        })
+      );
+    }
+
+    const seriesOrder = [
+      "sox",
+      "ndx",
+      "qqq",
+      "kweb",
+      "nq_fut",
+      "es_fut",
+      "a50",
+      "wti",
+      "copper",
+      "qvix",
+      "cnh",
+      "us10y",
+    ];
+    const seriesLabels = {
+      sox: "费城半导体",
+      ndx: "纳斯达克",
+      qqq: "QQQ",
+      kweb: "中概互联",
+      nq_fut: "小型纳指",
+      es_fut: "小型标普",
+      a50: "富时A50",
+      wti: "WTI原油",
+      copper: "COMEX铜",
+      qvix: "50ETF波动",
+      cnh: "离岸人民币",
+      us10y: "美债10Y",
+    };
+    const seriesGroups = {
+      sox: "美股科技",
+      ndx: "美股科技",
+      qqq: "美股科技",
+      kweb: "中概",
+      nq_fut: "外盘期货",
+      es_fut: "外盘期货",
+      a50: "A 股期货",
+      wti: "大宗",
+      copper: "大宗",
+      qvix: "波动",
+      cnh: "汇率",
+      us10y: "利率",
+    };
+    const seriesFromMacro = () => {
+      const series = (ctx && ctx.macro && ctx.macro.series) || {};
+      if (!series || typeof series !== "object") return [];
+      return seriesOrder
+        .map((key) => {
+          const pack = series[key];
+          if (!pack || typeof pack !== "object") return null;
+          return {
+            key,
+            label: seriesLabels[key] || key.toUpperCase(),
+            group: seriesGroups[key] || "其他",
+            change_1d_pct: pack.change_1d_pct,
+            change_5d_pct: pack.change_5d_pct,
+            close: pack.close,
+            source: pack.source,
+            source_short: pack.source,
+          };
+        })
+        .filter(Boolean);
+    };
+    const mergeSeriesRows = (deskRows, macroRows) => {
+      const byKey = new Map();
+      (macroRows || []).forEach((r) => {
+        if (r && r.key) byKey.set(r.key, r);
+      });
+      (deskRows || []).forEach((r) => {
+        if (!r || !r.key) return;
+        const prev = byKey.get(r.key) || {};
+        byKey.set(r.key, {
+          ...prev,
+          ...r,
+          label: r.label || prev.label,
+          group: r.group || prev.group || seriesGroups[r.key] || "其他",
+        });
+      });
+      const ordered = seriesOrder.map((k) => byKey.get(k)).filter(Boolean);
+      if (ordered.length) return ordered;
+      return deskRows && deskRows.length ? deskRows : macroRows || [];
+    };
+    const shortSrc = (r) => {
+      const t = String((r && (r.source_short || r.source)) || "").trim();
+      if (!t) return "—";
+      return t.length > 22 ? `${t.slice(0, 20)}…` : t;
+    };
+    const fmtClose = (v, key) => {
+      if (v == null || !Number.isFinite(Number(v))) return "—";
+      const n = Number(v);
+      if (key === "us10y") return n.toFixed(3);
+      if (n >= 1000) return n.toFixed(0);
+      if (n >= 100) return n.toFixed(1);
+      return n.toFixed(2);
+    };
+
+    const seriesHost = document.getElementById("strategy-series-table");
+    const seriesMeta = document.getElementById("strategy-series-meta");
+    if (seriesHost) {
+      // desk.series_rows 可能是旧进程的短列表；与 macro.series 合并补齐 NQ/ES/油铜/QVIX
+      const rows = mergeSeriesRows(
+        Array.isArray(desk.series_rows) ? desk.series_rows : [],
+        seriesFromMacro()
+      );
+      if (seriesMeta) {
+        seriesMeta.textContent = rows.length ? `${rows.length} 标的 · 1D/5D` : "";
+      }
+      if (!rows.length) {
+        seriesHost.innerHTML = `<p class="strategy-desk-empty">无分项 · 刷新 ingest</p>`;
+      } else {
+        seriesHost.innerHTML =
+          `<table class="strategy-desk-table strategy-desk-table--series"><thead><tr>` +
+          `<th>标的</th><th>组别</th><th>1D</th><th>5D</th><th>点位</th><th>源</th>` +
+          `</tr></thead><tbody>` +
+          rows
+            .map((r) => {
+              const d1 = r.change_1d_pct;
+              const d5 = r.change_5d_pct;
+              return (
+                `<tr>` +
+                `<td class="is-name">${escapeHtml(r.label || r.key || "—")}</td>` +
+                `<td class="is-muted">${escapeHtml(r.group || "—")}</td>` +
+                `<td class="${toneClass(d1)}">${escapeHtml(fmtPct(d1))}</td>` +
+                `<td class="${toneClass(d5)}">${escapeHtml(fmtPct(d5))}</td>` +
+                `<td>${escapeHtml(fmtClose(r.close, r.key))}</td>` +
+                `<td class="is-src" title="${escapeHtml(r.source || "")}">${escapeHtml(
+                  shortSrc(r)
+                )}</td>` +
+                `</tr>`
+              );
+            })
+            .join("") +
+          `</tbody></table>`;
+      }
+    }
+
+    const llHost = document.getElementById("strategy-leadlag-card");
+    if (llHost) {
+      const macro = (ctx && ctx.macro) || {};
+      const ll = {
+        beta: 0.55,
+        ...(desk.lead_lag || {}),
+      };
+      if (ll.expected_gap_pct == null) ll.expected_gap_pct = macro.lead_lag_expected_gap_pct;
+      if (ll.a50_1d_pct == null) ll.a50_1d_pct = macro.a50_1d_pct;
+      if (ll.overseas_tech_1d_pct == null) {
+        ll.overseas_tech_1d_pct = macro.overseas_tech_1d_pct;
+      }
+      if (ll.beta == null && macro.lead_lag_beta != null) ll.beta = macro.lead_lag_beta;
+      const thin = ll.sample_thin || (ll.n != null && Number(ll.n) < 8);
+      const hit =
+        ll.hit_rate_1pct != null
+          ? `${(Number(ll.hit_rate_1pct) * 100).toFixed(0)}%`
+          : "—";
+      llHost.innerHTML =
+        `<p class="strategy-leadlag-reading${thin ? " is-warn" : ""}">${escapeHtml(
+          ll.reading || (thin ? "样本偏薄 · 仅供参考" : "—")
+        )}</p>` +
+        `<div class="strategy-leadlag-grid">` +
+        `<div><span class="strategy-desk-fact-k">海外科技</span><strong class="${toneClass(
+          ll.overseas_tech_1d_pct
+        )}">${escapeHtml(fmtPct(ll.overseas_tech_1d_pct))}</strong></div>` +
+        `<div><span class="strategy-desk-fact-k">映射预期</span><strong class="${toneClass(
+          ll.expected_today_pct
+        )}">${escapeHtml(fmtPct(ll.expected_today_pct))}</strong></div>` +
+        `<div><span class="strategy-desk-fact-k">A50 实现</span><strong class="${toneClass(
+          ll.a50_1d_pct
+        )}">${escapeHtml(fmtPct(ll.a50_1d_pct))}</strong></div>` +
+        `<div><span class="strategy-desk-fact-k">今日缺口</span><strong class="${toneClass(
+          ll.expected_gap_pct
+        )}">${escapeHtml(fmtPct(ll.expected_gap_pct))}</strong></div>` +
+        `<div><span class="strategy-desk-fact-k">β</span><strong>${escapeHtml(
+          ll.beta != null ? String(ll.beta) : "0.55"
+        )}</strong></div>` +
+        `<div><span class="strategy-desk-fact-k">近窗 MAE</span><strong>${escapeHtml(
+          ll.mae != null ? `${Number(ll.mae).toFixed(2)}%` : "—"
+        )}</strong></div>` +
+        `<div><span class="strategy-desk-fact-k">均值误差</span><strong>${escapeHtml(
+          ll.mean_error != null ? fmtPct(ll.mean_error) : "—"
+        )}</strong></div>` +
+        `<div><span class="strategy-desk-fact-k">|err|≤1%</span><strong>${escapeHtml(
+          hit
+        )}</strong></div>` +
+        `<div><span class="strategy-desk-fact-k">样本</span><strong class="${
+          thin ? "is-warn" : ""
+        }">${escapeHtml(ll.n != null ? `${ll.n} 日` : "—")}</strong></div>` +
+        `</div>` +
+        `<p class="strategy-desk-note">${escapeHtml(
+          ll.note || "A50 − 海外科技×β；诊断用，非 PIT。"
+        )}</p>`;
+    }
+
+    const histHost = document.getElementById("strategy-macro-history");
+    const histLegend = document.getElementById("strategy-macro-history-legend");
+    if (histHost) {
+      const rows = (ctx && ctx.macro_history) || [];
+      if (rows.length >= 5) {
+        if (histLegend) histLegend.innerHTML = macroHistoryLegendHtml();
+        paintMacroHistoryChart(histHost, rows);
+      } else {
+        try {
+          if (histHost.__lwRo) histHost.__lwRo.disconnect();
+        } catch (_) {
+          /* ignore */
+        }
+        histHost.__lwRo = null;
+        histHost.__lwChart = null;
+        histHost.__lwMount = null;
+        if (histHost.shadowRoot) histHost.shadowRoot.innerHTML = "";
+        histHost.innerHTML = "";
+        if (histLegend) {
+          histLegend.innerHTML = `<span class="strategy-desk-empty">${
+            ctx && ctx.macro_history_rows === 0
+              ? "历史未回填 · macro_backfill"
+              : "历史不足"
+          }</span>`;
+        }
+      }
+    }
+
+    const events = desk.events || {};
+    const summary = events.summary || {};
+    const drain =
+      summary.drain_ratio != null
+        ? `${Number(summary.drain_ratio).toFixed(1)}×`
+        : "—";
+    paintKpiRow("strategy-events-kpi-body", [
+      {
+        label: "监管命中",
+        value: summary.reg_count ?? "—",
+        tone: summary.reg_active ? "is-bad" : "",
+        sub: summary.reg_active ? "已触发" : "清静",
+      },
+      {
+        label: "今日 IPO",
+        value: summary.ipo_today ?? "—",
+        tone: summary.extreme_ipo_day ? "is-bad" : "",
+        sub: summary.extreme_ipo_day ? "极端日" : "新股只数",
+      },
+      { label: "虹吸比", value: drain, sub: "概念流动性" },
+      {
+        label: "最大市值",
+        value: summary.max_ipo_yi != null ? `${summary.max_ipo_yi} 亿` : "—",
+        sub: "估算首日",
+      },
+    ]);
+
+    const regMeta = document.getElementById("strategy-reg-meta");
+    const regHost = document.getElementById("strategy-reg-events");
+    if (regHost) {
+      const hits = (events.regulatory_hits || []).slice(0, 10);
+      const concepts = (events.penalty_concepts || events.concept_tags || []).slice(0, 4);
+      if (regMeta) {
+        regMeta.textContent = concepts.length
+          ? concepts.join(" · ")
+          : hits.length
+            ? `${hits.length} 条`
+            : "清静";
+      }
+      if (!hits.length) {
+        regHost.innerHTML = `<p class="strategy-desk-empty">无监管命中</p>`;
+      } else {
+        regHost.innerHTML = hits
+          .map((h) => {
+            const title = h.title || "公告";
+            const code = h.code || "";
+            const name = h.name || "";
+            const tags = (h.tags || []).slice(0, 2).join(" · ");
+            return (
+              `<article class="strategy-event-item">` +
+              `<div class="strategy-event-head">` +
+              (code
+                ? `<span class="strategy-event-code">${escapeHtml(code)}</span>`
+                : "") +
+              (name
+                ? `<span class="strategy-event-name">${escapeHtml(name)}</span>`
+                : "") +
+              (h.date
+                ? `<span class="strategy-event-date">${escapeHtml(
+                    String(h.date).slice(0, 10)
+                  )}</span>`
+                : "") +
+              `</div>` +
+              `<div class="strategy-event-title">${escapeHtml(String(title))}</div>` +
+              (tags
+                ? `<div class="strategy-event-sub">${escapeHtml(tags)}</div>`
+                : "") +
+              `</article>`
+            );
+          })
+          .join("");
+      }
+    }
+
+    const ipoMeta = document.getElementById("strategy-ipo-meta");
+    const ipoHost = document.getElementById("strategy-ipo-events");
+    if (ipoHost) {
+      const ipoEvents = (events.ipo_events || []).slice(0, 10);
+      const drainTop = (events.drain_top || []).slice(0, 3);
+      if (ipoMeta) {
+        ipoMeta.textContent = summary.extreme_ipo_day
+          ? "极端日"
+          : drainTop.length
+            ? drainTop.map((d) => `${d.concept} ${d.ratio}×`).join(" · ")
+            : ipoEvents.length
+              ? `${ipoEvents.length} 只明细`
+              : "无明细";
+      }
+      if (!ipoEvents.length) {
+        const drainHtml = drainTop.length
+          ? `<div class="strategy-chip-row">` +
+            drainTop
+              .map(
+                (d) =>
+                  `<span class="strategy-chip is-ipo">${escapeHtml(
+                    d.concept
+                  )} <b>${escapeHtml(String(d.ratio))}×</b></span>`
+              )
+              .join("") +
+            `</div>`
+          : "";
+        ipoHost.innerHTML =
+          drainHtml +
+          `<p class="strategy-desk-empty">${
+            summary.ipo_today != null
+              ? `今日 ${summary.ipo_today} 只 · 明细未解析`
+              : "无 IPO 明细"
+          }</p>`;
+      } else {
+        ipoHost.innerHTML = ipoEvents
+          .map((e) => {
+            const name = e.name || e.code || "新股";
+            const mv =
+              e.market_cap_yi != null
+                ? `${e.market_cap_yi} 亿`
+                : e.market_cap_est != null
+                  ? `${(Number(e.market_cap_est) / 1e8).toFixed(0)} 亿`
+                  : "";
+            const tags = (e.concepts || []).slice(0, 2).join(" · ");
+            return (
+              `<article class="strategy-event-item">` +
+              `<div class="strategy-event-head">` +
+              (e.code
+                ? `<span class="strategy-event-code">${escapeHtml(e.code)}</span>`
+                : "") +
+              `<span class="strategy-event-name">${escapeHtml(String(name))}</span>` +
+              (e.list_date
+                ? `<span class="strategy-event-date">${escapeHtml(
+                    String(e.list_date).slice(0, 10)
+                  )}</span>`
+                : "") +
+              `</div>` +
+              `<div class="strategy-event-sub">${escapeHtml(
+                [mv, tags].filter(Boolean).join(" · ") || "—"
+              )}</div>` +
+              `</article>`
+            );
+          })
+          .join("");
+      }
+    }
+
+    const exp = desk.exposure || {};
+    paintKpiRow("strategy-exposure-kpi-body", [
+      { label: "观察池", value: exp.watching_n ?? "—", sub: "名单只数" },
+      {
+        label: "池命中",
+        value: exp.watching_hit_n ?? (exp.watching_hits || []).length,
+        sub: "∩ 热点概念",
+      },
+      { label: "持仓", value: exp.holding_n ?? "—", sub: "纸面只数" },
+      {
+        label: "仓命中",
+        value: exp.holding_hit_n ?? (exp.holding_hits || []).length,
+        sub: "∩ 热点概念",
+      },
+    ]);
+    const chipHost = document.getElementById("strategy-exposure-chips");
+    if (chipHost) {
+      const chips = Array.isArray(exp.concept_chips)
+        ? exp.concept_chips
+        : (exp.hot_concepts || []).map((c) => ({ concept: c, kind: "reg" }));
+      if (!chips.length) {
+        chipHost.innerHTML = `<span class="strategy-desk-empty">无热点概念</span>`;
+      } else {
+        chipHost.innerHTML = chips
+          .slice(0, 16)
+          .map((c) => {
+            const drain =
+              c.drain != null ? ` <b>${escapeHtml(String(c.drain))}×</b>` : "";
+            return `<span class="strategy-chip is-${escapeHtml(
+              c.kind || "reg"
+            )}">${escapeHtml(c.concept || "")}${drain}</span>`;
+          })
+          .join("");
+      }
+    }
+
+    const heatHost = document.getElementById("strategy-concept-heatmap");
+    const heatMeta = document.getElementById("strategy-heatmap-meta");
+    const heat = desk.concept_heatmap || {};
+    const heatCells = Array.isArray(heat.cells) ? heat.cells : [];
+    if (heatMeta) {
+      heatMeta.textContent = heat.as_of
+        ? `as-of ${heat.as_of} · 净流入亿`
+        : heatCells.length
+          ? "净流入亿"
+          : "";
+    }
+    if (heatHost) {
+      if (!heatCells.length) {
+        heatHost.innerHTML = `<p class="strategy-desk-empty">无概念流 · 刷新 ingest</p>`;
+      } else {
+        heatHost.innerHTML = heatCells
+          .slice(0, 16)
+          .map((c) => {
+            const net = Number(c.net_yi);
+            const pct = Math.max(8, Math.round((Number(c.intensity) || 0) * 100));
+            const side = (c.side || (net >= 0 ? "in" : "out"));
+            const netTxt = Number.isFinite(net)
+              ? `${net > 0 ? "+" : ""}${net.toFixed(1)}`
+              : "—";
+            return (
+              `<div class="strategy-heatmap-row is-${escapeHtml(side)}" title="${escapeHtml(
+                `${c.concept || ""} · 净额 ${netTxt} 亿` +
+                  (c.chg_pct != null ? ` · 涨跌 ${c.chg_pct}%` : "")
+              )}">` +
+              `<span class="strategy-heatmap-name">${escapeHtml(c.concept || "—")}</span>` +
+              `<span class="strategy-heatmap-track"><i style="width:${pct}%"></i></span>` +
+              `<span class="strategy-heatmap-val">${escapeHtml(netTxt)}</span>` +
+              `</div>`
+            );
+          })
+          .join("");
+      }
+    }
+    const paintHits = (hostId, hits) => {
+      const host = document.getElementById(hostId);
+      if (!host) return;
+      const list = Array.isArray(hits) ? hits : [];
+      if (!list.length) {
+        host.innerHTML = `<p class="strategy-desk-empty">无命中</p>`;
+        return;
+      }
+      host.innerHTML = list
+        .map((h) => {
+          return (
+            `<article class="strategy-event-item">` +
+            `<div class="strategy-event-head">` +
+            `<span class="strategy-event-code">${escapeHtml(h.code || "")}</span>` +
+            `<span class="strategy-event-name">${escapeHtml(h.name || "")}</span>` +
+            (h.via_code ? `<span class="strategy-event-tag">代码</span>` : "") +
+            `</div>` +
+            `<div class="strategy-event-sub">${escapeHtml(
+              (h.concepts || []).join(" · ") || "—"
+            )}</div>` +
+            `</article>`
+          );
+        })
+        .join("");
+    };
+    paintHits("strategy-exposure-watching", exp.watching_hits);
+    paintHits("strategy-exposure-holdings", exp.holding_hits);
+
+    const limHost = document.getElementById("strategy-regime-limits");
+    const limMeta = document.getElementById("strategy-regime-limits-meta");
+    const meta = desk.regime_meta || (ctx && ctx.regime) || {};
+    if (limMeta) {
+      const bits = [];
+      if (meta.score_penalty != null) bits.push(`罚分 ${Number(meta.score_penalty).toFixed(2)}`);
+      if (meta.volatility_pct != null) bits.push(`波动 ${Number(meta.volatility_pct).toFixed(2)}%`);
+      if (meta.overlay_deferred) bits.push("overlay→跨市场");
+      limMeta.textContent = bits.join(" · ");
+    }
+    if (limHost) {
+      const rows = Array.isArray(desk.regime_limits) ? desk.regime_limits : [];
+      if (!rows.length) {
+        limHost.innerHTML = `<p class="strategy-desk-empty">无对照表</p>`;
+      } else {
+        limHost.innerHTML = rows
+          .map((r) => {
+            const scale =
+              r.position_scale != null ? Number(r.position_scale).toFixed(2) : "—";
+            const pct =
+              r.position_scale != null
+                ? Math.round(Number(r.position_scale) * 100)
+                : 0;
+            return (
+              `<div class="strategy-regime-scale-cell${
+                r.current ? " is-current" : ""
+              }" data-regime="${escapeHtml(r.regime || "")}">` +
+              `<div class="strategy-regime-scale-top">` +
+              `<span class="strategy-regime-scale-lab">${escapeHtml(
+                r.label || r.regime || "—"
+              )}${r.current ? " · 当前" : ""}</span>` +
+              `<strong>×${escapeHtml(scale)}</strong>` +
+              `</div>` +
+              `<div class="strategy-regime-scale-bar" aria-hidden="true">` +
+              `<i style="width:${pct}%"></i></div>` +
+              `<div class="strategy-regime-scale-note">${escapeHtml(
+                r.note || "—"
+              )}</div>` +
+              `</div>`
+            );
+          })
+          .join("");
+      }
     }
   }
 
   async function refreshMarketContextPanel() {
     const btn = document.getElementById("strategy-mctx-refresh");
-    const head = document.getElementById("strategy-mctx-head-status");
+    const meta = document.getElementById("strategy-meta");
+    const prev = meta ? meta.textContent : "";
     if (btn) btn.disabled = true;
-    setMctxHeadStatus((head && head.textContent) || "", { busy: true });
+    setStrategyMetaStatus("ingest…", { busy: true });
     try {
       const res = await runMarketContextIngest(apiFetch, { backfill: true });
       if (res && res.ok === false) {
-        setMctxHeadStatus(res.error || "ingest 失败", { warn: true });
+        setStrategyMetaStatus(res.error || "ingest 失败");
         return;
       }
       await loadMarketContextPanel();
     } catch (err) {
-      setMctxHeadStatus(String(err.message || err), { warn: true });
+      setStrategyMetaStatus(String(err.message || err));
     } finally {
       if (btn) btn.disabled = false;
-    }
-  }
-
-  function selectMode(id, fallback) {
-    const el = document.getElementById(id);
-    const v = el && el.value != null ? String(el.value) : "";
-    return v || fallback || "off";
-  }
-
-  function setSelectMode(id, value) {
-    const el = document.getElementById(id);
-    if (el) el.value = String(value || "off");
-  }
-
-  function syncGateOpts(optsId, modeId) {
-    const opts = document.getElementById(optsId);
-    if (opts) opts.hidden = selectMode(modeId) !== "gate";
-  }
-
-  function syncMctxGateOptsVisibility() {
-    syncGateOpts("strategy-mctx-gate-opts", "strategy-mctx-mode");
-  }
-
-  function syncMspGateOptsVisibility() {
-    syncGateOpts("strategy-msp-gate-opts", "strategy-msp-mode");
-  }
-
-  function syncRegGateOptsVisibility() {
-    syncGateOpts("strategy-reg-gate-opts", "strategy-reg-mode");
-  }
-
-  function syncIpoGateOptsVisibility() {
-    syncGateOpts("strategy-ipo-gate-opts", "strategy-ipo-mode");
-  }
-
-  function fillMarketPriorForm(mp) {
-    const cm = (mp && mp.cross_market) || {};
-    const msp = (mp && mp.market_sentiment_prior) || {};
-    const reg = (mp && mp.regulatory_prior) || {};
-    const ipo = (mp && mp.ipo_drain_prior) || {};
-    const policy = (mp && mp.market_prior_policy) || {};
-    setSelectMode("strategy-mctx-mode", cm.mode || "off");
-    setSelectMode("strategy-msp-mode", msp.mode || "off");
-    setSelectMode("strategy-reg-mode", reg.mode || "off");
-    setSelectMode("strategy-ipo-mode", ipo.mode || "off");
-    const trig = document.getElementById("strategy-mctx-tech-trigger");
-    if (trig && cm.tech_drag_trigger_pct != null) {
-      trig.value = String(cm.tech_drag_trigger_pct);
-    }
-    const scaleEl = document.getElementById("strategy-mctx-scale");
-    if (scaleEl && cm.scale_buy_pct != null) {
-      scaleEl.value = String(Math.round(Number(cm.scale_buy_pct) * 100));
-    }
-    const holdsEl = document.getElementById("strategy-mctx-scale-holds");
-    if (holdsEl) holdsEl.checked = !!cm.scale_holds;
-    const mspScaleEl = document.getElementById("strategy-msp-scale");
-    if (mspScaleEl && msp.scale_buy_pct != null) {
-      mspScaleEl.value = String(Math.round(Number(msp.scale_buy_pct) * 100));
-    }
-    const mspHoldsEl = document.getElementById("strategy-msp-scale-holds");
-    if (mspHoldsEl) mspHoldsEl.checked = !!msp.scale_holds;
-    const regScaleEl = document.getElementById("strategy-reg-scale");
-    if (regScaleEl && reg.scale_buy_pct != null) {
-      regScaleEl.value = String(Math.round(Number(reg.scale_buy_pct) * 100));
-    }
-    const ipoScaleEl = document.getElementById("strategy-ipo-scale");
-    if (ipoScaleEl && ipo.scale_buy_pct != null) {
-      ipoScaleEl.value = String(Math.round(Number(ipo.scale_buy_pct) * 100));
-    }
-    const ipoRatioEl = document.getElementById("strategy-ipo-drain-ratio");
-    if (ipoRatioEl && ipo.drain_ratio_high != null) {
-      ipoRatioEl.value = String(ipo.drain_ratio_high);
-    }
-    const mergeEl = document.getElementById("strategy-mctx-merge");
-    if (mergeEl) mergeEl.value = String(policy.merge_mode || "min_scale");
-    syncMctxGateOptsVisibility();
-    syncMspGateOptsVisibility();
-    syncRegGateOptsVisibility();
-    syncIpoGateOptsVisibility();
-  }
-
-  async function loadMarketPriorForm() {
-    const st = document.getElementById("strategy-mctx-save-status");
-    try {
-      const res = await fetch("/api/signal/config/market-prior");
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.detail || res.statusText);
-      fillMarketPriorForm(data.market_prior || {});
-    } catch (err) {
-      if (st) st.textContent = String(err.message || err);
-    }
-  }
-
-  async function saveStrategyMarketPrior() {
-    const st = document.getElementById("strategy-mctx-save-status");
-    const mode = selectMode("strategy-mctx-mode");
-    const mspMode = selectMode("strategy-msp-mode");
-    const trigEl = document.getElementById("strategy-mctx-tech-trigger");
-    const scaleEl = document.getElementById("strategy-mctx-scale");
-    const holdsEl = document.getElementById("strategy-mctx-scale-holds");
-    const mergeEl = document.getElementById("strategy-mctx-merge");
-    const mspScaleEl = document.getElementById("strategy-msp-scale");
-    const mspHoldsEl = document.getElementById("strategy-msp-scale-holds");
-    const regMode = selectMode("strategy-reg-mode");
-    const ipoMode = selectMode("strategy-ipo-mode");
-    const regScaleEl = document.getElementById("strategy-reg-scale");
-    const ipoScaleEl = document.getElementById("strategy-ipo-scale");
-    const ipoRatioEl = document.getElementById("strategy-ipo-drain-ratio");
-    let scalePct = scaleEl && scaleEl.value !== "" ? Number(scaleEl.value) : 50;
-    if (!Number.isFinite(scalePct)) scalePct = 50;
-    const scale = Math.max(0, Math.min(scalePct, 100)) / 100;
-    let techTrig =
-      trigEl && trigEl.value !== "" ? Number(trigEl.value) : -1.5;
-    if (!Number.isFinite(techTrig)) techTrig = -1.5;
-    const mergeMode = mergeEl ? String(mergeEl.value || "min_scale") : "min_scale";
-    let mspScalePct =
-      mspScaleEl && mspScaleEl.value !== "" ? Number(mspScaleEl.value) : 55;
-    if (!Number.isFinite(mspScalePct)) mspScalePct = 55;
-    const mspScale = Math.max(0, Math.min(mspScalePct, 100)) / 100;
-    let regScalePct =
-      regScaleEl && regScaleEl.value !== "" ? Number(regScaleEl.value) : 50;
-    if (!Number.isFinite(regScalePct)) regScalePct = 50;
-    const regScale = Math.max(0, Math.min(regScalePct, 100)) / 100;
-    let ipoScalePct =
-      ipoScaleEl && ipoScaleEl.value !== "" ? Number(ipoScaleEl.value) : 45;
-    if (!Number.isFinite(ipoScalePct)) ipoScalePct = 45;
-    const ipoScale = Math.max(0, Math.min(ipoScalePct, 100)) / 100;
-    let ipoRatio =
-      ipoRatioEl && ipoRatioEl.value !== "" ? Number(ipoRatioEl.value) : 3.0;
-    if (!Number.isFinite(ipoRatio)) ipoRatio = 3.0;
-    if (
-      !window.confirm(
-        [
-          "保存 M 层 prior（4 路）？",
-          "",
-          `· 跨市场：${priorModeLabel(mode)}（${mode}）`,
-          mode === "gate"
-            ? `· 科技拖累 ≤ ${techTrig}% · 缩仓 ${Math.round(scale * 100)}%`
-            : "",
-          `· 情绪周期：${priorModeLabel(mspMode)}（${mspMode}）`,
-          mspMode === "gate"
-            ? `· 缩仓 ${Math.round(mspScale * 100)}%${
-                mspHoldsEl && mspHoldsEl.checked ? " · 持仓同步" : ""
-              }`
-            : "",
-          `· 监管：${priorModeLabel(regMode)}（${regMode}）`,
-          regMode === "gate" ? `· 缩仓 ${Math.round(regScale * 100)}%` : "",
-          `· IPO：${priorModeLabel(ipoMode)}（${ipoMode}）`,
-          ipoMode === "gate"
-            ? `· 虹吸 ≥ ${ipoRatio}x · 缩仓 ${Math.round(ipoScale * 100)}%`
-            : "",
-          `· 合并：${mergeMode}`,
-          "",
-          "契约：不改 predicted_score（ŷ）；不改 weights。",
-        ]
-          .filter(Boolean)
-          .join("\n")
-      )
-    ) {
-      return;
-    }
-    if (st) st.textContent = "正在保存…";
-    try {
-      const body = {
-        cross_market_mode: mode,
-        market_sentiment_mode: mspMode,
-        regulatory_mode: regMode,
-        ipo_drain_mode: ipoMode,
-        merge_mode: mergeMode,
-        note: "市场先验人审·市场 prior",
-      };
-      if (mode === "gate") {
-        body.tech_drag_trigger_pct = techTrig;
-        body.scale_buy_pct = scale;
-        body.scale_holds = !!(holdsEl && holdsEl.checked);
+      const cur = document.getElementById("strategy-meta");
+      if (cur && cur.textContent === "ingest…") {
+        setStrategyMetaStatus(prev || "盘前看板 · 只读 · 不改 ŷ · 未接调仓");
       }
-      if (mspMode === "gate") {
-        body.market_sentiment_scale_buy_pct = mspScale;
-        body.market_sentiment_scale_holds = !!(mspHoldsEl && mspHoldsEl.checked);
-      }
-      if (regMode === "gate") {
-        body.regulatory_scale_buy_pct = regScale;
-      }
-      if (ipoMode === "gate") {
-        body.ipo_drain_scale_buy_pct = ipoScale;
-        body.ipo_drain_ratio_high = ipoRatio;
-      }
-      const res = await fetch("/api/signal/config/market-prior", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body),
-      });
-      const data = await res.json();
-      if (!res.ok || data.success === false) {
-        if (st) st.textContent = data.detail || data.error || "保存失败";
-        return;
-      }
-      fillMarketPriorForm(data.market_prior || {});
-      if (st) {
-        st.textContent = "已保存";
-      }
-      loadMarketContextPanel().catch(() => {});
-      loadStrategyList().catch(() => {});
-    } catch (err) {
-      if (st) st.textContent = String(err.message || err);
     }
-  }
-
-  function priorModeLabel(mode) {
-    if (mode === "risk") return "仅警告";
-    if (mode === "gate") return "约束开仓";
-    return "关闭";
   }
 
   async function loadStrategyList() {
@@ -714,27 +899,6 @@ export function installStrategy(q) {
       const st = document.getElementById("strategy-meta");
       if (st) st.textContent = `策略配置加载失败：${err.message || err}`;
     }
-  }
-
-  function renderFactorDict() {
-    const list = document.getElementById("strategy-factor-dict-list");
-    if (!list) return;
-    const factors = Object.values(factorMetaByName || {});
-    if (!factors.length) {
-      list.innerHTML = `<p class="results-empty">暂无因子元数据</p>`;
-      return;
-    }
-    list.innerHTML = factors
-      .map((f) => {
-        const name = f.name || "";
-        const label = f.label || name;
-        const tip = f.description || label;
-        return (
-          `<button type="button" class="strategy-factor-chip factor-tip" data-factor="${escapeHtml(name)}" ` +
-          `title="${escapeHtml(tip)}">${escapeHtml(label)}</button>`
-        );
-      })
-      .join("");
   }
 
   function renderStrategyList(data) {
@@ -750,15 +914,8 @@ export function installStrategy(q) {
   return {
     loadSignalConfigPanel,
     loadStrategyList,
-    renderFactorDict,
     renderStrategyList,
-    saveStrategyMarketPrior,
-    loadMarketPriorForm,
     loadMarketContextPanel,
     refreshMarketContextPanel,
-    syncMctxGateOptsVisibility,
-    syncMspGateOptsVisibility,
-    syncRegGateOptsVisibility,
-    syncIpoGateOptsVisibility,
   };
 }

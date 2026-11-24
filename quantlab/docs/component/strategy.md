@@ -91,7 +91,7 @@ API：`GET/POST /api/paper/rebalance/worker`（`worker` + `desk`）。盯盘落�
 
 | 页 | 策略角色 |
 |----|----------|
-| `/market-prior` | **看图纸**：M prior（个股舆情只在观察徽章）。旧 `/strategy` 302 到此 |
+| `/market-prior` | **盘前看板**：可信度 · 跨市场/事件/暴露 · Regime（个股舆情只在观察徽章；未接调仓）。旧 `/strategy` 302 到此 |
 | `/watching` | **划狩猎范围**（选股输入名单） |
 | `/replay` | 用图纸交**历史卷**（资金模拟在引擎内） |
 | `/paper` + `/follow` | 图纸 + **假账**持续记账 |
@@ -201,7 +201,7 @@ API：`GET/POST /api/paper/rebalance/worker`（`worker` + `desk`）。盯盘落�
    - 回测 / 调仓写出 Run Manifest（策略版本 · 成本 · 规则指纹）
 ```
 
-配置入口：`data/signal_config.json` · `data/paper.example.json` → `paper.json` · `core/strategy.py` · M prior 在 Web `/market-prior` · 策略晋级 `POST /api/strategy/promote`。
+配置入口：`data/signal_config.json` · `data/paper.example.json` → `paper.json` · `core/strategy.py` · 盘前看板在 Web `/market-prior`（只读）· 策略晋级 `POST /api/strategy/promote`。
 
 ---
 

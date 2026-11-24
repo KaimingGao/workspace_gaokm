@@ -2207,11 +2207,13 @@
   border-radius: 0;
 }
 
-/* 全站页头阶梯（quant-ui §2.1）。各页都挂 .page-panel.quant-panel，这里盖过各页复制的页头。 */
+/* 全站页头阶梯（quant-ui §2.1）。各页都挂 .page-panel.quant-panel，这里盖过各页复制的页头。
+   z 必须压过后续 section/table，否则 sticky 时分项文字会透到「市场先验」标题上。 */
 .page-panel.quant-panel .quant-head {
   position: sticky;
   top: 0;
-  z-index: 4;
+  z-index: 30;
+  isolation: isolate;
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
@@ -2219,7 +2221,9 @@
   padding: 2px 0 6px;
   margin: 0 0 2px;
   background: var(--surface);
+  background-color: var(--surface);
   border-bottom: 1px solid color-mix(in srgb, var(--line) 70%, transparent);
+  box-shadow: 0 8px 16px -12px color-mix(in srgb, var(--ink) 28%, transparent);
   backdrop-filter: none;
   -webkit-backdrop-filter: none;
 }
@@ -7547,7 +7551,7 @@ body[data-page="quant"] .quant-page .quant-bars-mat-card > .quant-bars-mat-body:
   padding: 10px 14px 8px;
   background: var(--surface);
   border-bottom: 1px solid var(--line);
-  z-index: 4;
+  z-index: 30;
 }
 
 .page-panel.quant-panel .quant-pro-head .quant-desk-note {
@@ -7804,17 +7808,21 @@ body[data-page="quant"] .quant-page .quant-bars-mat-card > .quant-bars-mat-body:
 
 .quant-body.quant-page > * { margin: 0; }
 
-/* 页头：吃掉旧 sticky/pro 覆盖，跟仪表盘一致 */
+/* 页头：吃掉旧 sticky/pro 覆盖，跟仪表盘一致
+   z 要压过后续 section/table，避免跨市场分项滚到头下时字透出来 */
 .quant-head.dashboard-head {
   position: sticky;
   top: 0;
-  z-index: 4;
+  z-index: 30;
+  isolation: isolate;
   align-items: flex-start;
   gap: 12px;
-  padding: 2px 0 6px;
+  padding: 2px 0 8px;
   margin: 0 0 2px;
   background: var(--surface);
+  background-color: var(--surface);
   border-bottom: 1px solid color-mix(in srgb, var(--line) 70%, transparent);
+  box-shadow: 0 8px 16px -12px color-mix(in srgb, var(--ink) 28%, transparent);
   backdrop-filter: none;
 }
 
@@ -10250,64 +10258,15 @@ body[data-page="strategy"] .quant-macro-strip-sub {
 }
 
 
-body[data-page="strategy"] .quant-macro-strip-chart-label {
-  flex: 0 0 auto;
-  font-size: 0.52rem;
-  font-weight: 650;
-  letter-spacing: 0.04em;
-  color: var(--ink-3);
-  white-space: nowrap;
-  font-variant-numeric: tabular-nums;
-}
-
-body[data-page="strategy"] .quant-macro-strip-chart-wrap .macro-hist-legend {
-  flex: 0 0 auto;
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 2px;
-  margin-left: auto;
-}
-
-body[data-page="strategy"] .quant-macro-strip-chart-wrap .macro-hist-legend-item {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  font-size: 0.52rem;
-  color: var(--ink-2);
-  white-space: nowrap;
-  line-height: 1.2;
-}
-
-body[data-page="strategy"] .quant-macro-strip-chart-wrap .macro-hist-legend-val {
-  font-size: 0.52rem;
-  min-width: 3.2em;
-}
-
-body[data-page="strategy"] .quant-macro-strip-chart-wrap .macro-hist-legend-swatch {
-  display: inline-block;
-  width: 10px;
-  height: 2px;
-  border-radius: 1px;
-  flex: 0 0 auto;
-}
-
-body[data-page="strategy"] .quant-macro-strip-chart-wrap .macro-hist-legend-swatch.is-tech {
-  background: var(--color-up, #f5222d);
-}
-
-body[data-page="strategy"] .quant-macro-strip-chart-wrap .macro-hist-legend-swatch.is-a50 {
-  background: var(--accent, #1890ff);
-}
 
 
-body[data-page="strategy"] .quant-macro-strip-chart-fallback {
-  display: block;
-  width: 100%;
-  height: 100%;
-}
 
-body[data-page="strategy"] .quant-macro-strip-hint,
+
+
+
+
+
+
 body[data-page="strategy"] .quant-macro-strip-empty {
   margin: 0;
   padding: 2px 0 0;
@@ -10315,12 +10274,11 @@ body[data-page="strategy"] .quant-macro-strip-empty {
   color: var(--ink-3);
 }
 
-body[data-page="strategy"] .quant-macro-strip-hint code,
 body[data-page="strategy"] .quant-macro-strip-empty code {
   font-size: 0.62rem;
 }
 
-/* 市场先验概览：四张指标卡 + 通栏走势。 */
+/* 市场先验概览：M 环境 KPI 条（近30日曲线在跨市场明细）。 */
 body[data-page="strategy"] .quant-macro-context-strip {
   border: none;
   background: transparent;
@@ -10341,17 +10299,42 @@ body[data-page="strategy"] .quant-macro-strip.is-stale {
 body[data-page="strategy"] .quant-macro-strip-brand {
   display: flex;
   flex-direction: row;
+  flex-wrap: wrap;
   align-items: center;
   justify-content: flex-start;
-  gap: 8px;
+  gap: 6px 8px;
   padding: 0;
   border: none;
   background: transparent;
 }
 
+body[data-page="strategy"] .quant-macro-strip-headline {
+  margin: 0;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: var(--ink);
+  font-size: 0.875rem;
+  font-weight: 650;
+  line-height: 1.35;
+  letter-spacing: 0.01em;
+}
+
+body[data-page="strategy"] .quant-macro-strip-headline.is-up {
+  color: var(--up, #c0392b);
+}
+
+body[data-page="strategy"] .quant-macro-strip-headline.is-down {
+  color: var(--down, #16a34a);
+}
+
+body[data-page="strategy"] .quant-macro-strip-headline.is-warn {
+  color: var(--warn, #b45309);
+}
+
 body[data-page="strategy"] .quant-macro-strip-grid {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(6, minmax(0, 1fr));
   gap: 8px;
   min-width: 0;
 }
@@ -10375,6 +10358,11 @@ body[data-page="strategy"] .quant-macro-strip-cell.is-on {
   background: color-mix(in srgb, var(--warn, #d97706) 7%, var(--surface));
 }
 
+body[data-page="strategy"] .quant-macro-strip-cell.is-lag {
+  border-color: color-mix(in srgb, var(--warn, #d97706) 35%, var(--line));
+  background: color-mix(in srgb, var(--warn, #d97706) 6%, var(--surface));
+}
+
 body[data-page="strategy"] .quant-macro-strip-label {
   font-size: 0.6875rem;
   letter-spacing: 0.08em;
@@ -10390,36 +10378,10 @@ body[data-page="strategy"] .quant-macro-strip-sub {
   font-size: 0.75rem;
 }
 
-body[data-page="strategy"] .quant-macro-strip-chart-wrap {
-  display: flex;
-  flex-direction: row;
-  align-items: center;
-  gap: 8px;
-  min-width: 0;
-  width: auto;
-  min-height: 72px;
-  border: 1px solid var(--line);
-  border-radius: 2px;
-  padding: 8px 12px;
-  background: color-mix(in srgb, var(--ink) 1.2%, var(--surface));
-  white-space: normal;
-}
-
-body[data-page="strategy"] .quant-macro-strip-chart {
-  display: block;
-  position: relative;
-  overflow: hidden;
-  cursor: crosshair;
-  flex: 1 1 auto;
-  width: auto;
-  max-width: none;
-  height: 56px;
-}
-
-body[data-page="strategy"] .quant-macro-strip-chart-label,
-body[data-page="strategy"] .quant-macro-strip-chart-wrap .macro-hist-legend-item,
-body[data-page="strategy"] .quant-macro-strip-chart-wrap .macro-hist-legend-val {
-  font-size: 0.75rem;
+@media (max-width: 960px) {
+  body[data-page="strategy"] .quant-macro-strip-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
 }
 
 @media (max-width: 720px) {

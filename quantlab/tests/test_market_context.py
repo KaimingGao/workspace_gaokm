@@ -330,6 +330,7 @@ class TestMarketContextRound2(unittest.TestCase):
     def test_macro_view_asof(self):
         macro = {
             "liquidity_stress_score": 0,
+            "overseas_tech_1d_pct": -9.9,  # live 聚合不得复写到无 bar 日
             "series": {
                 "sox": {
                     "recent_bars": [
@@ -345,12 +346,22 @@ class TestMarketContextRound2(unittest.TestCase):
                         {"date": "2026-08-19", "close": 197.0},
                     ]
                 },
+                "a50": {
+                    "recent_bars": [
+                        {"date": "2026-08-19", "close": 11900.0},
+                        {"date": "2026-08-20", "close": 12000.0},
+                    ]
+                },
             },
         }
         view = macro_view_asof(macro, "2026-08-18")
         self.assertEqual(view.get("as_of"), "2026-08-18")
         self.assertIsNotNone(view.get("overseas_tech_1d_pct"))
         self.assertTrue(view.get("synthetic"))
+        # A50 独有日：不得把科技末日涨跌 / live 聚合刷到该日
+        view_gap = macro_view_asof(macro, "2026-08-20")
+        self.assertIsNone(view_gap.get("overseas_tech_1d_pct"))
+        self.assertAlmostEqual(view_gap.get("a50_1d_pct"), 100.0 / 11900.0 * 100.0, places=3)
 
     def test_pct_change_from_bars(self):
         bars = [
@@ -439,6 +450,201 @@ class TestMarketContextRound3(unittest.TestCase):
         s = facts_summary(facts)
         self.assertIn("market_context", s)
         self.assertTrue(s["market_prior"]["active"])
+
+
+class TestPriorDeskPayload(unittest.TestCase):
+    def test_macro_strip_payload_fx_rates(self):
+        from web.dashboard.market import _macro_strip_payload
+
+        macro = {
+            "overseas_tech_1d_pct": 1.2,
+            "a50_1d_pct": 0.3,
+            "liquidity_stress_score": 1.0,
+            "tech_session_as_of": "2026-11-23",
+            "stale_tech_keys": ["ndx"],
+            "series": {
+                "cnh": {"change_1d_pct": -0.02, "close": 671.2},
+                "us10y": {"change_1d_pct": 0.01, "close": 4.12},
+            },
+        }
+        out = _macro_strip_payload(macro)
+        self.assertEqual(out["cnh_1d_pct"], -0.02)
+        self.assertEqual(out["cnh_close"], 671.2)
+        self.assertEqual(out["us10y_1d_pct"], 0.01)
+        self.assertEqual(out["us10y_close"], 4.12)
+        self.assertEqual(out["tech_session_as_of"], "2026-11-23")
+        self.assertEqual(out["stale_tech_keys"], ["ndx"])
+        self.assertEqual(out["liquidity_stress_score"], 1.0)
+
+    def test_session_clock_pre_open(self):
+        from datetime import datetime
+        from zoneinfo import ZoneInfo
+
+        from core.market.session_clock import build_session_clock
+
+        # 周二盘前 08:30 上海 → 美股已收 · A未开
+        now = datetime(2026, 11, 24, 8, 30, tzinfo=ZoneInfo("Asia/Shanghai"))
+        clock = build_session_clock(
+            now=now,
+            tech_session_as_of="2026-11-23",
+            macro_as_of="2026-11-24",
+        )
+        self.assertEqual(clock["a_share"]["code"], "pre_open")
+        self.assertEqual(clock["us_rth"]["code"], "closed")
+        self.assertIn("A未开", clock["label"])
+        self.assertIn("美股已收", clock["label"])
+        self.assertEqual(clock["tech_session_as_of"], "2026-11-23")
+        self.assertEqual(clock["tone"], "pre")
+
+    def test_overnight_headline(self):
+        from core.market.overnight_headline import build_overnight_headline
+
+        hl = build_overnight_headline(
+            macro={
+                "overseas_tech_1d_pct": 7.8,
+                "a50_1d_pct": 1.0,
+                "nq_fut_1d_pct": 0.4,
+                "liquidity_stress_score": 0,
+                "stale_tech_keys": [],
+            },
+            sentiment={"sentiment_cycle_score": 65, "limit_up_count": 146},
+            regime={"regime": "weak"},
+            session_clock={
+                "label": "美股已收 · A未开",
+                "a_share": {"code": "pre_open"},
+                "us_rth": {"code": "closed"},
+            },
+        )
+        self.assertIn("科技+7.8%", hl["text"])
+        self.assertIn("A50+1.0%", hl["text"])
+        self.assertIn("NQ+0.4%", hl["text"])
+        self.assertIn("涨停146", hl["text"])
+        self.assertIn("锚弱", hl["text"])
+        self.assertEqual(hl["tone"], "up")
+
+    def test_macro_strip_payload_futures(self):
+        from web.dashboard.market import _macro_strip_payload, _series_rows
+
+        macro = {
+            "series": {
+                "nq_fut": {"change_1d_pct": 0.4, "close": 26900.0, "source": "em:NQ00Y"},
+                "es_fut": {"change_1d_pct": 0.3, "close": 7200.0, "source": "em:ES00Y"},
+                "a50": {"change_1d_pct": 1.2, "close": 12800.0},
+                "wti": {"change_1d_pct": 0.4, "close": 80.0},
+                "copper": {"change_1d_pct": -0.5, "close": 5.6},
+            }
+        }
+        out = _macro_strip_payload(macro)
+        self.assertEqual(out["nq_fut_1d_pct"], 0.4)
+        self.assertEqual(out["es_fut_1d_pct"], 0.3)
+        self.assertEqual(out["wti_1d_pct"], 0.4)
+        self.assertEqual(out["copper_1d_pct"], -0.5)
+        keys = [r["key"] for r in _series_rows(macro)]
+        self.assertEqual(keys, ["nq_fut", "es_fut", "a50", "wti", "copper"])
+
+    def test_macro_strip_payload_qvix(self):
+        from web.dashboard.market import _macro_strip_payload
+
+        out = _macro_strip_payload(
+            {"series": {"qvix": {"close": 14.8, "change_1d_pct": 2.2}}}
+        )
+        self.assertEqual(out["qvix_close"], 14.8)
+        self.assertEqual(out["qvix_1d_pct"], 2.2)
+
+    def test_calendar_event_label(self):
+        from adapters.macro.flows import _short_event_label
+
+        self.assertEqual(_short_event_label("美国非农就业人数"), "非农")
+        self.assertEqual(_short_event_label("美联储利率决议报告"), "FOMC")
+        self.assertEqual(_short_event_label("美国CPI年率"), "CPI")
+
+    def test_concept_heatmap_desk(self):
+        from web.dashboard.market import _concept_heatmap_desk
+
+        heat = _concept_heatmap_desk(
+            {
+                "as_of": "2026-11-24",
+                "rows": [
+                    {"concept": "芯片", "net_yi": 100, "chg_pct": 2.0, "side": "in"},
+                    {"concept": "白酒", "net_yi": -20, "chg_pct": -1.0, "side": "out"},
+                ],
+            }
+        )
+        self.assertEqual(len(heat["cells"]), 2)
+        self.assertEqual(heat["cells"][0]["intensity"], 1.0)
+        self.assertEqual(heat["cells"][1]["side"], "out")
+
+    def test_series_leadlag_regime_desk(self):
+        from web.dashboard.market import (
+            _build_prior_desk,
+            _lead_lag_calib,
+            _regime_limits_desk,
+            _series_rows,
+            _trust_rows,
+        )
+
+        macro = {
+            "overseas_tech_1d_pct": -1.2,
+            "a50_1d_pct": -0.4,
+            "lead_lag_expected_gap_pct": 0.26,
+            "lead_lag_beta": 0.55,
+            "series": {
+                "sox": {"change_1d_pct": -1.5, "close": 100.0, "source": "yahoo"},
+                "a50": {"change_1d_pct": -0.4, "close": 12000.0, "source": "sina"},
+            },
+        }
+        rows = _series_rows(macro)
+        self.assertEqual([r["key"] for r in rows], ["sox", "a50"])
+        self.assertEqual(rows[0]["group"], "美股科技")
+        hist = [
+            {"overseas_tech_1d_pct": -2.0, "a50_1d_pct": -0.5},
+            {"overseas_tech_1d_pct": 1.0, "a50_1d_pct": 0.8},
+        ]
+        calib = _lead_lag_calib(hist, beta=0.55, tech_today=-2.0, a50_today=-0.4)
+        self.assertEqual(calib["n"], 2)
+        self.assertIsNotNone(calib["mae"])
+        self.assertIsNotNone(calib["reading"])
+        self.assertEqual(calib["expected_today_pct"], -1.1)
+        limits = _regime_limits_desk("weak", True)
+        self.assertTrue(any(r["current"] and r["regime"] == "weak" for r in limits))
+        trust = _trust_rows(
+            {"macro": {**macro, "success": True}},
+            {
+                "parts": {
+                    "macro": {
+                        "as_of": "2026-11-23",
+                        "age_hours": 2,
+                        "warn": False,
+                        "stale": False,
+                    },
+                    "market_sentiment": {},
+                    "announcement": {},
+                }
+            },
+        )
+        self.assertEqual(trust[0]["label"], "跨市场")
+        self.assertEqual(trust[0]["status"], "fresh")
+        desk = _build_prior_desk(
+            ctx={"macro": macro},
+            fresh={"parts": {}},
+            macro=macro,
+            sentiment={"sentiment_cycle_score": 65},
+            announcement={
+                "regulatory": {"hits": [{"title": "核查", "stock_code": "600001"}]},
+                "ipo": {"ipo_events": [{"name": None, "title": ""}], "ipo_today_count": 2},
+            },
+            regime={"regime": "weak", "apply_position_scale": True},
+            hist_rows=hist,
+        )
+        self.assertIn("trust", desk)
+        self.assertIn("series_rows", desk)
+        self.assertIn("sentiment_desk", desk)
+        self.assertEqual(desk["sentiment_desk"]["band"], "偏热")
+        self.assertFalse(desk["boundary"]["wired_to_rank_lots"])
+        self.assertEqual(len(desk["events"]["regulatory_hits"]), 1)
+        self.assertEqual(desk["events"]["ipo_events"], [])
+        self.assertEqual(desk["events"]["summary"]["ipo_today"], 2)
+
 
 if __name__ == "__main__":
     unittest.main()

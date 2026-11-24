@@ -60,8 +60,28 @@ MACRO_SYMBOLS: Dict[str, Tuple[str, str]] = {
     "qqq": ("us_etf", "QQQ"),
     "kweb": ("us_etf", "KWEB"),
     "a50": ("futures", "A50"),
+    "nq_fut": ("futures", "小型纳指"),
+    "es_fut": ("futures", "小型标普"),
+    "wti": ("commodity", "WTI原油"),
+    "copper": ("commodity", "COMEX铜"),
+    "qvix": ("vol", "50ETF波动"),
     "cnh": ("fx", "USD/CNH"),
     "us10y": ("bond", "US10Y"),
+}
+
+# 东财全球期货 spot：同一次拉表解析多合约（避免 A50/NQ/ES 各打一轮）
+_EM_SPOT_CACHE: Dict[str, Any] = {"ts": 0.0, "df": None}
+_EM_SPOT_TTL_SEC = 90.0
+_EM_CONTINUOUS = {
+    "a50": "A50期指当月连续",
+    "nq_fut": "小型纳指当月连续",
+    "es_fut": "小型标普当月连续",
+    "copper": "COMEX铜",  # 连续点；无则按成交量挑 COMEX铜*
+}
+
+_EM_VOLUME_PATTERNS = {
+    "wti": "NYMEX原油",
+    "copper": "COMEX铜",
 }
 
 
@@ -181,17 +201,149 @@ def _fetch_sox_macro_bars(*, limit: int = 30) -> Tuple[List[dict], str]:
     return [], "empty"
 
 
-def _fetch_a50_spot_bars(*, limit: int = 30) -> Tuple[List[dict], str]:
-    """A50 主力合约现货（futures_global_hist 不可用时）。"""
+def _load_em_global_spot_df():
+    """缓存东财全球期货 spot 表（短 TTL，单次 ingest 内复用）。"""
+    import time
+
+    now = time.time()
+    cached = _EM_SPOT_CACHE.get("df")
+    ts = float(_EM_SPOT_CACHE.get("ts") or 0.0)
+    if cached is not None and now - ts < _EM_SPOT_TTL_SEC:
+        return cached
     from core.data.ak_lock import import_akshare
 
     ak = import_akshare()
     fn = getattr(ak, "futures_global_spot_em", None)
     if not fn:
-        return [], "missing_api"
+        return None
     try:
         df = fn()
-        if df is None or getattr(df, "empty", True):
+    except Exception:
+        logger.debug("futures_global_spot_em load failed", exc_info=True)
+        return None
+    if df is None or getattr(df, "empty", True):
+        return None
+    _EM_SPOT_CACHE["ts"] = now
+    _EM_SPOT_CACHE["df"] = df
+    return df
+
+
+def _bars_from_em_spot_row(row: Any, *, limit: int = 30) -> Tuple[List[dict], str]:
+    close = _to_float(row.get("最新价"))
+    settle = _to_float(row.get("昨结"))
+    if close is None:
+        return [], "empty"
+    today = datetime.now().strftime("%Y-%m-%d")
+    rows: List[dict] = []
+    if settle is not None and settle > 0:
+        yesterday = (datetime.now() - timedelta(days=1)).strftime("%Y-%m-%d")
+        rows = [
+            {"date": yesterday, "close": settle},
+            {"date": today, "close": close},
+        ]
+    else:
+        rows = [{"date": today, "close": close}]
+    bars = normalize_bars(rows)
+    code = str(row.get("代码") or "")
+    if bars:
+        return bars[-limit:], f"futures_global_spot_em:{code}"
+    return [], "empty"
+
+
+def _fetch_em_continuous_spot(name: str, *, limit: int = 30) -> Tuple[List[dict], str]:
+    """按精确合约名取当月连续（如 小型纳指当月连续）。"""
+    target = str(name or "").strip()
+    if not target:
+        return [], "empty"
+    try:
+        df = _load_em_global_spot_df()
+        if df is None:
+            return [], "empty"
+        sub = df[df["名称"].astype(str) == target]
+        if sub.empty:
+            return [], "empty"
+        active = sub[sub["最新价"].notna()]
+        if active.empty:
+            return [], "empty"
+        return _bars_from_em_spot_row(active.iloc[0], limit=limit)
+    except Exception:
+        logger.debug("em continuous spot failed for %s", target, exc_info=True)
+    return [], "empty"
+
+
+def _fetch_em_volume_spot(pattern: str, *, limit: int = 30) -> Tuple[List[dict], str]:
+    """按名称前缀/包含挑成交量最大的有价合约（原油/铜）。"""
+    pat = str(pattern or "").strip()
+    if not pat:
+        return [], "empty"
+    try:
+        df = _load_em_global_spot_df()
+        if df is None:
+            return [], "empty"
+        sub = df[df["名称"].astype(str).str.contains(pat, na=False)].copy()
+        active = sub[sub["最新价"].notna()].copy()
+        if active.empty:
+            return [], "empty"
+        active["_vol"] = active["成交量"].apply(lambda x: _to_float(x) or 0.0)
+        row = active.sort_values("_vol", ascending=False).iloc[0]
+        return _bars_from_em_spot_row(row, limit=limit)
+    except Exception:
+        logger.debug("em volume spot failed for %s", pat, exc_info=True)
+    return [], "empty"
+
+
+def _fetch_qvix_bars(*, limit: int = 30) -> Tuple[List[dict], str]:
+    """A 股 50ETF 期权波动率指数（QVIX）——美股 VIX 不可达时的波动代理。"""
+    from core.data.ak_lock import import_akshare
+
+    ak = import_akshare()
+    # 优先 50ETF；失败再试沪深300 ETF
+    for fn_name in ("index_option_50etf_qvix", "index_option_300etf_qvix"):
+        fn = getattr(ak, fn_name, None)
+        if not fn:
+            continue
+        try:
+            df = fn()
+            if df is None or getattr(df, "empty", True):
+                continue
+            rows = []
+            for row in df.to_dict(orient="records"):
+                d = row.get("date") or row.get("日期")
+                close = _to_float(row.get("close") if "close" in row else row.get("收盘"))
+                if d is None or close is None:
+                    continue
+                ds = d.strftime("%Y-%m-%d") if hasattr(d, "strftime") else str(d)[:10]
+                rows.append(
+                    {
+                        "date": ds,
+                        "open": _to_float(row.get("open")),
+                        "high": _to_float(row.get("high")),
+                        "low": _to_float(row.get("low")),
+                        "close": close,
+                    }
+                )
+            bars = normalize_bars(rows)
+            if bars:
+                return bars[-limit:], fn_name
+        except Exception:
+            logger.debug("qvix fetch failed via %s", fn_name, exc_info=True)
+            continue
+    # Yahoo ^VIX 备用（多数环境拉不到）
+    bars, src = _fetch_yfinance_bars("^VIX", limit=limit)
+    if bars:
+        return bars, src
+    return [], "empty"
+
+
+def _fetch_a50_spot_bars(*, limit: int = 30) -> Tuple[List[dict], str]:
+    """A50：优先当月连续，否则成交量最大的有价 A50 期指。"""
+    try:
+        # 1) 当月连续
+        bars, src = _fetch_em_continuous_spot(_EM_CONTINUOUS["a50"], limit=limit)
+        if bars:
+            return bars, src
+        df = _load_em_global_spot_df()
+        if df is None:
             return [], "empty"
         sub = df[df["名称"].astype(str).str.contains("A50期指", na=False)]
         active = sub[sub["最新价"].notna()].copy()
@@ -199,24 +351,7 @@ def _fetch_a50_spot_bars(*, limit: int = 30) -> Tuple[List[dict], str]:
             return [], "empty"
         active["_vol"] = active["成交量"].apply(lambda x: _to_float(x) or 0.0)
         row = active.sort_values("_vol", ascending=False).iloc[0]
-        close = _to_float(row.get("最新价"))
-        settle = _to_float(row.get("昨结"))
-        if close is None:
-            return [], "empty"
-        today = datetime.now().strftime("%Y-%m-%d")
-        rows: List[dict] = []
-        if settle is not None and settle > 0:
-            yesterday = (datetime.now() - timedelta(days=1)).strftime("%Y-%m-%d")
-            rows = [
-                {"date": yesterday, "close": settle},
-                {"date": today, "close": close},
-            ]
-        else:
-            rows = [{"date": today, "close": close}]
-        bars = normalize_bars(rows)
-        code = str(row.get("代码") or "")
-        if bars:
-            return bars[-limit:], f"futures_global_spot_em:{code}"
+        return _bars_from_em_spot_row(row, limit=limit)
     except Exception:
         logger.debug("futures_global_spot_em A50 failed", exc_info=True)
     return [], "empty"
@@ -525,6 +660,40 @@ def build_macro_snapshot(*, lookback: int = 30) -> Dict[str, Any]:
     else:
         errors.append(f"a50:{src}")
 
+    # ES/NQ 当月连续：与 A50 共用东财 spot 缓存，补齐 Wind 外盘期货条
+    for fut_key, fut_name in (
+        ("nq_fut", _EM_CONTINUOUS["nq_fut"]),
+        ("es_fut", _EM_CONTINUOUS["es_fut"]),
+    ):
+        got = _call_with_timeout(_fetch_em_continuous_spot, fut_name, limit=lookback, timeout=30)
+        bars, src = got if isinstance(got, tuple) else ([], "timeout")
+        if bars:
+            series[fut_key] = _series_payload(fut_key, bars, source=src)
+        else:
+            errors.append(f"{fut_key}:{src}")
+
+    # 大宗：铜优先连续名，原油按 NYMEX 成交量主力
+    for cmd_key, exact_or_pat in (
+        ("copper", _EM_CONTINUOUS["copper"]),
+        ("wti", _EM_VOLUME_PATTERNS["wti"]),
+    ):
+        bars, src = [], "empty"
+        if cmd_key == "copper":
+            got = _call_with_timeout(_fetch_em_continuous_spot, exact_or_pat, limit=lookback, timeout=30)
+            bars, src = got if isinstance(got, tuple) else ([], "timeout")
+            if not bars:
+                got = _call_with_timeout(
+                    _fetch_em_volume_spot, _EM_VOLUME_PATTERNS["copper"], limit=lookback, timeout=30
+                )
+                bars, src = got if isinstance(got, tuple) else ([], "timeout")
+        else:
+            got = _call_with_timeout(_fetch_em_volume_spot, exact_or_pat, limit=lookback, timeout=30)
+            bars, src = got if isinstance(got, tuple) else ([], "timeout")
+        if bars:
+            series[cmd_key] = _series_payload(cmd_key, bars, source=src)
+        else:
+            errors.append(f"{cmd_key}:{src}")
+
     cnh_got = _call_with_timeout(_fetch_cnh_fx) or (None, None, "timeout", [])
     cnh_level, cnh_chg, cnh_src, cnh_bars = cnh_got
     if cnh_bars:
@@ -576,15 +745,45 @@ def build_macro_snapshot(*, lookback: int = 30) -> Dict[str, Any]:
     if us10y is None:
         errors.append(f"us10y:{us10y_src}")
 
-    # 聚合海外科技拖累得分（-100 ~ 0，越负越利空 A 股科技）
-    tech_rets = [
-        series.get("sox", {}).get("change_1d_pct"),
-        series.get("ndx", {}).get("change_1d_pct"),
-        series.get("qqq", {}).get("change_1d_pct"),
-        series.get("kweb", {}).get("change_1d_pct"),
+    # 波动：QVIX（A 股期权波动）作 VIX 代理
+    got = _call_with_timeout(_fetch_qvix_bars, limit=lookback, timeout=20)
+    bars, src = got if isinstance(got, tuple) else ([], "timeout")
+    if bars:
+        series["qvix"] = _series_payload("qvix", bars, source=src)
+    else:
+        errors.append(f"qvix:{src}")
+
+    # 聚合海外科技隔夜均涨跌：只吃「与最新成分同日收盘」的系列，
+    # 避免 NDX/QQQ 仍停在上周五、SOX 已有周一 时把暴跌日和反弹日平均到一起。
+    def _series_last_date(slot: Optional[dict]) -> str:
+        bars = (slot or {}).get("recent_bars") or []
+        if not bars:
+            return ""
+        return str(bars[-1].get("date") or "")[:10]
+
+    tech_last_dates = [
+        _series_last_date(series.get(k))
+        for k in ("sox", "ndx", "qqq", "kweb")
+        if _series_last_date(series.get(k))
     ]
-    tech_vals = [float(x) for x in tech_rets if x is not None]
+    tech_session = max(tech_last_dates) if tech_last_dates else ""
+    tech_vals: List[float] = []
+    stale_tech_keys: List[str] = []
+    for key in ("sox", "ndx", "qqq", "kweb"):
+        slot = series.get(key) or {}
+        chg = slot.get("change_1d_pct")
+        last_d = _series_last_date(slot)
+        if chg is None or not last_d:
+            continue
+        if tech_session and last_d != tech_session:
+            stale_tech_keys.append(key)
+            continue
+        tech_vals.append(float(chg))
     overseas_tech_1d = round(sum(tech_vals) / len(tech_vals), 4) if tech_vals else None
+    if stale_tech_keys:
+        errors.append(
+            "tech_stale:" + ",".join(stale_tech_keys) + f"@{tech_session or '?'}"
+        )
 
     liquidity_stress = 0.0
     cnh_c = series.get("cnh", {}).get("change_1d_pct")
@@ -609,12 +808,14 @@ def build_macro_snapshot(*, lookback: int = 30) -> Dict[str, Any]:
     return {
         "success": bool(series),
         "as_of": as_of,
+        "tech_session_as_of": tech_session or None,
         "series": series,
         "overseas_tech_1d_pct": overseas_tech_1d,
         "a50_1d_pct": a50_1d,
         "lead_lag_expected_gap_pct": lead_lag_expected_gap,
         "lead_lag_beta": lead_lag_beta,
         "liquidity_stress_score": liquidity_stress,
+        "stale_tech_keys": stale_tech_keys,
         "errors": prune_macro_errors(errors, series),
         "note": "跨市场宏观快照；非 PIT，仅供盘前 prior / regime 叠加。",
     }

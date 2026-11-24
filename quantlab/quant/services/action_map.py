@@ -102,7 +102,7 @@ def action_map() -> Dict[str, Any]:
             "pages": {
                 "dashboard": "仪表盘：开盘总览",
                 "watching": "观察台：长期名单 + 建仓",
-                "strategy": "市场先验：M prior",
+                "strategy": "市场先验：盘前看板",
                 "follow": "交易执行：已有仓位",
                 "replay": "历史回测：调仓 / 做 T",
                 "data": "数据中心：日K · 5m · 物化",

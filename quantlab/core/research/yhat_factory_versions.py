@@ -286,8 +286,19 @@ def _metric_token(head: str, badges: Dict[str, Any]) -> str:
     return ""
 
 
+# 列表徽标只留一个字。悬停全称由页面补。旧档里的长词在展示时收成同一套字。
+_BADGE_CHAR = {
+    "正式": "正",
+    "预训练": "预",
+    "过闸": "过",
+    "未过闸": "未",
+    "失败": "败",
+    "部分完成": "半",
+}
+
+
 def _shown_label(label: str, factory: str = "") -> str:
-    """版本名只留时间、回归头 MSE 或排序头 RankIC、状态，末尾补 R/L/T。"""
+    """版本名只留时间、回归头 MSE 或排序头 RankIC、一字徽标，末尾补 R/L/T。"""
     drop = {"core", "full", "l2", "lambdarank"}
     kept = []
     for bit in str(label or "").split(" · "):
@@ -295,7 +306,7 @@ def _shown_label(label: str, factory: str = "") -> str:
         low = text.lower()
         if not text or text.startswith("λ") or text.endswith("%") or low in drop or low in {"r", "l", "t"}:
             continue
-        kept.append(text)
+        kept.append(_BADGE_CHAR.get(text, text))
     fac = str(factory or "").strip().upper()
     if fac in {"R", "L", "T"}:
         kept.append(fac)

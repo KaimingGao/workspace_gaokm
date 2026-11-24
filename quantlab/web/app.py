@@ -195,7 +195,7 @@ def dashboard_page() -> HTMLResponse:
 
 @app.get("/market-prior")
 def market_prior_page() -> HTMLResponse:
-    """市场先验：M prior 人审写盘 · Regime 只读 · 因子字典。"""
+    """市场先验：概览 · 跨市场 · 事件暴露 · Regime 只读。"""
     return HTMLResponse(
         render_tool_html("strategy"),
         headers={"Cache-Control": "no-store"},

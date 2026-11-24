@@ -245,17 +245,6 @@ function renderMarketContext(ctx) {
   const ipo = ann.ipo || {};
   const flags = ctx.prior_flags || {};
   const regimeSnap = ctx.regime || {};
-  const priorActiveN = [
-    flags.cross_market,
-    flags.market_sentiment,
-    flags.regulatory,
-    flags.ipo_drain,
-  ].filter(Boolean).length;
-  const priorActive = flags.any_active
-    ? priorActiveN > 0
-      ? `激活 · ${priorActiveN}/4`
-      : "激活"
-    : "待机";
   const penaltySub =
     (ann.penalty_concepts || []).slice(0, 2).join(" · ") ||
     (regulatory.concept_tags || []).slice(0, 2).join(" · ") ||
@@ -329,14 +318,6 @@ function renderMarketContext(ctx) {
       cls: regimeCls(regimeSnap.regime),
       tip:
         "按基准近端涨跌划分熊/弱/中/强/牛，影响因子权重环境。overlay→M 表示科技拖累已交给跨市场 prior，避免与 Regime 双重惩罚。",
-    },
-    {
-      label: "Prior",
-      value: priorActive,
-      sub: (ctx.prior_warnings || []).slice(0, 1).join("") || "M 层闸",
-      cls: flags.any_active ? "is-bad" : "",
-      tip:
-        "M 层 prior（跨市场/情绪/监管/IPO）是否触发。激活时调仓可缩仓或禁买；ŷ 排名轴不变。副文案为当前警告摘要。",
     },
     {
       label: "IPO 虹吸",
