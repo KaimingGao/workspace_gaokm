@@ -467,11 +467,15 @@ export function renderMacroContextStrip(ctx, escapeHtml) {
     : techMeta.session
       ? `会话 ${shortMd(techMeta.session)}`
       : "海外隔夜";
+  const cat = ctx.tech_catalyst || (ctx.desk && ctx.desk.tech_catalyst) || {};
+  const catReason = String(cat.reason || "").trim();
   const techTip = techLag
     ? `海外科技均涨仅含与会话 ${techMeta.session || "—"} 同日的成分；滞后：${lagNames}（末日 ${techMeta.stale
         .map((k) => `${String(k).toUpperCase()} ${shortMd(techMeta.dates[k])}`)
         .join(" · ")}）。点刷新 ingest。不改 ŷ。`
-    : "SOX/NDX/QQQ/KWEB 等隔夜均涨跌。越负越利空 A 股科技；供跨市场 M prior 触发，不改 ŷ。";
+    : catReason
+      ? `SOX/NDX/QQQ 隔夜均涨跌。涨因：${catReason}。供跨市场 M prior；不改 ŷ。`
+      : "SOX/NDX/QQQ/KWEB 等隔夜均涨跌。越负越利空 A 股科技；供跨市场 M prior 触发，不改 ŷ。";
 
   const cells = [
     {
@@ -718,30 +722,13 @@ export function renderMacroContextStrip(ctx, escapeHtml) {
   }
   const statusPill = pills.join("");
 
-  const hl = ctx.overnight_headline || {};
-  const hlText = String(hl.text || "").trim();
-  const hlTone = String(hl.tone || "flat");
-  const hlToneCls =
-    hlTone === "up"
-      ? "is-up"
-      : hlTone === "down"
-        ? "is-down"
-        : hlTone === "warn"
-          ? "is-warn"
-          : "";
-  const headlineHtml = hlText
-    ? `<p class="quant-macro-strip-headline ${hlToneCls}" title="昨夜→今早摘要（由科技/A50/情绪/锚合成；非预测）">${esc(
-        hlText
-      )}</p>`
-    : "";
-
+  // 隔夜一句话摘要与下方 strip 格子重复，概览不再渲染该行（API 仍可带字段）
   return (
     `<div class="quant-macro-strip ${stateCls} no-side" role="group" aria-label="盘前 M 环境">` +
     `<div class="quant-macro-strip-brand">` +
     `<span class="quant-macro-strip-k" title="盘前 macro / Regime / M prior 快照。不预测当日大盘收盘，不改 ŷ。">M 环境</span>` +
     statusPill +
     `</div>` +
-    headlineHtml +
     `<div class="quant-macro-strip-grid">${cellHtml}</div>` +
     `</div>`
   );

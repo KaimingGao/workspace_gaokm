@@ -662,6 +662,7 @@ export function renderWatchingWatchTableFallback(rows, { onPickCountUpdate } = {
         (d.onPaper
           ? `<button type="button" class="watching-held-btn" data-code="${code}">${escapeHtml(d.paper || "已持")}</button>`
           : `<button type="button" class="watching-build-btn" data-code="${code}">建仓</button>`) +
+        `<button type="button" class="watching-ai-btn" data-code="${code}" title="打开 AI：advise + market_prior 解释能否买">AI</button>` +
         `</td>` +
         `<td class="watching-sent-cell">${d.sentHtml || "—"}</td>` +
         `<td class="num watching-col-num" data-q="prev_close">${escapeHtml(String(d.prev_close ?? "—"))}</td>` +

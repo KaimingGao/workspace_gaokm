@@ -208,13 +208,14 @@ export async function mountWatchingTableIsland(host, options = {}) {
         );
       }
       if (col.id === "paper") {
-        return d.onPaper
-          ? `<button type="button" class="watching-held-btn" data-code="${escapeHtml(
-              d.code || ""
-            )}" title="已在模拟持仓，点击到交易执行管理">${escapeHtml(d.paper || "已持")}</button>`
-          : `<button type="button" class="watching-build-btn" data-code="${escapeHtml(
-              d.code || ""
-            )}" title="按金额确认后，现价假买进模拟账户">建仓</button>`;
+        const codeAttr = escapeHtml(d.code || "");
+        const main = d.onPaper
+          ? `<button type="button" class="watching-held-btn" data-code="${codeAttr}" title="已在模拟持仓，点击到交易执行管理">${escapeHtml(d.paper || "已持")}</button>`
+          : `<button type="button" class="watching-build-btn" data-code="${codeAttr}" title="按金额确认后，现价假买进模拟账户">建仓</button>`;
+        return (
+          main +
+          `<button type="button" class="watching-ai-btn" data-code="${codeAttr}" title="打开 AI：advise + market_prior 解释能否买">AI</button>`
+        );
       }
       if (col.id === "sent") return d.sentHtml || "—";
       if (col.id === "chg") {

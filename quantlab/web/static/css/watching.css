@@ -1240,9 +1240,9 @@ body[data-page="watching"] .watching-react-grid-cell.watching-col-score_tau .wat
 }
 
 .watching-result-table td.watching-paper-cell {
-  width: 7%;
+  width: 9%;
   text-align: center;
-  white-space: nowrap;
+  white-space: normal;
 }
 
 .watching-result-table td.watching-sentiment-cell {
@@ -1316,7 +1316,8 @@ body[data-page="watching"] .watching-react-grid-cell.watching-col-score_tau .wat
 
 /* 仓位列：行内动作 —— 建仓=轻链，已持=状态 chip（对齐 Desk 2px） */
 .watching-held-btn,
-.watching-build-btn {
+.watching-build-btn,
+.watching-ai-btn {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -1337,6 +1338,32 @@ body[data-page="watching"] .watching-react-grid-cell.watching-col-score_tau .wat
   overflow: hidden;
   text-overflow: ellipsis;
   transition: color 0.12s ease, background-color 0.12s ease, border-color 0.12s ease;
+}
+
+.watching-paper-cell {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+}
+
+.watching-ai-btn {
+  color: var(--ink-2);
+  background: transparent;
+  border-color: color-mix(in srgb, var(--line) 88%, transparent);
+  padding: 0 6px;
+  font-weight: 600;
+}
+
+.watching-ai-btn:hover {
+  color: var(--accent, #2563eb);
+  border-color: color-mix(in srgb, var(--accent, #2563eb) 30%, transparent);
+  background: color-mix(in srgb, var(--accent, #2563eb) 8%, transparent);
+}
+
+.watching-ai-btn:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--accent, #2563eb) 45%, transparent);
+  outline-offset: 1px;
 }
 
 .watching-build-btn {

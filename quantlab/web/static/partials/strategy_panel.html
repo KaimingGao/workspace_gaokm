@@ -2,7 +2,7 @@
   <div class="dashboard-head-text quant-head-text">
     <p class="dashboard-eyebrow">Prior Desk</p>
     <h2>市场先验</h2>
-    <p id="strategy-meta" class="dashboard-meta quant-meta" aria-live="polite">盘前看板 · 只读 · 不改 ŷ · 未接调仓</p>
+    <p id="strategy-meta" class="dashboard-meta quant-meta">盘前看板 · 只读 · 不改 ŷ · 未接调仓</p>
     <p class="dashboard-section-desc strategy-head-path">
       <a class="strategy-hero-link" href="#strategy-section-overview">概览</a>
       →
@@ -32,7 +32,20 @@
     </header>
     <div class="dashboard-card-head quant-pro-card-head quant-card-head--tools strategy-overview-tools">
       <p id="strategy-desk-boundary" class="quant-fingerprint quant-card-head-status">非 PIT · 不进 ŷ · 未接调仓</p>
-      <div class="quant-pro-card-tools">
+      <div class="quant-pro-card-tools strategy-mctx-tools">
+        <p id="strategy-mctx-status" class="strategy-mctx-status" aria-live="polite"></p>
+        <button
+          type="button"
+          id="strategy-prior-brief"
+          class="dialog-btn dialog-btn-keep-case"
+          title="打开 AI 抽屉：ops(task=prior_brief) 盘前简报（只读）"
+        >盘前简报</button>
+        <button
+          type="button"
+          id="strategy-prior-draft"
+          class="dialog-btn secondary dialog-btn-keep-case"
+          title="打开 AI 抽屉：ops(task=feedback_draft, scope=market_prior) 仅草稿不写盘"
+        >建议 prior 草稿</button>
         <button type="button" id="strategy-mctx-refresh" class="dialog-btn dialog-btn-keep-case">刷新 ingest</button>
       </div>
     </div>
@@ -57,7 +70,7 @@
   >
     <header class="dashboard-section-head quant-section-head strategy-section-head">
       <h3 id="strategy-section-cross-title" class="dashboard-section-title">跨市场明细</h3>
-      <p class="dashboard-section-desc quant-section-desc">分项 1D/5D · Lead-Lag · 近30日累计</p>
+      <p class="dashboard-section-desc quant-section-desc">分项 1D/5D · 隔夜涨因 · Lead-Lag · 近30日累计</p>
     </header>
     <div class="dashboard-card quant-pro-card strategy-ops-card">
       <div class="quant-pro-card-body strategy-ops-card-body strategy-desk-pad">
@@ -69,6 +82,15 @@
             </div>
             <div id="strategy-series-table" class="strategy-desk-table-wrap" aria-live="polite">
               <p class="strategy-desk-empty">加载分项…</p>
+            </div>
+          </div>
+          <div class="strategy-desk-block strategy-desk-block--catalyst">
+            <div class="strategy-desk-kicker-row">
+              <h4 class="strategy-desk-kicker">隔夜涨因</h4>
+              <p id="strategy-tech-catalyst-meta" class="strategy-desk-inline-meta"></p>
+            </div>
+            <div id="strategy-tech-catalyst" class="strategy-tech-catalyst" aria-live="polite">
+              <p class="strategy-desk-empty">加载涨因…</p>
             </div>
           </div>
           <div class="strategy-desk-block strategy-desk-block--leadlag">

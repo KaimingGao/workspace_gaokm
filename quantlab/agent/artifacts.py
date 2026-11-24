@@ -39,6 +39,7 @@ OPS_TASK_TAB: Dict[str, str] = {
     "rebalance_preview": "follow",
     "ops_anomaly": "follow",
     "feedback_draft": "quant",
+    "prior_brief": "strategy",
     "post_rebalance_review": "follow",
     "event_flags": "follow",
     "alpha_draft": "quant",

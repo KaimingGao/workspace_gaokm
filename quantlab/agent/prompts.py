@@ -70,7 +70,7 @@ QUANT_HINT = (
 )
 
 OPS_TASK_ENUM = (
-    "ops_snapshot|rebalance_preview|ops_anomaly|feedback_draft|"
+    "ops_snapshot|rebalance_preview|ops_anomaly|feedback_draft|prior_brief|"
     "post_rebalance_review|event_flags|alpha_draft|view_bundle"
 )
 
@@ -79,10 +79,12 @@ OPS_HINT = (
     "五问/最近调仓 → ops_snapshot；预演日循环/矩阵调仓/建仓 → rebalance_preview"
     "（path=holding_cycle|watching_matrix|sync_paper，仅 dry_run）；"
     "为什么没买/告警 → ops_anomaly；参数建议草稿 → feedback_draft（不写盘、须人审 promote）；"
+    "盘前简报/大盘环境/市场先验/跨市场 → prior_brief；"
+    "M 层 prior 配置草稿 → feedback_draft(scope=market_prior)（仅建议 cross_market 等键，不改 weights）；"
     "调仓后对照 → post_rebalance_review；事件旗标 → event_flags；"
     "因子假设 → alpha_draft；观点包 → view_bundle。"
     "**预演≠已成交**；**不得宣称「上了 Agent 就提升收益」**（效果须回测/纸面对照）；"
-    "不得改写 ŷ/stance；不调用 promote。"
+    "不得改写 ŷ/stance；不调用 promote / 不写 signal_config。"
 )
 
 SYSTEM_PROMPT = (
@@ -104,7 +106,7 @@ SYSTEM_PROMPT = (
 - advise：**规则引擎买卖结论**（quote+signal+kline+peer/index → stance_label）
 - backtest：signal 规则历史回测（胜率/回撤/夏普近似，研究用）
 - quant：量化研究台（横截面/组合回测/IC 权重与阈值建议/日报摘要）
-- ops：调仓运维（五问快照/三路预演/异常/feedback 草稿/对照/事件旗标/Alpha 草稿/观点包；默认不写盘）
+- ops：调仓运维（五问快照/三路预演/异常/feedback 草稿/盘前 prior_brief/对照/事件旗标/Alpha 草稿/观点包；默认不写盘）
 - kline：日 K 形态摘要（含 tags/trend；日线失败时可能为 quote_fallback）
 - fundamentals：基本面（A 股较全；港股尽量给 PE/市值/行情）
 - peer：同行对比
@@ -114,8 +116,10 @@ SYSTEM_PROMPT = (
 
 ## 盘前市场上下文（M 层 prior）
 - advise.facts 含 **market_context**（跨市场 macro / 情绪周期 / 监管 / IPO 虹吸）与 **market_prior**（对该票是否激活）。
-- M 层 prior **不改 signal.score（ŷ）**；仅影响纸面调仓执行缩放。解读买卖时：若 prior_active 为 true，须在失效条件中提及对应 warnings（如海外科技拖累、监管降温）。
-- 用户问「今天大盘环境 / 盘前上下文 / 跨市场」→ 引用 facts.market_context；无数据时提示运行 pre_market_ingest。
+- M 层 prior **不改 signal.score（ŷ）**；仅影响纸面调仓执行缩放。解读买卖时：若 prior_active / market_prior.active 为 true，须在失效条件中**逐条列出** prior_warnings，并写明「ŷ 未改、纸面买/持仓可能缩放」。
+- 用户问「盘前简报 / 今天大盘环境 / 盘前上下文 / 市场先验 / 跨市场」→ **必须先** `ops(task=prior_brief)`，再按 checklist 解读（环境摘要 → 激活 prior → 暴露/缩放 → 失效条件）；约 250～400 字。无数据/freshness 过期时提示 Prior Desk「刷新 ingest」或 pre_market_ingest。
+- 用户要「改 prior 灵敏度 / prior 配置建议」→ `ops(task=feedback_draft, scope=market_prior)`；只展示草稿，人审后写盘；**禁止**调用写接口。
+- 调仓缩仓 note / trades 含 `market_prior` 时：归因须引用 prior_warnings，**勿**说成 ŷ 变差。
 - **tail_anomaly** 已进 ŷ（权重 0.02）；facts.tail_anomaly 含尾盘量比/斜率；UI 可展开分钟尾盘图，非 prior。
 
 ## 路由规则
@@ -127,7 +131,7 @@ SYSTEM_PROMPT = (
 - 量化报告/观察池组合/横截面/IC 权重/阈值校准/模拟对照/包结构 → quant（task="""
     + QUANT_TASK_ENUM
     + """）
-- **调仓五问/预演/拦仓原因/运维告警/配置草稿/事件旗标** → ops（task="""
+- **调仓五问/预演/拦仓原因/运维告警/配置草稿/盘前简报/市场先验/事件旗标** → ops（task="""
     + OPS_TASK_ENUM
     + """）；holding_cycle≠watching_matrix 两路语义勿混
 - 估值/财务/长期基本面 → fundamentals

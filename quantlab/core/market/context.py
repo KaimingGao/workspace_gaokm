@@ -15,6 +15,7 @@ from core.market.context_store import (
     load_macro_snapshot,
     load_market_sentiment_snapshot,
     load_northbound_snapshot,
+    load_tech_catalyst_snapshot,
     save_market_snapshot,
 )
 from core.market.priors.cross_market import build_cross_market_prior
@@ -42,6 +43,7 @@ def load_market_context(*, max_age_hours: float = 36.0, use_cache: bool = True) 
     northbound, north_meta = load_northbound_snapshot(max_age_hours=max_age_hours)
     concept_flow, flow_meta = load_concept_flow_snapshot(max_age_hours=max_age_hours)
     macro_calendar, cal_meta = load_macro_calendar_snapshot(max_age_hours=max_age_hours)
+    tech_catalyst, tech_meta = load_tech_catalyst_snapshot(max_age_hours=max_age_hours)
     out = {
         "macro": macro,
         "market_sentiment": sentiment,
@@ -49,13 +51,15 @@ def load_market_context(*, max_age_hours: float = 36.0, use_cache: bool = True) 
         "northbound": northbound,
         "concept_flow": concept_flow,
         "macro_calendar": macro_calendar,
+        "tech_catalyst": tech_catalyst,
         "meta": {
             "macro": macro_meta,
             "market_sentiment": sentiment_meta,
             "announcement": ann_meta,
-            "northbound": north_meta,
             "concept_flow": flow_meta,
+            "northbound": north_meta,
             "macro_calendar": cal_meta,
+            "tech_catalyst": tech_meta,
         },
     }
     if use_cache:
@@ -124,6 +128,26 @@ def ingest_concept_flow(*, top_n: int = 10) -> Dict[str, Any]:
     from adapters.macro.flows import build_concept_flow_snapshot
 
     snap = build_concept_flow_snapshot(top_n=top_n)
+    # 盘前东财常回全 0：勿覆盖上次有效热力
+    if not snap.get("success") or not (snap.get("rows") or []):
+        prior, _ = load_concept_flow_snapshot(max_age_hours=168.0)
+        prior_rows = (prior or {}).get("rows") if isinstance(prior, dict) else None
+        if prior_rows:
+            kept = dict(prior)
+            kept["retained_prior"] = True
+            kept["fresh_errors"] = list(snap.get("errors") or [])
+            kept["fresh_note"] = snap.get("note")
+            path = save_market_snapshot(
+                "concept_flow", kept, data_source="concept_flow_ingest_retained"
+            )
+            invalidate_market_context_cache()
+            return {
+                "ok": True,
+                "retained_prior": True,
+                "path": path,
+                "snapshot": kept,
+                "fresh": snap,
+            }
     path = save_market_snapshot("concept_flow", snap, data_source="concept_flow_ingest")
     invalidate_market_context_cache()
     return {"ok": bool(snap.get("success")), "path": path, "snapshot": snap}
@@ -138,14 +162,28 @@ def ingest_macro_calendar() -> Dict[str, Any]:
     return {"ok": bool(snap.get("success")), "path": path, "snapshot": snap}
 
 
+def ingest_tech_catalyst(*, tech_1d_pct: Optional[float] = None) -> Dict[str, Any]:
+    from adapters.macro.tech_catalyst import build_tech_catalyst_snapshot
+
+    if tech_1d_pct is None:
+        prior, _ = load_macro_snapshot(max_age_hours=168.0)
+        if isinstance(prior, dict):
+            tech_1d_pct = prior.get("overseas_tech_1d_pct")
+    snap = build_tech_catalyst_snapshot(tech_1d_pct=tech_1d_pct)
+    path = save_market_snapshot("tech_catalyst", snap, data_source="tech_catalyst_ingest")
+    invalidate_market_context_cache()
+    return {"ok": bool(snap.get("success")), "path": path, "snapshot": snap}
+
+
 def ingest_pre_market_bundle(*, lookback: int = 30) -> Dict[str, Any]:
-    """盘前一键：macro + 情绪 + 公告 + 北向/概念流/日历。"""
+    """盘前一键：macro + 情绪 + 公告 + 北向/概念流/日历/科技涨因。"""
     macro_r = ingest_macro(lookback=lookback)
     sent_r = ingest_market_sentiment()
     ann_r = ingest_announcement()
     north_r: Dict[str, Any] = {}
     flow_r: Dict[str, Any] = {}
     cal_r: Dict[str, Any] = {}
+    tech_r: Dict[str, Any] = {}
     try:
         north_r = ingest_northbound()
     except Exception:
@@ -161,6 +199,15 @@ def ingest_pre_market_bundle(*, lookback: int = 30) -> Dict[str, Any]:
     except Exception:
         logger.debug("macro calendar ingest skipped", exc_info=True)
         cal_r = {"ok": False}
+    try:
+        tech_pct = None
+        snap = (macro_r or {}).get("snapshot") if isinstance(macro_r, dict) else None
+        if isinstance(snap, dict):
+            tech_pct = snap.get("overseas_tech_1d_pct")
+        tech_r = ingest_tech_catalyst(tech_1d_pct=tech_pct)
+    except Exception:
+        logger.debug("tech catalyst ingest skipped", exc_info=True)
+        tech_r = {"ok": False}
     concept_r = None
     try:
         from core.signal.config import load_signal_config
@@ -192,6 +239,7 @@ def ingest_pre_market_bundle(*, lookback: int = 30) -> Dict[str, Any]:
         "northbound": north_r,
         "concept_flow": flow_r,
         "macro_calendar": cal_r,
+        "tech_catalyst": tech_r,
         "concept_graph": concept_r,
         "minute_warmup": minute_r,
         "freshness": ctx.get("freshness"),

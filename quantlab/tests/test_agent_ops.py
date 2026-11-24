@@ -18,6 +18,7 @@ class TestAgentOpsContracts(unittest.TestCase):
     def test_available_tasks(self):
         self.assertIn("ops_snapshot", AVAILABLE_TASKS)
         self.assertIn("rebalance_preview", AVAILABLE_TASKS)
+        self.assertIn("prior_brief", AVAILABLE_TASKS)
         self.assertIn("view_bundle", AVAILABLE_TASKS)
 
     def test_empty_task_lists_available(self):
@@ -128,6 +129,90 @@ class TestAgentOpsContracts(unittest.TestCase):
             self.assertTrue(out["success"])
             self.assertFalse(out["applied"])
             self.assertTrue(out["suggested_checks"])
+            self.assertEqual(out.get("scope"), "strategy")
+
+    def test_prior_brief_fields(self):
+        fake_summary = {
+            "freshness": {"stale": False, "any_stale": False},
+            "macro": {"overseas_tech_1d_pct": -2.1, "a50_1d_pct": -0.5},
+            "sentiment": {"sentiment_cycle_score": 0.4},
+            "regulatory": {"active": False, "count": 0},
+            "ipo": {"extreme_ipo_day": False},
+            "prior_active": True,
+            "prior_warnings": ["跨市场·海外科技隔夜 -2%"],
+            "prior_flags": {
+                "cross_market": True,
+                "market_sentiment": False,
+                "regulatory": False,
+                "ipo_drain": False,
+            },
+        }
+        with mock.patch(
+            "core.market.context.summarize_market_context",
+            return_value=fake_summary,
+        ):
+            with mock.patch(
+                "core.signal.live_features.fetch_live_index_bars",
+                side_effect=RuntimeError("skip regime"),
+            ):
+                out = AgentOpsService().prior_brief({})
+        self.assertTrue(out["success"])
+        self.assertEqual(out["task"], "prior_brief")
+        self.assertTrue(out["prior_active"])
+        self.assertIn("checklist", out)
+        self.assertEqual(len(out["checklist"]), 4)
+        self.assertEqual(out["impact_note"], "不进 ŷ；仅纸面买/持仓缩放")
+        self.assertIn("cross_market", out["prior_flags"])
+
+    def test_feedback_draft_market_prior_scope(self):
+        fake_summary = {
+            "freshness": {},
+            "macro": {},
+            "sentiment": {},
+            "regulatory": {},
+            "ipo": {},
+            "prior_active": True,
+            "prior_warnings": ["跨市场·海外科技隔夜 -2%"],
+            "prior_flags": {
+                "cross_market": True,
+                "market_sentiment": False,
+                "regulatory": False,
+                "ipo_drain": False,
+            },
+        }
+        fake_cfg = {
+            "cross_market": {"mode": "scale", "scale_buy_pct": 0.5},
+            "market_sentiment_prior": {"mode": "off", "scale_buy_pct": 0.55},
+            "regulatory_prior": {"mode": "off", "scale_buy_pct": 0.5},
+            "ipo_drain_prior": {"mode": "off", "scale_buy_pct": 0.45},
+            "market_prior_policy": {"merge_mode": "min_scale"},
+        }
+        with tempfile.TemporaryDirectory() as td:
+            path = os.path.join(td, "paper.json")
+            with open(path, "w", encoding="utf-8") as f:
+                json.dump({"cash": 1e6, "holdings": [], "trades": [], "operation_log": []}, f)
+            with mock.patch(
+                "core.market.context.summarize_market_context",
+                return_value=fake_summary,
+            ):
+                with mock.patch(
+                    "core.signal.market_prior_config.read_market_prior_public",
+                    return_value=fake_cfg,
+                ):
+                    out = AgentOpsService(paper_path=path).feedback_draft(
+                        {"scope": "market_prior"}
+                    )
+        self.assertTrue(out["success"])
+        self.assertEqual(out["scope"], "market_prior")
+        self.assertFalse(out["applied"])
+        self.assertTrue(out["suggested_checks"])
+        draft = out["draft"]
+        self.assertEqual(draft["scope"], "market_prior")
+        keys = {s["key"] for s in draft["suggestions"]}
+        self.assertTrue(any(k.startswith("cross_market") for k in keys))
+        for k in draft["suggestions"]:
+            self.assertNotIn("weights", k["key"])
+            self.assertNotIn("scoring", k["key"])
 
     def test_post_rebalance_review(self):
         with tempfile.TemporaryDirectory() as td:
@@ -219,9 +304,14 @@ class TestOpsRouting(unittest.TestCase):
 
         self.assertTrue(is_ops_question("解释今天调仓五问"))
         self.assertEqual(infer_ops_task("为什么没买成"), "ops_anomaly")
+        self.assertTrue(is_ops_question("今日盘前简报"))
+        self.assertEqual(infer_ops_task("今日盘前市场先验简报"), "prior_brief")
         params = prepare_tool_params("ops", {}, "请预演矩阵调仓")
         self.assertEqual(params.get("task"), "rebalance_preview")
         self.assertEqual(params.get("path"), "watching_matrix")
+        prior_params = prepare_tool_params("ops", {}, "请给市场先验配置建议草稿")
+        self.assertEqual(prior_params.get("task"), "feedback_draft")
+        self.assertEqual(prior_params.get("scope"), "market_prior")
         subset = resolve_tool_subset("解释调仓五问")
         self.assertIsNotNone(subset)
         self.assertIn("ops", subset)

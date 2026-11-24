@@ -124,6 +124,12 @@ OPS_KEYS = (
     "view_bundle",
     "运维告警",
     "监控告警",
+    "盘前简报",
+    "市场先验",
+    "prior_brief",
+    "盘前上下文",
+    "跨市场",
+    "大盘环境",
 )
 
 POSITION_KEYS = (
@@ -273,8 +279,36 @@ def infer_ops_task(text: str) -> str:
         return "rebalance_preview"
     if any(k in t for k in ("为什么没买", "拦仓", "risk_block", "告警", "异常")):
         return "ops_anomaly"
-    if any(k in t for k in ("feedback", "参数建议", "配置建议", "改门槛")):
+    # 配置/prior 草稿须先于「市场先验」简报关键词，避免「先验配置建议」误进 prior_brief
+    if any(
+        k in t
+        for k in (
+            "feedback",
+            "参数建议",
+            "配置建议",
+            "改门槛",
+            "prior 草稿",
+            "prior草稿",
+            "先验配置",
+            "改 prior",
+            "建议草稿",
+            "market_prior",
+        )
+    ):
         return "feedback_draft"
+    if any(
+        k in t
+        for k in (
+            "盘前简报",
+            "prior_brief",
+            "市场先验",
+            "盘前上下文",
+            "跨市场",
+            "大盘环境",
+            "今天大盘",
+        )
+    ):
+        return "prior_brief"
     if any(k in t for k in ("对照", "复盘调仓", "调仓后")):
         return "post_rebalance_review"
     if any(k in t for k in ("事件", "公告旗标", "event_flag")):
@@ -457,6 +491,19 @@ def prepare_tool_params(tool_name: str, params: Dict[str, Any], user_input: str)
                 out["path"] = "watching_matrix"
             else:
                 out["path"] = "holding_cycle"
+        if out.get("task") == "feedback_draft" and not out.get("scope"):
+            t = (user_input or "").lower()
+            if any(
+                k in t
+                for k in (
+                    "prior",
+                    "先验",
+                    "跨市场",
+                    "market_prior",
+                    "盘前配置",
+                )
+            ):
+                out["scope"] = "market_prior"
     return out
 
 

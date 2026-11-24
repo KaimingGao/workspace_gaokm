@@ -682,7 +682,17 @@ def _concept_heatmap_desk(concept_flow: Optional[dict]) -> Dict[str, Any]:
     flow = concept_flow if isinstance(concept_flow, dict) else {}
     rows = list(flow.get("rows") or [])[:24]
     nets = [abs(float(r.get("net_yi") or 0)) for r in rows if r.get("net_yi") is not None]
-    max_abs = max(nets) if nets else 1.0
+    max_abs = max(nets) if nets else 0.0
+    # 全 0 快照不当有效热力（盘前 ingest 常见）
+    if max_abs < 0.05:
+        note = flow.get("fresh_note") or flow.get("note") or "概念净额暂为 0 · 盘中再刷"
+        return {
+            "as_of": flow.get("as_of"),
+            "cells": [],
+            "empty": True,
+            "retained_prior": bool(flow.get("retained_prior")),
+            "note": note,
+        }
     cells = []
     for r in rows:
         net = r.get("net_yi")
@@ -700,10 +710,45 @@ def _concept_heatmap_desk(concept_flow: Optional[dict]) -> Dict[str, Any]:
                 "intensity": round(min(1.0, intensity), 3),
             }
         )
+    note = flow.get("note") or "概念净流入热力"
+    if flow.get("retained_prior"):
+        note = f"{note} · 保留盘中快照"
     return {
         "as_of": flow.get("as_of"),
         "cells": cells,
-        "note": flow.get("note") or "概念净流入热力",
+        "empty": False,
+        "retained_prior": bool(flow.get("retained_prior")),
+        "note": note,
+    }
+
+
+def _tech_catalyst_desk(snap: Optional[dict]) -> Dict[str, Any]:
+    """跨市场明细：海外科技涨因卡。"""
+    cat = snap if isinstance(snap, dict) else {}
+    items = []
+    for it in list(cat.get("items") or [])[:5]:
+        if not isinstance(it, dict):
+            continue
+        title = str(it.get("title") or "").strip()
+        if not title:
+            continue
+        items.append(
+            {
+                "title": title[:120],
+                "summary": str(it.get("summary") or "")[:160],
+                "time": str(it.get("time") or "")[:19],
+                "source": str(it.get("source") or "")[:24],
+                "url": it.get("url"),
+            }
+        )
+    return {
+        "reason": str(cat.get("reason") or "").strip() or None,
+        "tone": str(cat.get("tone") or "flat"),
+        "items": items,
+        "sources": list(cat.get("sources") or [])[:4],
+        "as_of": cat.get("as_of"),
+        "note": cat.get("note")
+        or "海外科技隔夜涨因·东财快讯优先；非 PIT，不改 ŷ。",
     }
 
 
@@ -719,6 +764,7 @@ def _build_prior_desk(
     concept_flow: Optional[dict] = None,
     northbound: Optional[dict] = None,
     macro_calendar: Optional[dict] = None,
+    tech_catalyst: Optional[dict] = None,
 ) -> Dict[str, Any]:
     beta = 0.55
     try:
@@ -738,6 +784,7 @@ def _build_prior_desk(
             a50_today=macro.get("a50_1d_pct"),
             gap_today=macro.get("lead_lag_expected_gap_pct"),
         ),
+        "tech_catalyst": _tech_catalyst_desk(tech_catalyst),
         "sentiment_desk": {
             "cycle_score": sentiment.get("sentiment_cycle_score"),
             "band": band.get("band"),
@@ -803,6 +850,7 @@ def _build_market_context_dashboard() -> Dict[str, Any]:
     northbound = ctx.get("northbound") or {}
     concept_flow = ctx.get("concept_flow") or {}
     macro_calendar = ctx.get("macro_calendar") or {}
+    tech_catalyst = ctx.get("tech_catalyst") or {}
     reg = announcement.get("regulatory") or {}
     priors = build_market_priors(ctx)
     macro_hist = None
@@ -902,6 +950,7 @@ def _build_market_context_dashboard() -> Dict[str, Any]:
         concept_flow=concept_flow if isinstance(concept_flow, dict) else {},
         northbound=northbound if isinstance(northbound, dict) else {},
         macro_calendar=macro_calendar if isinstance(macro_calendar, dict) else {},
+        tech_catalyst=tech_catalyst if isinstance(tech_catalyst, dict) else {},
     )
     macro_payload = _macro_strip_payload(macro if isinstance(macro, dict) else {})
     session_clock: Dict[str, Any] = {}
@@ -924,9 +973,13 @@ def _build_market_context_dashboard() -> Dict[str, Any]:
             regime=regime_snapshot,
             session_clock=session_clock,
             northbound=northbound if isinstance(northbound, dict) else {},
+            tech_catalyst=tech_catalyst if isinstance(tech_catalyst, dict) else {},
         )
     except Exception:
         logger.debug("overnight headline skipped", exc_info=True)
+    tech_cat_payload = _tech_catalyst_desk(
+        tech_catalyst if isinstance(tech_catalyst, dict) else {}
+    )
     return {
         "ok": True,
         "data_ready": data_ready,
@@ -935,6 +988,7 @@ def _build_market_context_dashboard() -> Dict[str, Any]:
         "freshness": fresh,
         "session_clock": session_clock,
         "overnight_headline": overnight_headline,
+        "tech_catalyst": tech_cat_payload,
         "northbound": {
             "net_inflow_yi": (northbound or {}).get("net_inflow_yi"),
             "status": (northbound or {}).get("status"),

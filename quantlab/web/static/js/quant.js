@@ -4238,6 +4238,18 @@ export function initQuant(ctx) {
   if (watchTableEl && watchTableEl.dataset.removeWired !== "1") {
     watchTableEl.dataset.removeWired = "1";
     watchTableEl.addEventListener("click", (e) => {
+      const aiBtn = e.target.closest(".watching-ai-btn");
+      if (aiBtn) {
+        e.preventDefault();
+        e.stopPropagation();
+        const code = String(aiBtn.dataset.code || "").trim();
+        if (code && typeof window.__quantlabOpenAi === "function") {
+          window.__quantlabOpenAi(
+            `对 ${code} 调用 advise，并结合 market_prior 解释能否买与失效条件。若 prior_active，须列出 prior_warnings，并说明 ŷ 未改、纸面可能缩放。不要改配置。`
+          );
+        }
+        return;
+      }
       const buildBtn = e.target.closest(".watching-build-btn");
       if (buildBtn) {
         e.preventDefault();
@@ -6543,6 +6555,28 @@ export function initQuant(ctx) {
     mctxRefreshBtn.addEventListener("click", (e) => {
       e.preventDefault();
       strategy.refreshMarketContextPanel?.().catch(() => {});
+    });
+  }
+  const PRIOR_BRIEF_PREFILL =
+    "请调用 ops(task=prior_brief) 做今日盘前市场先验简报：按 checklist 说明 freshness、激活的 prior、对观察池/持仓影响与失效条件。不要改配置，不要改 score/stance。";
+  const PRIOR_DRAFT_PREFILL =
+    "请调用 ops(task=feedback_draft, scope=market_prior) 给出 M 层 prior 配置建议草稿：只建议 cross_market / market_sentiment_prior / regulatory_prior / ipo_drain_prior / market_prior_policy，不改 weights/ŷ；不写盘，须人审。";
+  const priorBriefBtn = document.getElementById("strategy-prior-brief");
+  if (priorBriefBtn) {
+    priorBriefBtn.addEventListener("click", (e) => {
+      e.preventDefault();
+      if (typeof window.__quantlabOpenAi === "function") {
+        window.__quantlabOpenAi(PRIOR_BRIEF_PREFILL);
+      }
+    });
+  }
+  const priorDraftBtn = document.getElementById("strategy-prior-draft");
+  if (priorDraftBtn) {
+    priorDraftBtn.addEventListener("click", (e) => {
+      e.preventDefault();
+      if (typeof window.__quantlabOpenAi === "function") {
+        window.__quantlabOpenAi(PRIOR_DRAFT_PREFILL);
+      }
     });
   }
   if (page === "strategy") {

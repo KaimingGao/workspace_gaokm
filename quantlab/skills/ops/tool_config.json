@@ -1,17 +1,18 @@
 {
   "name": "ops",
-  "description": "QuantLab AO 轨运维工具（只读/预演为主）。task=ops_snapshot 解释调仓五问(last_ops_report)；rebalance_preview 三路 dry_run(path=holding_cycle|watching_matrix|sync_paper)；ops_anomaly 拦仓/告警/审计；feedback_draft 配置建议草稿(不写盘)；post_rebalance_review 调仓后只读对照；event_flags 新闻启发式事件旗标；alpha_draft 因子假设草稿；view_bundle 结构化观点包(默认不融合)。禁止编造数字；预演≠成交；不自动 promote。",
+  "description": "QuantLab AO 轨运维工具（只读/预演为主）。task=ops_snapshot 解释调仓五问(last_ops_report)；rebalance_preview 三路 dry_run(path=holding_cycle|watching_matrix|sync_paper)；ops_anomaly 拦仓/告警/审计；feedback_draft 配置建议草稿(不写盘；scope=market_prior 仅 M 层 prior)；prior_brief 盘前市场先验结构化简报；post_rebalance_review 调仓后只读对照；event_flags 新闻启发式事件旗标；alpha_draft 因子假设草稿；view_bundle 结构化观点包(默认不融合)。禁止编造数字；预演≠成交；不自动 promote。",
   "parameters": {
     "type": "object",
     "properties": {
       "task": {
         "type": "string",
-        "description": "ops_snapshot|rebalance_preview|ops_anomaly|feedback_draft|post_rebalance_review|event_flags|alpha_draft|view_bundle",
+        "description": "ops_snapshot|rebalance_preview|ops_anomaly|feedback_draft|prior_brief|post_rebalance_review|event_flags|alpha_draft|view_bundle",
         "enum": [
           "ops_snapshot",
           "rebalance_preview",
           "ops_anomaly",
           "feedback_draft",
+          "prior_brief",
           "post_rebalance_review",
           "event_flags",
           "alpha_draft",
@@ -22,6 +23,19 @@
         "type": "string",
         "description": "仅 rebalance_preview：holding_cycle|watching_matrix|sync_paper",
         "enum": ["holding_cycle", "watching_matrix", "sync_paper"]
+      },
+      "scope": {
+        "type": "string",
+        "description": "仅 feedback_draft：strategy（默认）| market_prior（仅建议 M 层 prior 键）",
+        "enum": ["strategy", "market_prior"]
+      },
+      "stock_code": {
+        "type": "string",
+        "description": "可选；prior_brief 按个股裁剪 warnings"
+      },
+      "sector": {
+        "type": "string",
+        "description": "可选；prior_brief 行业裁剪"
       },
       "idea": {
         "type": "string",

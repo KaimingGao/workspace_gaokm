@@ -19,6 +19,7 @@ AVAILABLE_TASKS = (
     "rebalance_preview",
     "ops_anomaly",
     "feedback_draft",
+    "prior_brief",
     "post_rebalance_review",
     "event_flags",
     "alpha_draft",
@@ -163,6 +164,7 @@ class AgentOpsService:
             "rebalance_preview": self.rebalance_preview,
             "ops_anomaly": self.ops_anomaly,
             "feedback_draft": self.feedback_draft,
+            "prior_brief": self.prior_brief,
             "post_rebalance_review": self.post_rebalance_review,
             "event_flags": self.event_flags,
             "alpha_draft": self.alpha_draft,
@@ -443,8 +445,147 @@ class AgentOpsService:
             "disclaimer": "异常摘要只读；改配置须人审 promote。",
         }
 
+    def prior_brief(self, params: Optional[dict] = None) -> Dict[str, Any]:
+        """盘前市场先验结构化简报（只读；不 ingest、不写盘）。"""
+        params = params or {}
+        stock_code = params.get("stock_code") or params.get("code")
+        sector = params.get("sector")
+        code_s = str(stock_code).strip() if stock_code else None
+        sector_s = str(sector).strip() if sector else None
+
+        from core.market.context import summarize_market_context
+
+        summary = summarize_market_context(
+            stock_code=code_s or None,
+            sector=sector_s or None,
+        )
+        fresh = summary.get("freshness") if isinstance(summary.get("freshness"), dict) else {}
+        stale = bool(fresh.get("any_stale") or fresh.get("needs_ingest") or fresh.get("stale"))
+        parts = fresh.get("parts") if isinstance(fresh.get("parts"), dict) else {}
+        missing = False
+        if parts:
+            for _k, part in parts.items():
+                if not isinstance(part, dict):
+                    continue
+                if part.get("as_of") is None and part.get("age_hours") is None:
+                    missing = True
+                    break
+        if not fresh and not summary.get("macro"):
+            stale = True
+            missing = True
+
+        regime_summary: Dict[str, Any] = {}
+        try:
+            from core.signal.config import load_signal_config
+            from core.signal.live_features import fetch_live_index_bars
+            from core.signal.regime import assess_regime
+            from core.pro_core import regime_position_scale
+
+            sig_cfg = load_signal_config() or {}
+            idx_pack = fetch_live_index_bars(limit=75, use_cache=True)
+            regime_info = assess_regime(
+                idx_pack.get("bars") or [],
+                sig_cfg.get("regime"),
+                macro=None,
+            )
+            scale_info = regime_position_scale(regime=regime_info)
+            regime_summary = {
+                "regime": regime_info.get("regime"),
+                "index_return_pct": regime_info.get("index_return_pct"),
+                "volatility_pct": regime_info.get("volatility_pct"),
+                "position_scale": scale_info.get("scale"),
+                "apply_position_scale": (sig_cfg.get("regime") or {}).get(
+                    "apply_position_scale"
+                )
+                is not False,
+                "reason": regime_info.get("reason"),
+            }
+        except Exception:  # noqa: BLE001 — 简报降级，不阻塞
+            regime_summary = {}
+
+        flags = summary.get("prior_flags") if isinstance(summary.get("prior_flags"), dict) else {}
+        prior_active = bool(summary.get("prior_active"))
+        warnings = list(summary.get("prior_warnings") or [])[:8]
+
+        exposure_note = "未指定个股：请对照 Prior Desk「事件与暴露」与观察池/持仓交集。"
+        if code_s:
+            exposure_note = (
+                f"已按 {code_s}"
+                + (f" / {sector_s}" if sector_s else "")
+                + " 裁剪 prior warnings；是否命中监管/IPO 见 prior_flags。"
+            )
+
+        checklist = [
+            {
+                "id": "freshness",
+                "ok": not stale and not missing,
+                "label": "盘前 ingest 新鲜度",
+                "detail": (
+                    "上下文过期或缺失 · 请在 Prior Desk 点「刷新 ingest」或跑 pre_market_ingest"
+                    if (stale or missing)
+                    else "freshness 可用"
+                ),
+            },
+            {
+                "id": "prior_active",
+                "ok": True,
+                "label": "激活的 M 层 prior",
+                "detail": (
+                    "；".join(warnings)
+                    if prior_active and warnings
+                    else ("prior 未激活" if not prior_active else "prior 激活但无 warnings 文本")
+                ),
+                "flags": flags,
+            },
+            {
+                "id": "exposure",
+                "ok": True,
+                "label": "对观察池 / 持仓暴露",
+                "detail": exposure_note,
+            },
+            {
+                "id": "rebalance_scale",
+                "ok": True,
+                "label": "今日调仓是否会被缩放",
+                "detail": (
+                    "prior_active=true → 纸面买/持仓可能按 scale_buy_pct 缩放；ŷ 不变"
+                    if prior_active
+                    else "prior 未激活 → 本层不额外缩放；仍可能受 Regime 仓位上限影响"
+                ),
+            },
+        ]
+
+        return {
+            "success": True,
+            "task": "prior_brief",
+            "as_of": _utc_now(),
+            "stock_code": code_s,
+            "sector": sector_s,
+            "freshness": fresh,
+            "macro": summary.get("macro") or {},
+            "sentiment": summary.get("sentiment") or {},
+            "regulatory": summary.get("regulatory") or {},
+            "ipo": summary.get("ipo") or {},
+            "prior_active": prior_active,
+            "prior_flags": flags,
+            "prior_warnings": warnings,
+            "regime_summary": regime_summary,
+            "checklist": checklist,
+            "impact_note": "不进 ŷ；仅纸面买/持仓缩放",
+            "disclaimer": "只读简报；数字来自 market_context；AI 不得改写；不写 signal_config。",
+            "hint": (
+                "若 freshness 过期：Prior Desk「刷新 ingest」或 schedule pre_market_ingest。"
+                if (stale or missing)
+                else None
+            ),
+        }
+
     def feedback_draft(self, params: Optional[dict] = None) -> Dict[str, Any]:
         params = params or {}
+        scope = str(params.get("scope") or "strategy").strip().lower()
+        if scope in ("market_prior", "prior", "m_prior"):
+            return self._feedback_draft_market_prior(params)
+
         paper, _err = _load_paper(params.get("paper_path") or self.paper_path)
         ops = (paper or {}).get("last_ops_report") if paper else None
         ops = ops if isinstance(ops, dict) else {}
@@ -478,12 +619,136 @@ class AgentOpsService:
         return {
             "success": True,
             "task": "feedback_draft",
+            "scope": "strategy",
             "as_of": _utc_now(),
             "baseline_ref": baseline,
             "draft": draft,
             "suggested_checks": suggested_checks,
             "applied": False,
             "disclaimer": "仅草稿，未写盘；未完成对照不得宣称策略变好。",
+        }
+
+    def _feedback_draft_market_prior(self, params: Optional[dict] = None) -> Dict[str, Any]:
+        """仅建议 M 层 prior 键；不写盘、不改 weights/scoring。"""
+        params = params or {}
+        from core.market.context import summarize_market_context
+        from core.signal.market_prior_config import read_market_prior_public
+
+        summary = summarize_market_context()
+        cfg_pub = read_market_prior_public()
+        flags = summary.get("prior_flags") if isinstance(summary.get("prior_flags"), dict) else {}
+        prior_active = bool(summary.get("prior_active"))
+        warnings = list(summary.get("prior_warnings") or [])[:8]
+
+        paper, _err = _load_paper(params.get("paper_path") or self.paper_path)
+        trim_count = 0
+        if paper:
+            for t in list(paper.get("trades") or [])[-80:]:
+                if not isinstance(t, dict):
+                    continue
+                note = str(t.get("reason") or t.get("note") or "")
+                if t.get("market_prior") or "market_prior" in note or "市场先验" in note:
+                    trim_count += 1
+
+        suggestions: List[Dict[str, Any]] = []
+        cm = cfg_pub.get("cross_market") or {}
+        msp = cfg_pub.get("market_sentiment_prior") or {}
+        reg = cfg_pub.get("regulatory_prior") or {}
+        ipo = cfg_pub.get("ipo_drain_prior") or {}
+        policy = cfg_pub.get("market_prior_policy") or {}
+
+        if flags.get("cross_market"):
+            cur = float(cm.get("scale_buy_pct") or 0.5)
+            suggestions.append(
+                {
+                    "key": "cross_market.scale_buy_pct",
+                    "current": cur,
+                    "suggested": round(max(0.25, min(0.85, cur * 0.9)), 3),
+                    "reason": "跨市场 prior 已激活；若缩仓过猛可上调，过松可下调（本草稿偏保守 ×0.9）",
+                }
+            )
+        if flags.get("market_sentiment"):
+            cur = float(msp.get("scale_buy_pct") or 0.55)
+            suggestions.append(
+                {
+                    "key": "market_sentiment_prior.scale_buy_pct",
+                    "current": cur,
+                    "suggested": round(max(0.25, min(0.85, cur * 0.9)), 3),
+                    "reason": "情绪 prior 激活；建议复核 scale_buy_pct",
+                }
+            )
+        if flags.get("regulatory"):
+            suggestions.append(
+                {
+                    "key": "regulatory_prior.mode",
+                    "current": reg.get("mode"),
+                    "suggested": reg.get("mode") or "scale",
+                    "reason": "监管 prior 激活；确认 mode 与 scale_buy_pct 是否符合当日暴露",
+                }
+            )
+        if flags.get("ipo_drain"):
+            cur = float(ipo.get("scale_buy_pct") or 0.45)
+            suggestions.append(
+                {
+                    "key": "ipo_drain_prior.scale_buy_pct",
+                    "current": cur,
+                    "suggested": round(max(0.2, min(0.8, cur * 0.9)), 3),
+                    "reason": "IPO 虹吸 prior 激活；建议复核缩放",
+                }
+            )
+        if trim_count >= 3 and not suggestions:
+            cur = float(cm.get("scale_buy_pct") or 0.5)
+            suggestions.append(
+                {
+                    "key": "cross_market.scale_buy_pct",
+                    "current": cur,
+                    "suggested": round(min(0.9, cur + 0.05), 3),
+                    "reason": f"近端纸面 trades 含 market_prior 标记约 {trim_count} 笔；若过抑可略上调缩放",
+                }
+            )
+        if not suggestions:
+            suggestions.append(
+                {
+                    "key": "market_prior_policy.merge_mode",
+                    "current": policy.get("merge_mode") or "min_scale",
+                    "suggested": policy.get("merge_mode") or "min_scale",
+                    "reason": "当前无强激活 prior；保持 merge_mode，无需改 weights/scoring",
+                }
+            )
+
+        draft = {
+            "scope": "market_prior",
+            "prior_active": prior_active,
+            "prior_flags": flags,
+            "prior_warnings": warnings,
+            "market_prior_trim_trades": trim_count,
+            "current_config": cfg_pub,
+            "suggestions": suggestions,
+            "forbidden_keys": ["weights", "scoring", "yhat", "stance"],
+            "write_path": "人审后 POST /api/signal/config/market-prior（Agent 不调用）",
+        }
+        suggested_checks = [
+            "ops(task=prior_brief) 确认 freshness 与激活 flags",
+            "ops(task=rebalance_preview) 纸面 dry 预演对照缩放",
+            "对照 prior 激活日 vs 非激活日缩仓比例（纸面 trades.market_prior）",
+            "人审后 POST /api/signal/config/market-prior（勿在 /market-prior 页写盘；Agent 不调用）",
+        ]
+        return {
+            "success": True,
+            "task": "feedback_draft",
+            "scope": "market_prior",
+            "as_of": _utc_now(),
+            "baseline_ref": {
+                "merge_mode": policy.get("merge_mode"),
+                "cross_market_mode": cm.get("mode"),
+            },
+            "draft": draft,
+            "suggested_checks": suggested_checks,
+            "applied": False,
+            "disclaimer": (
+                "仅 M 层 prior 草稿，未写盘；不得改 ŷ/weights；"
+                "未完成对照不得宣称策略变好。"
+            ),
         }
 
     # ── AO3.5 ────────────────────────────────────────────

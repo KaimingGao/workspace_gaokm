@@ -1,7 +1,7 @@
 """会话日开盘截面特征构建（物化写盘用）：昨收日线 + 行情今开。
 
 风格因子与训练面板同一套 PIT：X 只用 date < 会话日的日线，quote 是今开 / 昨收。
-今收不进 X。
+今收不进 X。相对强弱不传指数，按今开缺口分档，与 ``collect_oo_panel`` 一致。
 
 仅供 ``materialize.session_open.materialize_session_open_l2`` 正式落官方 open DayCube。
 调仓 / 持仓出分 **不得** 直接消费本模块拼截面；缺 L2 → ``materialize_required``。
@@ -493,6 +493,38 @@ def _style_complete(scores: Dict[str, float], names: Sequence[str]) -> bool:
     return all(n in scores for n in names)
 
 
+def _relative_strength_like_panel(
+    window: Sequence[dict],
+    quote: dict,
+) -> Optional[float]:
+    """与训练面板一致：不传指数，相对强弱用今开缺口分档。
+
+    ``collect_oo_panel`` 不带指数，这列在拟合里是 30/45/65/80。
+    早盘若改用 20 日超额（28/42/58/72/85），现网权重会吃到没见过的输入。
+    """
+    from core.signal.factors.meta.registry import compute_factor
+
+    try:
+        score, meta = compute_factor(
+            "relative_strength",
+            list(window),
+            quote=quote,
+            index_bars=None,
+        )
+    except Exception:  # noqa: BLE001
+        logger.debug("open_pit relative_strength failed", exc_info=True)
+        return None
+    if isinstance(meta, dict) and meta.get("omit_sub_score"):
+        return None
+    try:
+        val = float(score)
+    except (TypeError, ValueError):
+        return None
+    if not math.isfinite(val):
+        return None
+    return val
+
+
 def _open_style_scores(
     hist: Sequence[dict],
     open_t: float,
@@ -504,7 +536,8 @@ def _open_style_scores(
     """注册风格因子的 0–100 裸分。跳过 alpha 包，避免改写 raw_aoo_* / raw_atc_*。
 
     价量列（以及有指数时的特异动量）必须齐。财务列缺测留空，与训练面板的 NaN 一样，
-    不把整行扔掉。窗不够或昨收缺失时返回空。
+    不把整行扔掉。窗不够或昨收缺失时返回空。指数只给特异动量；相对强弱跟训练面板，
+    用今开缺口分档。
     """
     from core.research.oo_panel import _research_sub_scores
 
@@ -520,13 +553,16 @@ def _open_style_scores(
     required = _style_required_names(names, index_bars=index_bars)
     if not window or not required:
         return {}
+    quote = _open_style_quote(ot, pc)
+    # 相对强弱不进带指数的那一遍，避免先写成 20 日超额再覆盖。
+    indexed = tuple(n for n in names if n != "relative_strength")
     try:
         row = _research_sub_scores(
             window,
-            quote=_open_style_quote(ot, pc),
+            quote=quote,
             index_bars=list(index_bars) if index_bars else None,
             fundamentals=fundamentals if isinstance(fundamentals, dict) else None,
-            factor_names=names,
+            factor_names=indexed,
         )
     except Exception:  # noqa: BLE001
         logger.info("open_pit style factors failed", exc_info=True)
@@ -541,6 +577,12 @@ def _open_style_scores(
         fv = float(val)
         if math.isfinite(fv):
             out[sk] = fv
+    if "relative_strength" in names:
+        rs = _relative_strength_like_panel(window, quote)
+        if rs is None:
+            out.pop("relative_strength", None)
+        else:
+            out["relative_strength"] = rs
     if not _style_complete(out, required):
         global _style_miss_logged
         if not _style_miss_logged:

@@ -231,13 +231,16 @@ export function installStrategy(q) {
     return `${(h / 24).toFixed(1)}d`;
   }
 
-  function setStrategyMetaStatus(text, { busy = false } = {}) {
-    const meta = document.getElementById("strategy-meta");
-    if (!meta) return;
-    if (text != null && text !== "") meta.textContent = text;
-    meta.classList.toggle("is-busy", !!busy);
-    if (busy) meta.setAttribute("aria-busy", "true");
-    else meta.removeAttribute("aria-busy");
+  /** 操作态写在概览工具条，不进页头大标题栏。 */
+  function setMctxStatus(text, { busy = false, tone = "" } = {}) {
+    const el = document.getElementById("strategy-mctx-status");
+    if (!el) return;
+    el.textContent = text != null ? String(text) : "";
+    el.classList.toggle("is-busy", !!busy);
+    el.classList.toggle("is-warn", tone === "warn");
+    el.classList.toggle("is-bad", tone === "bad");
+    if (busy) el.setAttribute("aria-busy", "true");
+    else el.removeAttribute("aria-busy");
   }
 
   async function loadMarketContextPanel() {
@@ -251,27 +254,29 @@ export function installStrategy(q) {
       if (!ctx || ctx.ok === false) {
         renderRegimeBoard({});
         paintPriorDesk(null);
-        setStrategyMetaStatus("盘前上下文未就绪");
+        setMctxStatus("盘前上下文未就绪", { tone: "warn" });
         return;
       }
       const fresh = ctx.freshness || {};
       const age = ageLabel(fresh.parts);
       const bits = [];
+      let tone = "";
       if (fresh.needs_ingest || ctx.macro_degraded) {
         bits.push(ctx.macro_degraded ? "macro 降级" : "需刷新");
+        tone = "warn";
       } else if (ctx.data_ready === false) {
         bits.push("部分空");
+        tone = "warn";
       } else {
         bits.push(age ? `新鲜 ${age}` : "新鲜");
       }
-      bits.push("只读 · 不改 ŷ");
-      setStrategyMetaStatus(bits.join(" · "));
+      setMctxStatus(bits.join(" · "), { tone });
       renderRegimeBoard(ctx.regime || {});
       paintPriorDesk(ctx);
     } catch (err) {
       renderRegimeBoard({});
       paintPriorDesk(null);
-      setStrategyMetaStatus(String(err.message || err));
+      setMctxStatus(String(err.message || err), { tone: "bad" });
     }
   }
 
@@ -488,6 +493,54 @@ export function installStrategy(q) {
             })
             .join("") +
           `</tbody></table>`;
+      }
+    }
+
+    const catHost = document.getElementById("strategy-tech-catalyst");
+    const catMeta = document.getElementById("strategy-tech-catalyst-meta");
+    if (catHost) {
+      const cat =
+        (desk && desk.tech_catalyst) ||
+        (ctx && ctx.tech_catalyst) ||
+        {};
+      const reason = String(cat.reason || "").trim();
+      const items = Array.isArray(cat.items) ? cat.items : [];
+      const srcs = Array.isArray(cat.sources) ? cat.sources : [];
+      if (catMeta) {
+        catMeta.textContent = srcs.length
+          ? srcs.slice(0, 2).join(" · ")
+          : cat.as_of
+            ? String(cat.as_of)
+            : "";
+      }
+      if (!reason && !items.length) {
+        catHost.innerHTML = `<p class="strategy-desk-empty">暂无涨因 · 刷新 ingest</p>`;
+      } else {
+        const tone = String(cat.tone || "flat");
+        const toneCls =
+          tone === "up" ? "is-up" : tone === "down" ? "is-down" : "";
+        const bullets = items
+          .slice(0, 3)
+          .map((it) => {
+            const t = String((it && it.title) || "").trim();
+            if (!t) return "";
+            const tip = String((it && (it.summary || it.time)) || "").trim();
+            return `<li title="${escapeHtml(tip)}">${escapeHtml(t)}</li>`;
+          })
+          .filter(Boolean)
+          .join("");
+        catHost.innerHTML =
+          (reason
+            ? `<p class="strategy-tech-catalyst-reason ${toneCls}" title="${escapeHtml(
+                cat.note || "非 PIT · 不改 ŷ"
+              )}">${escapeHtml(reason)}</p>`
+            : "") +
+          (bullets
+            ? `<ul class="strategy-tech-catalyst-list">${bullets}</ul>`
+            : "") +
+          `<p class="strategy-desk-note">${escapeHtml(
+            cat.note || "东财全球快讯优先 · CNBC 兜底；非 PIT。"
+          )}</p>`;
       }
     }
 
@@ -766,7 +819,9 @@ export function installStrategy(q) {
     }
     if (heatHost) {
       if (!heatCells.length) {
-        heatHost.innerHTML = `<p class="strategy-desk-empty">无概念流 · 刷新 ingest</p>`;
+        heatHost.innerHTML = `<p class="strategy-desk-empty">${escapeHtml(
+          heat.note || "无概念流 · 盘中再刷 ingest"
+        )}</p>`;
       } else {
         heatHost.innerHTML = heatCells
           .slice(0, 16)
@@ -867,24 +922,22 @@ export function installStrategy(q) {
 
   async function refreshMarketContextPanel() {
     const btn = document.getElementById("strategy-mctx-refresh");
-    const meta = document.getElementById("strategy-meta");
-    const prev = meta ? meta.textContent : "";
     if (btn) btn.disabled = true;
-    setStrategyMetaStatus("ingest…", { busy: true });
+    setMctxStatus("ingest…", { busy: true });
     try {
       const res = await runMarketContextIngest(apiFetch, { backfill: true });
       if (res && res.ok === false) {
-        setStrategyMetaStatus(res.error || "ingest 失败");
+        setMctxStatus(res.error || "ingest 失败", { tone: "bad" });
         return;
       }
       await loadMarketContextPanel();
     } catch (err) {
-      setStrategyMetaStatus(String(err.message || err));
+      setMctxStatus(String(err.message || err), { tone: "bad" });
     } finally {
       if (btn) btn.disabled = false;
-      const cur = document.getElementById("strategy-meta");
-      if (cur && cur.textContent === "ingest…") {
-        setStrategyMetaStatus(prev || "盘前看板 · 只读 · 不改 ŷ · 未接调仓");
+      const cur = document.getElementById("strategy-mctx-status");
+      if (cur && cur.textContent === "ingest…" && cur.classList.contains("is-busy")) {
+        setMctxStatus("ingest 超时或未返回", { tone: "warn" });
       }
     }
   }
@@ -896,8 +949,7 @@ export function installStrategy(q) {
       if (!res.ok) throw new Error(data.detail || res.statusText);
       renderStrategyList(data);
     } catch (err) {
-      const st = document.getElementById("strategy-meta");
-      if (st) st.textContent = `策略配置加载失败：${err.message || err}`;
+      setMctxStatus(`策略配置加载失败：${err.message || err}`, { tone: "bad" });
     }
   }
 

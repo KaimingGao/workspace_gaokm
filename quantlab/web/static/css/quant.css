@@ -10308,30 +10308,6 @@ body[data-page="strategy"] .quant-macro-strip-brand {
   background: transparent;
 }
 
-body[data-page="strategy"] .quant-macro-strip-headline {
-  margin: 0;
-  padding: 0;
-  border: none;
-  background: transparent;
-  color: var(--ink);
-  font-size: 0.875rem;
-  font-weight: 650;
-  line-height: 1.35;
-  letter-spacing: 0.01em;
-}
-
-body[data-page="strategy"] .quant-macro-strip-headline.is-up {
-  color: var(--up, #c0392b);
-}
-
-body[data-page="strategy"] .quant-macro-strip-headline.is-down {
-  color: var(--down, #16a34a);
-}
-
-body[data-page="strategy"] .quant-macro-strip-headline.is-warn {
-  color: var(--warn, #b45309);
-}
-
 body[data-page="strategy"] .quant-macro-strip-grid {
   display: grid;
   grid-template-columns: repeat(6, minmax(0, 1fr));

@@ -177,6 +177,34 @@ class TestOpenPitScore(unittest.TestCase):
         self.assertNotIn("raw_volume_price_volume_ratio", subs)
         self.assertAlmostEqual(float(subs["raw_aoo_CLOSE0"]), 28.89 / 29.06, places=5)
 
+    def test_relative_strength_follows_open_gap_not_index_excess(self) -> None:
+        from core.paper.rebalance.open_pit_score import _open_style_scores
+        from core.signal.factors.relative_strength import (
+            excess_return_pct,
+            score_from_excess,
+            score_from_last_change,
+        )
+
+        hist = _bars(80, last_day="2026-10-27")
+        for i, bar in enumerate(hist):
+            px = 120.0 - i * 0.8
+            bar["open"] = px
+            bar["high"] = px + 0.2
+            bar["low"] = px - 0.3
+            bar["close"] = px - 0.1
+        index = [{"date": b["date"], "close": 3000.0 + i} for i, b in enumerate(hist)]
+        prev = float(hist[-1]["close"])
+        open_t = prev * 1.05
+        gap = (open_t / prev - 1.0) * 100.0
+        excess = excess_return_pct(hist, index)
+        self.assertIsNotNone(excess)
+        self.assertLessEqual(float(excess), -3.0)
+        scores = _open_style_scores(hist, open_t, prev, index_bars=index)
+        self.assertIn("relative_strength", scores)
+        self.assertEqual(scores["relative_strength"], score_from_last_change(gap))
+        self.assertNotEqual(scores["relative_strength"], score_from_excess(excess))
+        self.assertIn("idio_momentum", scores)
+
     def test_style_hist_refuses_short_window(self) -> None:
         from core.paper.rebalance.open_pit_score import _open_style_hist
 

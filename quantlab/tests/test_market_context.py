@@ -12,6 +12,7 @@ from __future__ import annotations
 import os
 import tempfile
 import unittest
+from unittest import mock
 
 from adapters.announcement.concept_graph import enrich_regulatory_with_concepts
 from adapters.announcement.engine import scan_regulatory_notices
@@ -514,13 +515,75 @@ class TestPriorDeskPayload(unittest.TestCase):
                 "a_share": {"code": "pre_open"},
                 "us_rth": {"code": "closed"},
             },
+            tech_catalyst={
+                "reason": "英伟达黄仁勋复职，纳指大涨6.5%。市场风险偏好回升。",
+            },
         )
         self.assertIn("科技+7.8%", hl["text"])
         self.assertIn("A50+1.0%", hl["text"])
         self.assertIn("NQ+0.4%", hl["text"])
+        self.assertIn("情绪偏热", hl["text"])
         self.assertIn("涨停146", hl["text"])
+        self.assertNotIn("情绪偏热涨停", hl["text"])
         self.assertIn("锚弱", hl["text"])
+        self.assertIn("因·", hl["text"])
+        self.assertIn("英伟达", hl["text"])
         self.assertEqual(hl["tone"], "up")
+        self.assertTrue(hl.get("catalyst"))
+        segs = hl.get("segments") or []
+        self.assertTrue(segs)
+        kinds = {s.get("kind") for s in segs}
+        self.assertIn("pct", kinds)
+        self.assertIn("sentiment", kinds)
+        self.assertIn("limit_up", kinds)
+        tech = next(s for s in segs if s.get("label") == "科技")
+        self.assertEqual(tech.get("tone"), "up")
+        self.assertEqual(tech.get("value"), "+7.8%")
+
+    def test_tech_catalyst_snapshot_offline(self):
+        from adapters.macro import tech_catalyst as tc
+
+        fake_em = (
+            [
+                {
+                    "title": "海外大涨带不动A股",
+                    "summary": "隔夜英伟达因黄仁勋复职暴涨31.5%，纳指大涨6.51%，费城半导体飙升14%",
+                    "time": "2026-11-24 15:58:36",
+                    "url": None,
+                    "source": "em_global",
+                    "score": 9,
+                }
+            ],
+            "stock_info_global_em",
+        )
+        with mock.patch.object(tc, "_fetch_em_items", return_value=fake_em), mock.patch.object(
+            tc, "_fetch_cls_items", return_value=([], "cls_empty")
+        ), mock.patch.object(
+            tc, "_fetch_cnbc_items", return_value=([], "cnbc:empty")
+        ), mock.patch.object(tc, "_call_with_timeout", side_effect=lambda fn, *a, **k: fn(*a, **k)):
+            snap = tc.build_tech_catalyst_snapshot(tech_1d_pct=7.8)
+        self.assertTrue(snap["success"])
+        self.assertIn("英伟达", snap["reason"])
+        self.assertEqual(snap["tone"], "up")
+        self.assertGreaterEqual(len(snap["items"]), 1)
+
+    def test_tech_catalyst_desk(self):
+        from web.dashboard.market import _tech_catalyst_desk
+
+        desk = _tech_catalyst_desk(
+            {
+                "reason": "纳指大涨",
+                "tone": "up",
+                "sources": ["stock_info_global_em"],
+                "items": [
+                    {"title": "英伟达复职提振科技", "summary": "…", "time": "2026-11-24", "source": "em_global"},
+                    {"title": "", "summary": "skip"},
+                ],
+            }
+        )
+        self.assertEqual(desk["reason"], "纳指大涨")
+        self.assertEqual(len(desk["items"]), 1)
+        self.assertEqual(desk["items"][0]["title"], "英伟达复职提振科技")
 
     def test_macro_strip_payload_futures(self):
         from web.dashboard.market import _macro_strip_payload, _series_rows
@@ -573,6 +636,59 @@ class TestPriorDeskPayload(unittest.TestCase):
         self.assertEqual(len(heat["cells"]), 2)
         self.assertEqual(heat["cells"][0]["intensity"], 1.0)
         self.assertEqual(heat["cells"][1]["side"], "out")
+
+    def test_concept_heatmap_desk_all_zero(self):
+        from web.dashboard.market import _concept_heatmap_desk
+
+        heat = _concept_heatmap_desk(
+            {
+                "as_of": "2026-11-24",
+                "rows": [
+                    {"concept": "网红经济", "net_yi": 0.0, "chg_pct": 0.0},
+                    {"concept": "水利", "net_yi": 0.0, "chg_pct": 1.1},
+                ],
+                "note": "概念净额暂为 0",
+            }
+        )
+        self.assertEqual(heat["cells"], [])
+        self.assertTrue(heat.get("empty"))
+
+    def test_concept_flow_skip_and_zero(self):
+        from adapters.macro.flows import build_concept_flow_snapshot
+        import pandas as pd
+
+        df = pd.DataFrame(
+            [
+                {"行业": "融资融券", "净额": -500.0, "行业-涨跌幅": -0.2},
+                {"行业": "芯片概念", "净额": 12.5, "行业-涨跌幅": 1.2},
+                {"行业": "白酒", "净额": -8.0, "行业-涨跌幅": -0.5},
+                {"行业": "沪股通", "净额": -200.0, "行业-涨跌幅": 0.0},
+            ]
+        )
+        with mock.patch("core.data.ak_lock.import_akshare") as ak_imp:
+            ak = mock.Mock()
+            ak.stock_fund_flow_concept = mock.Mock(return_value=df)
+            ak_imp.return_value = ak
+            snap = build_concept_flow_snapshot(top_n=4)
+        self.assertTrue(snap["success"])
+        names = [r["concept"] for r in snap["rows"]]
+        self.assertIn("芯片概念", names)
+        self.assertNotIn("融资融券", names)
+        self.assertNotIn("沪股通", names)
+
+        df0 = pd.DataFrame(
+            [
+                {"行业": "网红经济", "净额": 0.0, "行业-涨跌幅": 0.0},
+                {"行业": "水利", "净额": 0.0, "行业-涨跌幅": 1.0},
+            ]
+        )
+        with mock.patch("core.data.ak_lock.import_akshare") as ak_imp:
+            ak = mock.Mock()
+            ak.stock_fund_flow_concept = mock.Mock(return_value=df0)
+            ak_imp.return_value = ak
+            snap0 = build_concept_flow_snapshot(top_n=4)
+        self.assertFalse(snap0["success"])
+        self.assertIn("all_zero", snap0.get("errors") or [])
 
     def test_series_leadlag_regime_desk(self):
         from web.dashboard.market import (

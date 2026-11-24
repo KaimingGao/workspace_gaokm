@@ -180,6 +180,38 @@ body[data-page="strategy"] .strategy-overview-tools {
   background: color-mix(in srgb, var(--ink) 2.5%, var(--surface));
 }
 
+body[data-page="strategy"] .strategy-mctx-tools {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: var(--sys-gap-block);
+  min-width: 0;
+}
+
+body[data-page="strategy"] .strategy-mctx-status {
+  margin: 0;
+  max-width: 16rem;
+  overflow: hidden;
+  color: var(--ink-3, #6b7280);
+  font-size: var(--sys-fs-caption);
+  line-height: 1.3;
+  text-align: right;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+body[data-page="strategy"] .strategy-mctx-status.is-busy {
+  color: var(--ink-2, #374151);
+}
+
+body[data-page="strategy"] .strategy-mctx-status.is-warn {
+  color: var(--warn, #b45309);
+}
+
+body[data-page="strategy"] .strategy-mctx-status.is-bad {
+  color: var(--neg, #b91c1c);
+}
+
 
 /* ——— Regime 面板（市场先验） ——— */
 body[data-page="strategy"] .strategy-mctx-panel .dashboard-card-head {
@@ -832,6 +864,41 @@ body[data-page="strategy"] .strategy-ops-card-body.strategy-desk-pad {
 
 .strategy-desk-split--cross > .strategy-desk-block > .strategy-desk-kicker-row {
   flex-shrink: 0;
+}
+
+.strategy-tech-catalyst {
+  min-width: 0;
+}
+
+.strategy-tech-catalyst-reason {
+  margin: 0 0 0.55rem;
+  font-size: var(--sys-fs-body);
+  font-weight: 600;
+  line-height: 1.45;
+  color: var(--text);
+}
+
+.strategy-tech-catalyst-reason.is-up {
+  color: var(--pos, #c23b3b);
+}
+
+.strategy-tech-catalyst-reason.is-down {
+  color: var(--neg, #2a7a4b);
+}
+
+.strategy-tech-catalyst-list {
+  margin: 0 0 0.55rem;
+  padding-left: 1.1rem;
+  color: var(--text-muted, #666);
+  font-size: var(--sys-fs-caption);
+  line-height: 1.45;
+}
+
+.strategy-tech-catalyst-list li {
+  margin: 0.2rem 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 @media (max-width: 900px) {

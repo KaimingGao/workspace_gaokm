@@ -96,6 +96,13 @@ def build_northbound_snapshot() -> Dict[str, Any]:
     }
 
 
+# 东财概念流里的通道/杠杆桶，净额量级大但不是主题概念
+_CONCEPT_FLOW_SKIP = frozenset(
+    {"融资融券", "沪股通", "深股通", "港股通", "转融通", "证金持股"}
+)
+_CONCEPT_FLOW_EPS = 0.05  # 亿元；盘前/休市常见全 0
+
+
 def build_concept_flow_snapshot(*, top_n: int = 10) -> Dict[str, Any]:
     """概念资金流热力：按净额取头部/尾部。"""
     from core.data.ak_lock import import_akshare
@@ -108,7 +115,11 @@ def build_concept_flow_snapshot(*, top_n: int = 10) -> Dict[str, Any]:
         fn = getattr(ak, "stock_fund_flow_concept", None)
         if not fn:
             return {"success": False, "as_of": _today(), "rows": [], "errors": ["missing_api"]}
-        df = fn()
+        # 默认「即时」；显式传入避免 akshare 签名漂移
+        try:
+            df = fn(symbol="即时")
+        except TypeError:
+            df = fn()
         source = "stock_fund_flow_concept"
         if df is None or getattr(df, "empty", True):
             return {"success": False, "as_of": _today(), "rows": [], "errors": ["empty"], "source": source}
@@ -117,27 +128,62 @@ def build_concept_flow_snapshot(*, top_n: int = 10) -> Dict[str, Any]:
         chg_col = "行业-涨跌幅" if "行业-涨跌幅" in df.columns else None
         if not net_col:
             return {"success": False, "as_of": _today(), "rows": [], "errors": ["no_net"], "source": source}
-        ranked = df.sort_values(net_col, ascending=False)
-        head = ranked.head(top_n)
-        tail = ranked.tail(top_n)
+
+        parsed: List[Dict[str, Any]] = []
+        for _, r in df.iterrows():
+            name = str(r.get(name_col) or "").strip()
+            if not name or name in _CONCEPT_FLOW_SKIP:
+                continue
+            net = _to_float(r.get(net_col))
+            if net is None:
+                continue
+            chg = _to_float(r.get(chg_col)) if chg_col else None
+            parsed.append(
+                {
+                    "concept": name,
+                    "net_yi": round(float(net), 2),
+                    "chg_pct": round(chg, 2) if chg is not None else None,
+                }
+            )
+        if not parsed:
+            return {
+                "success": False,
+                "as_of": _today(),
+                "rows": [],
+                "errors": ["no_rows"],
+                "source": source,
+                "note": "概念净流入为空；非 PIT。",
+            }
+
+        max_abs = max(abs(float(x["net_yi"])) for x in parsed)
+        if max_abs < _CONCEPT_FLOW_EPS:
+            return {
+                "success": False,
+                "as_of": _today(),
+                "rows": [],
+                "errors": ["all_zero"],
+                "source": source,
+                "max_abs_yi": max_abs,
+                "note": "概念净额暂为 0（盘前/休市常见）· 保留上次有效快照或盘中再刷。",
+            }
+
+        ranked = sorted(parsed, key=lambda x: float(x["net_yi"]), reverse=True)
+        head = ranked[:top_n]
+        tail = list(reversed(ranked[-top_n:]))  # 最弱流出在前，再与 head 去重
         seen = set()
-        for part, side in ((head, "in"), (tail, "out")):
-            for _, r in part.iterrows():
-                name = str(r.get(name_col) or "").strip()
-                if not name or name in seen:
+        for part, _side in ((head, "in"), (tail, "out")):
+            for item in part:
+                name = item["concept"]
+                if name in seen:
                     continue
                 seen.add(name)
-                net = _to_float(r.get(net_col))
-                chg = _to_float(r.get(chg_col)) if chg_col else None
+                net = float(item["net_yi"])
                 rows.append(
                     {
-                        "concept": name,
-                        "net_yi": round(net, 2) if net is not None else None,
-                        "chg_pct": round(chg, 2) if chg is not None else None,
-                        "side": side if (net or 0) >= 0 else "out",
+                        **item,
+                        "side": "in" if net >= 0 else "out",
                     }
                 )
-        # 统一按净额降序，便于热力条
         rows.sort(key=lambda x: float(x.get("net_yi") or 0), reverse=True)
     except Exception:
         logger.debug("concept flow failed", exc_info=True)
@@ -154,7 +200,7 @@ def build_concept_flow_snapshot(*, top_n: int = 10) -> Dict[str, Any]:
         "as_of": _today(),
         "rows": rows[: top_n * 2],
         "source": source,
-        "note": "概念净流入（亿元）· 东财即时；非 PIT。",
+        "note": "概念净流入（亿元）· 东财即时；已剔融资融券/沪深股通；非 PIT。",
     }
 
 
