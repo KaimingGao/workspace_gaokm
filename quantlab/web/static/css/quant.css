@@ -45,7 +45,7 @@
 }
 
 .quant-attr-note {
-  font-size: 11px;
+  font-size: var(--sys-fs-micro);
   color: var(--ink-3);
   margin: 6px 0 0;
 }
@@ -65,7 +65,7 @@
   margin: 0 0 8px;
 }
 .quant-oos-compare-meta-chip {
-  font-size: 11px;
+  font-size: var(--sys-fs-micro);
   font-weight: 600;
   font-variant-numeric: tabular-nums;
   color: var(--ink-2);
@@ -98,7 +98,7 @@
   gap: 4px;
   padding: 8px 10px;
   border: 1px solid var(--line, #e8e8e8);
-  border-radius: 6px;
+  border-radius: var(--sys-r-tier2);
   background: var(--rank-rg-bg);
   box-shadow: inset 2px 0 0 0 color-mix(in srgb, var(--oos-head, var(--ink-3)) 70%, transparent);
   min-width: 0;
@@ -138,7 +138,7 @@
   border-color: var(--rank-rg-line, #ffe58f);
 }
 .quant-oos-board-kicker {
-  font-size: 10px;
+  font-size: var(--sys-fs-micro);
   font-weight: 650;
   letter-spacing: 0.06em;
   color: var(--ink-3);
@@ -151,7 +151,7 @@
   min-width: 0;
 }
 .quant-oos-board-name {
-  font-size: 13px;
+  font-size: var(--sys-fs-body);
   font-weight: 700;
   color: var(--ink);
   line-height: 1.2;
@@ -160,7 +160,7 @@
 .quant-oos-board-wins {
   font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
   font-variant-numeric: tabular-nums;
-  font-size: 0.95rem;
+  font-size: var(--sys-fs-section);
   font-weight: 700;
   line-height: 1;
   color: var(--ink);
@@ -168,7 +168,7 @@
 }
 .quant-oos-board-wins small {
   margin-left: 1px;
-  font-size: 10px;
+  font-size: var(--sys-fs-micro);
   font-weight: 500;
   color: var(--ink-3);
 }
@@ -215,7 +215,7 @@
 
 .quant-copy-link {
   margin-left: 6px;
-  font-size: 0.72rem;
+  font-size: var(--sys-fs-micro);
 }
 
 .quant-panel {
@@ -264,7 +264,7 @@
 
 .quant-meta {
   margin: 0;
-  font-size: 0.78rem;
+  font-size: var(--sys-fs-body);
   color: var(--ink-3);
 }
 
@@ -276,8 +276,8 @@
   padding: 7px 12px;
   max-width: 100%;
   box-sizing: border-box;
-  border-radius: 8px;
-  font-size: 0.82rem;
+  border-radius: var(--sys-r-tier1);
+  font-size: var(--sys-fs-body);
   font-weight: 650;
   line-height: 1.35;
   color: var(--ink);
@@ -293,7 +293,7 @@
 .quant-meta.is-busy {
   margin-top: 8px;
   padding: 7px 12px;
-  font-size: 0.82rem;
+  font-size: var(--sys-fs-body);
 }
 
 .quant-section {
@@ -324,7 +324,7 @@
 
 .quant-flow li {
   counter-increment: qflow;
-  font-size: 0.72rem;
+  font-size: var(--sys-fs-micro);
   font-weight: 650;
   color: var(--ink-2);
 }
@@ -344,7 +344,7 @@
 
 .quant-layer-label {
   margin: 14px 0 8px;
-  font-size: 0.72rem;
+  font-size: var(--sys-fs-micro);
   font-weight: 650;
   letter-spacing: 0.02em;
   color: var(--ink-3);
@@ -365,12 +365,12 @@
   margin-left: 4px;
   font-weight: 500;
   color: var(--ink-3);
-  font-size: 0.65rem;
+  font-size: var(--sys-fs-micro);
 }
 
 .quant-fingerprint {
   margin: 0 0 8px;
-  font-size: 0.8rem;
+  font-size: var(--sys-fs-body);
   font-weight: 600;
   color: var(--ink-2);
   line-height: 1.4;
@@ -382,7 +382,7 @@
 
 .strategy-page .quant-fingerprint {
   margin: 0;
-  font-size: 0.72rem;
+  font-size: var(--sys-fs-micro);
   font-variant-numeric: tabular-nums;
   color: var(--ink-3);
   line-height: 1.4;
@@ -392,7 +392,7 @@
 
 .replay-page > .quant-map-hint {
   margin: 0 0 8px;
-  font-size: 0.72rem;
+  font-size: var(--sys-fs-micro);
   line-height: 1.4;
   color: var(--ink-3);
   max-width: 52em;
@@ -416,7 +416,7 @@
 
 .replay-page .quant-fingerprint {
   margin: 0 0 6px;
-  font-size: 0.72rem;
+  font-size: var(--sys-fs-micro);
   font-variant-numeric: tabular-nums;
   color: var(--ink-3);
   line-height: 1.4;
@@ -429,12 +429,12 @@
 
 .replay-page .quant-actions-inline .dialog-btn {
   padding: 5px 12px;
-  font-size: 0.78rem;
-  border-radius: 6px;
+  font-size: var(--sys-fs-body);
+  border-radius: var(--sys-r-tier2);
 }
 
 .replay-page .quant-actions-inline .platform-field {
-  font-size: 0.72rem;
+  font-size: var(--sys-fs-micro);
   font-weight: 650;
   letter-spacing: 0.02em;
   color: var(--ink-3);
@@ -442,14 +442,14 @@
 }
 
 .replay-page .quant-actions-inline .platform-check {
-  font-size: 0.82rem;
+  font-size: var(--sys-fs-body);
   font-weight: 650;
   letter-spacing: 0.02em;
   color: var(--ink-2);
   gap: 6px;
   margin-bottom: 0;
   padding: 4px 8px;
-  border-radius: 6px;
+  border-radius: var(--sys-r-tier2);
   flex-direction: row;
   align-items: center;
   cursor: pointer;
@@ -468,7 +468,7 @@
   padding: 0;
   margin: 0;
   border: 1px solid var(--line);
-  border-radius: 4px;
+  border-radius: var(--sys-r-tier4);
   accent-color: var(--accent, #2e7d32);
   cursor: pointer;
   flex-shrink: 0;
@@ -477,10 +477,10 @@
 .replay-page .quant-actions-inline .platform-field select {
   min-height: 30px;
   padding: 4px 8px;
-  font-size: 0.78rem;
+  font-size: var(--sys-fs-body);
   font-family: var(--font-mono);
   font-variant-numeric: tabular-nums;
-  border-radius: 6px;
+  border-radius: var(--sys-r-tier2);
   border: 1px solid var(--line);
   background: var(--surface);
   color: var(--ink);
@@ -497,7 +497,7 @@
   margin: 0 0 var(--replay-gap);
   padding: 7px 10px;
   border-radius: var(--replay-radius);
-  font-size: 0.76rem;
+  font-size: var(--sys-fs-caption);
   background: color-mix(in srgb, var(--surface) 88%, var(--bg));
 }
 
@@ -516,7 +516,7 @@
 
 .replay-page .quant-metric .label {
   margin-bottom: 2px;
-  font-size: 0.66rem;
+  font-size: var(--sys-fs-micro);
   font-weight: 650;
   letter-spacing: 0.05em;
   color: var(--ink-3);
@@ -524,7 +524,7 @@
 
 .replay-page .quant-metric .val {
   font-family: var(--font-mono);
-  font-size: 0.95rem;
+  font-size: var(--sys-fs-section);
   font-weight: 650;
   letter-spacing: -0.02em;
 }
@@ -550,32 +550,32 @@
 }
 
 .replay-page .quant-chart-title {
-  font-size: 0.76rem;
+  font-size: var(--sys-fs-caption);
   font-weight: 650;
   letter-spacing: 0.02em;
   color: var(--ink-2);
 }
 
 .replay-page .quant-chart-axis-hint {
-  font-size: 0.68rem;
+  font-size: var(--sys-fs-micro);
   color: var(--ink-3);
 }
 
 .replay-page .quant-bt-chart-wrap .quant-chart-host {
   min-height: 160px;
-  border-radius: 6px;
+  border-radius: var(--sys-r-tier2);
   background: color-mix(in srgb, var(--bg) 70%, var(--surface));
 }
 
 .replay-page .quant-sub {
   margin: 0 0 var(--replay-gap-lg);
-  font-size: 0.72rem;
+  font-size: var(--sys-fs-micro);
   line-height: 1.4;
 }
 
 .replay-page .quant-trades-caption {
   margin: 0 0 6px;
-  font-size: 0.72rem;
+  font-size: var(--sys-fs-micro);
   font-weight: 650;
   letter-spacing: 0.02em;
   color: var(--ink-3);
@@ -596,7 +596,7 @@
 
 .replay-page > .quant-fold > summary {
   padding: 8px 12px;
-  font-size: 0.78rem;
+  font-size: var(--sys-fs-body);
   color: var(--ink-2);
 }
 
@@ -643,7 +643,7 @@
 
 .quant-page .quant-section-hint {
   margin: 0;
-  font-size: 0.68rem;
+  font-size: var(--sys-fs-micro);
   line-height: 1.35;
   color: var(--ink-3);
   max-width: 56em;
@@ -678,7 +678,7 @@
 .quant-page .quant-cluster-block {
   padding: 8px 0;
   border-top: 1px solid var(--line);
-  font-size: 0.82rem;
+  font-size: var(--sys-fs-body);
   line-height: 1.45;
 }
 
@@ -700,7 +700,7 @@
   flex-direction: row;
   align-items: center;
   gap: 5px;
-  font-size: 0.68rem;
+  font-size: var(--sys-fs-micro);
   font-weight: 600;
   letter-spacing: 0.04em;
   color: var(--ink-3);
@@ -709,13 +709,13 @@
 
 .quant-page .quant-cluster-params .platform-field input[type="number"] {
   width: 4.2rem;
-  height: 28px;
-  min-height: 28px;
-  max-height: 28px;
+  height: var(--sys-desk-chip-h);
+  min-height: var(--sys-desk-chip-h);
+  max-height: var(--sys-desk-chip-h);
   padding: 2px 8px;
-  border-radius: 4px;
+  border-radius: var(--sys-r-tier4);
   font-family: var(--font-mono);
-  font-size: 0.78rem;
+  font-size: var(--sys-fs-body);
   font-variant-numeric: tabular-nums;
   font-weight: 600;
   color: var(--ink);
@@ -728,11 +728,11 @@
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  height: 28px;
-  min-height: 28px;
-  max-height: 28px;
+  height: var(--sys-desk-chip-h);
+  min-height: var(--sys-desk-chip-h);
+  max-height: var(--sys-desk-chip-h);
   padding: 0 8px;
-  font-size: 0.78rem;
+  font-size: var(--sys-fs-body);
   color: var(--ink-2);
   user-select: none;
   box-sizing: border-box;
@@ -753,7 +753,7 @@
 
 .quant-page .quant-cluster-step {
   margin: 8px 0 4px;
-  font-size: 0.88rem;
+  font-size: var(--sys-fs-section);
 }
 
 .quant-page .quant-cluster-tables-head {
@@ -801,7 +801,7 @@
 
 .quant-page .quant-cluster-pit-flag {
   margin: 0.35rem 0 0;
-  font-size: 0.78rem;
+  font-size: var(--sys-fs-body);
   color: var(--muted, #6b7280);
 }
 
@@ -817,7 +817,7 @@
   margin: 0 0 var(--quant-gap);
   padding: 0;
   border-top: none;
-  font-size: 0.84rem;
+  font-size: var(--sys-fs-body);
   line-height: 1.45;
 }
 
@@ -868,7 +868,7 @@
   position: absolute;
   top: 9px;
   right: 12px;
-  font-size: 0.66rem;
+  font-size: var(--sys-fs-micro);
   letter-spacing: 0.06em;
   font-weight: 500;
 }
@@ -893,7 +893,7 @@
 /* 研究表：与观察台同壳 watching-react-grid · 紧凑 / 扫视高亮 */
 .quant-page .quant-research-grid {
   border-radius: var(--radius-sm);
-  font-size: 0.78rem;
+  font-size: var(--sys-fs-body);
   background: var(--surface);
 }
 
@@ -921,7 +921,7 @@
 
 .quant-page .quant-cluster-gid {
   font-family: var(--font-mono);
-  font-size: 0.9rem;
+  font-size: var(--sys-fs-section);
   font-weight: 700;
   letter-spacing: 0.04em;
   color: var(--ink);
@@ -949,7 +949,7 @@
   border: 1px solid transparent;
   background: color-mix(in srgb, var(--ink) 5%, var(--surface));
   color: var(--ink-2);
-  font-size: 0.68rem;
+  font-size: var(--sys-fs-micro);
   font-weight: 550;
   line-height: 1.45;
   white-space: nowrap;
@@ -1018,13 +1018,13 @@
   display: inline-flex;
   align-items: baseline;
   gap: 4px;
-  font-size: 0.72rem;
+  font-size: var(--sys-fs-micro);
   color: var(--ink-2);
 }
 
 .quant-page .quant-cluster-metric-k {
   color: var(--ink-3);
-  font-size: 0.66rem;
+  font-size: var(--sys-fs-micro);
   letter-spacing: 0.04em;
   font-weight: 600;
 }
@@ -1034,7 +1034,7 @@
   font-variant-numeric: tabular-nums;
   color: var(--ink);
   font-weight: 600;
-  font-size: 0.78rem;
+  font-size: var(--sys-fs-body);
 }
 
 .quant-page .quant-cluster-group-actions {
@@ -1079,7 +1079,7 @@
 
 .quant-page .quant-cluster-member-name {
   color: var(--ink);
-  font-size: 0.76rem;
+  font-size: var(--sys-fs-caption);
   font-weight: 600;
 }
 
@@ -1100,7 +1100,7 @@
   padding: 0 4px;
   margin-left: 2px;
   border-radius: 3px;
-  font-size: 0.62rem;
+  font-size: var(--sys-fs-micro);
   font-weight: 700;
   line-height: 1.35;
   letter-spacing: 0.02em;
@@ -1122,7 +1122,7 @@
 
 .quant-page .quant-cluster-member-code {
   font-family: var(--font-mono);
-  font-size: 0.64rem;
+  font-size: var(--sys-fs-micro);
   color: var(--ink-3);
   font-variant-numeric: tabular-nums;
   letter-spacing: 0.03em;
@@ -1130,7 +1130,7 @@
 
 .quant-page .quant-cluster-diag-fold {
   margin: 0;
-  font-size: 0.7rem;
+  font-size: var(--sys-fs-micro);
   color: var(--ink-3);
 }
 
@@ -1148,7 +1148,7 @@
 
 .quant-page .quant-cluster-diag {
   margin-top: 4px;
-  font-size: 0.7rem;
+  font-size: var(--sys-fs-micro);
   line-height: 1.45;
   color: var(--ink-3);
   font-family: var(--font-mono);
@@ -1159,7 +1159,7 @@
   margin: 10px 0 6px;
   padding: 8px 0;
   border-top: 1px solid var(--line);
-  font-size: 0.82rem;
+  font-size: var(--sys-fs-body);
   line-height: 1.45;
 }
 
@@ -1185,7 +1185,7 @@
 .quant-page .quant-cluster-export {
   margin-top: 0;
   padding: 4px 9px;
-  font-size: 0.7rem;
+  font-size: var(--sys-fs-micro);
   white-space: nowrap;
   flex-shrink: 0;
 }
@@ -1216,7 +1216,7 @@
 
 .quant-page .quant-cluster-landing-alerts {
   margin: 0;
-  font-size: 0.72rem;
+  font-size: var(--sys-fs-micro);
   color: var(--gold);
   line-height: 1.35;
 }
@@ -1238,7 +1238,7 @@
   align-items: baseline;
   gap: 4px 8px;
   margin: 0;
-  font-size: 0.72rem;
+  font-size: var(--sys-fs-micro);
   line-height: 1.35;
 }
 
@@ -1249,7 +1249,7 @@
 }
 
 .quant-page .quant-cluster-check {
-  font-size: 0.68rem;
+  font-size: var(--sys-fs-micro);
   color: var(--ink-3);
 }
 
@@ -1263,7 +1263,7 @@
 
 .quant-page .quant-cluster-evidence {
   margin: 0;
-  font-size: 0.72rem;
+  font-size: var(--sys-fs-micro);
   line-height: 1.35;
 }
 
@@ -1312,7 +1312,7 @@
 .quant-page .quant-cluster-universe-tiers legend {
   padding: 0;
   margin-right: 4px;
-  font-size: 12px;
+  font-size: var(--sys-fs-caption);
   color: var(--ink-2, #5a6570);
 }
 
@@ -1320,7 +1320,7 @@
   display: inline-flex;
   align-items: center;
   gap: 3px;
-  font-size: 12px;
+  font-size: var(--sys-fs-caption);
   cursor: pointer;
   white-space: nowrap;
 }
@@ -1353,7 +1353,7 @@
   align-items: center;
   gap: 6px;
   margin: 8px 0 6px;
-  font-size: 0.78rem;
+  font-size: var(--sys-fs-body);
   color: var(--ink-2);
   user-select: none;
   cursor: pointer;
@@ -1373,7 +1373,7 @@
 .quant-page .quant-cluster-ranks ol {
   margin: 4px 0 0;
   padding-left: 1.25rem;
-  font-size: 0.78rem;
+  font-size: var(--sys-fs-body);
   line-height: 1.45;
 }
 
@@ -1401,7 +1401,7 @@
   flex-wrap: wrap;
   gap: 8px 10px;
   padding: 10px 12px;
-  font-size: 0.8rem;
+  font-size: var(--sys-fs-body);
   font-weight: 650;
   letter-spacing: 0.01em;
 }
@@ -1411,7 +1411,7 @@
 }
 
 .quant-page .quant-fold > summary::after {
-  font-size: 0.66rem;
+  font-size: var(--sys-fs-micro);
   letter-spacing: 0.06em;
   font-weight: 500;
 }
@@ -1429,13 +1429,13 @@
 
 .quant-page .quant-help-fold > summary {
   padding: 6px 10px;
-  font-size: 0.74rem;
+  font-size: var(--sys-fs-caption);
   color: var(--ink-2);
 }
 
 .quant-page .quant-help-body {
   padding: 6px 10px 10px;
-  font-size: 0.76rem;
+  font-size: var(--sys-fs-caption);
   line-height: 1.5;
   color: var(--ink-2);
 }
@@ -1450,7 +1450,7 @@
 
 .quant-page .quant-help-body h4 {
   margin: 0.9em 0 0.4em;
-  font-size: 0.8rem;
+  font-size: var(--sys-fs-body);
   font-weight: 650;
   color: var(--ink);
 }
@@ -1472,11 +1472,11 @@
   margin: 0.4em 0 0.75em;
   padding: 8px 10px;
   overflow-x: auto;
-  border-radius: 6px;
+  border-radius: var(--sys-r-tier2);
   border: 1px solid var(--line);
   background: var(--bg);
   font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
-  font-size: 0.74rem;
+  font-size: var(--sys-fs-caption);
   line-height: 1.45;
   color: var(--ink);
   white-space: pre;
@@ -1485,14 +1485,14 @@
 .quant-page .quant-help-body code {
   font-size: 0.92em;
   padding: 0 0.25em;
-  border-radius: 4px;
+  border-radius: var(--sys-r-tier4);
   background: color-mix(in srgb, var(--bg) 70%, var(--line));
 }
 
 
 .quant-ols-reason {
   color: var(--ink-3);
-  font-size: 0.7rem;
+  font-size: var(--sys-fs-micro);
   font-weight: 600;
   letter-spacing: 0.02em;
 }
@@ -1659,7 +1659,7 @@
 
 .quant-validate-card-head h3 {
   margin: 0 0 2px;
-  font-size: 0.9rem;
+  font-size: var(--sys-fs-section);
   font-weight: 650;
   color: var(--ink);
 }
@@ -1685,13 +1685,13 @@
 
 .quant-compare-cta-text {
   margin: 0;
-  font-size: 0.78rem;
+  font-size: var(--sys-fs-body);
   color: var(--ink-2);
   line-height: 1.4;
 }
 
 .quant-h3-sub {
-  font-size: 0.72rem;
+  font-size: var(--sys-fs-micro);
   font-weight: 500;
   color: var(--ink-3);
 }
@@ -1729,7 +1729,7 @@
 
 .quant-section h3 {
   margin: 0 0 8px;
-  font-size: 0.88rem;
+  font-size: var(--sys-fs-section);
   font-weight: 650;
 }
 
@@ -1745,7 +1745,7 @@
   cursor: pointer;
   list-style: none;
   padding: 10px 12px;
-  font-size: 0.84rem;
+  font-size: var(--sys-fs-body);
   font-weight: 650;
   color: var(--ink-2);
   user-select: none;
@@ -1758,7 +1758,7 @@
 .quant-fold > summary::after {
   content: "展开";
   float: right;
-  font-size: 0.72rem;
+  font-size: var(--sys-fs-micro);
   font-weight: 500;
   color: var(--ink-3);
 }
@@ -1781,7 +1781,7 @@
 
 .quant-sub {
   margin: 0 0 8px;
-  font-size: 0.75rem;
+  font-size: var(--sys-fs-caption);
   color: var(--ink-3);
 }
 
@@ -1791,7 +1791,7 @@
   border-radius: 10px;
   border: 1px solid var(--line);
   background: var(--bg);
-  font-size: 0.78rem;
+  font-size: var(--sys-fs-body);
   color: var(--ink-2);
   line-height: 1.45;
 }
@@ -1822,13 +1822,13 @@
 
 .quant-metric .label {
   display: block;
-  font-size: 0.68rem;
+  font-size: var(--sys-fs-micro);
   color: var(--ink-3);
   margin-bottom: 4px;
 }
 
 .quant-metric .val {
-  font-size: 0.95rem;
+  font-size: var(--sys-fs-section);
   font-weight: 700;
   font-variant-numeric: tabular-nums;
   color: var(--ink);
@@ -1844,7 +1844,7 @@
 
 .quant-trades-caption {
   margin: 0 0 6px;
-  font-size: 0.72rem;
+  font-size: var(--sys-fs-micro);
   color: var(--ink-3);
 }
 
@@ -1856,7 +1856,7 @@
 
 .quant-package-tree {
   margin: 0.35rem 0 0.75rem;
-  font-size: 0.82rem;
+  font-size: var(--sys-fs-body);
   line-height: 1.45;
   color: var(--muted, #666);
   word-break: break-word;
@@ -1889,17 +1889,17 @@
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  font-size: 0.78rem;
+  font-size: var(--sys-fs-body);
   color: var(--ink-3, #6b7280);
 }
 
 .quant-inline-input {
   min-width: 7.5rem;
   padding: 4px 8px;
-  border-radius: 6px;
+  border-radius: var(--sys-r-tier2);
   border: 1px solid var(--line, #d1d5db);
   background: var(--bg, #fff);
-  font-size: 0.78rem;
+  font-size: var(--sys-fs-body);
   color: var(--ink-2, #374151);
 }
 
@@ -1908,7 +1908,7 @@
   flex-wrap: wrap;
   gap: 10px 14px;
   margin: 8px 0;
-  font-size: 0.8rem;
+  font-size: var(--sys-fs-body);
   color: var(--ink-2, #374151);
 }
 
@@ -1920,7 +1920,7 @@
 .quant-mini-table {
   width: 100%;
   border-collapse: collapse;
-  font-size: 0.78rem;
+  font-size: var(--sys-fs-body);
   margin: 8px 0 12px;
 }
 
@@ -1936,7 +1936,7 @@
 .quant-mini-table th {
   font-weight: 650;
   color: var(--ink-3, #64748b);
-  font-size: 0.7rem;
+  font-size: var(--sys-fs-micro);
   letter-spacing: 0.02em;
   white-space: nowrap;
 }
@@ -1952,24 +1952,24 @@
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  font-size: 0.75rem;
+  font-size: var(--sys-fs-caption);
   color: var(--ink-3);
 }
 
 .quant-ops-select {
   min-width: 140px;
   padding: 6px 8px;
-  border-radius: 8px;
+  border-radius: var(--sys-r-tier1);
   border: 1px solid var(--line);
   background: var(--bg);
-  font-size: 0.78rem;
+  font-size: var(--sys-fs-body);
   color: var(--ink-2);
 }
 
 .quant-ops-preset-flags {
   margin: 6px 0 8px;
   line-height: 1.5;
-  font-size: 0.78rem;
+  font-size: var(--sys-fs-body);
   color: var(--ink-3, #6b7280);
 }
 
@@ -1981,8 +1981,8 @@
   display: inline-block;
   margin: 2px 6px 2px 0;
   padding: 2px 8px;
-  border-radius: 999px;
-  font-size: 0.72rem;
+  border-radius: var(--sys-r-full);
+  font-size: var(--sys-fs-micro);
   background: var(--bg-soft, #f3f4f6);
   color: var(--ink-3);
 }
@@ -2012,7 +2012,7 @@
 .quant-list li {
   padding: 8px 10px;
   border-bottom: 1px solid var(--line);
-  font-size: 0.78rem;
+  font-size: var(--sys-fs-body);
 }
 
 .quant-list li:last-child {
@@ -2037,13 +2037,13 @@
 }
 
 .quant-chart-title {
-  font-size: 0.82rem;
+  font-size: var(--sys-fs-body);
   font-weight: 600;
   color: var(--ink-1, var(--text-primary));
 }
 
 .quant-chart-axis-hint {
-  font-size: 0.72rem;
+  font-size: var(--sys-fs-micro);
   color: var(--ink-3, var(--text-tertiary));
   line-height: 1.35;
 }
@@ -2067,7 +2067,7 @@
   width: 100%;
   border-collapse: separate;
   border-spacing: 0;
-  font-size: 0.76rem;
+  font-size: var(--sys-fs-caption);
   background: transparent;
   border-radius: var(--radius);
   overflow: hidden;
@@ -2083,7 +2083,7 @@
 .quant-weight-table th {
   color: var(--ink-3);
   font-weight: 700;
-  font-size: 0.68rem;
+  font-size: var(--sys-fs-micro);
   text-transform: uppercase;
   letter-spacing: 0.06em;
   background: var(--bg-accent);
@@ -2146,13 +2146,13 @@
 
 .quant-page .quant-actions-inline .dialog-btn {
   padding: 7px 12px;
-  font-size: 0.76rem;
+  font-size: var(--sys-fs-caption);
 }
 
 .quant-page .quant-actions-inline .platform-field input:not([type="checkbox"]) {
   min-height: 32px;
   padding: 4px 8px;
-  font-size: 0.8rem;
+  font-size: var(--sys-fs-body);
 }
 
 .quant-foot-actions {
@@ -2176,7 +2176,7 @@
 .quant-foot-more > summary {
   cursor: pointer;
   list-style: none;
-  font-size: 0.78rem;
+  font-size: var(--sys-fs-body);
   font-weight: 600;
   color: var(--ink-3);
   padding: 2px 0;
@@ -2239,31 +2239,46 @@
 }
 
 .quant-head .quant-desk-badge {
-  font-size: 0.58rem;
-  font-weight: 700;
-  letter-spacing: 0.08em;
+  display: inline-flex;
+  align-items: center;
+  height: var(--sys-desk-chip-h);
+  font-size: var(--sys-desk-chip-fs);
+  font-weight: var(--sys-fw-display);
+  letter-spacing: 0.04em;
   text-transform: uppercase;
   color: var(--ink-2);
   border: 1px solid color-mix(in srgb, var(--line) 90%, transparent);
-  padding: 2px 6px;
-  border-radius: 2px;
+  padding: 0 10px;
+  border-radius: var(--sys-desk-chip-r);
   background: color-mix(in srgb, var(--ink) 3%, var(--surface));
+  box-sizing: border-box;
 }
 
-.quant-head .quant-desk-note {
-  font-size: 0.62rem;
+.quant-head .quant-desk-note,
+.quant-head .quant-desk-guard {
+  display: inline-flex;
+  align-items: center;
+  height: var(--sys-desk-chip-h);
+  font-size: var(--sys-desk-chip-fs);
   color: var(--ink-3);
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
+  padding: 0 10px;
+  border-radius: var(--sys-desk-chip-r);
+  border: 1px solid color-mix(in srgb, var(--line) 90%, transparent);
+  box-sizing: border-box;
 }
 
+/* 废弃平行 eyebrow：HTML 只用 .dashboard-eyebrow */
 .quant-head .quant-eyebrow {
-  margin: 0 0 1px;
-  font-size: 0.58rem;
-  font-weight: 600;
+  margin: 0 0 2px;
+  font-size: var(--sys-fs-micro);
+  font-weight: var(--sys-fw-label);
   letter-spacing: 0.14em;
+  line-height: 18px;
   text-transform: uppercase;
   color: var(--ink-3);
+  font-family: var(--font-mono);
 }
 
 .page-panel.quant-panel .quant-head h2 {
@@ -2481,7 +2496,7 @@ html[data-density="compact"] .quant-page {
   min-width: 1.65em;
   padding: 1px 6px;
   border-radius: 2px;
-  font-size: 0.68rem;
+  font-size: var(--sys-fs-micro);
   font-weight: 650;
   letter-spacing: 0.06em;
   font-variant-numeric: tabular-nums;
@@ -2524,7 +2539,7 @@ html[data-density="compact"] .quant-page {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-size: 0.62rem;
+  font-size: var(--sys-fs-micro);
   font-weight: 500;
   letter-spacing: 0;
   line-height: 1.2;
@@ -2583,7 +2598,7 @@ html[data-density="compact"] .quant-page {
   max-width: 100%;
   font-variant-numeric: tabular-nums;
   font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
-  font-size: 0.78rem;
+  font-size: var(--sys-fs-body);
   font-weight: 650;
   line-height: 1.15;
 }
@@ -2647,7 +2662,7 @@ html[data-density="compact"] .quant-page {
 
 .quant-bt-trades-host .bt-ledger-day-date {
   font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
-  font-size: 0.78rem;
+  font-size: var(--sys-fs-body);
   font-weight: 700;
   letter-spacing: 0.02em;
   color: var(--ink);
@@ -2656,7 +2671,7 @@ html[data-density="compact"] .quant-page {
 .quant-bt-trades-host .bt-ledger-day-flows {
   display: inline-flex;
   gap: 8px;
-  font-size: 0.72rem;
+  font-size: var(--sys-fs-micro);
   font-weight: 650;
 }
 
@@ -2677,7 +2692,7 @@ html[data-density="compact"] .quant-page {
 .quant-bt-trades-host .bt-ledger-day-cash {
   margin-left: 0;
   font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
-  font-size: 0.72rem;
+  font-size: var(--sys-fs-micro);
   font-weight: 650;
   color: var(--ink-2, var(--ink-3));
 }
@@ -2736,7 +2751,7 @@ body[data-page="replay"] .quant-bt-trades-host .watching-react-grid-cell.watchin
 }
 
 .quant-page .quant-kpi-row-title {
-  font-size: 0.78rem;
+  font-size: var(--sys-fs-body);
   font-weight: 700;
   letter-spacing: 0.1em;
   color: var(--ink);
@@ -2755,7 +2770,7 @@ body[data-page="replay"] .quant-bt-trades-host .watching-react-grid-cell.watchin
 }
 
 .quant-page .quant-kpi-row-sub {
-  font-size: 0.7rem;
+  font-size: var(--sys-fs-micro);
   color: var(--ink-3);
   font-weight: 500;
 }
@@ -2784,7 +2799,7 @@ body[data-page="replay"] .quant-bt-trades-host .watching-react-grid-cell.watchin
   gap: 3px;
   padding: 8px 10px 9px;
   border: 1px solid color-mix(in srgb, var(--line) 92%, transparent);
-  border-radius: 8px;
+  border-radius: var(--sys-r-tier1);
   background: color-mix(in srgb, var(--line-2) 58%, var(--surface));
   transition: transform 0.12s ease, border-color 0.12s ease, box-shadow 0.12s ease;
 }
@@ -2812,7 +2827,7 @@ body[data-page="replay"] .quant-bt-trades-host .watching-react-grid-cell.watchin
 }
 
 .quant-page .quant-kpi-label {
-  font-size: 0.62rem;
+  font-size: var(--sys-fs-micro);
   font-weight: 600;
   letter-spacing: 0.08em;
   color: var(--ink-3);
@@ -2821,7 +2836,7 @@ body[data-page="replay"] .quant-bt-trades-host .watching-react-grid-cell.watchin
 
 .quant-page .quant-kpi-value {
   font-family: var(--font-mono);
-  font-size: 1.1rem;
+  font-size: var(--sys-fs-title);
   font-weight: 700;
   line-height: 1.2;
   color: var(--ink);
@@ -2839,7 +2854,7 @@ body[data-page="replay"] .quant-bt-trades-host .watching-react-grid-cell.watchin
 }
 
 .quant-page .quant-kpi-sub {
-  font-size: 0.6rem;
+  font-size: var(--sys-fs-micro);
   color: var(--ink-3);
   font-family: var(--font-mono);
   letter-spacing: -0.01em;
@@ -3021,7 +3036,7 @@ body[data-page="replay"] .quant-bt-trades-host .watching-react-grid-cell.watchin
   border-radius: 2px;
   border: 1px solid color-mix(in srgb, var(--line) 88%, transparent);
   background: color-mix(in srgb, var(--ink) 1.5%, var(--surface));
-  font-size: 0.66rem;
+  font-size: var(--sys-fs-micro);
   line-height: 1.35;
 }
 
@@ -3030,7 +3045,7 @@ body[data-page="replay"] .quant-bt-trades-host .watching-react-grid-cell.watchin
   font-weight: 600;
   letter-spacing: 0.05em;
   text-transform: uppercase;
-  font-size: 0.58rem;
+  font-size: var(--sys-fs-micro);
 }
 
 .quant-page .yhat-mx-kpi-v {
@@ -3048,7 +3063,7 @@ body[data-page="replay"] .quant-bt-trades-host .watching-react-grid-cell.watchin
 
 .quant-page .yhat-mx-table--health .yhat-mx-td {
   padding: 5px 7px;
-  font-size: 0.66rem;
+  font-size: var(--sys-fs-micro);
 }
 
 .quant-page .yhat-mx-table--health .yhat-mx-td.num {
@@ -3075,7 +3090,7 @@ body[data-page="replay"] .quant-bt-trades-host .watching-react-grid-cell.watchin
 }
 
 .quant-page .yhat-mx-td-kind {
-  font-size: 0.62rem;
+  font-size: var(--sys-fs-micro);
   color: var(--ink-3);
 }
 
@@ -3146,7 +3161,7 @@ body[data-page="replay"] .quant-bt-trades-host .watching-react-grid-cell.watchin
 
 .quant-page .yhat-mx-td-rank {
   color: var(--ink-3);
-  font-size: 0.6rem;
+  font-size: var(--sys-fs-micro);
 }
 
 .quant-page .yhat-mx-legend {
@@ -3155,7 +3170,7 @@ body[data-page="replay"] .quant-bt-trades-host .watching-react-grid-cell.watchin
   align-items: center;
   gap: 8px 14px;
   margin: 6px 12px 10px;
-  font-size: 0.62rem;
+  font-size: var(--sys-fs-micro);
   color: var(--ink-3);
   line-height: 1.4;
 }
@@ -3214,7 +3229,7 @@ body[data-page="replay"] .quant-bt-trades-host .watching-react-grid-cell.watchin
 }
 
 .quant-page .yhat-mx-th {
-  font-size: 0.62rem;
+  font-size: var(--sys-fs-micro);
   font-weight: 700;
   letter-spacing: 0.05em;
   text-transform: none;
@@ -3231,7 +3246,7 @@ body[data-page="replay"] .quant-bt-trades-host .watching-react-grid-cell.watchin
 }
 
 .quant-page .yhat-mx-td {
-  font-size: 0.7rem;
+  font-size: var(--sys-fs-micro);
   padding: 5px 7px;
   border-radius: var(--q-r, 2px);
   font-family: var(--font-mono);
@@ -3246,7 +3261,7 @@ body[data-page="replay"] .quant-bt-trades-host .watching-react-grid-cell.watchin
 
 .quant-page .yhat-mx-td-factor {
   font-family: ui-sans-serif, system-ui, sans-serif;
-  font-size: 0.7rem;
+  font-size: var(--sys-fs-micro);
   font-weight: 500;
 }
 
@@ -3268,7 +3283,7 @@ body[data-page="replay"] .quant-bt-trades-host .watching-react-grid-cell.watchin
 .quant-page .quant-cluster-params-label {
   display: block;
   margin: 0 0 7px;
-  font-size: 0.7rem;
+  font-size: var(--sys-fs-micro);
   font-weight: 700;
   letter-spacing: 0.1em;
   color: var(--ink-2);
@@ -3326,7 +3341,7 @@ body[data-page="replay"] .quant-bt-trades-host .watching-react-grid-cell.watchin
   top: 50%;
   right: 14px;
   transform: translateY(-50%);
-  font-size: 0.62rem;
+  font-size: var(--sys-fs-micro);
   letter-spacing: 0.08em;
   font-weight: 600;
   color: var(--ink-3);
@@ -3376,7 +3391,7 @@ body[data-page="replay"] .quant-bt-trades-host .watching-react-grid-cell.watchin
   top: 50%;
   right: 14px;
   transform: translateY(-50%);
-  font-size: 0.62rem;
+  font-size: var(--sys-fs-micro);
   letter-spacing: 0.08em;
   font-weight: 600;
   color: var(--ink-3);
@@ -3412,7 +3427,7 @@ body[data-page="replay"] .quant-bt-trades-host .watching-react-grid-cell.watchin
       color-mix(in srgb, var(--accent, #2563eb) 8%, var(--surface)) 100%);
   border: 1px solid color-mix(in srgb, var(--accent, #2563eb) 30%, var(--line));
   color: var(--accent, #2563eb);
-  font-size: 0.82rem;
+  font-size: var(--sys-fs-body);
   letter-spacing: 0.04em;
   box-shadow: inset 0 -1px 0 rgba(0, 0, 0, 0.04);
 }
@@ -3596,11 +3611,11 @@ body[data-page="replay"] .quant-bt-trades-host .watching-react-grid-cell.watchin
 }
 
 .quant-page .quant-weight-table {
-  font-size: 0.7rem;
+  font-size: var(--sys-fs-micro);
 }
 
 .quant-page .quant-weight-table th {
-  font-size: 0.58rem;
+  font-size: var(--sys-fs-micro);
   letter-spacing: 0.08em;
   padding: 5px 8px;
   font-weight: 700;
@@ -3614,7 +3629,7 @@ body[data-page="replay"] .quant-bt-trades-host .watching-react-grid-cell.watchin
 }
 
 .quant-page .quant-cluster-group-body .quant-weight-table {
-  font-size: 0.68rem;
+  font-size: var(--sys-fs-micro);
 }
 
 .quant-page .quant-cluster-group-body {
@@ -3624,13 +3639,13 @@ body[data-page="replay"] .quant-bt-trades-host .watching-react-grid-cell.watchin
 
 /* 研究表紧凑化 */
 .quant-page .quant-research-grid {
-  font-size: 0.7rem;
+  font-size: var(--sys-fs-micro);
 }
 
 /* 矩阵表统一 */
 .quant-page .yhat-mx-table td {
   padding: 4px 7px;
-  font-size: 0.7rem;
+  font-size: var(--sys-fs-micro);
 }
 
 /* —— 4. 机密度：间距收紧 —— */
@@ -3658,7 +3673,7 @@ body[data-page="replay"] .quant-bt-trades-host .watching-react-grid-cell.watchin
 
 .quant-page .quant-cluster-members .quant-cluster-chip {
   padding: 1px 6px;
-  font-size: 0.68rem;
+  font-size: var(--sys-fs-micro);
 }
 
 /* 组头紧凑 */
@@ -3669,16 +3684,16 @@ body[data-page="replay"] .quant-bt-trades-host .watching-react-grid-cell.watchin
 .quant-page .quant-cluster-gid {
   min-width: 22px;
   height: 18px;
-  font-size: 0.6rem;
+  font-size: var(--sys-fs-micro);
 }
 
 .quant-page .quant-cluster-tag {
   padding: 1px 6px;
-  font-size: 0.62rem;
+  font-size: var(--sys-fs-micro);
 }
 
 .quant-page .quant-cluster-metric {
-  font-size: 0.68rem;
+  font-size: var(--sys-fs-micro);
 }
 
 /* —— 5. 深色主题 —— */
@@ -3736,7 +3751,7 @@ body[data-page="replay"] .quant-bt-trades-host .watching-react-grid-cell.watchin
 }
 
 .replay-page .quant-weight-table {
-  font-size: 0.74rem;
+  font-size: var(--sys-fs-caption);
 }
 
 .replay-page .quant-weight-table td {
@@ -3744,7 +3759,7 @@ body[data-page="replay"] .quant-bt-trades-host .watching-react-grid-cell.watchin
 }
 
 .replay-page .quant-weight-table th {
-  font-size: 0.64rem;
+  font-size: var(--sys-fs-micro);
 }
 
 /* —— 4. 机密度：间距收紧 —— */
@@ -3757,17 +3772,17 @@ body[data-page="replay"] .quant-bt-trades-host .watching-react-grid-cell.watchin
 }
 
 .replay-page .quant-metric .val {
-  font-size: 0.9rem;
+  font-size: var(--sys-fs-section);
 }
 
 .replay-page .quant-summary {
   padding: 5px 8px;
-  font-size: 0.72rem;
+  font-size: var(--sys-fs-micro);
 }
 
 .replay-page > .quant-fold > summary {
   padding: 6px 10px;
-  font-size: 0.74rem;
+  font-size: var(--sys-fs-caption);
 }
 
 .replay-page > .quant-fold .quant-section {
@@ -3779,11 +3794,11 @@ body[data-page="replay"] .quant-bt-trades-host .watching-react-grid-cell.watchin
 }
 
 .replay-page .quant-chart-title {
-  font-size: 0.72rem;
+  font-size: var(--sys-fs-micro);
 }
 
 .replay-page .quant-chart-axis-hint {
-  font-size: 0.64rem;
+  font-size: var(--sys-fs-micro);
 }
 
 .replay-page .quant-bt-chart-wrap .quant-chart-host {
@@ -3792,7 +3807,7 @@ body[data-page="replay"] .quant-bt-trades-host .watching-react-grid-cell.watchin
 
 .replay-page .quant-trades-caption {
   margin: 0 0 4px;
-  font-size: 0.68rem;
+  font-size: var(--sys-fs-micro);
 }
 
 .replay-page .quant-bt-trades-body {
@@ -3814,7 +3829,7 @@ body[data-page="replay"] .replay-page .quant-bt-trades-host .watching-react-grid
 
 .replay-page .quant-fingerprint {
   margin: 0 0 4px;
-  font-size: 0.7rem;
+  font-size: var(--sys-fs-micro);
 }
 
 .replay-page .quant-actions-inline {
@@ -3867,13 +3882,13 @@ body[data-page="replay"] .replay-page .quant-bt-trades-host .watching-react-grid
 
 .quant-viz-empty-msg {
   margin: 0;
-  font-size: 0.7rem;
+  font-size: var(--sys-fs-micro);
   color: var(--ink-3);
   text-align: center;
 }
 
 .quant-viz-empty-cta {
-  font-size: 0.68rem;
+  font-size: var(--sys-fs-micro);
   font-weight: 650;
   color: var(--accent, #2563eb);
   text-decoration: none;
@@ -3945,7 +3960,7 @@ body[data-page="replay"] .replay-page .quant-bt-trades-host .watching-react-grid
 .quant-page .quant-metric-strip > span {
   padding: 5px 10px;
   border-right: 1px solid color-mix(in srgb, var(--line) 80%, transparent);
-  font-size: 0.68rem;
+  font-size: var(--sys-fs-micro);
   color: var(--ink-3);
   font-variant-numeric: tabular-nums;
 }
@@ -3986,7 +4001,7 @@ body[data-page="replay"] .replay-page .quant-bt-trades-host .watching-react-grid
 
 .quant-ic-kpi-label {
   display: block;
-  font-size: 0.58rem;
+  font-size: var(--sys-fs-micro);
   font-weight: 700;
   letter-spacing: 0.06em;
   text-transform: uppercase;
@@ -3996,7 +4011,7 @@ body[data-page="replay"] .replay-page .quant-bt-trades-host .watching-react-grid
 
 .quant-ic-kpi-value {
   display: block;
-  font-size: 0.84rem;
+  font-size: var(--sys-fs-body);
   font-weight: 650;
   font-family: var(--font-mono);
   color: var(--ink);
@@ -4033,7 +4048,7 @@ body[data-page="replay"] .replay-page .quant-bt-trades-host .watching-react-grid
 }
 
 .quant-ic-stats-head {
-  font-size: 0.72rem;
+  font-size: var(--sys-fs-micro);
   font-weight: 600;
   color: var(--ink-2);
   margin-bottom: 6px;
@@ -4042,7 +4057,7 @@ body[data-page="replay"] .replay-page .quant-bt-trades-host .watching-react-grid
 .quant-ic-stats-table {
   width: 100%;
   border-collapse: collapse;
-  font-size: 0.74rem;
+  font-size: var(--sys-fs-caption);
   table-layout: fixed;
 }
 
@@ -4087,7 +4102,7 @@ body[data-page="replay"] .replay-page .quant-bt-trades-host .watching-react-grid
 
 .quant-ic-stats-note {
   margin: 8px 0 0;
-  font-size: 0.66rem;
+  font-size: var(--sys-fs-micro);
   color: var(--ink-3);
   line-height: 1.35;
 }
@@ -4151,7 +4166,7 @@ body[data-page="replay"] .replay-page .quant-bt-trades-host .watching-react-grid
 }
 
 .quant-page .quant-inline-select {
-  font-size: 0.72rem;
+  font-size: var(--sys-fs-micro);
   font-family: var(--font-mono);
   padding: 3px 8px;
   min-height: 0;
@@ -4161,7 +4176,7 @@ body[data-page="replay"] .replay-page .quant-bt-trades-host .watching-react-grid
   display: inline-flex;
   align-items: center;
   gap: 5px;
-  font-size: 0.68rem;
+  font-size: var(--sys-fs-micro);
   font-weight: 600;
   letter-spacing: 0.04em;
   color: var(--ink-3);
@@ -4170,10 +4185,10 @@ body[data-page="replay"] .replay-page .quant-bt-trades-host .watching-react-grid
 
 .quant-page .quant-inline-input {
   font-family: var(--font-mono);
-  font-size: 0.76rem;
+  font-size: var(--sys-fs-caption);
   font-variant-numeric: tabular-nums;
   padding: 3px 7px;
-  border-radius: 4px;
+  border-radius: var(--sys-r-tier4);
   border: 1px solid var(--line);
   background: var(--surface);
   color: var(--ink);
@@ -4183,7 +4198,7 @@ body[data-page="replay"] .replay-page .quant-bt-trades-host .watching-react-grid
 
 .quant-page .quant-trades-caption {
   margin: 0 0 6px;
-  font-size: 0.62rem;
+  font-size: var(--sys-fs-micro);
   font-weight: 700;
   letter-spacing: 0.08em;
   text-transform: uppercase;
@@ -4203,7 +4218,7 @@ body[data-page="replay"] .replay-page .quant-bt-trades-host .watching-react-grid
   --quant-gap: 8px;
   --quant-gap-lg: 12px;
   gap: var(--quant-gap-lg);
-  font-size: 0.84rem;
+  font-size: var(--sys-fs-body);
   letter-spacing: -0.005em;
 }
 
@@ -4220,7 +4235,7 @@ body[data-page="replay"] .replay-page .quant-bt-trades-host .watching-react-grid
 }
 
 .quant-page .quant-path-step {
-  font-size: 0.72rem;
+  font-size: var(--sys-fs-micro);
   font-weight: 700;
   letter-spacing: 0.02em;
   color: var(--ink);
@@ -4233,14 +4248,14 @@ body[data-page="replay"] .replay-page .quant-bt-trades-host .watching-react-grid
 }
 
 .quant-page .quant-path-sep {
-  font-size: 0.68rem;
+  font-size: var(--sys-fs-micro);
   color: var(--ink-3);
   user-select: none;
 }
 
 .quant-page .quant-path-note {
   margin-left: auto;
-  font-size: 0.62rem;
+  font-size: var(--sys-fs-micro);
   color: var(--ink-3);
   letter-spacing: 0.02em;
 }
@@ -4248,7 +4263,7 @@ body[data-page="replay"] .replay-page .quant-bt-trades-host .watching-react-grid
 .quant-page .quant-hero-lead {
   margin: 0 0 2px;
   max-width: 56em;
-  font-size: 0.68rem;
+  font-size: var(--sys-fs-micro);
   line-height: 1.45;
   color: var(--ink-3);
 }
@@ -4322,7 +4337,7 @@ body[data-page="replay"] .replay-page .quant-bt-trades-host .watching-react-grid
 .quant-page .quant-primary-fold-sum::after {
   content: "▸";
   margin-left: auto;
-  font-size: 11px;
+  font-size: var(--sys-fs-micro);
   line-height: 1.25;
   color: var(--ink-3);
   flex-shrink: 0;
@@ -4351,14 +4366,14 @@ body[data-page="replay"] .replay-page .quant-bt-trades-host .watching-react-grid
 }
 
 .quant-page .quant-help-fold > summary {
-  font-size: 0.66rem;
+  font-size: var(--sys-fs-micro);
   color: var(--ink-3);
   padding: 2px 0;
   cursor: pointer;
 }
 
 .quant-page .quant-help-body {
-  font-size: 0.72rem;
+  font-size: var(--sys-fs-micro);
   line-height: 1.45;
   color: var(--ink-2);
   padding: 6px 0 2px;
@@ -4367,7 +4382,7 @@ body[data-page="replay"] .replay-page .quant-bt-trades-host .watching-react-grid
 
 .quant-page .quant-help-body h4 {
   margin: 10px 0 4px;
-  font-size: 0.68rem;
+  font-size: var(--sys-fs-micro);
   letter-spacing: 0.06em;
   text-transform: uppercase;
   color: var(--ink-3);
@@ -4383,7 +4398,7 @@ body[data-page="replay"] .replay-page .quant-bt-trades-host .watching-react-grid
 
 .quant-page > .quant-section.quant-section-secondary > .quant-fold > summary {
   padding: 6px 10px;
-  font-size: 0.7rem;
+  font-size: var(--sys-fs-micro);
   color: var(--ink-2);
   background: color-mix(in srgb, var(--ink) 2.5%, var(--surface));
 }
@@ -4488,12 +4503,13 @@ body[data-page="replay"] .replay-page .quant-bt-trades-host .watching-react-grid
 }
 
 .quant-pro-eyebrow {
-  font-size: var(--q-fs-micro);
-  font-weight: var(--q-fw-label);
-  letter-spacing: 0.08em;
-  text-transform: none;
+  font-size: var(--sys-fs-micro);
+  font-weight: var(--sys-fw-label);
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
   color: var(--ink-3);
   margin: 0 0 2px;
+  line-height: 18px;
   font-family: var(--font-mono);
 }
 
@@ -4827,7 +4843,7 @@ body[data-page="replay"] .replay-page .quant-bt-trades-host .watching-react-grid
   border-radius: 0;
   background: transparent;
   color: var(--ink);
-  font-size: 0.875rem;
+  font-size: var(--sys-fs-section);
   font-weight: var(--sys-fw-display, 700);
   font-variant-numeric: tabular-nums;
   font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
@@ -4986,7 +5002,7 @@ body[data-page="quant"] .quant-page .quant-card-head--fit > .quant-suite-fit-pic
 
 body[data-page="quant"] .quant-page .quant-suite-fit-pick-lab {
   flex: 0 0 auto;
-  font-size: 10px;
+  font-size: var(--sys-fs-micro);
   font-weight: 700;
   letter-spacing: 0.08em;
   text-transform: none;
@@ -5032,7 +5048,7 @@ body[data-page="quant"] .quant-page .quant-suite-fit-dd-btn {
   border-radius: 5px;
   /* 默认 / 已启用 / 列表：统一白底 */
   background-color: #fff;
-  font-size: 12px;
+  font-size: var(--sys-fs-caption);
   font-weight: 650;
   font-variant-numeric: tabular-nums;
   font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
@@ -5135,7 +5151,7 @@ body[data-page="quant"] .quant-page .quant-suite-fit-dd-item {
   gap: 6px;
   margin: 0;
   padding: 5px 6px 5px 12px;
-  font-size: 12px;
+  font-size: var(--sys-fs-caption);
   font-weight: 600;
   font-variant-numeric: tabular-nums;
   font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
@@ -5160,10 +5176,10 @@ body[data-page="quant"] .quant-page .quant-suite-fit-dd-del {
   margin: 0;
   padding: 0;
   border: 0;
-  border-radius: 4px;
+  border-radius: var(--sys-r-tier4);
   background: transparent;
   color: var(--ink-3, #94a3b8);
-  font-size: 15px;
+  font-size: var(--sys-fs-section);
   font-weight: 500;
   font-family: inherit;
   line-height: 1;
@@ -5217,7 +5233,7 @@ body[data-page="quant"] .quant-page .quant-suite-fit-dd-on {
   margin: 0;
   padding: 0;
   color: var(--accent, #1890ff);
-  font-size: 11px;
+  font-size: var(--sys-fs-micro);
   line-height: 1;
   user-select: none;
   pointer-events: none;
@@ -5242,7 +5258,7 @@ body[data-page="quant"] .quant-page .quant-suite-fit-enable {
   min-width: 3.6em;
   padding: 0 10px;
   margin: 0;
-  font-size: 12px;
+  font-size: var(--sys-fs-caption);
   font-weight: 650;
   line-height: 1;
   border-radius: 5px;
@@ -5306,7 +5322,7 @@ body[data-page="quant"] .quant-page .quant-suite-btn {
   min-width: 6.75em;
   padding: 4px 28px;
   font: inherit;
-  font-size: 11px;
+  font-size: var(--sys-fs-micro);
   letter-spacing: 0.04em;
   color: color-mix(in srgb, var(--ink-2, #64748b) 88%, var(--accent, #1677ff));
   background: transparent;
@@ -5434,7 +5450,7 @@ body[data-page="quant"] .quant-page[data-quant-recipe="transformer"] .quant-card
 body[data-page="quant"] .quant-page .quant-rem-coef-suite-note {
   margin: 0 0 8px;
   padding: 0;
-  font-size: 12px;
+  font-size: var(--sys-fs-caption);
   color: var(--ink-2, #64748b);
   letter-spacing: 0.02em;
 }
@@ -6324,7 +6340,7 @@ body[data-page="quant"] .quant-recipe-console .yhat-tf-arm-log {
 }
 
 .quant-bars-progress-pct {
-  font-size: 0.9rem;
+  font-size: var(--sys-fs-section);
   font-weight: 650;
   font-family: var(--font-mono);
   font-variant-numeric: tabular-nums;
@@ -6489,7 +6505,7 @@ body[data-page="quant"] .quant-recipe-console .yhat-tf-arm-log {
 }
 
 .quant-bars-strip-title {
-  font-size: 0.82rem;
+  font-size: var(--sys-fs-body);
   font-weight: 650;
   color: var(--ink);
   font-family: var(--font-mono);
@@ -6632,12 +6648,12 @@ body[data-page="data"] .quant-page .quant-bars-kpi.quant-pro-kpi-card.dashboard-
 }
 
 .quant-bars-kpi .quant-pro-kpi-value {
-  font-size: 1.05rem;
+  font-size: var(--sys-fs-title);
 }
 
 .quant-bars-kpi-date {
   font-family: var(--font-mono);
-  font-size: 0.82rem !important;
+  font-size: var(--sys-fs-body) !important;
   letter-spacing: -0.02em;
 }
 
@@ -6820,7 +6836,7 @@ body[data-page="quant"] .quant-page .quant-bars-mat-card > .quant-bars-mat-body:
 
 .quant-bars-bar-pct {
   display: block;
-  font-size: 0.62rem;
+  font-size: var(--sys-fs-micro);
   color: var(--ink-3);
   letter-spacing: 0.02em;
 }
@@ -6859,7 +6875,7 @@ body[data-page="quant"] .quant-page .quant-bars-mat-card > .quant-bars-mat-body:
   display: flex;
   align-items: center;
   gap: 8px;
-  font-size: 0.72rem;
+  font-size: var(--sys-fs-micro);
   font-weight: 650;
   color: var(--ink-2);
   background: color-mix(in srgb, var(--ink) 2.5%, var(--surface));
@@ -6909,7 +6925,7 @@ body[data-page="quant"] .quant-page .quant-bars-mat-card > .quant-bars-mat-body:
 }
 
 .quant-pro-ic-kpis .quant-ic-kpi-label {
-  font-size: 0.54rem;
+  font-size: var(--sys-fs-micro);
   font-weight: 800;
   letter-spacing: 0.12em;
   font-family: var(--font-mono);
@@ -6917,7 +6933,7 @@ body[data-page="quant"] .quant-page .quant-bars-mat-card > .quant-bars-mat-body:
 }
 
 .quant-pro-ic-kpis .quant-ic-kpi-value {
-  font-size: 0.9rem;
+  font-size: var(--sys-fs-section);
   font-weight: 750;
   color: var(--ink);
 }
@@ -7009,7 +7025,7 @@ body[data-page="quant"] .quant-page .quant-bars-mat-card > .quant-bars-mat-body:
 }
 
 .quant-pro-fingerprint--sm {
-  font-size: 0.64rem;
+  font-size: var(--sys-fs-micro);
   padding: 5px 10px;
 }
 
@@ -7059,7 +7075,7 @@ body[data-page="quant"] .quant-page .quant-bars-mat-card > .quant-bars-mat-body:
   align-items: center;
   gap: 8px;
   padding: 7px 12px;
-  font-size: 0.7rem;
+  font-size: var(--sys-fs-micro);
   font-weight: 650;
   color: var(--accent);
   cursor: pointer;
@@ -7077,7 +7093,7 @@ body[data-page="quant"] .quant-page .quant-bars-mat-card > .quant-bars-mat-body:
   border-radius: 50%;
   background: var(--accent);
   color: #fff;
-  font-size: 0.64rem;
+  font-size: var(--sys-fs-micro);
   font-weight: 800;
   font-style: normal;
 }
@@ -7085,13 +7101,13 @@ body[data-page="quant"] .quant-page .quant-bars-mat-card > .quant-bars-mat-body:
 .quant-pro-help-body {
   padding: 10px 14px 12px;
   border-top: 1px dashed color-mix(in srgb, var(--accent) 22%, var(--line));
-  font-size: 0.7rem;
+  font-size: var(--sys-fs-micro);
   line-height: 1.6;
   color: var(--ink-2);
 }
 
 .quant-pro-help-body h4 {
-  font-size: 0.66rem;
+  font-size: var(--sys-fs-micro);
   font-weight: 800;
   letter-spacing: 0.1em;
   text-transform: uppercase;
@@ -7176,7 +7192,7 @@ body[data-page="quant"] .quant-page .quant-bars-mat-card > .quant-bars-mat-body:
   align-items: center;
   gap: 7px;
   padding: 7px 12px;
-  font-size: 0.7rem;
+  font-size: var(--sys-fs-micro);
   font-weight: 600;
   color: var(--ink-2);
   cursor: pointer;
@@ -7228,7 +7244,7 @@ body[data-page="quant"] .quant-page .quant-bars-mat-card > .quant-bars-mat-body:
 
 .quant-pro-analysis-panel {
   border: 1px solid var(--line);
-  border-radius: 8px;
+  border-radius: var(--sys-r-tier1);
   background: var(--bg-card);
   padding: 8px 10px 10px;
   display: flex;
@@ -7247,7 +7263,7 @@ body[data-page="quant"] .quant-page .quant-bars-mat-card > .quant-bars-mat-body:
 }
 
 .quant-pro-caption {
-  font-size: 0.64rem;
+  font-size: var(--sys-fs-micro);
   font-weight: 800;
   letter-spacing: 0.1em;
   text-transform: uppercase;
@@ -7256,7 +7272,7 @@ body[data-page="quant"] .quant-page .quant-bars-mat-card > .quant-bars-mat-body:
 }
 
 .quant-pro-caption-sub {
-  font-size: 0.58rem;
+  font-size: var(--sys-fs-micro);
   color: var(--ink-3);
   font-family: var(--font-mono);
   white-space: nowrap;
@@ -7345,7 +7361,7 @@ body[data-page="quant"] .quant-page .quant-bars-mat-card > .quant-bars-mat-body:
 }
 
 .quant-pro-factor-card-name {
-  font-size: 0.74rem;
+  font-size: var(--sys-fs-caption);
   font-weight: 750;
   color: var(--ink);
   line-height: 1.25;
@@ -7360,7 +7376,7 @@ body[data-page="quant"] .quant-page .quant-bars-mat-card > .quant-bars-mat-body:
   flex-shrink: 0;
   padding: 2px 7px;
   border-radius: var(--q-r, 2px);
-  font-size: 0.72rem;
+  font-size: var(--sys-fs-micro);
   font-weight: 750;
   letter-spacing: 0.04em;
   line-height: 1.25;
@@ -7405,7 +7421,7 @@ body[data-page="quant"] .quant-page .quant-bars-mat-card > .quant-bars-mat-body:
 }
 
 .quant-pro-factor-card-desc {
-  font-size: 0.58rem;
+  font-size: var(--sys-fs-micro);
   color: var(--ink-3);
   line-height: 1.35;
   display: -webkit-box;
@@ -7484,14 +7500,14 @@ body[data-page="quant"] .quant-page .quant-bars-mat-card > .quant-bars-mat-body:
    研究枢纽 · 表格/折叠密度收口 (p777)
    ========================================================================== */
 .quant-page .quant-cluster-group-table td {
-  font-size: 12px;
+  font-size: var(--sys-fs-caption);
   line-height: 1.35;
   padding-top: 5px;
   padding-bottom: 5px;
 }
 
 .quant-page .quant-cluster-group-table th {
-  font-size: 11px;
+  font-size: var(--sys-fs-micro);
   font-weight: 650;
   letter-spacing: 0.02em;
   color: var(--ink-3);
@@ -7545,12 +7561,12 @@ body[data-page="quant"] .quant-page .quant-bars-mat-card > .quant-bars-mat-body:
    研究枢纽 · Desk 深度收口 (p778)
    压平历史分层：landing / group / insight / chart / sticky head
    ========================================================================== */
-/* —— 页头 sticky 与 Pro 对齐 —— */
+/* —— Pro 头不得改 Desk Shell 阶梯（padding/align 跟 §2.1）—— */
 .page-panel.quant-panel .quant-head.quant-pro-head {
-  align-items: center;
-  padding: 10px 14px 8px;
+  align-items: flex-start;
+  padding: 2px 0 6px;
   background: var(--surface);
-  border-bottom: 1px solid var(--line);
+  border-bottom: 1px solid color-mix(in srgb, var(--line) 70%, transparent);
   z-index: 30;
 }
 
@@ -7572,7 +7588,7 @@ body[data-page="quant"] .quant-page .quant-bars-mat-card > .quant-bars-mat-body:
   flex-direction: column;
   gap: 0;
   border: 1px solid var(--line);
-  border-radius: 4px;
+  border-radius: var(--sys-r-tier4);
   overflow: hidden;
   background: var(--bg-card);
 }
@@ -7609,7 +7625,7 @@ body[data-page="quant"] .quant-page .quant-bars-mat-card > .quant-bars-mat-body:
 }
 
 .quant-page .quant-pro-kpi-value {
-  font-size: 1.25rem; /* 20px：报告台密度 */
+  font-size: var(--sys-fs-kpi); /* 20px：报告台密度 */
 }
 
 .quant-page .quant-pro-kpi-label {
@@ -7656,13 +7672,13 @@ body[data-page="quant"] .quant-page .quant-bars-mat-card > .quant-bars-mat-body:
 }
 
 .quant-page .quant-cluster-group-title {
-  font-size: 13px;
+  font-size: var(--sys-fs-body);
   font-weight: 650;
   letter-spacing: 0;
 }
 
 .quant-page .quant-cluster-tag {
-  font-size: 11px;
+  font-size: var(--sys-fs-micro);
   font-family: var(--font-mono);
   font-variant-numeric: tabular-nums;
   border-radius: var(--q-r, 2px);
@@ -7676,7 +7692,7 @@ body[data-page="quant"] .quant-page .quant-bars-mat-card > .quant-bars-mat-body:
 /* —— 图表宿主：专业报告框 —— */
 .quant-page .quant-factor-ir-host {
   border: 1px solid var(--line);
-  border-radius: 4px;
+  border-radius: var(--sys-r-tier4);
   background:
     linear-gradient(var(--line-2) 1px, transparent 1px) 0 0 / 100% 28px,
     linear-gradient(90deg, var(--line-2) 1px, transparent 1px) 0 0 / 28px 100%,
@@ -7685,7 +7701,7 @@ body[data-page="quant"] .quant-page .quant-bars-mat-card > .quant-bars-mat-body:
 }
 
 .quant-page .quant-pro-chart-panel {
-  border-radius: 4px;
+  border-radius: var(--sys-r-tier4);
   box-shadow: none;
 }
 
@@ -7696,13 +7712,13 @@ body[data-page="quant"] .quant-page .quant-bars-mat-card > .quant-bars-mat-body:
 }
 
 .quant-page .quant-chart-title {
-  font-size: 12px;
+  font-size: var(--sys-fs-caption);
   font-weight: 650;
   letter-spacing: 0;
 }
 
 .quant-page .quant-chart-axis-hint {
-  font-size: 10px;
+  font-size: var(--sys-fs-micro);
   font-family: var(--font-mono);
   color: var(--ink-3);
 }
@@ -7751,7 +7767,7 @@ body[data-page="quant"] .quant-page .quant-bars-mat-card > .quant-bars-mat-body:
 
 .quant-page .quant-pro-stats-panel {
   padding: 4px 6px;
-  border-radius: 4px;
+  border-radius: var(--sys-r-tier4);
 }
 
 /* —— 表：斑马与悬停克制 —— */
@@ -7773,7 +7789,7 @@ body[data-page="quant"] .quant-page .quant-bars-mat-card > .quant-bars-mat-body:
 
 /* —— 指纹/状态行 —— */
 .quant-page .quant-pro-fingerprint {
-  font-size: 11px;
+  font-size: var(--sys-fs-micro);
   line-height: 1.4;
   border-radius: 3px;
 }
@@ -7808,41 +7824,21 @@ body[data-page="quant"] .quant-page .quant-bars-mat-card > .quant-bars-mat-body:
 
 .quant-body.quant-page > * { margin: 0; }
 
-/* 页头：吃掉旧 sticky/pro 覆盖，跟仪表盘一致
-   z 要压过后续 section/table，避免跨市场分项滚到头下时字透出来 */
+/* 页头：与 .page-panel.quant-panel .quant-head 同阶梯（勿再复制字号） */
 .quant-head.dashboard-head {
   position: sticky;
   top: 0;
   z-index: 30;
   isolation: isolate;
   align-items: flex-start;
-  gap: 12px;
-  padding: 2px 0 8px;
+  gap: var(--sys-gap-section);
+  padding: 2px 0 6px;
   margin: 0 0 2px;
   background: var(--surface);
   background-color: var(--surface);
   border-bottom: 1px solid color-mix(in srgb, var(--line) 70%, transparent);
   box-shadow: 0 8px 16px -12px color-mix(in srgb, var(--ink) 28%, transparent);
   backdrop-filter: none;
-}
-
-.quant-head.dashboard-head .dashboard-eyebrow {
-  margin: 0 0 2px;
-  font-size: var(--sys-fs-micro, 0.6875rem);
-  font-weight: var(--sys-fw-label, 650);
-  letter-spacing: 0.14em;
-  line-height: 18px;
-  text-transform: uppercase;
-  color: var(--ink-3);
-  font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
-}
-
-.quant-head.dashboard-head h2 {
-  font-size: var(--sys-fs-title, 1.125rem);
-  font-weight: var(--sys-fw-display, 700);
-  letter-spacing: -0.02em;
-  margin: 0;
-  line-height: var(--sys-lh-tight, 1.2);
 }
 
 .quant-head.dashboard-head #platform-meta {
@@ -7892,7 +7888,7 @@ body[data-page="quant"] .quant-page .quant-bars-mat-card > .quant-bars-mat-body:
 
 /* 概览带：KPI + 路径 */
 .quant-page .quant-pro-desk-top.dashboard-overview-band {
-  border-radius: 8px;
+  border-radius: var(--sys-r-tier1);
   overflow: hidden;
 }
 
@@ -7950,7 +7946,7 @@ body[data-page="quant"] .quant-page .quant-bars-mat-card > .quant-bars-mat-body:
 
 /* 卡片：直接吃 dashboard-card */
 .quant-page .quant-pro-card.dashboard-card {
-  border-radius: 8px;
+  border-radius: var(--sys-r-tier1);
   box-shadow: none;
   background: var(--bg-card);
   border: 1px solid var(--line);
@@ -7973,7 +7969,7 @@ body[data-page="quant"] .quant-page .quant-bars-mat-card > .quant-bars-mat-body:
 
 /* 控制带：扁平 */
 .quant-page .quant-pro-control-band {
-  border-radius: 6px;
+  border-radius: var(--sys-r-tier2);
   padding: 8px 10px;
   background: color-mix(in srgb, var(--ink) 1.5%, var(--bg-elevated, var(--surface)));
 }
@@ -7985,13 +7981,13 @@ body[data-page="quant"] .quant-page .quant-bars-mat-card > .quant-bars-mat-body:
 }
 
 .quant-page .quant-inline-input {
-  height: 28px;
-  border-radius: 4px;
+  height: var(--sys-desk-chip-h);
+  border-radius: var(--sys-r-tier4);
   font-size: var(--q-fs-caption, 0.75rem);
 }
 
 .quant-page .quant-pro-checkbox {
-  height: 28px;
+  height: var(--sys-desk-chip-h);
   border-radius: var(--q-r, 2px);
   font-size: var(--q-fs-caption, 0.75rem);
 }
@@ -8049,11 +8045,11 @@ body[data-page="quant"] .quant-page .quant-bars-mat-card > .quant-bars-mat-body:
   width: 12rem;
   min-width: 12rem;
   max-width: 16rem;
-  height: 28px;
+  height: var(--sys-desk-chip-h);
 }
 
 .quant-page .quant-expr-form input[type="text"] {
-  height: 28px;
+  height: var(--sys-desk-chip-h);
   padding: 2px 8px;
   border: 1px solid var(--line);
   background: var(--surface);
@@ -8115,7 +8111,7 @@ body[data-page="quant"] .quant-page .quant-bars-mat-card > .quant-bars-mat-body:
   text-overflow: ellipsis;
   white-space: nowrap;
   font-family: var(--font-mono);
-  font-size: 11px;
+  font-size: var(--sys-fs-micro);
   font-weight: 450;
   line-height: 1.3;
   letter-spacing: 0;
@@ -8202,7 +8198,7 @@ body[data-page="quant"] .quant-page .quant-bars-mat-card > .quant-bars-mat-body:
 
 .quant-page .quant-experiments-empty {
   margin: 0;
-  font-size: 12px;
+  font-size: var(--sys-fs-caption);
   color: var(--ink-3);
 }
 
@@ -8295,7 +8291,7 @@ body[data-page="quant"] .quant-page .quant-bars-mat-card > .quant-bars-mat-body:
   grid-template-columns: minmax(0, 1.45fr) minmax(0, 1fr);
   gap: 0;
   border: 1px solid var(--line);
-  border-radius: 6px;
+  border-radius: var(--sys-r-tier2);
   overflow: hidden;
 }
 
@@ -8403,10 +8399,10 @@ body[data-page="quant"] .quant-page .quant-bars-mat-card > .quant-bars-mat-body:
 .quant-page .quant-tools-more > summary {
   list-style: none;
   cursor: pointer;
-  height: 28px;
+  height: var(--sys-desk-chip-h);
   padding: 0 10px;
   border: 1px solid var(--line);
-  border-radius: 4px;
+  border-radius: var(--sys-r-tier4);
   background: var(--surface);
   color: var(--ink-2);
   font-size: var(--q-fs-caption, 0.75rem);
@@ -8440,7 +8436,7 @@ body[data-page="quant"] .quant-page .quant-bars-mat-card > .quant-bars-mat-body:
   min-width: 9.5rem;
   padding: 6px;
   border: 1px solid var(--line);
-  border-radius: 6px;
+  border-radius: var(--sys-r-tier2);
   background: var(--bg-card, var(--surface));
   box-shadow: var(--shadow-md, 0 4px 12px rgba(15, 23, 42, 0.08));
 }
@@ -8452,7 +8448,7 @@ body[data-page="quant"] .quant-page .quant-bars-mat-card > .quant-bars-mat-body:
 
 /* 路径轨进度态 */
 .quant-page .quant-path-step {
-  border-radius: 4px;
+  border-radius: var(--sys-r-tier4);
   transition: background 0.12s ease, color 0.12s ease;
 }
 
@@ -8466,7 +8462,7 @@ body[data-page="quant"] .quant-page .quant-bars-mat-card > .quant-bars-mat-body:
   border: 1px solid var(--line);
   background: color-mix(in srgb, var(--ink) 3%, var(--surface));
   color: var(--ink-3);
-  font-size: 0.625rem;
+  font-size: var(--sys-fs-micro);
 }
 
 .quant-page .quant-path-step[data-state="busy"] {
@@ -8548,13 +8544,13 @@ body[data-page="quant"] .quant-page .quant-bars-mat-card > .quant-bars-mat-body:
 }
 
 .quant-page .quant-weight-table-wrap th {
-  font-size: 11px;
+  font-size: var(--sys-fs-micro);
   font-weight: 650;
   letter-spacing: 0.02em;
 }
 
 .quant-page .quant-weight-table-wrap td {
-  font-size: 12px;
+  font-size: var(--sys-fs-caption);
   font-family: var(--font-mono);
 }
 
@@ -8606,7 +8602,7 @@ html[data-density="compact"] .quant-body.dashboard-page {
   /* visible：卡头「说明」展开不被裁切 */
   overflow: visible;
   border: 1px solid var(--line);
-  border-radius: 8px;
+  border-radius: var(--sys-r-tier1);
   background: var(--bg-card);
   box-shadow: none;
 }
@@ -8706,7 +8702,7 @@ html[data-density="compact"] .quant-body.dashboard-page {
   margin: 0;
   padding: 10px 14px 12px;
   border: 1px solid var(--line);
-  border-radius: 8px;
+  border-radius: var(--sys-r-tier1);
   background: var(--bg-card);
   box-shadow:
     0 8px 24px rgba(15, 23, 42, 0.1),
@@ -8838,12 +8834,12 @@ html[data-density="compact"] .quant-body.dashboard-page {
 }
 
 .quant-summary {
-  font-size: 12px;
+  font-size: var(--sys-fs-caption);
   line-height: 18px;
   color: var(--ink-2);
   padding: 10px 12px;
   background: var(--bg-accent);
-  border-radius: 8px;
+  border-radius: var(--sys-r-tier1);
   border: 1px solid var(--line);
   margin: 0;
 }
@@ -8858,7 +8854,7 @@ html[data-density="compact"] .quant-body.dashboard-page {
 .quant-metrics > .quant-metric {
   background: var(--bg-accent);
   border: 1px solid var(--line);
-  border-radius: 8px;
+  border-radius: var(--sys-r-tier1);
   padding: 8px 10px;
   display: flex;
   flex-direction: column;
@@ -8866,7 +8862,7 @@ html[data-density="compact"] .quant-body.dashboard-page {
 }
 
 .quant-metric .lbl {
-  font-size: 11px;
+  font-size: var(--sys-fs-micro);
   line-height: 18px;
   color: var(--ink-3);
   letter-spacing: 0.02em;
@@ -8875,7 +8871,7 @@ html[data-density="compact"] .quant-body.dashboard-page {
 }
 
 .quant-metric .val {
-  font-size: 15px;
+  font-size: var(--sys-fs-section);
   line-height: 20px;
   font-weight: 700;
   font-family: var(--font-mono);
@@ -8890,7 +8886,7 @@ html[data-density="compact"] .quant-body.dashboard-page {
 .quant-metric .val.warn-val { color: var(--gold); }
 
 .quant-metric .sub {
-  font-size: 11px;
+  font-size: var(--sys-fs-micro);
   line-height: 18px;
   color: var(--ink-3);
 }
@@ -8906,7 +8902,7 @@ html[data-density="compact"] .quant-body.dashboard-page {
 body[data-page="quant"] .dashboard-card.quant-pro-card {
   background: var(--surface);
   border: 1px solid var(--line);
-  border-radius: 8px;                          /* TIER 1 card */
+  border-radius: var(--sys-r-tier1);                          /* TIER 1 card */
   box-shadow: 0 1px 2px rgba(15, 23, 42, 0.03);
   padding: 0;                                  /* card-head + card-body control interior padding */
   overflow: hidden;
@@ -8953,9 +8949,9 @@ body[data-page="quant"] section.dashboard-section.quant-section:last-child {
 .quant-head.dashboard-head .quant-desk-badge {
   display: inline-flex;
   align-items: center;
-  height: 28px;
-  min-height: 28px;
-  max-height: 28px;
+  height: var(--sys-desk-chip-h);
+  min-height: var(--sys-desk-chip-h);
+  max-height: var(--sys-desk-chip-h);
   padding: 0 10px;
   font-size: var(--sys-fs-caption, 0.75rem);
   line-height: 1;
@@ -9010,7 +9006,7 @@ body[data-page="quant"] section.dashboard-section.quant-section:last-child {
   padding: 12px 14px;
   border: 1px solid var(--line);
   border-right: 1px solid var(--line);
-  border-radius: 8px;
+  border-radius: var(--sys-r-tier1);
   background: var(--surface);
   box-shadow: 0 1px 2px rgba(15, 23, 42, 0.03);
   gap: 2px;
@@ -9024,7 +9020,7 @@ body[data-page="quant"] section.dashboard-section.quant-section:last-child {
 }
 
 .quant-page .quant-pro-kpi-label {
-  font-size: 12px;
+  font-size: var(--sys-fs-caption);
   line-height: 18px;
   letter-spacing: 0.02em;
   text-transform: none;
@@ -9035,15 +9031,15 @@ body[data-page="quant"] section.dashboard-section.quant-section:last-child {
 }
 
 .quant-page .quant-pro-kpi-value {
-  font-size: 22px;
-  line-height: 28px;
+  font-size: var(--sys-fs-kpi);
+  line-height: var(--sys-desk-chip-h);
   font-weight: 600;
   letter-spacing: -0.01em;
   margin: 2px 0 0;
 }
 
 .quant-page .quant-pro-kpi-sub {
-  font-size: 12px;
+  font-size: var(--sys-fs-caption);
   line-height: 18px;
   font-family: inherit;
   color: var(--ink-3);
@@ -9061,7 +9057,7 @@ body[data-page="quant"] section.dashboard-section.quant-section:last-child {
   padding: 0;
   border: 1px solid var(--line);
   border-top: 1px solid var(--line);
-  border-radius: 8px;
+  border-radius: var(--sys-r-tier1);
   background: var(--surface);
   overflow: hidden;
 }
@@ -9072,7 +9068,7 @@ body[data-page="quant"] section.dashboard-section.quant-section:last-child {
   gap: 8px;
   padding: 8px 14px;
   border-radius: 0;
-  font-size: 13px;
+  font-size: var(--sys-fs-body);
   line-height: 20px;
   font-weight: 500;
   color: var(--ink-2);
@@ -9097,11 +9093,11 @@ body[data-page="quant"] section.dashboard-section.quant-section:last-child {
   justify-content: center;
   width: 20px;
   height: 20px;
-  border-radius: 999px;
+  border-radius: var(--sys-r-full);
   border: none;
   background: var(--bg-active, color-mix(in srgb, var(--ink) 6%, var(--surface)));
   color: var(--ink);
-  font-size: 11px;
+  font-size: var(--sys-fs-micro);
   line-height: 1;
   font-weight: 600;
   font-family: var(--font-mono);
@@ -9119,7 +9115,7 @@ body[data-page="quant"] section.dashboard-section.quant-section:last-child {
 .quant-page .quant-pro-path-sep {
   color: var(--ink-3);
   padding: 8px 2px;
-  font-size: 12px;
+  font-size: var(--sys-fs-caption);
   line-height: 20px;
   opacity: 1;
 }
@@ -9157,7 +9153,7 @@ body[data-page="quant"] section.dashboard-section.quant-section:last-child {
 .quant-page .quant-secondary-fold-sum::after {
   content: "▸";
   margin-left: auto;
-  font-size: 11px;
+  font-size: var(--sys-fs-micro);
   color: var(--ink-3);
   flex-shrink: 0;
 }
@@ -9198,7 +9194,7 @@ body[data-page="quant"] section.dashboard-section.quant-section:last-child {
 .quant-page .quant-pro-control-band {
   gap: 8px;
   padding: 10px 12px;
-  border-radius: 8px;
+  border-radius: var(--sys-r-tier1);
   background: color-mix(in srgb, var(--ink) 1.8%, var(--bg-elevated, var(--surface)));
 }
 
@@ -9210,10 +9206,10 @@ body[data-page="quant"] section.dashboard-section.quant-section:last-child {
 
 .quant-page .quant-pro-field input[type="number"] {
   width: 4.5rem;
-  height: 28px;
+  height: var(--sys-desk-chip-h);
   padding: 2px 8px;
   border: 1px solid var(--line);
-  border-radius: 6px;
+  border-radius: var(--sys-r-tier2);
   background: var(--surface);
   font-family: var(--font-mono);
   font-size: var(--q-fs-caption, 0.75rem);
@@ -9320,7 +9316,7 @@ body[data-page="data"] .quant-watching-pool-actions {
 body[data-page="data"] .quant-watching-pool-actions .dialog-btn {
   height: 30px;
   padding: 0 10px;
-  font-size: 12px;
+  font-size: var(--sys-fs-caption);
   font-weight: 600;
   white-space: nowrap;
 }
@@ -9349,11 +9345,11 @@ body[data-page="data"] .quant-watching-pool-slider {
   height: 30px;
   margin: 0;
   padding: 0 8px 0 10px;
-  border-radius: 999px;
+  border-radius: var(--sys-r-full);
   border: 1px solid color-mix(in srgb, var(--line) 85%, transparent);
   background: color-mix(in srgb, var(--surface) 92%, var(--line));
   color: var(--ink-2);
-  font-size: 12px;
+  font-size: var(--sys-fs-caption);
   font-weight: 600;
   line-height: 1;
   white-space: nowrap;
@@ -9377,7 +9373,7 @@ body[data-page="data"] .quant-watching-pool-slider:focus-within {
 
 body[data-page="data"] .quant-watching-pool-slider-lab {
   flex: 0 0 auto;
-  font-size: 0.62rem;
+  font-size: var(--sys-fs-micro);
   font-weight: 700;
   letter-spacing: 0.06em;
   text-transform: uppercase;
@@ -9395,7 +9391,7 @@ body[data-page="data"] .quant-watching-pool-scale {
 
 body[data-page="data"] .quant-watching-pool-bound {
   flex: 0 0 auto;
-  font-size: 0.6rem;
+  font-size: var(--sys-fs-micro);
   font-weight: 600;
   font-variant-numeric: tabular-nums;
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
@@ -9421,7 +9417,7 @@ body[data-page="data"] .quant-watching-pool-range:focus {
 
 body[data-page="data"] .quant-watching-pool-range::-webkit-slider-runnable-track {
   height: 4px;
-  border-radius: 999px;
+  border-radius: var(--sys-r-full);
   background: linear-gradient(
     90deg,
     color-mix(in srgb, var(--accent, #2563eb) 55%, var(--line)),
@@ -9448,7 +9444,7 @@ body[data-page="data"] .quant-watching-pool-range:active::-webkit-slider-thumb {
 
 body[data-page="data"] .quant-watching-pool-range::-moz-range-track {
   height: 4px;
-  border-radius: 999px;
+  border-radius: var(--sys-r-full);
   background: linear-gradient(
     90deg,
     color-mix(in srgb, var(--accent, #2563eb) 55%, var(--line)),
@@ -9472,7 +9468,7 @@ body[data-page="data"] .quant-watching-pool-readout {
   flex: 0 0 auto;
   min-width: 3.2rem;
   padding: 2px 6px;
-  border-radius: 999px;
+  border-radius: var(--sys-r-full);
   background: color-mix(in srgb, var(--accent, #2563eb) 10%, transparent);
   line-height: 1.2;
 }
@@ -9482,7 +9478,7 @@ body[data-page="data"] .quant-watching-pool-slider output {
   margin: 0;
   color: var(--ink);
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-  font-size: 0.74rem;
+  font-size: var(--sys-fs-caption);
   font-variant-numeric: tabular-nums;
   font-weight: 700;
   line-height: 1.2;
@@ -9491,7 +9487,7 @@ body[data-page="data"] .quant-watching-pool-slider output {
 
 body[data-page="data"] .quant-watching-pool-unit {
   color: var(--ink);
-  font-size: 0.62rem;
+  font-size: var(--sys-fs-micro);
   font-weight: 700;
   opacity: 0.72;
 }
@@ -9501,14 +9497,14 @@ body[data-page="quant"] .quant-tau-end-slider {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  height: 28px;
+  height: var(--sys-desk-chip-h);
   margin: 0;
   padding: 0 6px 0 8px;
-  border-radius: 999px;
+  border-radius: var(--sys-r-full);
   border: 1px solid color-mix(in srgb, var(--line) 85%, transparent);
   background: color-mix(in srgb, var(--surface) 92%, var(--line));
   color: var(--ink-2);
-  font-size: 12px;
+  font-size: var(--sys-fs-caption);
   font-weight: 600;
   line-height: 1;
   white-space: nowrap;
@@ -9523,7 +9519,7 @@ body[data-page="quant"] .quant-tau-end-slider:focus-within {
 
 body[data-page="quant"] .quant-tau-end-slider-lab {
   flex: 0 0 auto;
-  font-size: 0.74rem;
+  font-size: var(--sys-fs-caption);
   font-weight: 700;
   letter-spacing: 0.04em;
   color: var(--ink-3);
@@ -9539,7 +9535,7 @@ body[data-page="quant"] .quant-tau-end-scale {
 
 body[data-page="quant"] .quant-tau-end-bound {
   flex: 0 0 auto;
-  font-size: 0.68rem;
+  font-size: var(--sys-fs-micro);
   font-weight: 600;
   font-variant-numeric: tabular-nums;
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
@@ -9565,7 +9561,7 @@ body[data-page="quant"] .quant-tau-end-range:focus {
 
 body[data-page="quant"] .quant-tau-end-range::-webkit-slider-runnable-track {
   height: 4px;
-  border-radius: 999px;
+  border-radius: var(--sys-r-full);
   background: linear-gradient(
     90deg,
     color-mix(in srgb, var(--accent, #2563eb) 55%, var(--line)),
@@ -9587,7 +9583,7 @@ body[data-page="quant"] .quant-tau-end-range::-webkit-slider-thumb {
 
 body[data-page="quant"] .quant-tau-end-range::-moz-range-track {
   height: 4px;
-  border-radius: 999px;
+  border-radius: var(--sys-r-full);
   background: linear-gradient(
     90deg,
     color-mix(in srgb, var(--accent, #2563eb) 55%, var(--line)),
@@ -9609,7 +9605,7 @@ body[data-page="quant"] .quant-tau-end-readout {
   align-items: center;
   min-width: 2.6rem;
   padding: 2px 5px;
-  border-radius: 999px;
+  border-radius: var(--sys-r-full);
   background: color-mix(in srgb, var(--accent, #2563eb) 10%, transparent);
   line-height: 1.2;
 }
@@ -9619,7 +9615,7 @@ body[data-page="quant"] .quant-tau-end-slider output {
   margin: 0;
   color: var(--ink);
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-  font-size: 0.8rem;
+  font-size: var(--sys-fs-body);
   font-variant-numeric: tabular-nums;
   font-weight: 700;
   line-height: 1.2;
@@ -9637,13 +9633,13 @@ body[data-page="quant"] .quant-head.dashboard-head .quant-desk-note {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  height: 28px;
-  min-height: 28px;
-  max-height: 28px;
+  height: var(--sys-desk-chip-h);
+  min-height: var(--sys-desk-chip-h);
+  max-height: var(--sys-desk-chip-h);
   padding: 0 10px;
   margin: 0;
   border-radius: 2px;
-  font-size: 12px;
+  font-size: var(--sys-fs-caption);
   font-weight: 600;
   line-height: 1;
   white-space: nowrap;
@@ -9679,23 +9675,23 @@ body[data-page="yhat_l"] .page-main ,
 body[data-page="yhat_t"] .page-main,
 body[data-page="yhat_r"] .page-main ,
 body[data-page="yhat_bt"] .page-main {
-  --sys-r-tier1: 2px;
-  --sys-r-tier2: 2px;
-  --sys-r-tier3: 2px;
-  --sys-r-tier4: 2px;
-  --sys-r-full: 2px;
-  --radius: 2px;
-  --radius-sm: 2px;
-  --radius-xs: 2px;
-  --radius-md: 2px;
-  --radius-lg: 2px;
-  --q-r: 2px;
-  --q-gap-page: 10px;
+  --sys-desk-r: 2px;
+  --sys-r-tier1: var(--sys-desk-r);
+  --sys-r-tier2: var(--sys-desk-r);
+  --sys-r-tier3: var(--sys-desk-r);
+  --sys-r-tier4: var(--sys-desk-r);
+  --radius: var(--sys-desk-r);
+  --radius-sm: var(--sys-desk-r);
+  --radius-xs: var(--sys-desk-r);
+  --radius-md: var(--sys-desk-r);
+  --radius-lg: var(--sys-desk-r);
+  --q-r: var(--sys-desk-r);
+  --q-gap-page: var(--sys-gap-block);
   --q-gap-block: 8px;
-  --q-fs-micro: var(--sys-fs-micro, 0.6875rem);
-  --q-fs-caption: var(--sys-fs-caption, 0.75rem);
-  --q-fs-body: var(--sys-fs-body, 0.8125rem);
-  --q-fs-section: var(--sys-fs-section, 0.875rem);
+  --q-fs-micro: var(--sys-fs-micro);
+  --q-fs-caption: var(--sys-fs-caption);
+  --q-fs-body: var(--sys-fs-body);
+  --q-fs-section: var(--sys-fs-section);
 }
 
 /* 页头阶梯见 .page-panel.quant-panel .quant-head */
@@ -9706,13 +9702,13 @@ body[data-page="data"] .quant-head.dashboard-head .quant-desk-guard {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  height: 28px !important;
-  min-height: 28px !important;
-  max-height: 28px !important;
+  height: var(--sys-desk-chip-h) !important;
+  min-height: var(--sys-desk-chip-h) !important;
+  max-height: var(--sys-desk-chip-h) !important;
   padding: 0 10px !important;
   margin: 0;
   border-radius: var(--data-r, 2px) !important;
-  font-size: 12px !important;
+  font-size: var(--sys-fs-caption) !important;
   font-weight: 600 !important;
   line-height: 1;
   letter-spacing: 0.02em;
@@ -9823,7 +9819,7 @@ body[data-page="data"] #data-overview-kpis .data-overview-fact {
 
 body[data-page="data"] #data-overview-kpis .data-overview-fact em {
   font-style: normal;
-  font-size: 0.62rem;
+  font-size: var(--sys-fs-micro);
   font-weight: 650;
   letter-spacing: 0.04em;
   color: var(--ink-3);
@@ -9832,7 +9828,7 @@ body[data-page="data"] #data-overview-kpis .data-overview-fact em {
 body[data-page="data"] #data-overview-kpis .data-overview-fact strong {
   font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
   font-variant-numeric: tabular-nums;
-  font-size: 0.78rem;
+  font-size: var(--sys-fs-body);
   font-weight: 650;
   line-height: 1.2;
   color: var(--ink);
@@ -9887,8 +9883,8 @@ body[data-page="data"] .quant-page .dialog-btn {
   align-items: center;
   justify-content: center;
   box-sizing: border-box;
-  height: 28px;
-  min-height: 28px;
+  height: var(--sys-desk-chip-h);
+  min-height: var(--sys-desk-chip-h);
   padding: 0 12px;
   font-size: var(--q-fs-caption, 0.75rem);
   font-weight: 600;
@@ -10068,7 +10064,7 @@ body[data-page="quant"] .quant-overview-section > .dashboard-section-head .quant
   width: 2.35rem !important;
   height: 1.35em !important;
   padding: 0 !important;
-  font-size: 1.0625rem !important;
+  font-size: var(--sys-fs-title) !important;
   font-weight: var(--sys-fw-display, 700) !important;
   font-variant-numeric: tabular-nums;
   font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
@@ -10146,7 +10142,7 @@ body[data-page="strategy"] .quant-macro-strip-k {
   color: var(--ink-2);
   text-transform: uppercase;
   letter-spacing: 0.08em;
-  font-size: 0.62rem;
+  font-size: var(--sys-fs-micro);
   cursor: help;
 }
 
@@ -10155,7 +10151,7 @@ body[data-page="strategy"] .quant-macro-strip-pill {
   align-items: center;
   width: fit-content;
   padding: 2px 7px;
-  font-size: 0.58rem;
+  font-size: var(--sys-fs-micro);
   font-weight: 650;
   letter-spacing: 0.03em;
   border-radius: 2px;
@@ -10189,7 +10185,7 @@ body[data-page="strategy"] .quant-macro-strip-cell-top {
 }
 
 body[data-page="strategy"] .quant-macro-strip-label {
-  font-size: 0.58rem;
+  font-size: var(--sys-fs-micro);
   font-weight: 650;
   color: var(--ink-3);
   text-transform: uppercase;
@@ -10197,7 +10193,7 @@ body[data-page="strategy"] .quant-macro-strip-label {
 }
 
 body[data-page="strategy"] .quant-macro-strip-badge {
-  font-size: 0.52rem;
+  font-size: var(--sys-fs-micro);
   font-weight: 700;
   letter-spacing: 0.04em;
   padding: 1px 5px;
@@ -10229,7 +10225,7 @@ body[data-page="strategy"] .quant-macro-strip-badge.is-muted {
 }
 
 body[data-page="strategy"] .quant-macro-strip-val {
-  font-size: 0.92rem;
+  font-size: var(--sys-fs-section);
   font-weight: 650;
   font-variant-numeric: tabular-nums;
   color: var(--ink-1);
@@ -10250,7 +10246,7 @@ body[data-page="strategy"] .quant-macro-strip-val.is-flat {
 }
 
 body[data-page="strategy"] .quant-macro-strip-sub {
-  font-size: 0.58rem;
+  font-size: var(--sys-fs-micro);
   color: var(--ink-3);
   white-space: nowrap;
   overflow: hidden;
@@ -10270,12 +10266,12 @@ body[data-page="strategy"] .quant-macro-strip-sub {
 body[data-page="strategy"] .quant-macro-strip-empty {
   margin: 0;
   padding: 2px 0 0;
-  font-size: 0.68rem;
+  font-size: var(--sys-fs-micro);
   color: var(--ink-3);
 }
 
 body[data-page="strategy"] .quant-macro-strip-empty code {
-  font-size: 0.62rem;
+  font-size: var(--sys-fs-micro);
 }
 
 /* 市场先验概览：M 环境 KPI 条（近30日曲线在跨市场明细）。 */
@@ -10340,18 +10336,18 @@ body[data-page="strategy"] .quant-macro-strip-cell.is-lag {
 }
 
 body[data-page="strategy"] .quant-macro-strip-label {
-  font-size: 0.6875rem;
+  font-size: var(--sys-fs-micro);
   letter-spacing: 0.08em;
 }
 
 body[data-page="strategy"] .quant-macro-strip-val {
   font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
-  font-size: 1.25rem;
+  font-size: var(--sys-fs-kpi);
   font-weight: 700;
 }
 
 body[data-page="strategy"] .quant-macro-strip-sub {
-  font-size: 0.75rem;
+  font-size: var(--sys-fs-caption);
 }
 
 @media (max-width: 960px) {
@@ -10403,8 +10399,8 @@ body[data-page="quant"] .quant-kpi-label {
 
 body[data-page="quant"] .quant-page .quant-pro-kpi-value,
 body[data-page="quant"] .quant-kpi-value {
-  font-size: 22px;
-  line-height: 28px;
+  font-size: var(--sys-fs-kpi);
+  line-height: var(--sys-desk-chip-h);
   font-weight: 600;
   letter-spacing: -0.01em;
   margin: 2px 0 0;
@@ -10441,7 +10437,7 @@ body[data-page="quant"] .quant-page .quant-path-step {
   gap: 8px;
   padding: 8px 14px;
   border-radius: 0;
-  font-size: 13px;
+  font-size: var(--sys-fs-body);
   line-height: 20px;
   font-weight: 500;
   color: var(--ink-2);
@@ -10472,7 +10468,7 @@ body[data-page="quant"] .quant-page .quant-pro-path-num {
   border: none;
   background: var(--bg-active, color-mix(in srgb, var(--ink) 6%, var(--surface)));
   color: var(--ink);
-  font-size: 11px;
+  font-size: var(--sys-fs-micro);
   line-height: 1;
   font-weight: 700;
   font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
@@ -10488,7 +10484,7 @@ body[data-page="quant"] .quant-page .quant-path-step[data-state="busy"] .quant-p
 
 body[data-page="quant"] .quant-page .quant-pro-path-sep {
   color: var(--ink-3);
-  font-size: 12px;
+  font-size: var(--sys-fs-caption);
   padding: 0 2px;
   user-select: none;
 }
@@ -10660,11 +10656,11 @@ body[data-page="quant"] .quant-page {
 body[data-page="quant"] .quant-head-actions > .quant-desk-badge,
 body[data-page="quant"] .quant-head-actions > .quant-desk-guard,
 body[data-page="quant"] .quant-head-actions > .quant-desk-note {
-  height: 28px !important;
-  min-height: 28px !important;
-  max-height: 28px !important;
+  height: var(--sys-desk-chip-h) !important;
+  min-height: var(--sys-desk-chip-h) !important;
+  max-height: var(--sys-desk-chip-h) !important;
   padding: 0 10px !important;
-  font-size: 12px !important;
+  font-size: var(--sys-fs-caption) !important;
   font-weight: 600 !important;
   letter-spacing: 0.02em;
   border-radius: 2px !important;
@@ -10738,7 +10734,7 @@ body[data-page="quant"] .quant-kpi-value {
 
 body[data-page="quant"] .quant-page .quant-pro-kpi-sub,
 body[data-page="quant"] .quant-kpi-sub {
-  font-size: 10.5px !important;
+  font-size: var(--sys-fs-micro) !important;
   line-height: 1.25 !important;
   color: var(--ink-3) !important;
   font-variant-numeric: tabular-nums;
@@ -10824,7 +10820,7 @@ body[data-page="quant"] .quant-page .quant-pro-path-num {
   width: 18px !important;
   height: 18px !important;
   border-radius: 2px !important;
-  font-size: 10px !important;
+  font-size: var(--sys-fs-micro) !important;
   font-weight: 700 !important;
   font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace) !important;
   background: color-mix(in srgb, var(--ink) 8%, transparent) !important;
@@ -10955,7 +10951,7 @@ body[data-page="quant"] .quant-page .platform-field select,
 body[data-page="quant"] .quant-page .quant-pro-field input:not([type="checkbox"]),
 body[data-page="quant"] .quant-page .quant-inline-input,
 body[data-page="quant"] .quant-page .quant-inline-select {
-  height: 28px !important;
+  height: var(--sys-desk-chip-h) !important;
   font-size: var(--q-fs-body) !important;
   border-radius: 2px !important;
   font-variant-numeric: tabular-nums;
@@ -10972,9 +10968,9 @@ body[data-page="quant"] .quant-page .quant-cluster-params {
 body[data-page="quant"] .quant-page .quant-cluster-params .platform-field input[type="number"],
 body[data-page="quant"] .quant-page .quant-cluster-params .dialog-btn,
 body[data-page="quant"] .quant-page .quant-cluster-params .quant-pro-checkbox {
-  height: 28px !important;
-  min-height: 28px !important;
-  max-height: 28px !important;
+  height: var(--sys-desk-chip-h) !important;
+  min-height: var(--sys-desk-chip-h) !important;
+  max-height: var(--sys-desk-chip-h) !important;
   box-sizing: border-box;
 }
 
@@ -11003,7 +10999,7 @@ body[data-page="quant"] .quant-page .dialog-btn {
   font-weight: 600 !important;
   letter-spacing: 0.01em !important;
   border-radius: 2px !important;
-  min-height: 28px;
+  min-height: var(--sys-desk-chip-h);
   padding: 4px 12px !important;
   line-height: 1.25;
 }
@@ -11107,7 +11103,7 @@ body[data-page="quant"] .quant-page .down {
   body[data-page="quant"] .quant-page .quant-pro-path-step,
   body[data-page="quant"] .quant-page .quant-path-step {
     padding: 6px !important;
-    font-size: 11px !important;
+    font-size: var(--sys-fs-micro) !important;
   }
 }
 
@@ -11317,7 +11313,7 @@ body[data-page="quant"] .quant-page .quant-cluster-status .quant-cluster-landing
   display: inline-block;
   margin: 0 1px;
   padding: 0 6px;
-  border-radius: 4px;
+  border-radius: var(--sys-r-tier4);
   border: 1px solid transparent;
   font-weight: 650;
   line-height: 1.45;
@@ -11363,7 +11359,7 @@ body[data-page="quant"] .quant-page .quant-cluster-status .quant-cluster-landing
   font-weight: 700;
   font-variant-numeric: tabular-nums;
   color: var(--ink);
-  font-size: 0.78rem;
+  font-size: var(--sys-fs-body);
 }
 
 /* IC / Rank IC：A 股正红负绿 */
@@ -11532,7 +11528,7 @@ body[data-page="quant"] .quant-page .quant-card-head--fit .quant-rem-status.is-b
   height: 18px;
   padding: 0 6px;
   border-radius: 2px;
-  font-size: 0.62rem;
+  font-size: var(--sys-fs-micro);
   font-weight: 650;
   letter-spacing: 0.03em;
   border: 1px solid color-mix(in srgb, var(--line) 88%, transparent);
@@ -11597,7 +11593,7 @@ body[data-page="quant"] .quant-page .quant-card-head--fit .quant-rem-status.is-b
   align-items: baseline;
   gap: 0.35rem 0.75rem;
   padding: 0.45rem 0.75rem;
-  font-size: 0.75rem;
+  font-size: var(--sys-fs-caption);
   font-weight: 600;
   color: var(--ink-2);
   user-select: none;
@@ -11620,7 +11616,7 @@ body[data-page="quant"] .quant-page .quant-card-head--fit .quant-rem-status.is-b
 
 .quant-page .quant-rem-coef-more-hint {
   font-weight: 400;
-  font-size: 0.7rem;
+  font-size: var(--sys-fs-micro);
   color: var(--ink-3, var(--ink-2));
 }
 
@@ -11661,7 +11657,7 @@ body[data-page="quant"] .quant-page .quant-card-head--fit .quant-rem-status.is-b
 }
 
 .quant-page .quant-rem-coef .quant-research-grid .watching-react-grid-row.is-head {
-  min-height: 28px;
+  min-height: var(--sys-desk-chip-h);
 }
 
 /* 表头全局 uppercase 会把 μ/σ 变成 Μ/Σ；系数表保留小写希腊字母（对齐 v2） */
@@ -11669,7 +11665,7 @@ body[data-page="quant"] .quant-page .quant-card-head--fit .quant-rem-status.is-b
   text-transform: none;
   letter-spacing: 0.02em;
   border-left-color: color-mix(in srgb, var(--line) 70%, transparent);
-  font-size: 0.62rem;
+  font-size: var(--sys-fs-micro);
   letter-spacing: 0.07em;
 }
 
@@ -11702,7 +11698,7 @@ body[data-page="quant"] .quant-page .quant-card-head--fit .quant-rem-status.is-b
   flex: 0 0 1.35rem;
   width: 1.35rem;
   font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
-  font-size: 0.64rem;
+  font-size: var(--sys-fs-micro);
   font-weight: 650;
   font-variant-numeric: tabular-nums;
   color: var(--ink-3);
@@ -11770,7 +11766,7 @@ body[data-page="quant"] .quant-page .quant-card-head--fit .quant-rem-status.is-b
 
 .quant-page .quant-rem-coef-spec-k {
   flex: 0 0 auto;
-  font-size: 0.62rem;
+  font-size: var(--sys-fs-micro);
   font-weight: 650;
   letter-spacing: 0.05em;
   text-transform: uppercase;
@@ -11779,7 +11775,7 @@ body[data-page="quant"] .quant-page .quant-card-head--fit .quant-rem-status.is-b
 
 .quant-page .quant-rem-coef-spec-f {
   font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
-  font-size: 0.78rem;
+  font-size: var(--sys-fs-body);
   font-weight: 700;
   font-variant-numeric: tabular-nums;
   color: var(--ink);
@@ -11788,7 +11784,7 @@ body[data-page="quant"] .quant-page .quant-card-head--fit .quant-rem-status.is-b
 
 .quant-page .quant-rem-coef-spec-grid {
   font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
-  font-size: 0.68rem;
+  font-size: var(--sys-fs-micro);
   font-weight: 600;
   letter-spacing: 0.02em;
   white-space: nowrap;
@@ -11801,7 +11797,7 @@ body[data-page="quant"] .quant-page .quant-card-head--fit .quant-rem-status.is-b
 
 .quant-page .quant-rem-coef-spec-span {
   font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
-  font-size: 0.78rem;
+  font-size: var(--sys-fs-body);
   font-weight: 700;
   font-variant-numeric: tabular-nums;
   color: var(--ink);
@@ -11825,7 +11821,7 @@ body[data-page="quant"] .quant-page .quant-card-head--fit .quant-rem-status.is-b
 }
 
 .quant-page .quant-rem-coef-spec-tick-k {
-  font-size: 0.58rem;
+  font-size: var(--sys-fs-micro);
   font-weight: 650;
   letter-spacing: 0.02em;
   color: var(--ink-3);
@@ -11834,7 +11830,7 @@ body[data-page="quant"] .quant-page .quant-card-head--fit .quant-rem-status.is-b
 
 .quant-page .quant-rem-coef-spec-tick-v {
   font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
-  font-size: 0.76rem;
+  font-size: var(--sys-fs-caption);
   font-weight: 700;
   font-variant-numeric: tabular-nums;
   color: var(--ink);
@@ -11912,7 +11908,7 @@ body[data-page="quant"] .quant-page .quant-card-head--fit .quant-rem-status.is-b
 }
 
 .quant-page .quant-rem-coef-kpi-k {
-  font-size: 0.62rem;
+  font-size: var(--sys-fs-micro);
   font-weight: 650;
   letter-spacing: 0.04em;
   text-transform: uppercase;
@@ -11921,7 +11917,7 @@ body[data-page="quant"] .quant-page .quant-card-head--fit .quant-rem-status.is-b
 
 .quant-page .quant-rem-coef-kpi-v {
   font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
-  font-size: 0.78rem;
+  font-size: var(--sys-fs-body);
   font-weight: 700;
   font-variant-numeric: tabular-nums;
   color: var(--ink);
@@ -11965,7 +11961,7 @@ body[data-page="quant"] .quant-page .quant-card-head--fit .quant-rem-status.is-b
 }
 
 .quant-page .quant-rem-coef-bar-name {
-  font-size: 0.72rem;
+  font-size: var(--sys-fs-micro);
   color: var(--ink-2);
   overflow: hidden;
   text-overflow: ellipsis;
@@ -12022,7 +12018,7 @@ body[data-page="quant"] .quant-page .quant-card-head--fit .quant-rem-status.is-b
 .quant-page .quant-rem-beta-num,
 .quant-page .quant-rem-share-num {
   font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
-  font-size: 0.68rem;
+  font-size: var(--sys-fs-micro);
   font-weight: 700;
   font-variant-numeric: tabular-nums;
 }
@@ -12113,7 +12109,7 @@ body[data-page="quant"] .quant-page .quant-card-head--fit .quant-rem-status.is-b
   display: inline-block;
   padding: 1px 5px;
   border-radius: 2px;
-  font-size: 0.64rem;
+  font-size: var(--sys-fs-micro);
   font-weight: 650;
   letter-spacing: 0.02em;
   border: 1px solid color-mix(in srgb, var(--line) 90%, transparent);
@@ -12147,7 +12143,7 @@ body[data-page="quant"] .quant-page .quant-card-head--fit .quant-rem-status.is-b
   max-width: none;
   overflow: visible;
   text-overflow: clip;
-  font-size: 0.72rem;
+  font-size: var(--sys-fs-micro);
 }
 
 @media (max-width: 1279px) {
@@ -12240,7 +12236,7 @@ body[data-page="quant"] .quant-page .quant-card-head--fit .quant-rem-status.is-b
   display: inline-flex;
   align-items: center;
   gap: 5px;
-  font-size: 0.6875rem;
+  font-size: var(--sys-fs-micro);
   color: var(--ink-2);
 }
 
@@ -12254,7 +12250,7 @@ body[data-page="quant"] .quant-page .quant-card-head--fit .quant-rem-status.is-b
 
 .quant-integrity-sheet {
   border: 1px solid var(--line);
-  border-radius: 8px;
+  border-radius: var(--sys-r-tier1);
   background: var(--surface);
 }
 
@@ -12384,7 +12380,7 @@ body[data-page="quant"] .quant-page .quant-card-head--fit .quant-rem-status.is-b
 
 .quant-integrity-cname {
   display: block;
-  font-size: 0.75rem;
+  font-size: var(--sys-fs-caption);
   line-height: 1.2;
   color: var(--ink);
   white-space: nowrap;
@@ -12394,14 +12390,14 @@ body[data-page="quant"] .quant-page .quant-card-head--fit .quant-rem-status.is-b
   display: block;
   margin-top: 1px;
   font-family: var(--font-mono);
-  font-size: 0.625rem;
+  font-size: var(--sys-fs-micro);
   line-height: 1.2;
   color: var(--ink-3, var(--ink-2));
   letter-spacing: 0.02em;
 }
 
 .quant-integrity-name--head {
-  font-size: 0.6875rem;
+  font-size: var(--sys-fs-micro);
   color: var(--ink-3, var(--ink-2));
 }
 
@@ -12418,19 +12414,19 @@ body[data-page="quant"] .quant-page .quant-card-head--fit .quant-rem-status.is-b
   align-items: center;
   justify-content: flex-end;
   min-width: 0;
-  height: 28px;
+  height: var(--sys-desk-chip-h);
   font-variant-numeric: tabular-nums;
   line-height: 1;
 }
 
 .quant-integrity-mon {
   height: 10px;
-  font-size: 0.5625rem;
+  font-size: var(--sys-fs-micro);
   color: var(--ink-3, var(--ink-2));
 }
 
 .quant-integrity-dom {
-  font-size: 0.625rem;
+  font-size: var(--sys-fs-micro);
   color: var(--ink-2);
 }
 
@@ -12506,8 +12502,8 @@ button.quant-integrity-cell:hover,
   display: inline-block;
   max-width: 100%;
   padding: 1px 6px;
-  border-radius: 999px;
-  font-size: 0.625rem;
+  border-radius: var(--sys-r-full);
+  font-size: var(--sys-fs-micro);
   line-height: 1.5;
   white-space: nowrap;
   color: var(--ink-2);
@@ -12557,14 +12553,14 @@ button.quant-integrity-cell:hover,
 }
 
 .quant-integrity-pop-head strong {
-  font-size: 0.8125rem;
+  font-size: var(--sys-fs-body);
   font-weight: 650;
   color: var(--ink);
 }
 
 .quant-integrity-pop-meta {
   margin: 4px 0 10px;
-  font-size: 0.6875rem;
+  font-size: var(--sys-fs-micro);
   color: var(--ink-2);
   font-variant-numeric: tabular-nums;
 }
@@ -12582,7 +12578,7 @@ button.quant-integrity-cell:hover,
 
 .quant-integrity-band-k {
   padding-top: 1px;
-  font-size: 0.625rem;
+  font-size: var(--sys-fs-micro);
   color: var(--ink-3, var(--ink-2));
 }
 
@@ -12596,7 +12592,7 @@ button.quant-integrity-cell:hover,
   display: flex;
   justify-content: space-between;
   margin-top: 3px;
-  font-size: 0.5625rem;
+  font-size: var(--sys-fs-micro);
   line-height: 1.2;
   color: var(--ink-3, var(--ink-2));
   font-variant-numeric: tabular-nums;
@@ -12638,13 +12634,13 @@ button.quant-integrity-cell:hover,
   display: inline-flex;
   align-items: center;
   box-sizing: border-box;
-  height: 28px;
+  height: var(--sys-desk-chip-h);
   padding: 0 0.55rem;
   border: 1px solid color-mix(in srgb, var(--line) 75%, transparent);
   border-radius: 3px;
   background: color-mix(in srgb, var(--bg) 55%, var(--surface));
   font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
-  font-size: 0.72rem;
+  font-size: var(--sys-fs-micro);
   font-weight: 600;
   font-variant-numeric: tabular-nums;
   line-height: 1;
@@ -12666,7 +12662,7 @@ button.quant-integrity-cell:hover,
 .quant-page .quant-rg-progress-label {
   flex: 1 1 auto;
   min-width: 0;
-  font-size: 0.78rem;
+  font-size: var(--sys-fs-body);
   font-weight: 600;
   color: var(--ink);
   letter-spacing: 0.01em;
@@ -12693,7 +12689,7 @@ button.quant-integrity-cell:hover,
 
 .quant-page .quant-rg-fold-pill-n {
   font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
-  font-size: 0.68rem;
+  font-size: var(--sys-fs-micro);
   font-weight: 650;
   font-variant-numeric: tabular-nums;
   color: var(--ink-3);
@@ -12785,7 +12781,7 @@ button.quant-integrity-cell:hover,
 
 .quant-page .quant-rg-progress-hint {
   margin-top: 0.3rem;
-  font-size: 0.7rem;
+  font-size: var(--sys-fs-micro);
   color: var(--ink-3, var(--ink-2));
 }
 
@@ -12800,7 +12796,7 @@ button.quant-integrity-cell:hover,
 
 .quant-page .quant-rg-progress-msg {
   margin-top: 0.35rem;
-  font-size: 0.72rem;
+  font-size: var(--sys-fs-micro);
   font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
   color: var(--ink-2);
   word-break: break-word;
@@ -12817,7 +12813,7 @@ button.quant-integrity-cell:hover,
   border-radius: 3px;
   background: color-mix(in srgb, var(--bg) 55%, var(--surface));
   font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
-  font-size: 0.72rem;
+  font-size: var(--sys-fs-micro);
   font-variant-numeric: tabular-nums;
   line-height: 1.35;
   color: var(--ink-2);
@@ -12855,7 +12851,7 @@ button.quant-integrity-cell:hover,
 }
 
 .quant-page .quant-rg-window-chip {
-  font-size: 0.72rem;
+  font-size: var(--sys-fs-micro);
   font-variant-numeric: tabular-nums;
   letter-spacing: 0.01em;
   color: var(--ink-2);
@@ -12873,7 +12869,7 @@ button.quant-integrity-cell:hover,
 
 .quant-page .quant-rg-arm {
   border: 1px solid color-mix(in srgb, var(--line) 80%, transparent);
-  border-radius: 4px;
+  border-radius: var(--sys-r-tier4);
   background: color-mix(in srgb, var(--surface) 92%, var(--bg));
   overflow: hidden;
 }
@@ -12889,14 +12885,14 @@ button.quant-integrity-cell:hover,
 }
 
 .quant-page .quant-rg-arm-tag {
-  font-size: 0.78rem;
+  font-size: var(--sys-fs-body);
   font-weight: 650;
   letter-spacing: 0.04em;
   color: var(--ink);
 }
 
 .quant-page .quant-rg-arm-meta {
-  font-size: 0.68rem;
+  font-size: var(--sys-fs-micro);
   color: var(--ink-3, var(--ink-2));
   font-variant-numeric: tabular-nums;
 }
@@ -12961,7 +12957,7 @@ button.quant-integrity-cell:hover,
   display: flex;
   align-items: baseline;
   gap: 0.5rem;
-  font-size: 0.78rem;
+  font-size: var(--sys-fs-body);
   font-weight: 600;
   color: var(--ink-2);
   margin-bottom: 0.45rem;
@@ -12969,7 +12965,7 @@ button.quant-integrity-cell:hover,
 
 .quant-page .quant-rg-block-hint {
   font-weight: 400;
-  font-size: 0.7rem;
+  font-size: var(--sys-fs-micro);
   color: var(--ink-3, var(--ink-2));
 }
 
@@ -12980,7 +12976,7 @@ button.quant-integrity-cell:hover,
   margin-bottom: 0.65rem;
   padding: 0.55rem 0.65rem;
   border: 1px solid color-mix(in srgb, var(--line) 75%, transparent);
-  border-radius: 4px;
+  border-radius: var(--sys-r-tier4);
   background: color-mix(in srgb, var(--bg) 40%, var(--surface));
 }
 
@@ -12992,7 +12988,7 @@ button.quant-integrity-cell:hover,
 }
 
 .quant-page .quant-rg-fold-lab {
-  font-size: 0.75rem;
+  font-size: var(--sys-fs-caption);
   font-weight: 600;
   font-variant-numeric: tabular-nums;
   display: flex;
@@ -13014,13 +13010,13 @@ button.quant-integrity-cell:hover,
 }
 
 .quant-page .quant-rg-fold-arm {
-  font-size: 0.65rem;
+  font-size: var(--sys-fs-micro);
   color: var(--ink-3);
   letter-spacing: 0.02em;
 }
 
 .quant-page .quant-rg-fold-pct {
-  font-size: 0.72rem;
+  font-size: var(--sys-fs-micro);
   font-variant-numeric: tabular-nums;
   text-align: right;
 }
@@ -13030,7 +13026,7 @@ button.quant-integrity-cell:hover,
 }
 
 .quant-page .quant-rg-hitcell-txt {
-  font-size: 0.78rem;
+  font-size: var(--sys-fs-body);
   font-variant-numeric: tabular-nums;
 }
 
@@ -13040,7 +13036,7 @@ button.quant-integrity-cell:hover,
 }
 
 .quant-page .quant-rg-fold-table .quant-rg-fold-win {
-  font-size: 0.78rem;
+  font-size: var(--sys-fs-body);
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
 }
@@ -13060,7 +13056,7 @@ button.quant-integrity-cell:hover,
   padding: 2px;
   gap: 2px;
   border: 1px solid color-mix(in srgb, var(--line) 80%, transparent);
-  border-radius: 6px;
+  border-radius: var(--sys-r-tier2);
   background: color-mix(in srgb, var(--panel, #fff) 88%, var(--ink-3));
 }
 
@@ -13068,10 +13064,10 @@ button.quant-integrity-cell:hover,
   appearance: none;
   margin: 0;
   border: 0;
-  border-radius: 4px;
+  border-radius: var(--sys-r-tier4);
   padding: 0.22rem 0.7rem;
   font: inherit;
-  font-size: 0.78rem;
+  font-size: var(--sys-fs-body);
   font-variant-numeric: tabular-nums;
   color: var(--ink-3);
   background: transparent;
@@ -13140,7 +13136,7 @@ button.quant-rg-dot:focus-visible {
   flex-wrap: wrap;
   gap: 0.75rem;
   margin-top: 0.35rem;
-  font-size: 0.68rem;
+  font-size: var(--sys-fs-micro);
   color: var(--ink-3);
 }
 
@@ -13153,7 +13149,7 @@ button.quant-rg-dot:focus-visible {
   max-height: 22rem;
   overflow: auto;
   border: 1px solid color-mix(in srgb, var(--line) 70%, transparent);
-  border-radius: 6px;
+  border-radius: var(--sys-r-tier2);
   background: var(--panel, #fff);
 }
 
@@ -13165,7 +13161,7 @@ button.quant-rg-dot:focus-visible {
 
 .quant-page .quant-rg-day-table {
   margin: 0;
-  font-size: 0.8rem;
+  font-size: var(--sys-fs-body);
   border-collapse: separate;
   border-spacing: 0;
 }
@@ -13176,7 +13172,7 @@ button.quant-rg-dot:focus-visible {
   z-index: 1;
   background: color-mix(in srgb, var(--panel, #fff) 92%, var(--ink-3));
   box-shadow: inset 0 -1px 0 color-mix(in srgb, var(--line) 75%, transparent);
-  font-size: 0.72rem;
+  font-size: var(--sys-fs-micro);
   font-weight: 600;
   color: var(--ink-3);
   letter-spacing: 0.02em;
@@ -13193,7 +13189,7 @@ button.quant-rg-dot:focus-visible {
   width: 2.4rem;
   color: var(--ink-3);
   font-variant-numeric: tabular-nums;
-  font-size: 0.72rem;
+  font-size: var(--sys-fs-micro);
 }
 
 .quant-page .quant-rg-day-table .quant-rg-day-date {
@@ -13220,7 +13216,7 @@ button.quant-rg-dot:focus-visible {
   text-align: right;
   font-variant-numeric: tabular-nums;
   font-family: var(--font-mono, ui-monospace, monospace);
-  font-size: 0.76rem;
+  font-size: var(--sys-fs-caption);
 }
 
 .quant-page .quant-rg-day-table .quant-rg-day-note {
@@ -13258,8 +13254,8 @@ button.quant-rg-dot:focus-visible {
   justify-content: center;
   min-width: 2.6rem;
   padding: 0.08rem 0.38rem;
-  border-radius: 999px;
-  font-size: 0.68rem;
+  border-radius: var(--sys-r-full);
+  font-size: var(--sys-fs-micro);
   font-weight: 600;
   line-height: 1.25;
   white-space: nowrap;
@@ -13283,7 +13279,7 @@ button.quant-rg-dot:focus-visible {
 
 .quant-page .quant-rg-note {
   font-family: var(--font-mono, ui-monospace, monospace);
-  font-size: 0.72rem;
+  font-size: var(--sys-fs-micro);
   color: var(--ink-3);
 }
 
@@ -13445,13 +13441,13 @@ body[data-page="yhat_bt"] .yhat-tf-head .quant-head-actions > .dialog-btn {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  height: 28px;
-  min-height: 28px;
-  max-height: 28px;
+  height: var(--sys-desk-chip-h);
+  min-height: var(--sys-desk-chip-h);
+  max-height: var(--sys-desk-chip-h);
   margin: 0;
   padding: 0 10px;
   border-radius: 2px;
-  font-size: 12px;
+  font-size: var(--sys-fs-caption);
   font-weight: 600;
   line-height: 1;
   white-space: nowrap;
@@ -13523,7 +13519,7 @@ body[data-page="yhat_bt"] .dashboard-head.quant-head.yhat-tf-head.is-compact::be
 }
 
 .yhat-tf-head.is-compact h2 {
-  font-size: 1rem;
+  font-size: var(--sys-fs-section);
 }
 
 .yhat-tf-load-error {
@@ -13606,7 +13602,7 @@ body[data-page="yhat_bt"] .dashboard-head.quant-head.yhat-tf-head.is-compact::be
   overflow: hidden;
   color: var(--ink);
   font-family: var(--font-mono, ui-monospace, monospace);
-  font-size: 0.875rem;
+  font-size: var(--sys-fs-section);
   line-height: 1.25;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -13702,7 +13698,7 @@ body[data-page="quant"] .quant-page [data-head-section] {
 
 .yhat-tf-tech > summary::before {
   content: "▸";
-  font-size: 10px;
+  font-size: var(--sys-fs-micro);
   opacity: 0.7;
 }
 
@@ -13747,7 +13743,7 @@ body[data-page="quant"] .quant-page [data-head-section] {
   padding: 8px 14px;
   border-radius: 0;
   color: var(--ink-2);
-  font-size: 13px;
+  font-size: var(--sys-fs-body);
   font-weight: 500;
   line-height: 20px;
   cursor: default;
@@ -13760,7 +13756,7 @@ body[data-page="quant"] .quant-page [data-head-section] {
 
 .yhat-tf-page .yhat-tf-arms .quant-path-sep {
   color: var(--ink-3);
-  font-size: 12px;
+  font-size: var(--sys-fs-caption);
   padding: 0 2px;
 }
 
@@ -13850,7 +13846,7 @@ body[data-page="yhat_bt"] {
 .yhat-tf-k {
   color: var(--ink-3);
   font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
-  font-size: 0.6875rem;
+  font-size: var(--sys-fs-micro);
   font-weight: 650;
   letter-spacing: 0.02em;
   line-height: 1.2;
@@ -13934,7 +13930,7 @@ body[data-page="yhat_bt"] {
 .yhat-tf-run-bar .yhat-tf-run-id-k {
   color: var(--ink-3);
   font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
-  font-size: 0.6875rem;
+  font-size: var(--sys-fs-micro);
   font-weight: 650;
   letter-spacing: 0.02em;
   line-height: 1.2;
@@ -14024,7 +14020,7 @@ body[data-page="yhat_bt"] {
   align-items: center;
   gap: 8px;
   width: 100%;
-  min-height: 28px;
+  min-height: var(--sys-desk-chip-h);
   margin: 0;
   padding: 3px 8px;
   border: 0;
@@ -14072,7 +14068,7 @@ body[data-page="yhat_bt"] {
   border-radius: 2px;
   background: color-mix(in srgb, var(--ink) 3%, var(--surface));
   color: var(--ink-2);
-  font-size: 0.6875rem;
+  font-size: var(--sys-fs-micro);
   line-height: 18px;
 }
 
@@ -14106,7 +14102,7 @@ body[data-page="yhat_bt"] {
   background: transparent;
   color: var(--ink-3);
   font-family: inherit;
-  font-size: 0.95rem;
+  font-size: var(--sys-fs-section);
   font-weight: 650;
   line-height: 1;
   cursor: pointer;
@@ -14155,7 +14151,7 @@ body[data-page="yhat_bt"] {
 }
 
 .yhat-tf-run-cta.dialog-btn.primary {
-  min-height: 28px;
+  min-height: var(--sys-desk-chip-h);
   min-width: 5rem;
   padding: 4px 12px;
   border-radius: 2px;
@@ -14238,7 +14234,7 @@ body[data-page="yhat_bt"] {
 .yhat-tf-output-label {
   display: flex;
   align-items: center;
-  height: 28px;
+  height: var(--sys-desk-chip-h);
   margin: 0 calc(var(--ytf-pad-x) * -1) 0;
   padding: 0 var(--ytf-pad-x);
   border-bottom: 1px solid var(--line);
@@ -14411,7 +14407,7 @@ body[data-page="yhat_bt"] {
 
 .yhat-tf-fit-params .quant-inline-num input[type="number"] {
   width: 100%;
-  height: 28px;
+  height: var(--sys-desk-chip-h);
   min-width: 0;
   padding: 0 2px;
   border: none;
@@ -14430,7 +14426,7 @@ body[data-page="yhat_bt"] {
 .yhat-tf-fit-params .quant-inline-num select[data-param] {
   box-sizing: border-box;
   width: 100%;
-  height: 28px;
+  height: var(--sys-desk-chip-h);
   margin: 0;
   padding: 0 2px;
   border: none;
@@ -14565,7 +14561,7 @@ body[data-page="yhat_bt"] {
   min-height: 0;
   padding: 0 4px;
   border: 1px solid color-mix(in srgb, var(--ink) 12%, var(--line));
-  border-radius: 4px;
+  border-radius: var(--sys-r-tier4);
   background: transparent;
   white-space: nowrap;
 }
@@ -14593,7 +14589,7 @@ body[data-page="yhat_bt"] {
   flex: 0 0 auto;
   min-width: max-content;
   max-width: 100%;
-  height: 28px;
+  height: var(--sys-desk-chip-h);
   line-height: 26px;
   padding: 0 9px;
   border-radius: 2px;
@@ -14657,7 +14653,7 @@ body[data-page="yhat_bt"] {
   align-items: center;
   gap: 6px;
   margin: 0 auto 0 0;
-  min-height: 28px;
+  min-height: var(--sys-desk-chip-h);
   color: #143832;
   font-size: var(--q-fs-micro, 0.6875rem);
   font-weight: 650;
@@ -14701,7 +14697,7 @@ body[data-page="yhat_bt"] {
   min-height: 0;
   padding: 0 4px;
   border: 1px solid color-mix(in srgb, var(--ink) 12%, var(--line));
-  border-radius: 4px;
+  border-radius: var(--sys-r-tier4);
   background: transparent;
   white-space: nowrap;
 }
@@ -14716,7 +14712,7 @@ body[data-page="yhat_bt"] {
 .yhat-tf-protocol-row .yhat-tf-seq-pick {
   justify-content: center;
   width: 100%;
-  border-radius: 4px;
+  border-radius: var(--sys-r-tier4);
 }
 
 .yhat-tf-protocol-row:has(input[data-param="seq_len"]):hover,
@@ -14727,7 +14723,7 @@ body[data-page="yhat_bt"] {
 .yhat-tf-protocol-row .quant-inline-num {
   display: flex;
   width: 100%;
-  min-height: 28px;
+  min-height: var(--sys-desk-chip-h);
   justify-content: flex-end;
   align-items: center;
   margin: 0;
@@ -14739,7 +14735,7 @@ body[data-page="yhat_bt"] {
 
 .yhat-tf-protocol-row .quant-inline-num input[type="number"] {
   width: 100%;
-  height: 28px;
+  height: var(--sys-desk-chip-h);
   min-width: 0;
   padding: 0 2px;
   border: none;
@@ -14928,7 +14924,7 @@ body[data-page="yhat_bt"] {
   gap: 6px;
   margin-bottom: 2px;
   color: #143832;
-  font-size: 11px;
+  font-size: var(--sys-fs-micro);
   line-height: 1.3;
 }
 
@@ -14981,7 +14977,7 @@ body[data-page="yhat_bt"] {
   background: color-mix(in srgb, var(--ink) 4%, var(--surface));
   color: var(--ink-2);
   font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
-  font-size: 0.6875rem;
+  font-size: var(--sys-fs-micro);
   font-weight: 700;
 }
 
@@ -15072,7 +15068,7 @@ body[data-page="yhat_bt"] {
 .yhat-tf-arm-state-dur {
   color: inherit;
   font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
-  font-size: 0.65625rem;
+  font-size: var(--sys-fs-micro);
   font-weight: 650;
   font-variant-numeric: tabular-nums;
   line-height: 1.2;
@@ -15137,7 +15133,7 @@ body[data-page="yhat_bt"] {
 
 .yhat-tf-arm-metrics span {
   color: #64748b;
-  font-size: 0.65625rem;
+  font-size: var(--sys-fs-micro);
   font-weight: 650;
   letter-spacing: 0.03em;
 }
@@ -15199,7 +15195,7 @@ body[data-page="yhat_bt"] {
   background: #fff;
   color: #1e293b;
   font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace);
-  font-size: 0.65625rem;
+  font-size: var(--sys-fs-micro);
   line-height: 1.5;
 }
 
@@ -15274,7 +15270,7 @@ body[data-page="yhat_bt"] {
 }
 
 .yhat-tf-page .dialog-btn {
-  min-height: 28px;
+  min-height: var(--sys-desk-chip-h);
   padding: 4px 12px;
   border-radius: 2px;
   font-size: var(--q-fs-caption, 0.75rem);
@@ -15451,7 +15447,7 @@ body[data-page="yhat_bt"] .yhat-tf-page .yhat-tf-run-cta.dialog-btn.primary:disa
 .yhat-tf-result-grid span {
   color: var(--ink-3);
   font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
-  font-size: 0.6875rem;
+  font-size: var(--sys-fs-micro);
   font-weight: 650;
   letter-spacing: 0.02em;
   line-height: 1.3;
@@ -15554,7 +15550,7 @@ body[data-page="yhat_bt"] .yhat-tf-page .yhat-tf-run-cta.dialog-btn.primary:disa
   align-self: center;
   padding: 0 16px 0 8px;
   border: 1px solid color-mix(in srgb, var(--ink) 12%, var(--line));
-  border-radius: 4px;
+  border-radius: var(--sys-r-tier4);
   background-color: transparent;
   color: var(--ink);
   font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
@@ -15607,14 +15603,14 @@ body[data-page="yhat_bt"] .yhat-tf-page .yhat-tf-run-cta.dialog-btn.primary:disa
 .yhat-tf-backtest-pick-name {
   min-width: 0;
   overflow: hidden;
-  font-size: 13px;
+  font-size: var(--sys-fs-body);
   font-weight: 650;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
 .yhat-tf-backtest-pick-role {
-  font-size: 11px;
+  font-size: var(--sys-fs-micro);
   color: var(--ink-3, var(--muted, var(--ink)));
 }
 
@@ -15650,7 +15646,7 @@ body[data-page="yhat_bt"] .yhat-tf-page .yhat-tf-run-cta.dialog-btn.primary:disa
 .yhat-tf-backtest-empty,
 .yhat-tf-backtest-error {
   margin: 10px 0 0;
-  font-size: 13px;
+  font-size: var(--sys-fs-body);
   color: var(--ink-3, var(--muted, var(--ink)));
 }
 
@@ -15859,7 +15855,7 @@ body[data-page="yhat_bt"] .yhat-tf-page .yhat-tf-run-cta.dialog-btn.primary:disa
   content: "点击关闭";
   display: block;
   margin-top: 4px;
-  font-size: 0.65rem;
+  font-size: var(--sys-fs-micro);
   font-weight: 500;
   opacity: 0.62;
 }

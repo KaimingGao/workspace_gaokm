@@ -7,7 +7,7 @@
   --replay-pad-x: 10px;
   --replay-radius: var(--radius-sm);
   gap: var(--replay-gap-lg);
-  font-size: 0.84rem;
+  font-size: var(--sys-fs-body);
   color: var(--ink);
   letter-spacing: -0.005em;
 }
@@ -16,8 +16,8 @@
   margin: 0 0 var(--replay-gap, 10px);
   padding: 6px 10px;
   border: 1px solid var(--line-2);
-  border-radius: 6px;
-  font-size: 0.72rem;
+  border-radius: var(--sys-r-tier2);
+  font-size: var(--sys-fs-micro);
   line-height: 1.45;
   color: var(--ink-2);
   background: var(--bg-1, transparent);
@@ -60,10 +60,10 @@
   margin: 0;
   padding: 8px 10px;
   overflow-x: auto;
-  font-size: 0.68rem;
+  font-size: var(--sys-fs-micro);
   line-height: 1.4;
   white-space: pre;
-  border-radius: 4px;
+  border-radius: var(--sys-r-tier4);
   background: var(--bg-2, rgba(0, 0, 0, 0.04));
   color: var(--ink-2);
 }
@@ -99,12 +99,12 @@ html[data-density="compact"] .replay-page {
   --replay-gap-lg: 8px;
   /* 全局数字等宽 */
   font-feature-settings: "tnum" 1, "lnum" 1, "ss01" 1;
-  font-size: 0.82rem;
+  font-size: var(--sys-fs-body);
 }
 
 .replay-page .replay-howto {
   padding: 5px 8px;
-  font-size: 0.7rem;
+  font-size: var(--sys-fs-micro);
 }
 
 /* —— 5. 深色主题 —— */
@@ -128,20 +128,20 @@ html[data-density="compact"] .replay-page {
    ========================================================================== */
 body[data-page="replay"] .replay-page,
 body[data-page="replay"] .page-main {
-  --sys-r-tier1: 2px;
-  --sys-r-tier2: 2px;
-  --sys-r-tier3: 2px;
-  --sys-r-tier4: 2px;
-  --sys-r-full: 2px;
-  --radius: 2px;
-  --radius-sm: 2px;
-  --radius-xs: 2px;
-  --replay-radius: 2px;
-  --r-fs-micro: var(--sys-fs-micro, 0.6875rem);
-  --r-fs-caption: var(--sys-fs-caption, 0.75rem);
-  --r-fs-body: var(--sys-fs-body, 0.8125rem);
-  --r-fs-section: var(--sys-fs-section, 0.875rem);
-  --r-gap-page: 10px;
+  --sys-desk-r: 2px;
+  --sys-r-tier1: var(--sys-desk-r);
+  --sys-r-tier2: var(--sys-desk-r);
+  --sys-r-tier3: var(--sys-desk-r);
+  --sys-r-tier4: var(--sys-desk-r);
+  --radius: var(--sys-desk-r);
+  --radius-sm: var(--sys-desk-r);
+  --radius-xs: var(--sys-desk-r);
+  --replay-radius: var(--sys-desk-r);
+  --r-fs-micro: var(--sys-fs-micro);
+  --r-fs-caption: var(--sys-fs-caption);
+  --r-fs-body: var(--sys-fs-body);
+  --r-fs-section: var(--sys-fs-section);
+  --r-gap-page: var(--sys-gap-block);
   --r-gap-block: 8px;
 }
 
@@ -154,14 +154,14 @@ body[data-page="replay"] .quant-head .quant-desk-badge.replay-desk-badge {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  height: 28px;
-  min-height: 28px;
-  max-height: 28px;
+  height: var(--sys-desk-chip-h);
+  min-height: var(--sys-desk-chip-h);
+  max-height: var(--sys-desk-chip-h);
   padding: 0 10px;
   margin: 0;
-  border-radius: 2px !important;
-  font-size: 12px;
-  font-weight: 600;
+  border-radius: var(--sys-desk-chip-r) !important;
+  font-size: var(--sys-desk-chip-fs);
+  font-weight: var(--sys-fw-sub);
   line-height: 1;
   white-space: nowrap;
 }
@@ -248,7 +248,7 @@ body[data-page="replay"] .replay-kpi-card.is-empty .replay-kpi-value {
 }
 
 body[data-page="replay"] .replay-kpi-label {
-  font-size: 11px;
+  font-size: var(--sys-fs-micro);
   line-height: 16px;
   font-weight: 600;
   letter-spacing: 0.04em;
@@ -259,7 +259,7 @@ body[data-page="replay"] .replay-kpi-label {
 body[data-page="replay"] .replay-kpi-value {
   font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
   font-variant-numeric: tabular-nums;
-  font-size: 20px;
+  font-size: var(--sys-fs-kpi);
   line-height: 26px;
   font-weight: 650;
   color: var(--ink);
@@ -341,7 +341,7 @@ body[data-page="replay"] #replay-section-run .replay-run-chip {
   flex-direction: row !important;
   align-items: center;
   gap: 2px;
-  height: 28px;
+  height: var(--sys-desk-chip-h);
   margin: 0;
   padding: 0 2px 0 8px;
   border: 1px solid var(--line);
@@ -360,7 +360,7 @@ body[data-page="replay"] #replay-section-run .replay-run-chip .quant-pro-field-l
   padding: 0;
   letter-spacing: 0 !important;
   text-transform: none !important;
-  font-size: 12px !important;
+  font-size: var(--sys-fs-caption) !important;
   font-weight: 600 !important;
   line-height: 1;
   color: var(--ink-3) !important;
@@ -443,14 +443,14 @@ body[data-page="replay"] .replay-t0-tau-end-slider {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  height: 28px;
+  height: var(--sys-desk-chip-h);
   margin: 0;
   padding: 0 6px 0 8px;
-  border-radius: 999px;
+  border-radius: var(--sys-r-full);
   border: 1px solid color-mix(in srgb, var(--line) 85%, transparent);
   background: color-mix(in srgb, var(--surface) 92%, var(--line));
   color: var(--ink-2);
-  font-size: 12px;
+  font-size: var(--sys-fs-caption);
   font-weight: 600;
   line-height: 1;
   white-space: nowrap;
@@ -465,7 +465,7 @@ body[data-page="replay"] .replay-t0-tau-end-slider:focus-within {
 
 body[data-page="replay"] .replay-t0-tau-end-slider .quant-tau-end-slider-lab {
   flex: 0 0 auto;
-  font-size: 0.74rem;
+  font-size: var(--sys-fs-caption);
   font-weight: 700;
   letter-spacing: 0.04em;
   color: var(--ink-3);
@@ -481,7 +481,7 @@ body[data-page="replay"] .replay-t0-tau-end-slider .quant-tau-end-scale {
 
 body[data-page="replay"] .replay-t0-tau-end-slider .quant-tau-end-bound {
   flex: 0 0 auto;
-  font-size: 0.68rem;
+  font-size: var(--sys-fs-micro);
   font-weight: 600;
   font-variant-numeric: tabular-nums;
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
@@ -507,7 +507,7 @@ body[data-page="replay"] .replay-t0-tau-end-slider .quant-tau-end-range:focus {
 
 body[data-page="replay"] .replay-t0-tau-end-slider .quant-tau-end-range::-webkit-slider-runnable-track {
   height: 4px;
-  border-radius: 999px;
+  border-radius: var(--sys-r-full);
   background: linear-gradient(
     90deg,
     color-mix(in srgb, var(--accent, #2563eb) 55%, var(--line)),
@@ -529,7 +529,7 @@ body[data-page="replay"] .replay-t0-tau-end-slider .quant-tau-end-range::-webkit
 
 body[data-page="replay"] .replay-t0-tau-end-slider .quant-tau-end-range::-moz-range-track {
   height: 4px;
-  border-radius: 999px;
+  border-radius: var(--sys-r-full);
   background: linear-gradient(
     90deg,
     color-mix(in srgb, var(--accent, #2563eb) 55%, var(--line)),
@@ -551,7 +551,7 @@ body[data-page="replay"] .replay-t0-tau-end-slider .quant-tau-end-readout {
   align-items: center;
   min-width: 2.6rem;
   padding: 2px 5px;
-  border-radius: 999px;
+  border-radius: var(--sys-r-full);
   background: color-mix(in srgb, var(--accent, #2563eb) 10%, transparent);
   line-height: 1.2;
 }
@@ -561,7 +561,7 @@ body[data-page="replay"] .replay-t0-tau-end-slider output {
   margin: 0;
   color: var(--ink);
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-  font-size: 0.8rem;
+  font-size: var(--sys-fs-body);
   font-variant-numeric: tabular-nums;
   font-weight: 700;
   line-height: 1.2;
@@ -579,7 +579,7 @@ body[data-page="replay"] .replay-clock-field #quant-fill-clock {
 
 body[data-page="replay"] .replay-three-window-check {
   white-space: nowrap;
-  font-size: 12px;
+  font-size: var(--sys-fs-caption);
 }
 
 body[data-page="replay"] .replay-fit-tier-field {
@@ -597,7 +597,7 @@ body[data-page="replay"] .replay-fit-tier-checks {
   flex-wrap: wrap;
   align-items: center;
   gap: 6px 10px;
-  font-size: 12px;
+  font-size: var(--sys-fs-caption);
 }
 
 body[data-page="replay"] .replay-fit-tier-checks label {
@@ -782,7 +782,7 @@ body[data-page="replay"] .replay-t0-pool-bar {
 
 body[data-page="replay"] .replay-t0-pool-label {
   flex: 0 0 auto;
-  font-size: 12px;
+  font-size: var(--sys-fs-caption);
   font-weight: 650;
   letter-spacing: 0.02em;
   color: var(--ink);
@@ -791,7 +791,7 @@ body[data-page="replay"] .replay-t0-pool-label {
 body[data-page="replay"] .replay-t0-pool-count {
   flex: 0 0 auto;
   min-width: 2.4rem;
-  font-size: 12px;
+  font-size: var(--sys-fs-caption);
   font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
   font-variant-numeric: tabular-nums;
   font-weight: 650;
@@ -841,7 +841,7 @@ body[data-page="replay"] .replay-t0-pool-slot-top {
 
 body[data-page="replay"] .replay-t0-pool-slot-idx {
   flex: 0 0 auto;
-  font-size: 10px;
+  font-size: var(--sys-fs-micro);
   font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
   font-variant-numeric: tabular-nums;
   letter-spacing: 0.04em;
@@ -849,7 +849,7 @@ body[data-page="replay"] .replay-t0-pool-slot-idx {
 }
 
 body[data-page="replay"] .replay-t0-pool-slot.is-empty .replay-t0-pool-slot-idx {
-  font-size: 12px;
+  font-size: var(--sys-fs-caption);
   font-weight: 650;
   color: #8d7352;
 }
@@ -858,7 +858,7 @@ body[data-page="replay"] .replay-t0-pool-slot-name {
   flex: 1 1 auto;
   min-width: 0;
   overflow: hidden;
-  font-size: 12px;
+  font-size: var(--sys-fs-caption);
   font-weight: 650;
   line-height: 1.2;
   white-space: nowrap;
@@ -867,7 +867,7 @@ body[data-page="replay"] .replay-t0-pool-slot-name {
 
 body[data-page="replay"] .replay-t0-pool-slot-code {
   overflow: hidden;
-  font-size: 11px;
+  font-size: var(--sys-fs-micro);
   font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
   font-variant-numeric: tabular-nums;
   line-height: 1.2;
@@ -891,7 +891,7 @@ body[data-page="replay"] .replay-t0-pool-slot-x {
   border-radius: 2px;
   background: transparent;
   color: var(--ink-3);
-  font-size: 13px;
+  font-size: var(--sys-fs-body);
   line-height: 1;
   cursor: pointer;
 }
@@ -911,7 +911,7 @@ body[data-page="replay"] .replay-t0-pool-search {
 
 body[data-page="replay"] .replay-t0-pool-search input {
   width: 100%;
-  height: 28px;
+  height: var(--sys-desk-chip-h);
   box-sizing: border-box;
   margin: 0;
   padding: 0 10px;
@@ -919,7 +919,7 @@ body[data-page="replay"] .replay-t0-pool-search input {
   border-radius: 2px;
   background: var(--surface);
   color: var(--ink);
-  font-size: 12px;
+  font-size: var(--sys-fs-caption);
 }
 
 body[data-page="replay"] .replay-t0-pool-search input:focus {
@@ -975,7 +975,7 @@ body[data-page="replay"] .replay-t0-pool-empty {
   border-radius: 2px;
   background: transparent;
   color: var(--ink);
-  font-size: 12px;
+  font-size: var(--sys-fs-caption);
   text-align: left;
   cursor: pointer;
 }
@@ -1087,7 +1087,7 @@ body[data-page="replay"] .follow-path-matrix-box input[type="text"] {
   border-radius: 3px;
   background: #fff;
   font: inherit;
-  font-size: 0.76rem;
+  font-size: var(--sys-fs-caption);
   font-variant-numeric: tabular-nums;
   color: var(--pm-ink);
   appearance: none;
@@ -1250,7 +1250,7 @@ body[data-page="replay"] #paper-path-matrix-form .follow-path-matrix-morph-tip-b
 body[data-page="replay"] .follow-path-matrix-morph-tip-pop {
   max-width: min(22rem, 78vw);
   padding: 10px 12px;
-  font-size: 0.72rem;
+  font-size: var(--sys-fs-micro);
   line-height: 1.55;
 }
 
@@ -1332,7 +1332,7 @@ body[data-page="replay"] #paper-path-matrix-form .follow-path-matrix-box-slot-la
   text-overflow: ellipsis;
   white-space: nowrap;
   text-align: left;
-  font-size: 0.62rem;
+  font-size: var(--sys-fs-micro);
   color: var(--pm-muted, var(--ink-3));
   line-height: 1.2;
   font-weight: 650;
@@ -1355,7 +1355,7 @@ body[data-page="replay"] .follow-path-matrix-box-slot {
 }
 
 body[data-page="replay"] .follow-path-matrix-box-slot-label {
-  font-size: 0.62rem;
+  font-size: var(--sys-fs-micro);
   color: var(--pm-muted, var(--ink-3));
   line-height: 1.2;
   font-weight: 650;
@@ -1428,7 +1428,7 @@ body[data-page="replay"] .replay-page .platform-field input,
 body[data-page="replay"] .replay-page .platform-field select,
 body[data-page="replay"] .replay-page .quant-pro-field input,
 body[data-page="replay"] .replay-page .quant-pro-field select {
-  height: 28px !important;
+  height: var(--sys-desk-chip-h) !important;
   font-size: var(--r-fs-body) !important;
   border-radius: 2px !important;
   font-variant-numeric: tabular-nums;
@@ -1457,7 +1457,7 @@ body[data-page="replay"] .replay-page .dialog-btn {
   font-weight: 600 !important;
   letter-spacing: 0.01em !important;
   border-radius: 2px !important;
-  min-height: 28px;
+  min-height: var(--sys-desk-chip-h);
   padding: 4px 12px !important;
   line-height: 1.25;
 }
@@ -1473,7 +1473,7 @@ body[data-page="replay"] .replay-oos-band {
 }
 
 body[data-page="replay"] .replay-oos-band .quant-oos-band-label {
-  font-size: 10px;
+  font-size: var(--sys-fs-micro);
   font-weight: 700;
   letter-spacing: 0.08em;
   text-transform: uppercase;
@@ -1673,7 +1673,7 @@ body[data-page="replay"] .replay-t0-section .paper-t0-table tbody tr:hover {
 
 body[data-page="replay"] .replay-t0-section #paper-t0-viz .paper-t0-viz-stock-table th {
   font-family: var(--font);
-  font-size: 0.66rem;
+  font-size: var(--sys-fs-micro);
   font-weight: 700;
   letter-spacing: 0.04em;
   text-transform: uppercase;
@@ -1683,7 +1683,7 @@ body[data-page="replay"] .replay-t0-section #paper-t0-viz .paper-t0-viz-stock-ta
 
 body[data-page="replay"] .replay-t0-section #paper-t0-viz .paper-t0-viz-stock-table.quant-weight-table td {
   padding: 6px 6px;
-  font-size: 0.78rem;
+  font-size: var(--sys-fs-body);
 }
 
 body[data-page="replay"] .replay-t0-section #paper-t0-viz .paper-t0-viz-stock-table thead th:first-child,
@@ -1716,7 +1716,7 @@ body[data-page="replay"] .replay-t0-section .paper-t0-viz-stock-table tbody tr.p
 
 body[data-page="replay"] .replay-t0-section .paper-t0-trades-table thead th {
   font-family: var(--font);
-  font-size: 0.72rem;
+  font-size: var(--sys-fs-micro);
   font-weight: 600;
   letter-spacing: 0.02em;
   text-transform: none;
@@ -1730,7 +1730,7 @@ body[data-page="replay"] .replay-t0-section .paper-t0-trades-table thead th {
 
 body[data-page="replay"] .replay-t0-section .paper-t0-trades-table thead th.num {
   font-family: var(--font-mono);
-  font-size: 0.7rem;
+  font-size: var(--sys-fs-micro);
   font-weight: 600;
   letter-spacing: 0;
   font-variant-numeric: tabular-nums;
@@ -1896,7 +1896,7 @@ body[data-page="replay"] .replay-run-section #quant-bt-stock-contrib .paper-t0-v
 
 body[data-page="replay"] .replay-run-section #quant-bt-stock-contrib .paper-t0-viz-stock-table th {
   font-family: var(--font);
-  font-size: 0.66rem;
+  font-size: var(--sys-fs-micro);
   font-weight: 700;
   letter-spacing: 0.04em;
   text-transform: uppercase;
@@ -1906,7 +1906,7 @@ body[data-page="replay"] .replay-run-section #quant-bt-stock-contrib .paper-t0-v
 
 body[data-page="replay"] .replay-run-section #quant-bt-stock-contrib .paper-t0-viz-stock-table.quant-weight-table td {
   padding: 6px 6px;
-  font-size: 0.78rem;
+  font-size: var(--sys-fs-body);
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;

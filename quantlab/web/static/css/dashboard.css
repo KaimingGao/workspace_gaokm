@@ -27,12 +27,12 @@
 
 .dashboard-head {
   display: flex;
-  align-items: flex-end;
+  align-items: flex-start;
   justify-content: space-between;
-  gap: 16px;
-  padding: 4px 0 8px;
+  gap: var(--sys-gap-section);
+  padding: 2px 0 6px;
   border-bottom: 1px solid var(--line);
-  margin: 0;
+  margin: 0 0 2px;
 }
 
 .dashboard-head-text {
@@ -43,28 +43,31 @@
 }
 
 .dashboard-eyebrow {
-  margin: 0;
-  font-size: var(--d-fs-micro, 0.6875rem);
-  font-weight: 600;
-  letter-spacing: 0.12em;
+  margin: 0 0 2px;
+  font-size: var(--sys-fs-micro);
+  font-weight: var(--sys-fw-label);
+  letter-spacing: 0.14em;
+  line-height: 18px;
   text-transform: uppercase;
   color: var(--ink-3);
   font-family: var(--font-mono);
 }
 
 .dashboard-head-text h2 {
-  font-size: var(--d-fs-title, 1.125rem);
-  font-weight: 700;
+  font-size: var(--sys-fs-title);
+  font-weight: var(--sys-fw-display);
   letter-spacing: -0.02em;
   color: var(--ink);
   margin: 0;
-  line-height: 1.2;
+  line-height: var(--sys-lh-tight);
 }
 
 .dashboard-meta {
-  font-size: var(--d-fs-caption, 0.75rem);
+  font-size: var(--sys-fs-caption);
   color: var(--ink-3);
-  margin: 0;
+  margin: 4px 0 0;
+  line-height: var(--sys-lh-snug);
+  font-family: var(--font-mono);
 }
 
 .dashboard-head-actions {
@@ -75,7 +78,7 @@
 }
 
 .dashboard-updated {
-  font-size: 0.68rem;
+  font-size: var(--sys-fs-micro);
   color: var(--ink-3);
   font-family: var(--font-mono);
   font-variant-numeric: tabular-nums;
@@ -144,8 +147,8 @@
 
 .dashboard-section-title {
   margin: 0;
-  font-size: var(--d-fs-section, 0.875rem);
-  font-weight: 700;
+  font-size: var(--sys-fs-section);
+  font-weight: var(--sys-fw-display);
   letter-spacing: 0.04em;
   line-height: 1.25;
   color: var(--ink);
@@ -164,14 +167,15 @@
 
 .dashboard-section-desc {
   margin: 0;
-  font-size: var(--d-fs-caption, 0.75rem);
+  font-size: var(--sys-fs-caption);
   color: var(--ink-3);
+  line-height: var(--sys-lh-snug);
 }
 
 /* ——— KPI Row ——— */
 .dashboard-overview-band {
   border: 1px solid var(--line);
-  border-radius: 8px;
+  border-radius: var(--sys-r-tier1);
   background: var(--bg-card);
   overflow: hidden;
 }
@@ -188,7 +192,7 @@
 
 .dashboard-kpi-row {
   border: 1px solid var(--line);
-  border-radius: 8px;
+  border-radius: var(--sys-r-tier1);
   background: var(--bg-card);
   overflow: hidden;
 }
@@ -243,8 +247,8 @@
 }
 
 .dashboard-kpi-label {
-  font-size: var(--d-fs-micro, 0.6875rem);
-  font-weight: 600;
+  font-size: var(--sys-fs-micro);
+  font-weight: var(--sys-fw-label);
   letter-spacing: 0.06em;
   text-transform: uppercase;
   color: var(--ink-3);
@@ -252,9 +256,9 @@
 
 .dashboard-kpi-value {
   font-family: var(--font-mono);
-  font-size: var(--d-fs-kpi, 1.25rem);
-  font-weight: 700;
-  line-height: 1.15;
+  font-size: var(--sys-fs-kpi);
+  font-weight: var(--sys-fw-display);
+  line-height: var(--sys-lh-tight);
   color: var(--ink);
   letter-spacing: -0.02em;
   font-variant-numeric: tabular-nums;
@@ -290,7 +294,7 @@
 /* Cards */
 .dashboard-card {
   border: 1px solid var(--line);
-  border-radius: 8px;
+  border-radius: var(--sys-r-tier1);
   background: var(--bg-card);
   display: flex;
   flex-direction: column;
@@ -334,7 +338,7 @@
 }
 
 .dashboard-bench-toggle {
-  font-size: 0.68rem;
+  font-size: var(--sys-fs-micro);
   color: var(--ink-3);
   display: inline-flex;
   align-items: center;
@@ -459,7 +463,7 @@
   justify-content: center;
   gap: 2px;
   padding: 8px 4px;
-  border-radius: 4px;
+  border-radius: var(--sys-r-tier4);
   background: var(--bg-hover);
   border: 1px solid var(--line);
   cursor: default;
@@ -480,7 +484,7 @@
 }
 
 .dashboard-sector-name {
-  font-size: 0.68rem;
+  font-size: var(--sys-fs-micro);
   font-weight: 600;
   color: var(--ink);
   text-align: center;
@@ -492,7 +496,7 @@
 }
 
 .dashboard-sector-pct {
-  font-size: 0.72rem;
+  font-size: var(--sys-fs-micro);
   font-weight: 700;
   font-family: var(--font-mono);
   font-variant-numeric: tabular-nums;
@@ -503,7 +507,7 @@
 .dashboard-sector-cell.is-down .dashboard-sector-pct { color: var(--color-down, #52c41a); }
 
 .dashboard-sector-sub {
-  font-size: 0.58rem;
+  font-size: var(--sys-fs-micro);
   color: var(--ink-3);
 }
 
@@ -511,7 +515,7 @@
   display: flex;
   gap: 12px;
   padding: 4px 10px 8px;
-  font-size: 0.62rem;
+  font-size: var(--sys-fs-micro);
   color: var(--ink-3);
 }
 
@@ -568,12 +572,12 @@
   width: 100%;
   border-collapse: collapse;
   table-layout: fixed;
-  font-size: 0.72rem;
+  font-size: var(--sys-fs-micro);
 }
 
 .dashboard-leaderboard-table th {
   text-align: left;
-  font-size: 0.62rem;
+  font-size: var(--sys-fs-micro);
   font-weight: 600;
   letter-spacing: 0.04em;
   color: var(--ink-3);
@@ -621,7 +625,7 @@
   padding: 5px 12px 5px 10px;
   border-bottom: 1px solid color-mix(in srgb, var(--line) 70%, transparent);
   border-left: 2px solid transparent;
-  font-size: 0.7rem;
+  font-size: var(--sys-fs-micro);
 }
 
 .dashboard-signal-item:last-child { border-bottom: none; }
@@ -650,7 +654,7 @@
 }
 
 .dashboard-signal-dir {
-  font-size: 0.62rem;
+  font-size: var(--sys-fs-micro);
   font-weight: 700;
   letter-spacing: 0.04em;
   color: var(--ink-3);
@@ -667,7 +671,7 @@
 }
 
 .dashboard-signal-time {
-  font-size: 0.6rem;
+  font-size: var(--sys-fs-micro);
   color: var(--ink-3);
   font-family: var(--font-mono);
 }
@@ -737,14 +741,14 @@
 .dashboard-empty {
   padding: 18px 12px;
   text-align: center;
-  font-size: 0.72rem;
+  font-size: var(--sys-fs-micro);
   color: var(--ink-3);
 }
 
 /* ——— Market Overview Row ——— */
 .dashboard-market-row {
   border: 1px solid var(--line);
-  border-radius: 8px;
+  border-radius: var(--sys-r-tier1);
   background: var(--bg-card);
   overflow: hidden;
 }
@@ -800,7 +804,7 @@
 
 .dashboard-market-value {
   font-family: var(--font-mono);
-  font-size: 1.05rem;
+  font-size: var(--sys-fs-title);
   font-weight: 700;
   color: var(--ink);
   font-variant-numeric: tabular-nums;
@@ -823,7 +827,7 @@
 }
 
 .dashboard-market-change {
-  font-size: 0.72rem;
+  font-size: var(--sys-fs-micro);
   font-weight: 600;
   color: var(--ink-2);
   font-family: var(--font-mono);
@@ -885,7 +889,7 @@ body[data-page="dashboard"] .dashboard-overview-band .dashboard-market-context-r
 
 .dashboard-market-context-title {
   display: block;
-  font-size: 0.62rem;
+  font-size: var(--sys-fs-micro);
   font-weight: 700;
   letter-spacing: 0.08em;
   text-transform: uppercase;
@@ -905,7 +909,7 @@ body[data-page="dashboard"] .dashboard-overview-band .dashboard-market-context-r
 }
 
 .dashboard-market-context-refresh {
-  font-size: 0.62rem;
+  font-size: var(--sys-fs-micro);
   padding: 2px 8px;
   min-height: 22px;
 }
@@ -936,7 +940,7 @@ body[data-page="dashboard"] .dashboard-overview-band .dashboard-market-context-r
 }
 
 .dashboard-market-context-label {
-  font-size: 0.58rem;
+  font-size: var(--sys-fs-micro);
   font-weight: 650;
   letter-spacing: 0.05em;
   text-transform: uppercase;
@@ -944,7 +948,7 @@ body[data-page="dashboard"] .dashboard-overview-band .dashboard-market-context-r
 }
 
 .dashboard-market-context-value {
-  font-size: 0.88rem;
+  font-size: var(--sys-fs-section);
   font-weight: 650;
   font-variant-numeric: tabular-nums;
   color: var(--ink-1);
@@ -953,7 +957,7 @@ body[data-page="dashboard"] .dashboard-overview-band .dashboard-market-context-r
 }
 
 .dashboard-market-context-sub {
-  font-size: 0.58rem;
+  font-size: var(--sys-fs-micro);
   color: var(--ink-3);
   white-space: nowrap;
   overflow: hidden;
@@ -978,7 +982,7 @@ body[data-page="dashboard"] .dashboard-overview-band .dashboard-market-context-r
 
 .dashboard-market-context-empty {
   padding: 8px 12px;
-  font-size: 0.68rem;
+  font-size: var(--sys-fs-micro);
   color: var(--ink-3);
   border: 1px dashed var(--line);
   border-radius: 2px;
@@ -995,7 +999,7 @@ body[data-page="dashboard"] .dashboard-overview-band .dashboard-market-context-r
 
 .dashboard-mctx-history-label {
   flex: 0 0 auto;
-  font-size: 0.62rem;
+  font-size: var(--sys-fs-micro);
   font-weight: 600;
   color: var(--ink-3);
   text-transform: uppercase;
@@ -1015,7 +1019,7 @@ body[data-page="dashboard"] .dashboard-overview-band .dashboard-market-context-r
   display: inline-flex;
   align-items: center;
   gap: 5px;
-  font-size: 0.62rem;
+  font-size: var(--sys-fs-micro);
   color: var(--ink-2);
   white-space: nowrap;
   line-height: 1.2;
@@ -1068,7 +1072,7 @@ body[data-page="dashboard"] .dashboard-overview-band .dashboard-market-context-r
 .dashboard-mctx-history-hint {
   margin: 0;
   padding: 6px 10px 8px;
-  font-size: 0.65rem;
+  font-size: var(--sys-fs-micro);
   color: var(--ink-3);
   border-top: 1px solid var(--line);
 }
@@ -1076,7 +1080,7 @@ body[data-page="dashboard"] .dashboard-overview-band .dashboard-market-context-r
 /* ——— Risk Metrics Row ——— */
 .dashboard-risk-row {
   border: 1px solid var(--line);
-  border-radius: 8px;
+  border-radius: var(--sys-r-tier1);
   background: var(--bg-card);
   overflow: hidden;
 }
@@ -1116,7 +1120,7 @@ body[data-page="dashboard"] .dashboard-overview-band .dashboard-market-context-r
 
 .dashboard-risk-strip-v {
   font-family: var(--font-mono);
-  font-size: 0.8rem;
+  font-size: var(--sys-fs-body);
   font-weight: 700;
   color: var(--ink);
   font-variant-numeric: tabular-nums;
@@ -1183,7 +1187,7 @@ body[data-page="dashboard"] .dashboard-overview-band .dashboard-market-context-r
 
 .dashboard-risk-value {
   font-family: var(--font-mono);
-  font-size: 0.95rem;
+  font-size: var(--sys-fs-section);
   font-weight: 700;
   color: var(--ink);
   font-variant-numeric: tabular-nums;
@@ -1224,7 +1228,7 @@ body[data-page="dashboard"] .dashboard-overview-band .dashboard-market-context-r
   padding: 5px 12px;
   border-top: 1px solid var(--line);
   background: color-mix(in srgb, var(--ink) 2%, var(--surface));
-  font-size: 0.7rem;
+  font-size: var(--sys-fs-micro);
 }
 
 .dashboard-nav-stat {
@@ -1247,7 +1251,7 @@ body[data-page="dashboard"] .dashboard-overview-band .dashboard-market-context-r
   gap: 12px;
   padding: 8px 14px;
   border-top: 1px solid var(--line);
-  font-size: 0.65rem;
+  font-size: var(--sys-fs-micro);
   color: var(--ink-3);
   align-items: center;
 }
@@ -1257,7 +1261,7 @@ body[data-page="dashboard"] .dashboard-overview-band .dashboard-market-context-r
 }
 
 .dashboard-sector-sub {
-  font-size: 0.62rem;
+  font-size: var(--sys-fs-micro);
   color: var(--ink-3);
   margin-top: 2px;
   font-family: var(--font-mono);
@@ -1283,7 +1287,7 @@ body[data-page="dashboard"] .dashboard-overview-band .dashboard-market-context-r
   grid-template-columns: 70px 1fr 44px;
   gap: 8px;
   align-items: center;
-  font-size: 0.72rem;
+  font-size: var(--sys-fs-micro);
 }
 
 .dashboard-exposure-name {
@@ -1311,13 +1315,13 @@ body[data-page="dashboard"] .dashboard-overview-band .dashboard-market-context-r
   text-align: right;
   font-weight: 700;
   color: var(--ink-2);
-  font-size: 0.68rem;
+  font-size: var(--sys-fs-micro);
 }
 
 /* ——— Sector cell sub label ——— */
 .dashboard-sector-sub {
   display: block;
-  font-size: 0.6rem;
+  font-size: var(--sys-fs-micro);
   color: var(--ink-3);
   font-family: var(--font-mono);
   margin-top: 2px;
@@ -1371,7 +1375,7 @@ body[data-page="dashboard"] .dashboard-overview-band .dashboard-market-context-r
 .dashboard-var-footnote {
   margin: 0;
   padding: 0 8px 6px;
-  font-size: 0.62rem;
+  font-size: var(--sys-fs-micro);
   color: var(--ink-3);
 }
 
@@ -1457,7 +1461,7 @@ html[data-density="compact"] .dashboard-risk-card {
 
 .embed-panel .dashboard-head h2 {
   margin: 0;
-  font-size: 1.125rem;
+  font-size: var(--sys-fs-title);
   font-weight: 700;
   letter-spacing: -0.01em;
   color: var(--ink);
@@ -1466,7 +1470,7 @@ html[data-density="compact"] .dashboard-risk-card {
 
 .embed-panel .dashboard-meta {
   margin: 4px 0 0;
-  font-size: 0.78rem;
+  font-size: var(--sys-fs-body);
   color: var(--ink-3);
   line-height: 1.4;
 }
@@ -1536,14 +1540,14 @@ body[data-page="dashboard"] .dashboard-head-actions > #dashboard-refresh {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  height: 28px;
-  min-height: 28px;
-  max-height: 28px;
+  height: var(--sys-desk-chip-h);
+  min-height: var(--sys-desk-chip-h);
+  max-height: var(--sys-desk-chip-h);
   padding: 0 10px;
   margin: 0;
   border: 1px solid var(--line);
-  border-radius: 6px;
-  font-size: 12px;
+  border-radius: var(--sys-r-tier2);
+  font-size: var(--sys-fs-caption);
   font-weight: 600;
   line-height: 1;
   letter-spacing: 0.02em;

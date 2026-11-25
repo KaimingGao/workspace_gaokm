@@ -43,7 +43,9 @@
  *  │  --sys-r-tier2   6px   dense card · quant-pro-card            │
  *  │  --sys-r-tier3   6px   input · select · segmented control     │
  *  │  --sys-r-tier4   4px   chip · badge · tag · status pill       │
- *  │  --sys-r-full  999px   pill button · avatar · desk badge      │
+ *  │  --sys-r-full  999px   pill · avatar（业务页勿覆写为 2px）    │
+ *  │  --sys-desk-r    2px   可选：交易/回测/研究 Desk 区段硬边     │
+ *  │  --sys-desk-chip-*     页头 badge 高/字/圆角（28 / 12 / 2）   │
  *  └────────────────────────────────────────────────────────────────┘
  *
  *  ┌─ 间距阶梯 (Spacing) ─ 4 级 ───────────────────────────────────┐
@@ -141,55 +143,16 @@
  *  └────────────────────────────────────────────────────────────────┘
  * ════════════════════════════════════════════════════════════════════ */
 
-/* 结构 token（字号/间距/圆角/布局）放 :root，不随主题丢失 */
+/* 结构 token（字号/间距/圆角/布局）放 :root，不随主题丢失
+ * 唯一真相源：--sys-* ；下方旧名全部 alias，禁止再写硬编码 px。 */
 :root {
-  --radius: 12px;
-  --radius-sm: 8px;
-  --radius-xs: 4px;
-  --radius-md: 8px;
-  --radius-lg: 12px;
-  --r-xs: 4px;
-  --r-sm: 6px;
-  --r-md: 6px;
-  --r-lg: 8px;
-  --r-full: 999px;
-  --font: "Manrope", "PingFang SC", "Hiragino Sans GB", "Noto Sans SC", sans-serif;
-  --font-mono: "IBM Plex Mono", "SF Mono", "Fira Code", "Consolas", monospace;
-  --font-family-num: var(--font-mono);
-  --font-size-body: 14px;
-  --font-size-caption: 12px;
-  --font-size-data: 32px;
-  --fs-caption: 12px;
-  --fs-code: 13px;
-  --fs-body: 14px;
-  --fs-title: 16px;
-  --fs-kpi: 20px;
-  --lh-caption: 18px;
-  --lh-code: 20px;
-  --lh-body: 20px;
-  --lh-title: 24px;
-  --lh-kpi: 28px;
-  --spacing-xs: 4px;
-  --spacing-sm: 8px;
-  --spacing-md: 16px;
-  --spacing-lg: 24px;
-  --side-nav-w: 200px;
-  --side-nav-w-collapsed: 64px;
-  --ease: cubic-bezier(0.22, 1, 0.36, 1);
-  --transition-fast: 0.15s var(--ease);
-  --transition: 0.2s var(--ease);
-  --transition-slow: 0.3s var(--ease);
-  --transition-data: 0.3s ease;
-  --ui-busy-dot: 6px;
-  --ui-busy-dot-gap: 9px;
-  --ui-busy-duration: 1.05s;
-
-  --sys-fs-micro: 0.6875rem;
-  --sys-fs-caption: 0.75rem;
-  --sys-fs-body: 0.8125rem;
-  --sys-fs-section: 0.875rem;
-  --sys-fs-title: 1.125rem;
-  --sys-fs-kpi: 1.25rem;
+  --sys-fs-micro: 0.6875rem;   /* 11px */
+  --sys-fs-caption: 0.75rem;   /* 12px */
+  --sys-fs-body: 0.8125rem;    /* 13px */
+  --sys-fs-section: 0.875rem;  /* 14px */
+  --sys-fs-title: 1.125rem;    /* 18px */
+  --sys-fs-kpi: 1.25rem;       /* 20px */
+  --sys-fs-hero: 2rem;         /* 32px · 大数展示 */
   --sys-lh-tight: 1.2;
   --sys-lh-snug: 1.35;
   --sys-lh-body: 1.5;
@@ -211,6 +174,52 @@
   --sys-card-head-pad-y: 8px;
   --sys-card-head-pad-x: 12px;
   --sys-card-head-border: 1px solid var(--line);
+  --sys-desk-chip-h: 28px;
+  --sys-desk-chip-fs: var(--sys-fs-caption);
+  --sys-desk-chip-r: 2px;
+
+  /* —— 旧 token → --sys-*（兼容层；新代码只用 --sys-*）—— */
+  --radius: var(--sys-r-tier1);
+  --radius-sm: var(--sys-r-tier1);
+  --radius-xs: var(--sys-r-tier4);
+  --radius-md: var(--sys-r-tier1);
+  --radius-lg: var(--sys-r-tier1);
+  --r-xs: var(--sys-r-tier4);
+  --r-sm: var(--sys-r-tier2);
+  --r-md: var(--sys-r-tier2);
+  --r-lg: var(--sys-r-tier1);
+  --r-full: var(--sys-r-full);
+  --font: "Manrope", "PingFang SC", "Hiragino Sans GB", "Noto Sans SC", sans-serif;
+  --font-mono: "IBM Plex Mono", "SF Mono", "Fira Code", "Consolas", monospace;
+  --font-family-num: var(--font-mono);
+  --font-size-body: var(--sys-fs-section);
+  --font-size-caption: var(--sys-fs-caption);
+  --font-size-data: var(--sys-fs-hero);
+  --fs-caption: var(--sys-fs-caption);
+  --fs-code: var(--sys-fs-body);
+  --fs-body: var(--sys-fs-section);
+  --fs-title: var(--sys-fs-title);
+  --fs-kpi: var(--sys-fs-kpi);
+  --lh-caption: 1.125rem;
+  --lh-code: 1.25rem;
+  --lh-body: 1.25rem;
+  --lh-title: 1.5rem;
+  --lh-kpi: 1.75rem;
+  --spacing-xs: 4px;
+  --spacing-sm: 8px;
+  --spacing-md: var(--sys-gap-page);
+  --spacing-lg: 24px;
+  --side-nav-w: 200px;
+  --side-nav-w-collapsed: 64px;
+  --ease: cubic-bezier(0.22, 1, 0.36, 1);
+  --transition-fast: 0.15s var(--ease);
+  --transition: 0.2s var(--ease);
+  --transition-slow: 0.3s var(--ease);
+  --transition-data: 0.3s ease;
+  --ui-busy-dot: 6px;
+  --ui-busy-dot-gap: 9px;
+  --ui-busy-duration: 1.05s;
+
   --d-fs-micro: var(--sys-fs-micro);
   --d-fs-caption: var(--sys-fs-caption);
   --d-fs-body: var(--sys-fs-body);

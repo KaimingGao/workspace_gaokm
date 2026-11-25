@@ -10,15 +10,15 @@
   width: 5.5rem;
   padding: 4px 6px;
   border: 1px solid var(--line);
-  border-radius: 6px;
-  font-size: 0.8rem;
+  border-radius: var(--sys-r-tier2);
+  font-size: var(--sys-fs-body);
   color: var(--ink);
   background: var(--bg);
 }
 
 .watching-build-skip-reason {
   color: var(--ink-3);
-  font-size: 0.72rem;
+  font-size: var(--sys-fs-micro);
 }
 
 .watching-yhat-hist {
@@ -60,7 +60,7 @@
   margin: 0;
   width: 100%;
   color: var(--ink-3, #64748b);
-  font-size: 0.68rem;
+  font-size: var(--sys-fs-micro);
   font-variant-numeric: tabular-nums;
 }
 
@@ -68,7 +68,7 @@
   margin: 0;
   width: 100%;
   color: var(--ink-2, #475569);
-  font-size: 0.68rem;
+  font-size: var(--sys-fs-micro);
   font-variant-numeric: tabular-nums;
 }
 
@@ -175,7 +175,7 @@ body[data-page="watching"] .watching-react-grid-cell.watching-col-score_tau .wat
 
 .watching-log-hint {
   margin: 0;
-  font-size: 0.72rem;
+  font-size: var(--sys-fs-micro);
   color: var(--ink-3);
 }
 
@@ -188,7 +188,7 @@ body[data-page="watching"] .watching-react-grid-cell.watching-col-score_tau .wat
 /* 块级转圈（舆情分析等；三点脉冲见 base.css） */
 .watching-news-ai-spinner {
   width: 28px;
-  height: 28px;
+  height: var(--sys-desk-chip-h);
   border: 2.5px solid color-mix(in srgb, var(--ui-busy) 18%, var(--line));
   border-top-color: var(--ui-busy);
   border-radius: 50%;
@@ -205,7 +205,7 @@ body[data-page="watching"] .watching-react-grid-cell.watching-col-score_tau .wat
 }
 
 .watching-news-ai-loading p {
-  font-size: 0.85rem;
+  font-size: var(--sys-fs-section);
   color: var(--ui-busy);
   font-weight: 500;
   margin: 0;
@@ -275,7 +275,7 @@ body[data-page="watching"] .watching-react-grid-cell.watching-col-score_tau .wat
   border-radius: var(--radius-sm);
   padding: 8px 12px;
   font: inherit;
-  font-size: 0.84rem;
+  font-size: var(--sys-fs-body);
   font-weight: 500;
   background: var(--surface);
   color: var(--ink);
@@ -319,7 +319,7 @@ body[data-page="watching"] .watching-react-grid-cell.watching-col-score_tau .wat
   text-align: left;
   font: inherit;
   padding: 7px 10px;
-  border-radius: 6px;
+  border-radius: var(--sys-r-tier2);
   cursor: pointer;
   color: var(--ink);
 }
@@ -338,12 +338,12 @@ body[data-page="watching"] .watching-react-grid-cell.watching-col-score_tau .wat
 
 .watching-search-item-name {
   font-weight: 600;
-  font-size: 0.84rem;
+  font-size: var(--sys-fs-body);
   letter-spacing: -0.01em;
 }
 
 .watching-search-item-code {
-  font-size: 0.72rem;
+  font-size: var(--sys-fs-micro);
   font-family: var(--font-mono);
   font-variant-numeric: tabular-nums;
   color: var(--ink-3);
@@ -351,7 +351,7 @@ body[data-page="watching"] .watching-react-grid-cell.watching-col-score_tau .wat
 
 .watching-search-item-hint {
   flex-shrink: 0;
-  font-size: 0.72rem;
+  font-size: var(--sys-fs-micro);
   color: var(--accent);
   font-weight: 600;
 }
@@ -359,7 +359,7 @@ body[data-page="watching"] .watching-react-grid-cell.watching-col-score_tau .wat
 .watching-search-empty {
   margin: 0;
   padding: 12px;
-  font-size: 0.82rem;
+  font-size: var(--sys-fs-body);
   color: var(--ink-3);
 }
 
@@ -369,7 +369,7 @@ body[data-page="watching"] .watching-react-grid-cell.watching-col-score_tau .wat
 
 .watching-status {
   margin: 0;
-  font-size: 0.78rem;
+  font-size: var(--sys-fs-body);
   line-height: 1.35;
   font-weight: 550;
   color: var(--ink-2);
@@ -384,7 +384,7 @@ body[data-page="watching"] .watching-react-grid-cell.watching-col-score_tau .wat
   margin: 0;
   flex: 1 1 8rem;
   min-width: 0;
-  font-size: 0.72rem;
+  font-size: var(--sys-fs-micro);
   color: var(--ink-3);
 }
 
@@ -402,7 +402,7 @@ body[data-page="watching"] .watching-react-grid-cell.watching-col-score_tau .wat
 
 .watching-job-hint {
   margin: 0 0 12px;
-  font-size: 0.78rem;
+  font-size: var(--sys-fs-body);
   line-height: 1.5;
   color: var(--ink-2);
 }
@@ -422,22 +422,22 @@ body[data-page="watching"] .watching-react-grid-cell.watching-col-score_tau .wat
 }
 
 .follow-page .follow-holdings-head .watching-section-title {
-  font-size: 0.8rem;
-  font-weight: 650;
-  letter-spacing: 0.02em;
-  color: var(--ink-2);
+  font-size: var(--sys-fs-section);
+  font-weight: var(--sys-fw-display);
+  letter-spacing: 0.04em;
+  color: var(--ink);
 }
 
 .follow-page .watching-section-count {
-  font-size: 0.68rem;
+  font-size: var(--sys-fs-micro);
   font-family: var(--font-mono);
-  border-radius: 4px;
+  border-radius: var(--sys-r-tier4);
   padding: 1px 6px;
 }
 
 .follow-page .watching-react-grid.paper-holdings-react-grid {
   border-radius: var(--follow-radius);
-  font-size: 0.78rem;
+  font-size: var(--sys-fs-body);
   box-shadow: none;
   /* 横滑只发生在表体。外壳再滚会把表头的「开始 / 出处」滑出来，表体仍被裁在左边，两列空白。 */
   overflow-x: hidden;
@@ -467,7 +467,7 @@ body[data-page="watching"] .watching-react-grid-cell.watching-col-score_tau .wat
 }
 
 .follow-page .paper-holdings-react-grid .watching-react-grid-row.is-head .watching-react-grid-cell {
-  font-size: 0.66rem;
+  font-size: var(--sys-fs-micro);
   font-weight: 700;
   letter-spacing: 0.05em;
   color: var(--ink-3);
@@ -498,7 +498,7 @@ body[data-page="watching"] .watching-react-grid-cell.watching-col-score_tau .wat
 
 .follow-page .paper-holdings-react-grid .watching-react-grid-cell.watching-col-num {
   font-family: var(--font-mono);
-  font-size: 0.76rem;
+  font-size: var(--sys-fs-caption);
   font-variant-numeric: tabular-nums;
   letter-spacing: -0.01em;
   padding-left: 6px;
@@ -555,7 +555,7 @@ body[data-page="watching"] .watching-react-grid-cell.watching-col-score_tau .wat
 /* 历史回测表：壳/密度与观察台 watching-react-grid 同源（见下方 .watching-page/.replay-page 共用块） */
 .replay-page .watching-react-grid .bt-trade-ret {
   font-family: var(--font-mono);
-  font-size: 0.76rem;
+  font-size: var(--sys-fs-caption);
   font-variant-numeric: tabular-nums;
   letter-spacing: -0.01em;
 }
@@ -571,10 +571,10 @@ body[data-page="watching"] .watching-react-grid-cell.watching-col-score_tau .wat
 
 .quant-page .quant-section-title.watching-section-title {
   margin: 0;
-  font-size: 0.72rem;
-  font-weight: 700;
-  letter-spacing: 0.1em;
-  color: var(--ink-2);
+  font-size: var(--sys-fs-section);
+  font-weight: var(--sys-fw-display);
+  letter-spacing: 0.04em;
+  color: var(--ink);
   display: inline-flex;
   align-items: center;
 }
@@ -587,13 +587,13 @@ body[data-page="watching"] .watching-react-grid-cell.watching-col-score_tau .wat
   margin-right: 8px;
   vertical-align: -0.05em;
   border-radius: 1px;
-  background: var(--accent, #2563eb);
+  background: var(--accent);
 }
 
 .quant-page .quant-section-subtitle.watching-section-title {
   margin: 0;
-  font-size: 0.78rem;
-  font-weight: 700;
+  font-size: var(--sys-fs-body);
+  font-weight: var(--sys-fw-sub);
   letter-spacing: 0.02em;
   color: var(--ink);
 }
@@ -620,7 +620,7 @@ body[data-page="watching"] .watching-react-grid-cell.watching-col-score_tau .wat
 }
 
 .quant-page .quant-research-grid .watching-react-grid-row.is-head .watching-react-grid-cell {
-  font-size: 0.66rem;
+  font-size: var(--sys-fs-micro);
   font-weight: 700;
   letter-spacing: 0.05em;
   color: var(--ink-3);
@@ -677,7 +677,7 @@ body[data-page="watching"] .watching-react-grid-cell.watching-col-score_tau .wat
   flex: 0 0 auto;
   padding: 1px 5px;
   border-radius: 2px;
-  font-size: 0.62rem;
+  font-size: var(--sys-fs-micro);
   font-weight: 650;
   letter-spacing: 0.04em;
   line-height: 1.35;
@@ -747,7 +747,7 @@ body[data-page="watching"] .watching-react-grid-cell.watching-col-score_tau .wat
 
 .quant-page .quant-research-grid .watching-react-grid-cell.watching-col-num {
   font-family: var(--font-mono);
-  font-size: 0.76rem;
+  font-size: var(--sys-fs-caption);
   font-variant-numeric: tabular-nums;
   letter-spacing: -0.01em;
 }
@@ -764,8 +764,8 @@ body[data-page="watching"] .watching-react-grid-cell.watching-col-score_tau .wat
 .quant-page .quant-fold > summary > .watching-section-title {
   display: inline;
   margin: 0;
-  font-size: 0.92rem;
-  font-weight: 650;
+  font-size: var(--sys-fs-section);
+  font-weight: var(--sys-fw-display);
   color: var(--ink);
 }
 
@@ -785,22 +785,25 @@ body[data-page="watching"] .watching-react-grid-cell.watching-col-score_tau .wat
   padding: 2px 0 0;
 }
 
+/* 废弃：页头只用 .dashboard-eyebrow / h2 */
 .watching-eyebrow {
   margin: 0 0 2px;
-  font-size: 0.7rem;
-  font-weight: 600;
-  letter-spacing: 0.08em;
+  font-size: var(--sys-fs-micro);
+  font-weight: var(--sys-fw-label);
+  letter-spacing: 0.14em;
+  line-height: 18px;
   text-transform: uppercase;
   color: var(--ink-3);
+  font-family: var(--font-mono);
 }
 
 .watching-title {
   margin: 0 0 8px;
-  font-size: 1.55rem;
-  font-weight: 700;
+  font-size: var(--sys-fs-title);
+  font-weight: var(--sys-fw-display);
   letter-spacing: -0.02em;
   color: var(--ink);
-  line-height: 1.2;
+  line-height: var(--sys-lh-tight);
 }
 
 .watching-page .watching-job-hint {
@@ -835,7 +838,7 @@ body[data-page="watching"] .watching-react-grid-cell.watching-col-score_tau .wat
 /* 观察台主表 + 历史回测表：同壳同密度（scoped，不改交易页网格） */
 .replay-page .watching-react-grid {
   border-radius: var(--watching-radius);
-  font-size: 0.78rem;
+  font-size: var(--sys-fs-body);
   background: var(--surface);
   box-shadow: none;
 }
@@ -863,7 +866,7 @@ body[data-page="watching"] .watching-react-grid-cell.watching-col-score_tau .wat
 }
 
 .replay-page .watching-react-grid-row.is-head .watching-react-grid-cell {
-  font-size: 0.66rem;
+  font-size: var(--sys-fs-micro);
   font-weight: 700;
   letter-spacing: 0.05em;
   color: var(--ink-3);
@@ -890,7 +893,7 @@ body[data-page="watching"] .watching-react-grid-cell.watching-col-score_tau .wat
 
 .replay-page .watching-react-grid-cell.watching-col-num {
   font-family: var(--font-mono);
-  font-size: 0.76rem;
+  font-size: var(--sys-fs-caption);
   font-variant-numeric: tabular-nums;
   letter-spacing: -0.01em;
 }
@@ -908,19 +911,19 @@ body[data-page="watching"] .watching-react-grid-cell.watching-col-score_tau .wat
 
 .replay-page .watching-name-text {
   font-weight: 600;
-  font-size: 0.8rem;
+  font-size: var(--sys-fs-body);
   letter-spacing: -0.01em;
   line-height: 1.25;
 }
 
 .replay-page .watching-code-sub {
   font-family: var(--font-mono);
-  font-size: 0.68rem;
+  font-size: var(--sys-fs-micro);
   letter-spacing: 0.01em;
 }
 
 .follow-page .watching-sent-badge {
-  font-size: 0.68rem;
+  font-size: var(--sys-fs-micro);
   padding: 0 4px;
   min-width: 1.2rem;
   border-radius: 3px;
@@ -928,7 +931,7 @@ body[data-page="watching"] .watching-react-grid-cell.watching-col-score_tau .wat
 }
 
 .watching-page .watching-nd-bias {
-  font-size: 0.72rem;
+  font-size: var(--sys-fs-micro);
   font-weight: 600;
   font-variant-numeric: tabular-nums;
 }
@@ -949,8 +952,8 @@ body[data-page="watching"] .watching-react-grid-cell.watching-col-score_tau .wat
 
 .watching-page .watching-table-action-btns .dialog-btn {
   padding: 5px 12px;
-  font-size: 0.78rem;
-  border-radius: 6px;
+  font-size: var(--sys-fs-body);
+  border-radius: var(--sys-r-tier2);
 }
 
 .watching-page .watching-pick-count {
@@ -970,14 +973,15 @@ body[data-page="watching"] .watching-react-grid-cell.watching-col-score_tau .wat
 }
 
 .watching-page .watching-section-title {
-  font-size: 0.8rem;
-  font-weight: 650;
-  letter-spacing: 0.02em;
-  color: var(--ink-2);
+  /* 同 Desk Shell section title；颜色跟区段主色 */
+  font-size: var(--sys-fs-section);
+  font-weight: var(--sys-fw-display);
+  letter-spacing: 0.04em;
+  color: var(--ink);
 }
 
 .watching-page .watching-log-hint {
-  font-size: 0.68rem;
+  font-size: var(--sys-fs-micro);
 }
 
 .watching-page .watching-build-log {
@@ -993,7 +997,7 @@ body[data-page="watching"] .watching-react-grid-cell.watching-col-score_tau .wat
 
 .watching-page > .quant-fold > summary {
   padding: 8px 12px;
-  font-size: 0.78rem;
+  font-size: var(--sys-fs-body);
   color: var(--ink-2);
 }
 
@@ -1002,7 +1006,7 @@ body[data-page="watching"] .watching-react-grid-cell.watching-col-score_tau .wat
 }
 
 .watching-page .quant-fingerprint {
-  font-size: 0.72rem;
+  font-size: var(--sys-fs-micro);
   color: var(--ink-3);
   margin: 0 0 6px;
 }
@@ -1025,20 +1029,22 @@ body[data-page="watching"] .watching-react-grid-cell.watching-col-score_tau .wat
   margin: 0 0 10px;
 }
 
+/* 废弃平行标题族：与 .dashboard-section-title 同阶；勿再覆写字号 */
 .watching-section-title {
   margin: 0;
-  font-size: 0.92rem;
-  font-weight: 650;
+  font-size: var(--sys-fs-section);
+  font-weight: var(--sys-fw-display);
   color: var(--ink);
-  letter-spacing: 0.01em;
+  letter-spacing: 0.04em;
+  line-height: 1.25;
 }
 
 .watching-section-count {
-  font-size: 0.72rem;
+  font-size: var(--sys-fs-micro);
   font-variant-numeric: tabular-nums;
   color: var(--ink-3);
   background: var(--line-2);
-  border-radius: 999px;
+  border-radius: var(--sys-r-full);
   padding: 1px 7px;
   min-width: 1.2rem;
   text-align: center;
@@ -1072,7 +1078,7 @@ body[data-page="watching"] .watching-react-grid-cell.watching-col-score_tau .wat
 
 .watching-empty-text {
   margin: 0 0 12px;
-  font-size: 0.82rem;
+  font-size: var(--sys-fs-body);
   line-height: 1.5;
   color: var(--ink-2);
 }
@@ -1083,7 +1089,7 @@ body[data-page="watching"] .watching-react-grid-cell.watching-col-score_tau .wat
 
 .watching-table-empty {
   margin: 4px 0 2px;
-  font-size: 0.78rem;
+  font-size: var(--sys-fs-body);
   color: var(--ink-3);
 }
 
@@ -1094,7 +1100,7 @@ body[data-page="watching"] .watching-react-grid-cell.watching-col-score_tau .wat
 }
 
 .watching-rules-table thead th {
-  font-size: 0.7rem;
+  font-size: var(--sys-fs-micro);
   font-weight: 600;
   color: var(--ink-3);
   border-bottom: 1px solid var(--line);
@@ -1111,7 +1117,7 @@ body[data-page="watching"] .watching-react-grid-cell.watching-col-score_tau .wat
 }
 
 .watching-result-table thead th {
-  font-size: 0.7rem;
+  font-size: var(--sys-fs-micro);
   font-weight: 600;
   color: var(--ink-3);
   border-bottom: 1px solid var(--line);
@@ -1167,7 +1173,7 @@ body[data-page="watching"] .watching-react-grid-cell.watching-col-score_tau .wat
   max-width: 100%;
   min-width: 0;
   table-layout: fixed;
-  font-size: 0.82rem;
+  font-size: var(--sys-fs-body);
   border: 1px solid var(--line);
   border-radius: var(--radius);
   border-collapse: separate;
@@ -1209,7 +1215,7 @@ body[data-page="watching"] .watching-react-grid-cell.watching-col-score_tau .wat
 }
 
 .watching-pick-count {
-  font-size: 0.76rem;
+  font-size: var(--sys-fs-caption);
   color: var(--ink-3);
 }
 
@@ -1329,7 +1335,7 @@ body[data-page="watching"] .watching-react-grid-cell.watching-col-score_tau .wat
   border-radius: 2px;
   border: 1px solid transparent;
   font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
-  font-size: 0.6875rem;
+  font-size: var(--sys-fs-micro);
   font-weight: 650;
   letter-spacing: 0.02em;
   line-height: 1.2;
@@ -1442,7 +1448,7 @@ body[data-page="watching"] .watching-react-grid-cell.watching-col-score_tau .wat
 
 .watching-code-sub {
   display: block;
-  font-size: 0.72rem;
+  font-size: var(--sys-fs-micro);
   font-variant-numeric: tabular-nums;
   color: var(--ink-3);
   line-height: 1.2;
@@ -1464,8 +1470,8 @@ body[data-page="watching"] .watching-react-grid-cell.watching-col-score_tau .wat
   display: inline-block;
   min-width: 1.35rem;
   padding: 1px 5px;
-  border-radius: 4px;
-  font-size: 0.72rem;
+  border-radius: var(--sys-r-tier4);
+  font-size: var(--sys-fs-micro);
   font-weight: 600;
   line-height: 1.35;
   border: 1px solid var(--line);
@@ -1480,7 +1486,7 @@ body[data-page="watching"] .watching-react-grid-cell.watching-col-score_tau .wat
   flex: none;
   padding: 0 5px;
   border-radius: 3px;
-  font-size: 0.62rem;
+  font-size: var(--sys-fs-micro);
   font-weight: 700;
   line-height: 1.4;
   letter-spacing: 0.02em;
@@ -1495,7 +1501,7 @@ body[data-page="watching"] .watching-react-grid-cell.watching-col-score_tau .wat
   flex: none;
   padding: 0 4px;
   border-radius: 3px;
-  font-size: 0.62rem;
+  font-size: var(--sys-fs-micro);
   font-weight: 700;
   line-height: 1.4;
   letter-spacing: 0.03em;
@@ -1510,7 +1516,7 @@ body[data-page="watching"] .watching-react-grid-cell.watching-col-score_tau .wat
   flex: none;
   padding: 0 5px;
   border-radius: 3px;
-  font-size: 0.62rem;
+  font-size: var(--sys-fs-micro);
   font-weight: 700;
   line-height: 1.4;
   letter-spacing: 0.04em;
@@ -1563,7 +1569,7 @@ html[data-theme="dark"] .watching-fit-tier-badge.is-C {
   margin-left: 3px;
   padding: 0 4px;
   border-radius: 3px;
-  font-size: 0.62rem;
+  font-size: var(--sys-fs-micro);
   font-weight: 700;
   line-height: 1.4;
   letter-spacing: 0.02em;
@@ -1580,7 +1586,7 @@ html[data-theme="dark"] .watching-fit-tier-badge.is-C {
   margin-left: 3px;
   padding: 0 4px;
   border-radius: 3px;
-  font-size: 0.62rem;
+  font-size: var(--sys-fs-micro);
   font-weight: 700;
   line-height: 1.4;
   color: #b42318;
@@ -1627,7 +1633,7 @@ html[data-theme="dark"] .watching-fit-tier-badge.is-C {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-size: 0.78rem;
+  font-size: var(--sys-fs-body);
   color: var(--ink-2);
   cursor: default;
 }
@@ -1642,9 +1648,9 @@ html[data-theme="dark"] .watching-fit-tier-badge.is-C {
   color: var(--ink-3);
   cursor: pointer;
   font: inherit;
-  font-size: 0.75rem;
+  font-size: var(--sys-fs-caption);
   padding: 2px 4px;
-  border-radius: 4px;
+  border-radius: var(--sys-r-tier4);
 }
 
 .watching-news-btn:focus {
@@ -1707,7 +1713,7 @@ html[data-theme="dark"] .watching-fit-tier-badge.is-C {
   display: flex;
   align-items: center;
   gap: 6px;
-  font-size: 0.8rem;
+  font-size: var(--sys-fs-body);
   color: var(--ink-2);
 }
 
@@ -1726,9 +1732,9 @@ html[data-theme="dark"] .watching-fit-tier-badge.is-C {
   border: 1px solid var(--line);
   background: var(--bg);
   color: var(--ink-2);
-  border-radius: 8px;
+  border-radius: var(--sys-r-tier1);
   padding: 4px 10px;
-  font-size: 0.78rem;
+  font-size: var(--sys-fs-body);
   cursor: pointer;
 }
 
@@ -1746,8 +1752,8 @@ html[data-theme="dark"] .watching-fit-tier-badge.is-C {
   width: 6.5rem;
   padding: 5px 8px;
   border: 1px solid var(--line);
-  border-radius: 8px;
-  font-size: 0.82rem;
+  border-radius: var(--sys-r-tier1);
+  font-size: var(--sys-fs-body);
   color: var(--ink);
   background: var(--bg);
 }
@@ -1776,7 +1782,7 @@ html[data-theme="dark"] .watching-fit-tier-badge.is-C {
   margin: 10px 0 0;
   padding-top: 10px;
   border-top: 1px solid var(--line-2);
-  font-size: 0.78rem;
+  font-size: var(--sys-fs-body);
 }
 
 .watching-build-totals div {
@@ -1799,9 +1805,9 @@ html[data-theme="dark"] .watching-fit-tier-badge.is-C {
   margin: 10px 0 0;
   padding: 8px 10px;
   list-style: none;
-  border-radius: 8px;
+  border-radius: var(--sys-r-tier1);
   background: var(--line-2);
-  font-size: 0.75rem;
+  font-size: var(--sys-fs-caption);
   color: var(--ink-3);
 }
 
@@ -1814,7 +1820,7 @@ html[data-theme="dark"] .watching-fit-tier-badge.is-C {
 
 .watching-build-status {
   margin: 0;
-  font-size: 0.76rem;
+  font-size: var(--sys-fs-caption);
   color: var(--ink-3);
 }
 
@@ -1846,7 +1852,7 @@ html[data-theme="dark"] .watching-fit-tier-badge.is-C {
 }
 
 .watching-chart-label {
-  font-size: 0.76rem;
+  font-size: var(--sys-fs-caption);
   font-weight: 650;
   letter-spacing: 0.02em;
   color: var(--ink-2);
@@ -1854,7 +1860,7 @@ html[data-theme="dark"] .watching-fit-tier-badge.is-C {
 }
 
 .watching-chart-canvas {
-  border-radius: 6px;
+  border-radius: var(--sys-r-tier2);
   background: color-mix(in srgb, var(--bg) 70%, var(--surface));
   padding: 2px;
   overflow: hidden;
@@ -1890,7 +1896,7 @@ html[data-theme="dark"] .watching-fit-tier-badge.is-C {
 }
 
 .watching-news-title {
-  font-size: 0.88rem;
+  font-size: var(--sys-fs-section);
   line-height: 1.4;
   color: var(--ink);
 }
@@ -1903,12 +1909,12 @@ html[data-theme="dark"] .watching-fit-tier-badge.is-C {
 
 .watching-news-meta {
   margin-top: 2px;
-  font-size: 0.75rem;
+  font-size: var(--sys-fs-caption);
   color: var(--ink-3);
 }
 
 .watching-news-empty {
-  font-size: 0.85rem;
+  font-size: var(--sys-fs-section);
   color: var(--ink-3);
 }
 
@@ -1928,7 +1934,7 @@ html[data-theme="dark"] .watching-fit-tier-badge.is-C {
   left: 16px;
   background: linear-gradient(135deg, #3b82f6, #8b5cf6);
   color: white;
-  font-size: 0.65rem;
+  font-size: var(--sys-fs-micro);
   font-weight: 700;
   padding: 2px 8px;
   border-radius: 10px;
@@ -1945,7 +1951,7 @@ html[data-theme="dark"] .watching-fit-tier-badge.is-C {
 }
 
 .watching-news-ai-status {
-  font-size: 0.78rem;
+  font-size: var(--sys-fs-body);
   font-weight: 600;
   color: #4f46e5;
 }
@@ -1955,7 +1961,7 @@ html[data-theme="dark"] .watching-fit-tier-badge.is-C {
 }
 
 .watching-news-ai-text {
-  font-size: 0.9rem;
+  font-size: var(--sys-fs-section);
   line-height: 1.8;
   color: #1e293b;
   font-weight: 400;
@@ -1968,18 +1974,18 @@ html[data-theme="dark"] .watching-fit-tier-badge.is-C {
 }
 
 .watching-news-ai-text h2 {
-  font-size: 1.05rem;
+  font-size: var(--sys-fs-title);
   border-bottom: 2px solid #818cf8;
   padding-bottom: 4px;
   display: inline-block;
 }
 
 .watching-news-ai-text h3 {
-  font-size: 0.95rem;
+  font-size: var(--sys-fs-section);
 }
 
 .watching-news-ai-text h4 {
-  font-size: 0.9rem;
+  font-size: var(--sys-fs-section);
 }
 
 .watching-news-ai-text p {
@@ -2016,7 +2022,7 @@ html[data-theme="dark"] .watching-fit-tier-badge.is-C {
 }
 
 .watching-news-ai-error {
-  font-size: 0.85rem;
+  font-size: var(--sys-fs-section);
   color: var(--danger);
   padding: 12px;
   background: var(--danger-soft);
@@ -2038,7 +2044,7 @@ html[data-theme="dark"] .watching-fit-tier-badge.is-C {
 }
 
 .watching-nd-bias {
-  font-size: 0.78rem;
+  font-size: var(--sys-fs-body);
   color: var(--ink-3);
 }
 
@@ -2064,10 +2070,10 @@ html[data-theme="dark"] .watching-fit-tier-badge.is-C {
 .watching-chip {
   display: inline-block;
   padding: 1px 7px;
-  border-radius: 999px;
+  border-radius: var(--sys-r-full);
   background: var(--accent-soft);
   color: var(--accent);
-  font-size: 0.72rem;
+  font-size: var(--sys-fs-micro);
   font-weight: 600;
   font-variant-numeric: tabular-nums;
   line-height: 1.4;
@@ -2076,8 +2082,8 @@ html[data-theme="dark"] .watching-fit-tier-badge.is-C {
 .watching-type {
   display: inline-block;
   padding: 1px 6px;
-  border-radius: 6px;
-  font-size: 0.68rem;
+  border-radius: var(--sys-r-tier2);
+  font-size: var(--sys-fs-micro);
   color: var(--ink-3);
   background: var(--line-2);
   line-height: 1.35;
@@ -2141,7 +2147,7 @@ html[data-density="compact"] .follow-page .paper-holdings-react-grid .watching-r
 }
 
 html[data-density="compact"] .quant-page .quant-research-grid .watching-react-grid-row {
-  min-height: 28px;
+  min-height: var(--sys-desk-chip-h);
 }
 
 /* 观察台 / 交易执行主表：纯 DOM 虚拟滚动（virtual_table.js） */
@@ -2154,7 +2160,7 @@ html[data-density="compact"] .quant-page .quant-research-grid .watching-react-gr
   border-radius: 14px;
   background: var(--surface);
   overflow: hidden;
-  font-size: 0.84rem;
+  font-size: var(--sys-fs-body);
 }
 
 .watching-react-grid-head {
@@ -2299,39 +2305,39 @@ html[data-density="compact"] .quant-page .quant-research-grid .watching-react-gr
 }
 
 .quant-page .quant-fold > summary > .watching-section-title {
-  font-size: 0.82rem;
-  font-weight: 700;
+  font-size: var(--sys-fs-section);
+  font-weight: var(--sys-fw-display);
   letter-spacing: 0.04em;
   display: inline-flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--sys-gap-inline);
 }
 
 .quant-page .quant-fold > summary > .watching-section-title::before {
   content: "";
   display: inline-block;
   width: 3px;
-  height: 0.8em;
-  background: var(--accent, #2563eb);
-  border-radius: 2px;
+  height: 0.75em;
+  background: var(--accent);
+  border-radius: 1px;
   vertical-align: -0.05em;
 }
 
 .quant-page .quant-section-toolbar .watching-section-title {
-  font-size: 0.85rem;
-  font-weight: 700;
-  letter-spacing: 0.06em;
+  font-size: var(--sys-fs-section);
+  font-weight: var(--sys-fw-display);
+  letter-spacing: 0.04em;
   display: inline-flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--sys-gap-inline);
 }
 
 .quant-page .quant-section-toolbar .watching-section-title::before {
   content: "";
   display: inline-block;
   width: 3px;
-  height: 0.85em;
-  background: var(--accent, #2563eb);
+  height: 0.75em;
+  background: var(--accent);
   border-radius: 2px;
   vertical-align: -0.05em;
 }
@@ -2365,7 +2371,7 @@ html[data-density="compact"] .quant-page .quant-research-grid .watching-react-gr
 }
 
 .quant-page .quant-research-grid .watching-react-grid-row.is-head .watching-react-grid-cell {
-  font-size: 0.58rem;
+  font-size: var(--sys-fs-micro);
   letter-spacing: 0.08em;
   text-transform: uppercase;
   font-weight: 700;
@@ -2381,7 +2387,7 @@ html[data-density="compact"] .quant-page .quant-research-grid .watching-react-gr
 }
 
 .quant-page .quant-research-grid .watching-react-grid-cell.watching-col-num {
-  font-size: 0.7rem;
+  font-size: var(--sys-fs-micro);
   font-family: var(--font-mono);
   font-variant-numeric: tabular-nums;
   font-weight: 600;
@@ -2406,7 +2412,7 @@ html[data-density="compact"] .quant-page .quant-research-grid .watching-react-gr
 
 /* —— 3. 表格：padding/行高收紧 —— */
 .replay-page .watching-react-grid {
-  font-size: 0.74rem;
+  font-size: var(--sys-fs-caption);
 }
 
 .replay-page .watching-react-grid-row {
@@ -2423,13 +2429,13 @@ html[data-density="compact"] .quant-page .quant-research-grid .watching-react-gr
 }
 
 .replay-page .watching-react-grid-row.is-head .watching-react-grid-cell {
-  font-size: 0.62rem;
+  font-size: var(--sys-fs-micro);
   padding-top: 5px;
   padding-bottom: 5px;
 }
 
 .replay-page .watching-react-grid .bt-trade-ret {
-  font-size: 0.72rem;
+  font-size: var(--sys-fs-micro);
 }
 
 .quant-pro-section-title.watching-section-title::before {
@@ -2440,32 +2446,16 @@ html[data-density="compact"] .quant-page .quant-research-grid .watching-react-gr
   margin-right: 8px;
 }
 
-/* —— 主路径 section 标题去过大字距 —— */
-.quant-page .quant-section-toolbar .watching-section-title {
-  letter-spacing: 0;
-  font-size: 14px;
-}
-
-.quant-page .quant-section-toolbar .watching-section-title::before {
-  width: 2px;
-  border-radius: 1px;
-  background: var(--accent);
-}
-
+/* 双 class 已从 HTML 移除；若残留则抑制双条 ::before */
 .quant-page .dashboard-section-title.watching-section-title::before {
-  /* 避免与 dashboard-section-title::before 双条 */
-  content: none;
-}
-
-.quant-page h3.watching-section-title::before {
   content: none;
 }
 
 .quant-page .dashboard-card.quant-pro-card h3.watching-section-title {
   margin: 0;
   padding: 0;
-  font-size: var(--q-fs-body, 0.8125rem);
-  font-weight: 650;
+  font-size: var(--sys-fs-body);
+  font-weight: var(--sys-fw-label);
   letter-spacing: 0.02em;
   color: var(--ink);
   line-height: 1.25;
@@ -2477,7 +2467,7 @@ html[data-density="compact"] .quant-page .quant-research-grid .watching-react-gr
 
 /* Toolbar meta text (loading status) */
 .follow-page .watching-toolbar-meta {
-  font-size: 12px;
+  font-size: var(--sys-fs-caption);
   line-height: 18px;
   color: var(--ink-3);
 }
@@ -2485,7 +2475,7 @@ html[data-density="compact"] .quant-page .quant-research-grid .watching-react-gr
 .follow-page .watching-section-count {
   font-family: var(--font-mono);
   font-variant-numeric: tabular-nums;
-  font-size: 12px;
+  font-size: var(--sys-fs-caption);
   color: var(--ink-3);
   font-weight: 500;
 }
@@ -2508,7 +2498,7 @@ html[data-density="compact"] .quant-page .quant-research-grid .watching-react-gr
 .watching-empty-text {
   margin: 0;
   max-width: 420px;
-  font-size: 13px;
+  font-size: var(--sys-fs-body);
   line-height: 20px;
   color: var(--ink-2);
 }
@@ -2641,7 +2631,7 @@ body[data-page="watching"] .watching-kpi-card {
   min-height: 78px;
   padding: 12px 14px;
   border: 1px solid var(--line);
-  border-radius: 8px;
+  border-radius: var(--sys-r-tier1);
   background: var(--surface);
   box-shadow: 0 1px 2px rgba(15, 23, 42, 0.03);
   gap: 2px;
@@ -2659,7 +2649,7 @@ body[data-page="watching"] .watching-kpi-card.is-empty .watching-kpi-value {
 }
 
 body[data-page="watching"] .watching-kpi-label {
-  font-size: 11px;
+  font-size: var(--sys-fs-micro);
   line-height: 16px;
   font-weight: 600;
   letter-spacing: 0.04em;
@@ -2670,7 +2660,7 @@ body[data-page="watching"] .watching-kpi-label {
 body[data-page="watching"] .watching-kpi-value {
   font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
   font-variant-numeric: tabular-nums;
-  font-size: 20px;
+  font-size: var(--sys-fs-kpi);
   line-height: 26px;
   font-weight: 650;
   color: var(--ink);
@@ -2692,7 +2682,7 @@ body[data-page="watching"] .watching-path-rail {
   padding: 0;
   list-style: none;
   border: 1px solid var(--line);
-  border-radius: 8px;
+  border-radius: var(--sys-r-tier1);
   background: var(--surface);
   overflow: hidden;
 }
@@ -2731,7 +2721,7 @@ body[data-page="watching"] .watching-path-num {
   height: 1.15rem;
   padding: 0 4px;
   border-radius: var(--sys-r-full, 999px);
-  font-size: 10px;
+  font-size: var(--sys-fs-micro);
   font-weight: 700;
   font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
   color: var(--ink-3);
@@ -2879,7 +2869,7 @@ body[data-page="watching"] .watching-oos-band .quant-oos-band-label {
   height: 18px;
   padding: 0 6px;
   border-radius: var(--sys-r-tier4, 4px);
-  font-size: 10px;
+  font-size: var(--sys-fs-micro);
   font-weight: 700;
   letter-spacing: 0.08em;
   text-transform: uppercase;
@@ -3289,7 +3279,7 @@ body[data-page="watching"] .watching-secondary-fold-sum::after {
   content: "▸";
   margin-left: auto;
   color: var(--ink-3);
-  font-size: 11px;
+  font-size: var(--sys-fs-micro);
 }
 
 body[data-page="watching"] .watching-secondary-fold[open] > .watching-secondary-fold-sum::after {
@@ -3328,7 +3318,7 @@ body[data-page="watching"] #watching-main-actions .watching-refresh-status {
 
   body[data-page="watching"] .watching-path-step {
     padding: 6px 6px;
-    font-size: 11px;
+    font-size: var(--sys-fs-micro);
   }
 }
 
@@ -3466,7 +3456,7 @@ body[data-page="watching"] .watching-kpi-card.is-empty .watching-kpi-value {
 }
 
 body[data-page="watching"] .watching-kpi-sub {
-  font-size: 10.5px;
+  font-size: var(--sys-fs-micro);
   line-height: 1.25;
   color: var(--ink-3);
   font-variant-numeric: tabular-nums;
@@ -3494,7 +3484,7 @@ body[data-page="watching"] .watching-path-step.is-active {
 body[data-page="watching"] .watching-path-num {
   min-width: 1.1rem;
   height: 1.1rem;
-  font-size: 10px;
+  font-size: var(--sys-fs-micro);
   border-radius: var(--sys-r-full, 999px);
 }
 
@@ -3579,7 +3569,7 @@ body[data-page="watching"] .watching-control-band .watching-search-input::placeh
 body[data-page="watching"] .watching-oos-band .quant-oos-band-label {
   height: 16px;
   padding: 0 5px;
-  font-size: 9.5px;
+  font-size: var(--sys-fs-micro);
   font-weight: 700;
   letter-spacing: 0.08em;
   border-radius: var(--w-r);
@@ -3778,7 +3768,7 @@ body[data-page="watching"] .watching-hs300-toggle-track {
   position: relative;
   width: 38px;
   height: 22px;
-  border-radius: 999px;
+  border-radius: var(--sys-r-full);
   background: color-mix(in srgb, var(--ink-3) 22%, var(--line));
   transition: background 0.18s ease;
   flex: 0 0 auto;
@@ -3806,7 +3796,7 @@ body[data-page="watching"] .watching-hs300-toggle input:focus-visible + .watchin
   outline-offset: 2px;
 }
 body[data-page="watching"] .watching-hs300-toggle-text {
-  font-size: 0.72rem;
+  font-size: var(--sys-fs-micro);
   font-weight: 600;
   color: var(--ink-2);
   white-space: nowrap;
@@ -3833,13 +3823,13 @@ body[data-page="data"] .watching-news-ran {
   display: inline-flex;
   align-items: center;
   box-sizing: border-box;
-  height: 28px;
+  height: var(--sys-desk-chip-h);
   padding: 0 0.55rem;
   border: 1px solid color-mix(in srgb, var(--line) 75%, transparent);
   border-radius: 3px;
   background: color-mix(in srgb, var(--bg) 55%, var(--surface));
   font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
-  font-size: 0.72rem;
+  font-size: var(--sys-fs-micro);
   font-weight: 600;
   font-variant-numeric: tabular-nums;
   line-height: 1;
@@ -3858,9 +3848,9 @@ body[data-page="data"] #watching-news-archive-progress {
 }
 
 body[data-page="data"] #watching-news-archive-poll.dialog-btn {
-  min-height: 28px;
+  min-height: var(--sys-desk-chip-h);
   padding: 4px 12px !important;
-  font-size: 12px !important;
+  font-size: var(--sys-fs-caption) !important;
   font-weight: 600 !important;
   letter-spacing: 0.01em !important;
   border-radius: 2px !important;
@@ -3896,7 +3886,7 @@ body[data-page="data"] .watching-news-stat:last-child {
 
 body[data-page="data"] .watching-news-stat > span {
   display: block;
-  font-size: 11px;
+  font-size: var(--sys-fs-micro);
   color: var(--ink-3);
 }
 
@@ -3905,7 +3895,7 @@ body[data-page="data"] .watching-news-stat strong {
   margin-top: 2px;
   font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
   font-variant-numeric: tabular-nums;
-  font-size: 20px;
+  font-size: var(--sys-fs-kpi);
   line-height: 26px;
   font-weight: 650;
   color: var(--ink);
@@ -3919,7 +3909,7 @@ body[data-page="data"] .watching-news-stat em {
   display: block;
   margin-top: 2px;
   font-style: normal;
-  font-size: 11px;
+  font-size: var(--sys-fs-micro);
   line-height: 1.35;
   color: var(--ink-3);
 }
@@ -3928,7 +3918,7 @@ body[data-page="data"] .watching-news-portrait-foot {
   display: block;
   margin: 8px 2px 0;
   font-style: normal;
-  font-size: 11px;
+  font-size: var(--sys-fs-micro);
   line-height: 1.35;
   color: var(--ink-3);
 }
@@ -3937,7 +3927,7 @@ body[data-page="data"] .watching-news-mini {
   display: block;
   height: 3px;
   margin-top: 6px;
-  border-radius: 999px;
+  border-radius: var(--sys-r-full);
   background: color-mix(in srgb, var(--ink-3) 18%, var(--line));
   overflow: hidden;
 }
@@ -4103,7 +4093,7 @@ body[data-page="data"] .watching-news-samples-head {
   flex: 0 0 auto;
   padding: 6px 12px;
   border-bottom: 1px solid var(--line);
-  font-size: 11px;
+  font-size: var(--sys-fs-micro);
   color: var(--ink-3);
   background: color-mix(in srgb, var(--ink) 4%, var(--surface));
 }
@@ -4134,7 +4124,7 @@ body[data-page="data"] .watching-news-sample-who i {
   display: block;
   font-style: normal;
   font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
-  font-size: 11px;
+  font-size: var(--sys-fs-micro);
   color: var(--ink-3);
 }
 
@@ -4167,14 +4157,14 @@ body[data-page="data"] .watching-news-board .watching-news-meter {
 
 body[data-page="data"] .watching-news-meter-head strong small {
   margin-left: 8px;
-  font-size: 12px;
+  font-size: var(--sys-fs-caption);
   font-weight: 600;
   color: var(--ink-3);
 }
 
 body[data-page="data"] .watching-news-stop {
   margin: 0 0 10px;
-  font-size: 12px;
+  font-size: var(--sys-fs-caption);
   color: var(--down, #c4554d);
 }
 
@@ -4187,7 +4177,7 @@ body[data-page="data"] .watching-news-meter-head {
   justify-content: space-between;
   gap: 12px;
   margin-bottom: 6px;
-  font-size: 12px;
+  font-size: var(--sys-fs-caption);
   color: var(--ink-2);
 }
 
@@ -4200,7 +4190,7 @@ body[data-page="data"] .watching-news-meter-track {
   display: flex;
   height: 8px;
   overflow: hidden;
-  border-radius: 999px;
+  border-radius: var(--sys-r-full);
   background: color-mix(in srgb, var(--ink-3) 14%, var(--line));
 }
 
@@ -4241,13 +4231,13 @@ body[data-page="data"] .watching-news-meter-legend {
   flex-wrap: wrap;
   gap: 6px 12px;
   margin-top: 6px;
-  font-size: 11px;
+  font-size: var(--sys-fs-micro);
   color: var(--ink-3);
 }
 
 body[data-page="data"] .watching-news-meter-note {
   margin: 6px 0 0;
-  font-size: 11px;
+  font-size: var(--sys-fs-micro);
   line-height: 1.4;
   color: var(--ink-3);
 }
@@ -4257,7 +4247,7 @@ body[data-page="data"] .watching-news-meter-legend i {
   width: 7px;
   height: 7px;
   margin-right: 4px;
-  border-radius: 999px;
+  border-radius: var(--sys-r-full);
   vertical-align: 0;
 }
 

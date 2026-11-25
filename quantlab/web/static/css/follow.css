@@ -6,7 +6,7 @@
 
 .paper-meta {
   margin: 0 0 12px;
-  font-size: 0.78rem;
+  font-size: var(--sys-fs-body);
   color: var(--ink-3);
 }
 
@@ -23,7 +23,7 @@
 
 .paper-progress-track {
   height: 8px;
-  border-radius: 999px;
+  border-radius: var(--sys-r-full);
   background: var(--line-2);
   overflow: hidden;
   border: 1px solid var(--line);
@@ -32,14 +32,14 @@
 .paper-progress-fill {
   height: 100%;
   width: 0%;
-  border-radius: 999px;
+  border-radius: var(--sys-r-full);
   background: linear-gradient(90deg, #60a5fa, var(--accent));
   transition: width 0.25s var(--ease);
 }
 
 .paper-progress-text {
   margin: 6px 0 0;
-  font-size: 0.75rem;
+  font-size: var(--sys-fs-caption);
   color: var(--ink-3);
 }
 
@@ -139,7 +139,7 @@
 
 .paper-holdings-table td.paper-wl-name .paper-wl-code {
   display: block;
-  font-size: 0.72rem;
+  font-size: var(--sys-fs-micro);
   color: var(--ink-3);
   font-variant-numeric: tabular-nums;
   line-height: 1.2;
@@ -152,7 +152,7 @@
 }
 
 .follow-holdings-card .paper-watchlist-table thead th {
-  font-size: 0.7rem;
+  font-size: var(--sys-fs-micro);
   font-weight: 600;
   color: var(--ink-3);
   border-bottom: 1px solid var(--line);
@@ -186,13 +186,13 @@
 
 .paper-chart-label {
   margin: 0;
-  font-size: 0.78rem;
+  font-size: var(--sys-fs-body);
   color: var(--ink-3);
 }
 
 .paper-chart-reset {
   padding: 2px 8px;
-  font-size: 0.72rem;
+  font-size: var(--sys-fs-micro);
 }
 
 .paper-holdings-table tr.paper-hold-row {
@@ -247,28 +247,31 @@
   padding: 4px 2px 0;
 }
 
+/* 废弃：页头只用 .dashboard-eyebrow / h2 */
 .follow-eyebrow {
   margin: 0 0 2px;
-  font-size: 0.7rem;
-  font-weight: 600;
-  letter-spacing: 0.08em;
+  font-size: var(--sys-fs-micro);
+  font-weight: var(--sys-fw-label);
+  letter-spacing: 0.14em;
+  line-height: 18px;
   text-transform: uppercase;
   color: var(--ink-3);
+  font-family: var(--font-mono);
 }
 
 .follow-title {
   margin: 0;
-  font-size: 1.55rem;
-  font-weight: 700;
+  font-size: var(--sys-fs-title);
+  font-weight: var(--sys-fw-display);
   letter-spacing: -0.02em;
   color: var(--ink);
-  line-height: 1.2;
+  line-height: var(--sys-lh-tight);
 }
 
 .follow-lede {
   margin: 8px 0 0;
   max-width: 36em;
-  font-size: 0.82rem;
+  font-size: var(--sys-fs-body);
   line-height: 1.5;
   color: var(--ink-2);
 }
@@ -303,7 +306,7 @@
   border: 1px solid var(--line);
   border-radius: 10px;
   padding: 8px 12px;
-  font-size: 0.82rem;
+  font-size: var(--sys-fs-body);
   font-family: inherit;
   color: var(--ink);
   background: var(--surface);
@@ -322,7 +325,7 @@
   border: none;
   outline: none;
   padding: 6px 8px;
-  font-size: 0.85rem;
+  font-size: var(--sys-fs-section);
   font-variant-numeric: tabular-nums;
   font-family: inherit;
   color: var(--ink);
@@ -330,7 +333,7 @@
 }
 
 .follow-deposit-unit {
-  font-size: 0.72rem;
+  font-size: var(--sys-fs-micro);
   color: var(--ink-3);
   font-weight: 600;
 }
@@ -344,7 +347,7 @@
 
 .follow-hero-note {
   margin: 0;
-  font-size: 0.78rem;
+  font-size: var(--sys-fs-body);
   line-height: 1.45;
   color: var(--ink-3);
 }
@@ -358,7 +361,7 @@
 }
 
 .follow-pending-orders .follow-pending-target {
-  font-size: 0.72rem;
+  font-size: var(--sys-fs-micro);
   font-family: var(--font-mono, ui-monospace, monospace);
   color: #92400e;
   white-space: nowrap;
@@ -376,7 +379,7 @@
   border-radius: var(--f-r, 6px);
   background: color-mix(in srgb, #fef3c7 55%, var(--surface, #fff));
   border-color: color-mix(in srgb, #f59e0b 32%, var(--line));
-  font-size: 0.78rem;
+  font-size: var(--sys-fs-body);
 }
 
 .follow-pending-grid .watching-react-grid-head {
@@ -385,7 +388,7 @@
 }
 
 .follow-pending-grid .watching-react-grid-row.is-head .watching-react-grid-cell {
-  font-size: 0.68rem;
+  font-size: var(--sys-fs-micro);
   font-weight: 650;
   letter-spacing: 0.02em;
   text-transform: none;
@@ -478,8 +481,8 @@ body[data-page="follow"] .follow-pending-grid.watching-react-grid {
 .paper-origin-chip {
   display: inline-block;
   padding: 1px 6px;
-  border-radius: 6px;
-  font-size: 0.68rem;
+  border-radius: var(--sys-r-tier2);
+  font-size: var(--sys-fs-micro);
   font-weight: 600;
   line-height: 1.35;
   white-space: nowrap;
@@ -522,8 +525,8 @@ body[data-page="follow"] .follow-pending-grid.watching-react-grid {
 .paper-hold-t0-badge {
   display: inline-block;
   padding: 1px 5px;
-  border-radius: 4px;
-  font-size: 0.62rem;
+  border-radius: var(--sys-r-tier4);
+  font-size: var(--sys-fs-micro);
   font-weight: 700;
   letter-spacing: 0.02em;
   line-height: 1.35;
@@ -630,7 +633,7 @@ body[data-page="follow"] .follow-pending-grid.watching-react-grid {
   width: 100%;
   max-width: 100%;
   min-width: 0;
-  font-size: 0.78rem;
+  font-size: var(--sys-fs-body);
 }
 
 .follow-page .rebalance-table-head,
@@ -645,14 +648,14 @@ body[data-page="follow"] .follow-pending-grid.watching-react-grid {
 }
 
 .follow-page .rebalance-th {
-  font-size: 0.66rem;
+  font-size: var(--sys-fs-micro);
   font-weight: 700;
   letter-spacing: 0.05em;
   text-transform: none;
 }
 
 .follow-page .rebalance-row > .num {
-  font-size: 0.76rem;
+  font-size: var(--sys-fs-caption);
   padding-left: 4px;
   padding-right: 4px;
   overflow: hidden;
@@ -682,9 +685,9 @@ body[data-page="follow"] #paper-rebalance-report.quant-weight-table-wrap,
   margin: 0 0 10px;
   padding: 8px 10px;
   border: 1px solid var(--line);
-  border-radius: 8px;
+  border-radius: var(--sys-r-tier1);
   background: var(--surface-2, rgba(0, 0, 0, 0.02));
-  font-size: 0.74rem;
+  font-size: var(--sys-fs-caption);
   color: var(--ink-2);
   line-height: 1.45;
 }
@@ -698,7 +701,7 @@ body[data-page="follow"] #paper-rebalance-report.quant-weight-table-wrap,
 
 .paper-ops-report-grid dt {
   margin: 0;
-  font-size: 0.68rem;
+  font-size: var(--sys-fs-micro);
   color: var(--ink-3, #888);
 }
 
@@ -739,14 +742,14 @@ body[data-page="follow"] #paper-rebalance-report.quant-weight-table-wrap,
 }
 
 .paper-rebalance-cash-label {
-  font-size: 0.72rem;
+  font-size: var(--sys-fs-micro);
   font-weight: 700;
   color: var(--ink-2);
 }
 
 .paper-rebalance-cash-note {
   margin: 0;
-  font-size: 0.68rem;
+  font-size: var(--sys-fs-micro);
   color: var(--ink-3);
 }
 
@@ -758,13 +761,13 @@ body[data-page="follow"] #paper-rebalance-report.quant-weight-table-wrap,
 }
 
 .paper-rebalance-cash-grid dt {
-  font-size: 0.66rem;
+  font-size: var(--sys-fs-micro);
   color: var(--ink-3);
 }
 
 .paper-rebalance-cash-grid dd {
   margin: 2px 0 0;
-  font-size: 0.84rem;
+  font-size: var(--sys-fs-body);
   font-weight: 650;
   font-variant-numeric: tabular-nums;
   color: var(--ink);
@@ -786,7 +789,7 @@ body[data-page="follow"] #paper-rebalance-report.quant-weight-table-wrap,
 
 .paper-rebalance-risk-title {
   margin: 0 0 4px;
-  font-size: 0.72rem;
+  font-size: var(--sys-fs-micro);
   font-weight: 700;
   color: #b91c1c;
 }
@@ -798,7 +801,7 @@ body[data-page="follow"] #paper-rebalance-report.quant-weight-table-wrap,
 .paper-rebalance-risk ul {
   margin: 0 0 6px;
   padding-left: 1.1rem;
-  font-size: 0.74rem;
+  font-size: var(--sys-fs-caption);
   color: var(--ink-2);
 }
 
@@ -814,7 +817,7 @@ body[data-page="follow"] #paper-rebalance-report.quant-weight-table-wrap,
 .follow-hint {
   margin: 0;
   padding: 10px 12px;
-  font-size: 0.8rem;
+  font-size: var(--sys-fs-body);
   line-height: 1.45;
   color: var(--ink-2);
   background: linear-gradient(135deg, var(--accent-soft) 0%, #f8fafc 100%);
@@ -832,7 +835,7 @@ body[data-page="follow"] #paper-rebalance-report.quant-weight-table-wrap,
   display: inline-flex;
   gap: 4px;
   padding: 2px;
-  border-radius: 8px;
+  border-radius: var(--sys-r-tier1);
   background: var(--line-2);
   border: 1px solid var(--line);
 }
@@ -842,10 +845,10 @@ body[data-page="follow"] #paper-rebalance-report.quant-weight-table-wrap,
   border: 0;
   background: transparent;
   color: var(--ink-3);
-  font-size: 0.72rem;
+  font-size: var(--sys-fs-micro);
   font-weight: 600;
   padding: 5px 10px;
-  border-radius: 6px;
+  border-radius: var(--sys-r-tier2);
   cursor: pointer;
   line-height: 1.2;
 }
@@ -887,14 +890,14 @@ body[data-page="follow"] #paper-rebalance-report.quant-weight-table-wrap,
 
 .paper-holdings-empty-title {
   margin: 0;
-  font-size: 0.95rem;
+  font-size: var(--sys-fs-section);
   font-weight: 700;
   color: var(--ink);
 }
 
 .paper-holdings-empty-text {
   margin: 0 0 4px;
-  font-size: 0.8rem;
+  font-size: var(--sys-fs-body);
   color: var(--ink-2);
   line-height: 1.45;
   max-width: 28rem;
@@ -911,7 +914,7 @@ body[data-page="follow"] #paper-rebalance-report.quant-weight-table-wrap,
   cursor: pointer;
   list-style: none;
   padding: 8px 12px;
-  font-size: 0.74rem;
+  font-size: var(--sys-fs-caption);
   font-weight: 600;
   color: var(--ink-2);
   user-select: none;
@@ -962,18 +965,18 @@ body[data-page="follow"] #paper-rebalance-report.quant-weight-table-wrap,
 }
 
 .paper-hold-action-name {
-  font-size: 0.88rem;
+  font-size: var(--sys-fs-section);
   color: var(--ink);
 }
 
 .paper-hold-action-code {
-  font-size: 0.72rem;
+  font-size: var(--sys-fs-micro);
   color: var(--ink-3);
   font-variant-numeric: tabular-nums;
 }
 
 .paper-hold-action-hint {
-  font-size: 0.7rem;
+  font-size: var(--sys-fs-micro);
   color: var(--ink-3);
 }
 
@@ -999,7 +1002,7 @@ body[data-page="follow"] #paper-rebalance-report.quant-weight-table-wrap,
 }
 
 .paper-log-day-label {
-  font-size: 0.7rem;
+  font-size: var(--sys-fs-micro);
   font-weight: 700;
   color: var(--ink-3);
   letter-spacing: 0.04em;
@@ -1046,7 +1049,7 @@ body[data-page="follow"] #paper-rebalance-report.quant-weight-table-wrap,
 .follow-stat .label {
   display: block;
   margin-bottom: 4px;
-  font-size: 0.68rem;
+  font-size: var(--sys-fs-micro);
   font-weight: 600;
   letter-spacing: 0.04em;
   color: var(--ink-3);
@@ -1054,7 +1057,7 @@ body[data-page="follow"] #paper-rebalance-report.quant-weight-table-wrap,
 
 .follow-stat .val {
   display: block;
-  font-size: 1.05rem;
+  font-size: var(--sys-fs-title);
   font-weight: 700;
   font-variant-numeric: tabular-nums;
   letter-spacing: -0.02em;
@@ -1074,7 +1077,7 @@ body[data-page="follow"] #paper-rebalance-report.quant-weight-table-wrap,
 }
 
 .follow-chart-card .paper-chart-label {
-  font-size: 0.8rem;
+  font-size: var(--sys-fs-body);
   font-weight: 600;
   color: var(--ink-2);
 }
@@ -1109,7 +1112,7 @@ body[data-page="follow"] #paper-rebalance-report.quant-weight-table-wrap,
 }
 
 .follow-open-label {
-  font-size: 0.68rem;
+  font-size: var(--sys-fs-micro);
   font-weight: 600;
   color: var(--ink-3);
   letter-spacing: 0.04em;
@@ -1119,10 +1122,10 @@ body[data-page="follow"] #paper-rebalance-report.quant-weight-table-wrap,
   width: 7.5rem;
   padding: 7px 10px;
   border: 1px solid var(--line);
-  border-radius: 8px;
+  border-radius: var(--sys-r-tier1);
   background: var(--surface);
   color: var(--ink);
-  font-size: 0.88rem;
+  font-size: var(--sys-fs-section);
   font-variant-numeric: tabular-nums;
 }
 
@@ -1131,17 +1134,17 @@ body[data-page="follow"] #paper-rebalance-report.quant-weight-table-wrap,
 }
 
 .follow-open-btn {
-  border-radius: 8px;
+  border-radius: var(--sys-r-tier1);
   padding: 7px 14px;
   font-weight: 600;
 }
 
 .follow-holdings-card .paper-holdings-table {
-  font-size: 0.82rem;
+  font-size: var(--sys-fs-body);
 }
 
 .follow-holdings-card .paper-holdings-table thead th {
-  font-size: 0.7rem;
+  font-size: var(--sys-fs-micro);
   font-weight: 600;
   color: var(--ink-3);
   border-bottom: 1px solid var(--line);
@@ -1239,7 +1242,7 @@ body[data-page="follow"] #paper-rebalance-report.quant-weight-table-wrap,
 }
 
 .follow-holdings-card .paper-hold-adjust .dialog-btn {
-  border-radius: 8px;
+  border-radius: var(--sys-r-tier1);
 }
 
 .follow-holdings-card .paper-hold-flat {
@@ -1253,14 +1256,14 @@ body[data-page="follow"] #paper-rebalance-report.quant-weight-table-wrap,
 }
 
 .follow-holdings-card .paper-hold-shares {
-  border-radius: 8px;
+  border-radius: var(--sys-r-tier1);
   padding: 5px 8px;
 }
 
 .follow-page .paper-trade-status {
   margin: 10px 2px 0;
   min-height: 1.25em;
-  font-size: 0.78rem;
+  font-size: var(--sys-fs-body);
   color: var(--ink-2);
 }
 
@@ -1288,9 +1291,9 @@ body[data-page="follow"] #paper-rebalance-report.quant-weight-table-wrap,
   gap: 8px;
   align-items: start;
   padding: 8px 10px;
-  border-radius: 8px;
+  border-radius: var(--sys-r-tier1);
   background: var(--bg-2, var(--line-2));
-  font-size: 0.8rem;
+  font-size: var(--sys-fs-body);
   line-height: 1.4;
 }
 
@@ -1300,7 +1303,7 @@ body[data-page="follow"] #paper-rebalance-report.quant-weight-table-wrap,
   gap: 8px;
   align-items: center;
   padding: 0 10px 4px;
-  font-size: 0.62rem;
+  font-size: var(--sys-fs-micro);
   font-weight: 650;
   letter-spacing: 0.04em;
   text-transform: uppercase;
@@ -1322,7 +1325,7 @@ body[data-page="follow"] #paper-rebalance-report.quant-weight-table-wrap,
   justify-self: end;
   align-self: start;
   margin-top: 1px;
-  font-size: 0.76rem;
+  font-size: var(--sys-fs-caption);
   font-weight: 650;
   font-variant-numeric: tabular-nums;
   font-family: var(--font-mono, ui-monospace, monospace);
@@ -1347,18 +1350,18 @@ body[data-page="follow"] #paper-rebalance-report.quant-weight-table-wrap,
 }
 
 .paper-log-date {
-  font-size: 0.68rem;
+  font-size: var(--sys-fs-micro);
   font-weight: 650;
   color: var(--ink-2);
 }
 
 .paper-log-time {
-  font-size: 0.66rem;
+  font-size: var(--sys-fs-micro);
   color: var(--ink-3);
 }
 
 .paper-log-type {
-  font-size: 0.68rem;
+  font-size: var(--sys-fs-micro);
   font-weight: 650;
   text-align: center;
   padding: 3px 6px;
@@ -1399,7 +1402,7 @@ body[data-page="follow"] #paper-rebalance-report.quant-weight-table-wrap,
 
 .paper-log-secondary {
   margin-top: 2px;
-  font-size: 0.68rem;
+  font-size: var(--sys-fs-micro);
   color: var(--ink-3);
   overflow: hidden;
   text-overflow: ellipsis;
@@ -1450,7 +1453,7 @@ body[data-page="follow"] #paper-rebalance-report.quant-weight-table-wrap,
 
 .follow-log-actions .dialog-btn {
   padding: 3px 10px;
-  font-size: 0.72rem;
+  font-size: var(--sys-fs-micro);
   line-height: 1.4;
 }
 
@@ -1486,7 +1489,7 @@ body[data-page="follow"] #paper-rebalance-report.quant-weight-table-wrap,
 
 .follow-ops-title {
   margin: 0;
-  font-size: 0.88rem;
+  font-size: var(--sys-fs-section);
   font-weight: 700;
   color: var(--ink);
   letter-spacing: 0.01em;
@@ -1494,7 +1497,7 @@ body[data-page="follow"] #paper-rebalance-report.quant-weight-table-wrap,
 
 .follow-ops-hint {
   margin: 0;
-  font-size: 0.72rem;
+  font-size: var(--sys-fs-micro);
   color: var(--ink-3);
   white-space: nowrap;
   overflow: hidden;
@@ -1508,7 +1511,7 @@ body[data-page="follow"] #paper-rebalance-report.quant-weight-table-wrap,
   background: transparent;
   padding: 0;
   margin: 0;
-  font-size: 0.72rem;
+  font-size: var(--sys-fs-micro);
   font-weight: 600;
   color: var(--ink-3);
   cursor: pointer;
@@ -1548,7 +1551,7 @@ body[data-page="follow"] #paper-rebalance-report.quant-weight-table-wrap,
 }
 
 .follow-ops-subtitle {
-  font-size: 0.74rem;
+  font-size: var(--sys-fs-caption);
   font-weight: 650;
   color: var(--ink-2);
 }
@@ -1561,7 +1564,7 @@ body[data-page="follow"] #paper-rebalance-report.quant-weight-table-wrap,
 
 .follow-ops-note {
   margin: 0 0 8px;
-  font-size: 0.74rem;
+  font-size: var(--sys-fs-caption);
   color: var(--ink-3);
   line-height: 1.4;
 }
@@ -1692,23 +1695,23 @@ body[data-page="follow"] .follow-page .paper-holdings-react-grid .watching-react
   width: 5.5rem;
   padding: 3px 6px;
   border: 1px solid var(--line);
-  border-radius: 6px;
-  font-size: 0.75rem;
+  border-radius: var(--sys-r-tier2);
+  font-size: var(--sys-fs-caption);
   background: var(--surface);
   color: var(--ink);
 }
 
 .paper-hold-adjust .dialog-btn {
   padding: 2px 8px;
-  font-size: 0.72rem;
+  font-size: var(--sys-fs-micro);
   line-height: 1.4;
 }
 
 .paper-held {
   display: inline-block;
   padding: 1px 7px;
-  border-radius: 999px;
-  font-size: 0.7rem;
+  border-radius: var(--sys-r-full);
+  font-size: var(--sys-fs-micro);
   color: var(--ink-3);
   background: var(--line-2);
   line-height: 1.4;
@@ -1736,10 +1739,10 @@ body[data-page="follow"] .follow-page .paper-holdings-react-grid .watching-react
   align-items: baseline;
   gap: 6px;
   padding: 5px 10px;
-  border-radius: 999px;
+  border-radius: var(--sys-r-full);
   background: var(--line-2);
   border: 1px solid var(--line);
-  font-size: 0.74rem;
+  font-size: var(--sys-fs-caption);
   line-height: 1.3;
 }
 
@@ -1786,7 +1789,7 @@ body[data-page="follow"] .follow-ops-t0 {
 }
 
 .paper-t0-viz-title {
-  font-size: 0.82rem;
+  font-size: var(--sys-fs-body);
   font-weight: 600;
   color: var(--ink);
 }
@@ -1858,7 +1861,7 @@ body[data-page="follow"] .follow-ops-t0 {
   margin: 0;
   padding: 6px 0 0;
   border-top: 1px solid color-mix(in srgb, var(--line) 70%, transparent);
-  font-size: 0.68rem;
+  font-size: var(--sys-fs-micro);
   color: var(--ink-3);
 }
 
@@ -1931,7 +1934,7 @@ body[data-page="follow"] .follow-ops-t0 {
 
 .paper-t0-viz-card h4 {
   margin: 0;
-  font-size: 0.72rem;
+  font-size: var(--sys-fs-micro);
   font-weight: 600;
   color: var(--ink);
   text-transform: none;
@@ -1947,7 +1950,7 @@ body[data-page="follow"] .follow-ops-t0 {
 }
 
 .paper-t0-viz-card-sub {
-  font-size: 0.66rem;
+  font-size: var(--sys-fs-micro);
   color: var(--ink-3);
   font-variant-numeric: tabular-nums;
   line-height: 1.35;
@@ -1965,7 +1968,7 @@ body[data-page="follow"] .follow-ops-t0 {
   display: inline-flex;
   align-items: center;
   gap: 5px;
-  font-size: 0.66rem;
+  font-size: var(--sys-fs-micro);
   color: var(--ink-2);
   padding: 2px 6px;
   border-radius: var(--paper-t0-r);
@@ -1991,10 +1994,10 @@ body[data-page="follow"] .follow-ops-t0 {
   z-index: 6;
   max-width: min(260px, 78%);
   padding: 8px 10px;
-  border-radius: 8px;
+  border-radius: var(--sys-r-tier1);
   background: color-mix(in srgb, var(--ink, #0f172a) 92%, transparent);
   color: #f8fafc;
-  font-size: 0.68rem;
+  font-size: var(--sys-fs-micro);
   line-height: 1.35;
   pointer-events: none;
   box-shadow: 0 8px 24px rgba(15, 23, 42, 0.22);
@@ -2002,7 +2005,7 @@ body[data-page="follow"] .follow-ops-t0 {
 
 .paper-t0-viz-chart-hover-tip strong {
   display: block;
-  font-size: 0.72rem;
+  font-size: var(--sys-fs-micro);
   font-weight: 650;
   margin-bottom: 2px;
 }
@@ -2037,7 +2040,7 @@ body[data-page="follow"] .follow-ops-t0 {
   grid-template-columns: 72px 1fr 28px;
   gap: 6px;
   align-items: center;
-  font-size: 0.72rem;
+  font-size: var(--sys-fs-micro);
 }
 
 .paper-t0-viz-bar-label {
@@ -2049,7 +2052,7 @@ body[data-page="follow"] .follow-ops-t0 {
 
 .paper-t0-viz-bar-track {
   height: 8px;
-  border-radius: 4px;
+  border-radius: var(--sys-r-tier4);
   background: rgba(148, 163, 184, 0.2);
   overflow: hidden;
 }
@@ -2057,7 +2060,7 @@ body[data-page="follow"] .follow-ops-t0 {
 .paper-t0-viz-bar-fill {
   display: block;
   height: 100%;
-  border-radius: 4px;
+  border-radius: var(--sys-r-tier4);
   background: linear-gradient(90deg, #f59e0b, #f97316);
   min-width: 2px;
 }
@@ -2107,7 +2110,7 @@ body[data-page="follow"] .follow-ops-t0 {
 
 .paper-t0-viz-contrib-head h4 {
   margin: 0;
-  font-size: 0.78rem;
+  font-size: var(--sys-fs-body);
   font-weight: 700;
   letter-spacing: 0.04em;
   text-transform: uppercase;
@@ -2115,7 +2118,7 @@ body[data-page="follow"] .follow-ops-t0 {
 }
 
 .paper-t0-viz-contrib-meta {
-  font-size: 0.72rem;
+  font-size: var(--sys-fs-micro);
   font-family: var(--font-mono, ui-monospace, monospace);
   font-variant-numeric: tabular-nums;
   color: var(--ink-2, #475569);
@@ -2124,7 +2127,7 @@ body[data-page="follow"] .follow-ops-t0 {
 
 .paper-t0-viz-contrib-hint {
   margin: 0;
-  font-size: 0.66rem;
+  font-size: var(--sys-fs-micro);
   line-height: 1.4;
   color: var(--ink-3, #94a3b8);
 }
@@ -2145,7 +2148,7 @@ body[data-page="follow"] .follow-ops-t0 {
   min-width: 260px;
   max-width: 320px;
   pointer-events: none;
-  border-radius: 8px;
+  border-radius: var(--sys-r-tier1);
   border-color: rgba(15, 23, 42, 0.1);
   box-shadow:
     0 14px 36px rgba(15, 23, 42, 0.14),
@@ -2171,8 +2174,8 @@ body[data-page="follow"] .follow-ops-t0 {
   align-items: center;
   max-width: 70%;
   padding: 2px 8px;
-  border-radius: 999px;
-  font-size: 0.72rem;
+  border-radius: var(--sys-r-full);
+  font-size: var(--sys-fs-micro);
   font-weight: 650;
   line-height: 1.35;
   color: var(--ink, #0f172a);
@@ -2191,7 +2194,7 @@ body[data-page="follow"] .follow-ops-t0 {
 
 .paper-t0-skip-tip-eyebrow {
   flex-shrink: 0;
-  font-size: 0.64rem;
+  font-size: var(--sys-fs-micro);
   font-weight: 500;
   color: #94a3b8;
   letter-spacing: 0.02em;
@@ -2200,7 +2203,7 @@ body[data-page="follow"] .follow-ops-t0 {
 
 .paper-t0-skip-tip-lead {
   margin: 0;
-  font-size: 0.8rem;
+  font-size: var(--sys-fs-body);
   font-weight: 550;
   line-height: 1.45;
   color: var(--ink, #0f172a);
@@ -2227,7 +2230,7 @@ body[data-page="follow"] .follow-ops-t0 {
   gap: 7px;
   margin: 0;
   padding: 8px 10px;
-  border-radius: 6px;
+  border-radius: var(--sys-r-tier2);
   background: linear-gradient(180deg, #f8fafc 0%, #f1f5f9 100%);
   border: 1px solid rgba(100, 116, 139, 0.14);
 }
@@ -2260,7 +2263,7 @@ body[data-page="follow"] .follow-ops-t0 {
 .paper-t0-skip-tip-name {
   flex: 1 1 auto;
   min-width: 0;
-  font-size: 0.74rem;
+  font-size: var(--sys-fs-caption);
   font-weight: 600;
   color: var(--ink, #0f172a);
   overflow: hidden;
@@ -2275,7 +2278,7 @@ body[data-page="follow"] .follow-ops-t0 {
   gap: 4px;
   font-family: var(--font-mono, ui-monospace, monospace);
   font-variant-numeric: tabular-nums;
-  font-size: 0.7rem;
+  font-size: var(--sys-fs-micro);
   color: var(--ink-2, #475569);
 }
 
@@ -2291,14 +2294,14 @@ body[data-page="follow"] .follow-ops-t0 {
 
 .paper-t0-skip-tip-def {
   margin: 0 0 0 13px;
-  font-size: 0.68rem;
+  font-size: var(--sys-fs-micro);
   line-height: 1.4;
   color: var(--ink-3, #64748b);
 }
 
 .paper-t0-skip-tip-foot {
   margin: 0;
-  font-size: 0.64rem;
+  font-size: var(--sys-fs-micro);
   line-height: 1.35;
   color: #94a3b8;
 }
@@ -2307,7 +2310,7 @@ body[data-page="follow"] .follow-ops-t0 {
 .score-tooltip.paper-t0-process-tip {
   max-width: min(520px, calc(100vw - 24px));
   padding: 12px 14px;
-  border-radius: 8px;
+  border-radius: var(--sys-r-tier1);
   box-shadow: 0 10px 28px rgba(15, 23, 42, 0.18);
 }
 
@@ -2328,15 +2331,15 @@ body[data-page="follow"] .follow-ops-t0 {
   display: inline-flex;
   align-items: center;
   padding: 1px 6px;
-  border-radius: 4px;
-  font-size: 0.68rem;
+  border-radius: var(--sys-r-tier4);
+  font-size: var(--sys-fs-micro);
   font-weight: 600;
   color: #0f766e;
   background: rgba(15, 118, 110, 0.1);
 }
 
 .paper-t0-process-tip-eyebrow {
-  font-size: 0.64rem;
+  font-size: var(--sys-fs-micro);
   letter-spacing: 0.04em;
   text-transform: uppercase;
   color: #94a3b8;
@@ -2344,7 +2347,7 @@ body[data-page="follow"] .follow-ops-t0 {
 
 .paper-t0-process-tip-lead {
   margin: 0;
-  font-size: 0.72rem;
+  font-size: var(--sys-fs-micro);
   line-height: 1.4;
   color: var(--ink-2, #475569);
   word-break: break-word;
@@ -2352,7 +2355,7 @@ body[data-page="follow"] .follow-ops-t0 {
 
 .paper-t0-process-tip-round {
   margin: 0;
-  font-size: 0.72rem;
+  font-size: var(--sys-fs-micro);
   line-height: 1.4;
   color: var(--ink-2, #475569);
   font-family: var(--font-mono, ui-monospace, monospace);
@@ -2362,7 +2365,7 @@ body[data-page="follow"] .follow-ops-t0 {
 .paper-t0-process-tip-skips {
   margin: 0;
   padding: 0 0 0 14px;
-  font-size: 0.66rem;
+  font-size: var(--sys-fs-micro);
   line-height: 1.4;
   color: #94a3b8;
 }
@@ -2370,7 +2373,7 @@ body[data-page="follow"] .follow-ops-t0 {
 .paper-t0-process-tip-chart {
   margin: 2px 0 0;
   border: 1px solid var(--line, #e2e8f0);
-  border-radius: 6px;
+  border-radius: var(--sys-r-tier2);
   background: #fafbfc;
   overflow: hidden;
   line-height: 0;
@@ -2386,14 +2389,14 @@ body[data-page="follow"] .follow-ops-t0 {
   margin: 0;
   padding: 18px 10px;
   text-align: center;
-  font-size: 0.72rem;
+  font-size: var(--sys-fs-micro);
   color: #94a3b8;
   line-height: 1.35;
 }
 
 .paper-t0-process-tip-foot {
   margin: 0;
-  font-size: 0.62rem;
+  font-size: var(--sys-fs-micro);
   line-height: 1.35;
   color: #94a3b8;
 }
@@ -2423,7 +2426,7 @@ body[data-page="follow"] .follow-ops-t0 {
   border-radius: 0;
   border-collapse: separate;
   border-spacing: 0;
-  font-size: 0.78rem;
+  font-size: var(--sys-fs-body);
   background: transparent;
   overflow: visible;
 }
@@ -2450,7 +2453,7 @@ body[data-page="replay"] .replay-t0-section .paper-t0-viz-stock-table {
   z-index: 2;
   text-transform: uppercase;
   letter-spacing: 0.04em;
-  font-size: 0.66rem;
+  font-size: var(--sys-fs-micro);
   font-weight: 700;
   font-family: var(--font);
   color: var(--ink-3);
@@ -2465,7 +2468,7 @@ body[data-page="replay"] .replay-t0-section .paper-t0-viz-stock-table {
 /* 覆盖 .paper-t0-table th.num（0.76rem 等宽）对表头的污染 */
 .paper-t0-viz-stock-table thead th.num {
   font-family: var(--font);
-  font-size: 0.66rem;
+  font-size: var(--sys-fs-micro);
   letter-spacing: 0.04em;
   font-weight: 700;
 }
@@ -2473,7 +2476,7 @@ body[data-page="replay"] .replay-t0-section .paper-t0-viz-stock-table {
 .paper-t0-viz-stock-table thead th.paper-t0-col-viz-dt,
 .paper-t0-viz-stock-table thead th.paper-t0-col-viz-skip {
   font-family: var(--font);
-  font-size: 0.66rem;
+  font-size: var(--sys-fs-micro);
   letter-spacing: 0.04em;
   font-weight: 700;
   color: var(--ink-3);
@@ -2482,7 +2485,7 @@ body[data-page="replay"] .replay-t0-section .paper-t0-viz-stock-table {
 
 .paper-t0-viz-stock-table.quant-weight-table td {
   padding: 6px 6px;
-  font-size: 0.78rem;
+  font-size: var(--sys-fs-body);
   border-bottom: 1px solid color-mix(in srgb, var(--line-2) 65%, transparent);
 }
 
@@ -2535,7 +2538,7 @@ body[data-page="replay"] .replay-t0-section .paper-t0-viz-stock-table {
 .paper-t0-viz-stock-table td.watching-stock .watching-code-sub {
   display: block;
   margin-top: 2px;
-  font-size: 0.72rem;
+  font-size: var(--sys-fs-micro);
   font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
   font-variant-numeric: tabular-nums;
   color: var(--ink-3);
@@ -2548,7 +2551,7 @@ body[data-page="replay"] .replay-t0-section .paper-t0-viz-stock-table {
 .paper-t0-viz-stock-table td.num {
   font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
   font-variant-numeric: tabular-nums;
-  font-size: 0.76rem;
+  font-size: var(--sys-fs-caption);
   letter-spacing: -0.01em;
 }
 
@@ -2586,7 +2589,7 @@ body[data-page="replay"] .replay-t0-section .paper-t0-viz-stock-table {
 }
 
 .paper-t0-viz-stock-table td.paper-t0-col-viz-dt {
-  font-size: 0.72rem;
+  font-size: var(--sys-fs-micro);
   font-family: var(--font-mono, ui-monospace, monospace);
   font-variant-numeric: tabular-nums;
 }
@@ -2614,7 +2617,7 @@ body[data-page="replay"] .replay-t0-section .paper-t0-viz-stock-table {
 }
 
 .paper-t0-viz-stock-table td.paper-t0-col-viz-skip {
-  font-size: 11px;
+  font-size: var(--sys-fs-micro);
   color: var(--muted, #64748b);
   white-space: normal;
   vertical-align: middle;
@@ -2642,11 +2645,11 @@ body[data-page="replay"] .replay-t0-section .paper-t0-viz-stock-table {
   gap: 4px;
   max-width: calc(100% - 28px);
   padding: 1px 6px 1px 5px;
-  border-radius: 999px;
+  border-radius: var(--sys-r-full);
   background: color-mix(in srgb, var(--skip-c, #94a3b8) 14%, transparent);
   border: 1px solid color-mix(in srgb, var(--skip-c, #94a3b8) 28%, transparent);
   color: var(--ink-2, #475569);
-  font-size: 11px;
+  font-size: var(--sys-fs-micro);
   line-height: 1.35;
 }
 
@@ -2677,7 +2680,7 @@ body[data-page="replay"] .replay-t0-section .paper-t0-viz-stock-table {
   flex-shrink: 0;
   font-family: var(--font-mono);
   font-variant-numeric: tabular-nums;
-  font-size: 10px;
+  font-size: var(--sys-fs-micro);
   color: var(--ink-3, #94a3b8);
 }
 
@@ -2698,7 +2701,7 @@ body[data-page="replay"] .replay-t0-section .paper-t0-viz-stock-table {
 }
 
 .paper-t0-skip-none {
-  font-size: 12px;
+  font-size: var(--sys-fs-caption);
   color: var(--ink-3, #94a3b8);
 }
 
@@ -2706,8 +2709,8 @@ body[data-page="replay"] .replay-t0-section .paper-t0-viz-stock-table {
   display: inline-flex;
   align-items: center;
   padding: 1px 7px;
-  border-radius: 999px;
-  font-size: 11px;
+  border-radius: var(--sys-r-full);
+  font-size: var(--sys-fs-micro);
   color: #059669;
   background: rgba(5, 150, 105, 0.1);
   border: 1px solid rgba(5, 150, 105, 0.22);
@@ -2759,10 +2762,10 @@ body[data-page="replay"] .replay-t0-section .paper-t0-viz-stock-table {
   grid-template-columns: 88px 24px 48px 1fr 64px;
   gap: 6px;
   align-items: center;
-  font-size: 0.74rem;
+  font-size: var(--sys-fs-caption);
   font-family: var(--font-mono);
   padding: 4px 6px;
-  border-radius: 6px;
+  border-radius: var(--sys-r-tier2);
   background: rgba(248, 250, 252, 0.8);
 }
 
@@ -2814,7 +2817,7 @@ body[data-page="replay"] .replay-t0-section .paper-t0-viz-stock-table {
   grid-template-columns: 10px 1fr auto;
   gap: 6px;
   align-items: center;
-  font-size: 0.7rem;
+  font-size: var(--sys-fs-micro);
 }
 
 .paper-t0-viz-dot {
@@ -2854,12 +2857,12 @@ body[data-page="replay"] .replay-t0-section .paper-t0-viz-stock-table {
   grid-template-columns: 28px 1fr 48px;
   gap: 6px;
   align-items: center;
-  font-size: 0.72rem;
+  font-size: var(--sys-fs-micro);
 }
 
 .paper-t0-viz-dir-row .bar-track {
   height: 10px;
-  border-radius: 4px;
+  border-radius: var(--sys-r-tier4);
   background: rgba(148, 163, 184, 0.2);
   overflow: hidden;
 }
@@ -2867,7 +2870,7 @@ body[data-page="replay"] .replay-t0-section .paper-t0-viz-stock-table {
 .paper-t0-viz-dir-row .bar-fill {
   display: block;
   height: 100%;
-  border-radius: 4px;
+  border-radius: var(--sys-r-tier4);
   min-width: 2px;
 }
 
@@ -2885,7 +2888,7 @@ body[data-page="replay"] .replay-t0-section .paper-t0-viz-stock-table {
 }
 
 .paper-t0-viz-trade-table {
-  font-size: 0.72rem;
+  font-size: var(--sys-fs-micro);
 }
 
 .paper-t0-viz-trade-table td.num.pos {
@@ -2927,7 +2930,7 @@ body[data-page="replay"] .replay-t0-section .paper-t0-viz-stock-table {
 }
 
 .paper-t0-report-scope {
-  font-size: 0.78rem;
+  font-size: var(--sys-fs-body);
   font-weight: 600;
   color: var(--ink-2);
   margin-bottom: 4px;
@@ -2952,7 +2955,7 @@ body[data-page="replay"] .replay-t0-section .paper-t0-viz-stock-table {
 
 .paper-t0-report-sub {
   margin-top: 6px;
-  font-size: 0.72rem;
+  font-size: var(--sys-fs-micro);
   color: var(--ink-3);
   line-height: 1.4;
 }
@@ -2987,13 +2990,13 @@ body[data-page="replay"] .replay-t0-section .paper-t0-viz-stock-table {
 }
 
 .paper-t0-report-verdict-label {
-  font-size: 0.82rem;
+  font-size: var(--sys-fs-body);
   font-weight: 700;
   color: var(--ink);
 }
 
 .paper-t0-report-verdict-hint {
-  font-size: 0.68rem;
+  font-size: var(--sys-fs-micro);
   color: var(--ink-3);
   line-height: 1.35;
 }
@@ -3039,7 +3042,7 @@ body[data-page="replay"] .replay-t0-section .paper-t0-viz-stock-table {
 
 .paper-t0-portrait-lead {
   margin: 0;
-  font-size: 0.68rem;
+  font-size: var(--sys-fs-micro);
   color: var(--ink-3, #64748b);
   line-height: 1.35;
   white-space: nowrap;
@@ -3085,7 +3088,7 @@ body[data-page="replay"] .replay-t0-section .paper-t0-viz-stock-table {
 }
 
 .paper-t0-portrait-universe-n {
-  font-size: 1.55rem;
+  font-size: var(--sys-fs-kpi);
   font-weight: 700;
   font-variant-numeric: tabular-nums;
   font-family: var(--font-mono, ui-monospace, monospace);
@@ -3095,7 +3098,7 @@ body[data-page="replay"] .replay-t0-section .paper-t0-viz-stock-table {
 }
 
 .paper-t0-portrait-universe-unit {
-  font-size: 0.72rem;
+  font-size: var(--sys-fs-micro);
   font-weight: 600;
   color: var(--ink-2, #475569);
 }
@@ -3105,7 +3108,7 @@ body[data-page="replay"] .replay-t0-section .paper-t0-viz-stock-table {
   flex-wrap: wrap;
   gap: 8px 14px;
   align-items: baseline;
-  font-size: 0.72rem;
+  font-size: var(--sys-fs-micro);
   color: var(--ink-2, #475569);
   grid-column: 2;
   grid-row: 1;
@@ -3147,7 +3150,7 @@ body[data-page="replay"] .replay-t0-section .paper-t0-viz-stock-table {
 
 .paper-t0-portrait-band-h {
   margin: 0 0 8px;
-  font-size: 0.62rem;
+  font-size: var(--sys-fs-micro);
   font-weight: 700;
   letter-spacing: 0.05em;
   text-transform: uppercase;
@@ -3168,14 +3171,14 @@ body[data-page="replay"] .replay-t0-section .paper-t0-viz-stock-table {
 }
 
 .paper-t0-portrait-stat-k {
-  font-size: 0.62rem;
+  font-size: var(--sys-fs-micro);
   font-weight: 600;
   color: var(--ink-3, #64748b);
   letter-spacing: 0.02em;
 }
 
 .paper-t0-portrait-stat-v {
-  font-size: 0.95rem;
+  font-size: var(--sys-fs-section);
   font-weight: 700;
   font-variant-numeric: tabular-nums;
   font-family: var(--font-mono, ui-monospace, monospace);
@@ -3185,7 +3188,7 @@ body[data-page="replay"] .replay-t0-section .paper-t0-viz-stock-table {
 }
 
 .paper-t0-portrait-stat-n {
-  font-size: 0.62rem;
+  font-size: var(--sys-fs-micro);
   font-variant-numeric: tabular-nums;
   font-family: var(--font-mono, ui-monospace, monospace);
   color: var(--ink-3, #94a3b8);
@@ -3214,7 +3217,7 @@ body[data-page="replay"] .replay-t0-section .paper-t0-viz-stock-table {
   width: 100%;
   height: 3px;
   margin-top: 4px;
-  border-radius: 999px;
+  border-radius: var(--sys-r-full);
   overflow: hidden;
   background: color-mix(in srgb, var(--line) 55%, transparent);
 }
@@ -3264,7 +3267,7 @@ body[data-page="replay"] .replay-t0-section .paper-t0-viz-stock-table {
 
 .paper-t0-portrait-slots-head {
   margin: 0 0 6px;
-  font-size: 0.64rem;
+  font-size: var(--sys-fs-micro);
   font-weight: 700;
   letter-spacing: 0.05em;
   text-transform: uppercase;
@@ -3288,7 +3291,7 @@ body[data-page="replay"] .replay-t0-section .paper-t0-viz-stock-table {
 .paper-t0-portrait-slots-warn {
   margin: 0 0 8px;
   padding: 6px 8px;
-  font-size: 0.68rem;
+  font-size: var(--sys-fs-micro);
   line-height: 1.4;
   color: color-mix(in srgb, #92400e 88%, var(--ink));
   background: color-mix(in srgb, #f59e0b 10%, var(--surface, #fff));
@@ -3300,7 +3303,7 @@ body[data-page="replay"] .replay-t0-section .paper-t0-viz-stock-table {
   width: max-content;
   min-width: max(100%, 1280px);
   border-collapse: collapse;
-  font-size: 0.72rem;
+  font-size: var(--sys-fs-micro);
 }
 
 .paper-t0-portrait-slot-table th,
@@ -3316,7 +3319,7 @@ body[data-page="replay"] .replay-t0-section .paper-t0-viz-stock-table {
 
 .paper-t0-portrait-slot-table th {
   font-weight: 600;
-  font-size: 0.62rem;
+  font-size: var(--sys-fs-micro);
   color: var(--ink-3);
   text-align: right;
 }
@@ -3380,7 +3383,7 @@ body[data-page="replay"] .replay-t0-section .paper-t0-viz-stock-table {
 }
 
 .paper-t0-portrait-cell small {
-  font-size: 0.58rem;
+  font-size: var(--sys-fs-micro);
   font-weight: 500;
   color: var(--ink-3, #94a3b8);
 }
@@ -3417,7 +3420,7 @@ body[data-page="replay"] .replay-t0-section .paper-t0-viz-stock-table {
 
 .paper-t0-portrait-cover-txt small,
 .paper-t0-portrait-fill-txt small {
-  font-size: 0.62rem;
+  font-size: var(--sys-fs-micro);
   color: var(--ink-3, #94a3b8);
 }
 
@@ -3433,7 +3436,7 @@ body[data-page="replay"] .replay-t0-section .paper-t0-viz-stock-table {
 
 .paper-t0-metric-section-title {
   margin: 0 0 8px;
-  font-size: 0.68rem;
+  font-size: var(--sys-fs-micro);
   font-weight: 700;
   letter-spacing: 0.06em;
   text-transform: uppercase;
@@ -3452,7 +3455,7 @@ body[data-page="replay"] .replay-t0-section .paper-t0-viz-stock-table {
 
 .paper-t0-metric-label {
   display: block;
-  font-size: 0.68rem;
+  font-size: var(--sys-fs-micro);
   color: var(--ink-3);
   margin-bottom: 2px;
   white-space: nowrap;
@@ -3462,7 +3465,7 @@ body[data-page="replay"] .replay-t0-section .paper-t0-viz-stock-table {
 
 .paper-t0-metric-val {
   display: block;
-  font-size: 0.82rem;
+  font-size: var(--sys-fs-body);
   font-weight: 600;
   font-variant-numeric: tabular-nums;
   font-family: var(--font-mono);
@@ -3494,7 +3497,7 @@ body[data-page="replay"] .replay-t0-section .paper-t0-viz-stock-table {
   flex-wrap: wrap;
   align-items: baseline;
   gap: 6px 8px;
-  font-size: 0.74rem;
+  font-size: var(--sys-fs-caption);
 }
 
 .paper-t0-compare-label {
@@ -3509,7 +3512,7 @@ body[data-page="replay"] .replay-t0-section .paper-t0-viz-stock-table {
 }
 
 .paper-t0-compare-delta {
-  font-size: 0.68rem;
+  font-size: var(--sys-fs-micro);
   font-family: var(--font-mono);
 }
 
@@ -3535,7 +3538,7 @@ body[data-page="replay"] .replay-t0-section .paper-t0-viz-stock-table {
 
 .paper-t0-days-title {
   margin: 0 0 4px;
-  font-size: 0.74rem;
+  font-size: var(--sys-fs-caption);
   font-weight: 700;
   letter-spacing: 0.04em;
   text-transform: uppercase;
@@ -3570,7 +3573,7 @@ body[data-page="replay"] .replay-t0-section .paper-t0-viz-stock-table {
   flex: 0 0 auto;
   margin-left: auto;
   padding: 4px 10px;
-  font-size: 0.72rem;
+  font-size: var(--sys-fs-micro);
 }
 
 .paper-t0-trades-panel.is-fs {
@@ -3630,7 +3633,7 @@ body.paper-t0-trades-fs-open .paper-t0-desk-board {
   border-radius: var(--paper-t0-r, var(--follow-radius));
   overflow: hidden;
   background: var(--bg-card, var(--surface));
-  font-size: 0.78rem;
+  font-size: var(--sys-fs-body);
   box-sizing: border-box;
 }
 
@@ -3646,7 +3649,7 @@ body[data-page="replay"] .replay-t0-section .paper-t0-table {
   position: static;
   text-transform: none;
   letter-spacing: 0.05em;
-  font-size: 0.66rem;
+  font-size: var(--sys-fs-micro);
   font-weight: 700;
   color: var(--ink-3);
   background: color-mix(in srgb, var(--surface) 75%, var(--bg));
@@ -3662,7 +3665,7 @@ body[data-page="replay"] .replay-t0-section .paper-t0-table {
   top: 0;
   z-index: 2;
   font-family: var(--font);
-  font-size: 0.66rem;
+  font-size: var(--sys-fs-micro);
   font-weight: 700;
   letter-spacing: 0.04em;
   text-transform: uppercase;
@@ -3676,7 +3679,7 @@ body[data-page="replay"] .replay-t0-section .paper-t0-table {
 .paper-t0-viz-stock-table.paper-t0-table.quant-weight-table thead th.paper-t0-col-viz-dt,
 .paper-t0-viz-stock-table.paper-t0-table.quant-weight-table thead th.paper-t0-col-viz-skip {
   font-family: var(--font);
-  font-size: 0.66rem;
+  font-size: var(--sys-fs-micro);
   letter-spacing: 0.04em;
   font-weight: 700;
   text-transform: uppercase;
@@ -3740,7 +3743,7 @@ body[data-page="replay"] .replay-t0-section .paper-t0-table {
 .paper-t0-table td.num {
   text-align: right;
   font-family: var(--font-mono);
-  font-size: 0.76rem;
+  font-size: var(--sys-fs-caption);
   font-variant-numeric: tabular-nums;
   letter-spacing: 0;
   font-feature-settings: "tnum" 1, "lnum" 1;
@@ -3778,7 +3781,7 @@ body[data-page="replay"] .replay-t0-section .paper-t0-table {
   border-radius: 0;
   overflow: visible;
   margin: 0;
-  font-size: 0.8125rem;
+  font-size: var(--sys-fs-body);
   -webkit-font-smoothing: antialiased;
   font-feature-settings: "tnum" 1, "lnum" 1;
 }
@@ -3810,7 +3813,7 @@ body[data-page="replay"] .replay-t0-section .paper-t0-table {
 }
 
 .paper-t0-day-debug-caret {
-  font-size: 0.65rem;
+  font-size: var(--sys-fs-micro);
   opacity: 0.65;
   transition: transform 0.12s ease;
 }
@@ -3839,7 +3842,7 @@ body[data-page="replay"] .replay-t0-section .paper-t0-table {
   flex-wrap: wrap;
   gap: 0.2rem 0.65rem;
   align-items: baseline;
-  font-size: 0.68rem;
+  font-size: var(--sys-fs-micro);
   color: var(--ink-3);
   margin-bottom: 0.25rem;
 }
@@ -3862,7 +3865,7 @@ body[data-page="replay"] .replay-t0-section .paper-t0-table {
   width: 100%;
   table-layout: fixed;
   border-collapse: collapse;
-  font-size: 0.68rem;
+  font-size: var(--sys-fs-micro);
   font-family: var(--font-mono);
   font-variant-numeric: tabular-nums;
 }
@@ -3889,7 +3892,7 @@ body[data-page="replay"] .replay-t0-section .paper-t0-table {
   top: 0;
   background: color-mix(in srgb, var(--surface) 90%, var(--bg));
   font-family: var(--font);
-  font-size: 0.65rem;
+  font-size: var(--sys-fs-micro);
   font-weight: 600;
   color: var(--ink-3);
   text-align: center;
@@ -3927,7 +3930,7 @@ body[data-page="replay"] .replay-t0-section .paper-t0-table {
 
 .paper-t0-scan-skip {
   font-family: var(--font);
-  font-size: 0.65rem;
+  font-size: var(--sys-fs-micro);
   color: var(--ink-3);
 }
 
@@ -3956,7 +3959,7 @@ body[data-page="replay"] .replay-t0-section .paper-t0-trades-wrap .paper-t0-trad
 /* 成交明细字型：中文标签 UI 无衬线；符号/数字表头与单元格同用等宽表列 */
 .paper-t0-trades-table thead th {
   font-family: var(--font);
-  font-size: 0.72rem;
+  font-size: var(--sys-fs-micro);
   font-weight: 600;
   letter-spacing: 0.02em;
   line-height: 1.3;
@@ -3977,7 +3980,7 @@ body[data-page="replay"] .replay-t0-section .paper-t0-trades-wrap .paper-t0-trad
 .paper-t0-trades-table thead th.paper-t0-col-pnl,
 .paper-t0-trades-table thead th.paper-t0-col-exp {
   font-family: var(--font-mono);
-  font-size: 0.7rem;
+  font-size: var(--sys-fs-micro);
   font-weight: 600;
   letter-spacing: 0;
   font-variant-numeric: tabular-nums;
@@ -3991,7 +3994,7 @@ body[data-page="replay"] .replay-t0-section .paper-t0-trades-wrap .paper-t0-trad
 .paper-t0-trades-table thead th.paper-t0-col-stock,
 .paper-t0-trades-table thead th.paper-t0-col-act {
   font-family: var(--font);
-  font-size: 0.72rem;
+  font-size: var(--sys-fs-micro);
   font-weight: 600;
   letter-spacing: 0.02em;
 }
@@ -4007,7 +4010,7 @@ body[data-page="replay"] .replay-t0-section .paper-t0-trades-wrap .paper-t0-trad
 
 .paper-t0-trades-table td.num {
   font-family: var(--font-mono);
-  font-size: 0.78rem;
+  font-size: var(--sys-fs-body);
   font-weight: 500;
   font-variant-numeric: tabular-nums;
   letter-spacing: 0;
@@ -4021,7 +4024,7 @@ body[data-page="replay"] .replay-t0-section .paper-t0-trades-wrap .paper-t0-trad
 
 .paper-t0-trades-table td.paper-t0-col-date {
   font-family: var(--font-mono);
-  font-size: 0.75rem;
+  font-size: var(--sys-fs-caption);
   font-weight: 500;
   font-variant-numeric: tabular-nums;
   letter-spacing: 0;
@@ -4030,13 +4033,13 @@ body[data-page="replay"] .replay-t0-section .paper-t0-trades-wrap .paper-t0-trad
 .paper-t0-trades-table td.paper-t0-col-process,
 .paper-t0-trades-table td.paper-t0-col-reason {
   font-family: var(--font);
-  font-size: 0.75rem;
+  font-size: var(--sys-fs-caption);
   letter-spacing: 0;
 }
 
 .paper-t0-trades-table .paper-t0-leg-round-hm {
   font-family: var(--font-mono);
-  font-size: 0.68rem;
+  font-size: var(--sys-fs-micro);
   font-weight: 600;
   letter-spacing: 0;
   font-variant-numeric: tabular-nums;
@@ -4044,17 +4047,17 @@ body[data-page="replay"] .replay-t0-section .paper-t0-trades-wrap .paper-t0-trad
 
 .paper-t0-trades-table .paper-t0-leg-round-dir {
   font-family: var(--font);
-  font-size: 0.62rem;
+  font-size: var(--sys-fs-micro);
   letter-spacing: 0.02em;
 }
 
 .paper-t0-trades-table .paper-t0-leg-chip {
-  font-size: 0.72rem;
+  font-size: var(--sys-fs-micro);
 }
 
 .paper-t0-trades-table .paper-t0-leg-side {
   font-family: var(--font);
-  font-size: 0.64rem;
+  font-size: var(--sys-fs-micro);
   letter-spacing: 0.02em;
 }
 
@@ -4068,12 +4071,12 @@ body[data-page="replay"] .replay-t0-section .paper-t0-trades-wrap .paper-t0-trad
 }
 
 .paper-t0-trades-table .paper-t0-leg-time {
-  font-size: 0.68rem;
+  font-size: var(--sys-fs-micro);
 }
 
 .paper-t0-trades-table .paper-t0-leg-skip {
   font-family: var(--font);
-  font-size: 0.68rem;
+  font-size: var(--sys-fs-micro);
 }
 
 /* ── 成交明细 blotter：列带分区 + 涨跌热度 + 过程链 ── */
@@ -4609,7 +4612,7 @@ body[data-page="replay"] .replay-t0-section .paper-t0-trades-wrap .paper-t0-trad
 .paper-t0-table td.watching-stock .watching-code-sub {
   display: block;
   margin-top: 2px;
-  font-size: 0.72rem;
+  font-size: var(--sys-fs-micro);
   font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
   font-variant-numeric: tabular-nums;
   color: var(--ink-3);
@@ -4644,7 +4647,7 @@ body[data-page="replay"] .replay-t0-section .paper-t0-trades-wrap .paper-t0-trad
 .paper-t0-table .rebalance-stock-code {
   display: block;
   margin: 0;
-  font-size: 0.68rem;
+  font-size: var(--sys-fs-micro);
   line-height: 1.2;
   color: var(--ink-3);
   font-family: var(--font-mono);
@@ -4703,7 +4706,7 @@ body[data-page="replay"] .replay-t0-section .paper-t0-trades-wrap .paper-t0-trad
 .paper-t0-trades-table td.paper-t0-col-yt90 {
   font-variant-numeric: tabular-nums;
   font-family: var(--font-mono, ui-monospace, monospace);
-  font-size: 0.78rem;
+  font-size: var(--sys-fs-body);
 }
 
 
@@ -4741,7 +4744,7 @@ body[data-page="replay"] .replay-t0-section .paper-t0-trades-wrap .paper-t0-trad
 
 .paper-t0-table td.paper-t0-col-process::-webkit-scrollbar-thumb {
   background: color-mix(in srgb, var(--ink-3) 35%, transparent);
-  border-radius: 999px;
+  border-radius: var(--sys-r-full);
 }
 
 
@@ -4783,9 +4786,9 @@ body[data-page="replay"] .replay-t0-section .paper-t0-trades-wrap .paper-t0-trad
   align-items: center;
   gap: 3px;
   padding: 1px 5px 1px 4px;
-  border-radius: 4px;
+  border-radius: var(--sys-r-tier4);
   font-family: var(--font-mono);
-  font-size: 0.62rem;
+  font-size: var(--sys-fs-micro);
   font-weight: 700;
   letter-spacing: 0.02em;
   color: #334155;
@@ -4795,7 +4798,7 @@ body[data-page="replay"] .replay-t0-section .paper-t0-trades-wrap .paper-t0-trad
 }
 
 .paper-t0-leg-round-dir {
-  font-size: 0.58rem;
+  font-size: var(--sys-fs-micro);
   font-weight: 700;
   padding: 0 3px;
   border-radius: 3px;
@@ -4832,7 +4835,7 @@ body[data-page="replay"] .replay-t0-section .paper-t0-trades-wrap .paper-t0-trad
 }
 
 .paper-t0-leg-skip {
-  font-size: 0.62rem;
+  font-size: var(--sys-fs-micro);
   color: #64748b;
   max-width: 22rem;
   overflow: hidden;
@@ -4848,7 +4851,7 @@ body[data-page="replay"] .replay-t0-section .paper-t0-trades-wrap .paper-t0-trad
   border-radius: 5px;
   border: 1px solid var(--line);
   background: var(--surface-elevated, #fff);
-  font-size: 0.68rem;
+  font-size: var(--sys-fs-micro);
   line-height: 1.25;
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
@@ -4872,7 +4875,7 @@ body[data-page="replay"] .replay-t0-section .paper-t0-trades-wrap .paper-t0-trad
   min-width: 1.1rem;
   padding: 1px 4px;
   border-radius: 3px;
-  font-size: 0.62rem;
+  font-size: var(--sys-fs-micro);
   font-weight: 700;
   letter-spacing: 0.04em;
   line-height: 1.2;
@@ -4897,7 +4900,7 @@ body[data-page="replay"] .replay-t0-section .paper-t0-trades-wrap .paper-t0-trad
 
 .paper-t0-leg-time {
   color: var(--ink-3, #64748b);
-  font-size: 0.64rem;
+  font-size: var(--sys-fs-micro);
   font-weight: 500;
 }
 
@@ -4918,7 +4921,7 @@ body[data-page="replay"] .replay-t0-section .paper-t0-trades-wrap .paper-t0-trad
   margin-left: 3px;
   padding: 0 3px;
   border-radius: 2px;
-  font-size: 0.58rem;
+  font-size: var(--sys-fs-micro);
   font-weight: 700;
   line-height: 1.3;
   color: #92400e;
@@ -4949,7 +4952,7 @@ body[data-page="replay"] .replay-t0-section .paper-t0-trades-wrap .paper-t0-trad
 
 .paper-t0-leg-at {
   color: var(--ink-3, #94a3b8);
-  font-size: 0.62rem;
+  font-size: var(--sys-fs-micro);
 }
 
 .paper-t0-leg-px {
@@ -5010,10 +5013,10 @@ body[data-page="replay"] .replay-t0-section .paper-t0-trades-wrap .paper-t0-trad
   background: color-mix(in srgb, var(--danger, #dc2626) 8%, transparent);
   color: var(--danger, #b91c1c);
   font: inherit;
-  font-size: 0.75rem;
+  font-size: var(--sys-fs-caption);
   line-height: 1.2;
   padding: 0.2rem 0.4rem;
-  border-radius: 4px;
+  border-radius: var(--sys-r-tier4);
   cursor: pointer;
 }
 .paper-t0-ledger-del:hover {
@@ -5029,10 +5032,10 @@ body[data-page="replay"] .replay-t0-section .paper-t0-trades-wrap .paper-t0-trad
   background: color-mix(in srgb, var(--ink-3, #64748b) 6%, transparent);
   color: var(--ink-2, #475569);
   font: inherit;
-  font-size: 0.75rem;
+  font-size: var(--sys-fs-caption);
   line-height: 1.2;
   padding: 0.2rem 0.4rem;
-  border-radius: 4px;
+  border-radius: var(--sys-r-tier4);
   cursor: pointer;
 }
 .paper-t0-desk-clear:hover {
@@ -5095,7 +5098,7 @@ body[data-page="replay"] .replay-t0-section .paper-t0-trades-wrap .paper-t0-trad
 
 .paper-stat .label {
   display: block;
-  font-size: 0.68rem;
+  font-size: var(--sys-fs-micro);
   font-weight: 700;
   color: var(--ink-3);
   letter-spacing: 0.08em;
@@ -5104,7 +5107,7 @@ body[data-page="replay"] .replay-t0-section .paper-t0-trades-wrap .paper-t0-trad
 }
 
 .paper-stat .val {
-  font-size: 1.25rem;
+  font-size: var(--sys-fs-kpi);
   font-weight: 800;
   font-variant-numeric: tabular-nums;
   font-family: var(--font-mono);
@@ -5143,7 +5146,7 @@ body[data-page="replay"] .replay-t0-section .paper-t0-trades-wrap .paper-t0-trad
 
 .paper-map-hint {
   margin: 6px 0 0;
-  font-size: 0.72rem;
+  font-size: var(--sys-fs-micro);
   line-height: 1.45;
   color: var(--ink-3);
 }
@@ -5165,7 +5168,7 @@ body[data-page="replay"] .replay-t0-section .paper-t0-trades-wrap .paper-t0-trad
   --follow-pad-x: 10px;
   --follow-radius: var(--radius-sm);
   gap: var(--follow-gap-lg);
-  font-size: 0.84rem;
+  font-size: var(--sys-fs-body);
   color: var(--ink);
   letter-spacing: -0.005em;
 }
@@ -5182,7 +5185,7 @@ body[data-page="replay"] .replay-t0-section .paper-t0-trades-wrap .paper-t0-trad
 }
 
 .follow-page .follow-cost-note {
-  font-size: 0.72rem;
+  font-size: var(--sys-fs-micro);
   font-weight: 650;
   letter-spacing: 0.02em;
   color: var(--ink-2);
@@ -5190,7 +5193,7 @@ body[data-page="replay"] .replay-t0-section .paper-t0-trades-wrap .paper-t0-trad
 
 .follow-page .follow-hero-note {
   margin-top: 2px;
-  font-size: 0.72rem;
+  font-size: var(--sys-fs-micro);
   line-height: 1.4;
   color: var(--ink-3);
 }
@@ -5200,9 +5203,9 @@ body[data-page="replay"] .replay-t0-section .paper-t0-trades-wrap .paper-t0-trad
 }
 
 .follow-page .follow-strategy-select {
-  border-radius: 6px;
+  border-radius: var(--sys-r-tier2);
   padding: 6px 10px;
-  font-size: 0.78rem;
+  font-size: var(--sys-fs-body);
   min-width: 9.5rem;
   box-shadow: none;
 }
@@ -5234,14 +5237,14 @@ body[data-page="replay"] .replay-t0-section .paper-t0-trades-wrap .paper-t0-trad
 
 .follow-page .paper-stat .label {
   margin-bottom: 2px;
-  font-size: 0.66rem;
+  font-size: var(--sys-fs-micro);
   letter-spacing: 0.05em;
   color: var(--ink-3);
 }
 
 .follow-page .paper-stat .val {
   font-family: var(--font-mono);
-  font-size: 0.95rem;
+  font-size: var(--sys-fs-section);
   font-weight: 650;
   letter-spacing: -0.02em;
   font-variant-numeric: tabular-nums;
@@ -5266,22 +5269,22 @@ body[data-page="replay"] .replay-t0-section .paper-t0-trades-wrap .paper-t0-trad
 }
 
 .follow-page .follow-chart-card .paper-chart-label {
-  font-size: 0.72rem;
+  font-size: var(--sys-fs-micro);
   font-weight: 650;
   letter-spacing: 0.02em;
   color: var(--ink-2);
 }
 
 .follow-page .paper-chart-modes {
-  border-radius: 6px;
+  border-radius: var(--sys-r-tier2);
   padding: 2px;
   gap: 2px;
 }
 
 .follow-page .paper-chart-mode {
-  font-size: 0.68rem;
+  font-size: var(--sys-fs-micro);
   padding: 4px 8px;
-  border-radius: 4px;
+  border-radius: var(--sys-r-tier4);
 }
 
 .follow-page #paper-chart.lw-host {
@@ -5322,7 +5325,7 @@ body[data-page="replay"] .replay-t0-section .paper-t0-trades-wrap .paper-t0-trad
 .follow-page .follow-holdings-refresh {
   margin-left: auto;
   padding: 2px 10px;
-  font-size: 0.72rem;
+  font-size: var(--sys-fs-micro);
   min-height: 26px;
 }
 
@@ -5330,7 +5333,7 @@ body[data-page="replay"] .replay-t0-section .paper-t0-trades-wrap .paper-t0-trad
   margin: 0;
   flex: 1 1 8rem;
   min-width: 0;
-  font-size: 0.72rem;
+  font-size: var(--sys-fs-micro);
   color: var(--ink-3);
 }
 
@@ -5356,14 +5359,14 @@ body[data-page="replay"] .replay-t0-section .paper-t0-trades-wrap .paper-t0-trad
 
 .follow-page .paper-holdings-react-grid .paper-wl-name-text {
   font-weight: 600;
-  font-size: 0.8rem;
+  font-size: var(--sys-fs-body);
   letter-spacing: -0.01em;
   line-height: 1.25;
 }
 
 .follow-page .paper-holdings-react-grid .paper-wl-code {
   font-family: var(--font-mono);
-  font-size: 0.68rem;
+  font-size: var(--sys-fs-micro);
   letter-spacing: 0.01em;
   line-height: 1.2;
   white-space: nowrap;
@@ -5384,7 +5387,7 @@ body[data-page="replay"] .replay-t0-section .paper-t0-trades-wrap .paper-t0-trad
 }
 
 .follow-page .paper-origin-chip {
-  font-size: 0.66rem;
+  font-size: var(--sys-fs-micro);
   padding: 0 5px;
   border-radius: 3px;
   font-weight: 650;
@@ -5413,11 +5416,11 @@ body[data-page="replay"] .replay-t0-section .paper-t0-trades-wrap .paper-t0-trad
 }
 
 .follow-page .paper-holdings-empty-title {
-  font-size: 0.84rem;
+  font-size: var(--sys-fs-body);
 }
 
 .follow-page .paper-holdings-empty-text {
-  font-size: 0.76rem;
+  font-size: var(--sys-fs-caption);
 }
 
 .follow-page .follow-ops {
@@ -5438,14 +5441,14 @@ body[data-page="replay"] .replay-t0-section .paper-t0-trades-wrap .paper-t0-trad
 }
 
 .follow-page .follow-ops-title {
-  font-size: 0.8rem;
+  font-size: var(--sys-fs-body);
   font-weight: 650;
   letter-spacing: 0.02em;
   color: var(--ink-2);
 }
 
 .follow-page .follow-ops-hint {
-  font-size: 0.68rem;
+  font-size: var(--sys-fs-micro);
 }
 
 .follow-page .follow-ops-row {
@@ -5456,8 +5459,8 @@ body[data-page="replay"] .replay-t0-section .paper-t0-trades-wrap .paper-t0-trad
 
 .follow-page .follow-ops-row .dialog-btn {
   padding: 5px 12px;
-  font-size: 0.78rem;
-  border-radius: 6px;
+  font-size: var(--sys-fs-body);
+  border-radius: var(--sys-r-tier2);
 }
 
 /* 策略调仓旁状态：与持仓「加载中…」同款脉冲点 */
@@ -5478,8 +5481,8 @@ body[data-page="replay"] .replay-t0-section .paper-t0-trades-wrap .paper-t0-trad
 
 .follow-page .paper-log-item {
   padding: 6px 8px;
-  border-radius: 6px;
-  font-size: 0.76rem;
+  border-radius: var(--sys-r-tier2);
+  font-size: var(--sys-fs-caption);
   gap: 6px;
   grid-template-columns: 3.8rem minmax(0, 1fr) 3.4rem;
 }
@@ -5488,7 +5491,7 @@ body[data-page="replay"] .replay-t0-section .paper-t0-trades-wrap .paper-t0-trad
   grid-template-columns: 3.8rem minmax(0, 1fr) 2.75rem 3.4rem;
   gap: 6px;
   padding: 0 8px 3px;
-  font-size: 0.6rem;
+  font-size: var(--sys-fs-micro);
 }
 
 .follow-page .paper-log-item.has-cols-4 {
@@ -5496,13 +5499,13 @@ body[data-page="replay"] .replay-t0-section .paper-t0-trades-wrap .paper-t0-trad
 }
 
 .follow-page .paper-log-price {
-  font-size: 0.72rem;
+  font-size: var(--sys-fs-micro);
 }
 
 .follow-page .paper-log-type {
-  font-size: 0.64rem;
+  font-size: var(--sys-fs-micro);
   padding: 2px 5px;
-  border-radius: 4px;
+  border-radius: var(--sys-r-tier4);
 }
 
 .follow-page .paper-log-primary {
@@ -5516,7 +5519,7 @@ body[data-page="replay"] .replay-t0-section .paper-t0-trades-wrap .paper-t0-trad
 
 .follow-page .follow-fold > summary {
   padding: 8px 10px;
-  font-size: 0.78rem;
+  font-size: var(--sys-fs-body);
 }
 
 .follow-page .follow-fold {
@@ -5552,7 +5555,7 @@ body[data-page="replay"] .replay-t0-section .paper-t0-trades-wrap .paper-t0-trad
 
 .follow-cost-note {
   margin: 0;
-  font-size: 0.72rem;
+  font-size: var(--sys-fs-micro);
   color: var(--ink-3, var(--ink-2));
 }
 
@@ -5585,7 +5588,7 @@ body[data-page="replay"] .replay-t0-section .paper-t0-trades-wrap .paper-t0-trad
 
 .paper-exec-title {
   margin: 0 0 6px;
-  font-size: 0.88rem;
+  font-size: var(--sys-fs-section);
   font-weight: 650;
 }
 
@@ -5597,7 +5600,7 @@ body[data-page="replay"] .replay-t0-section .paper-t0-trades-wrap .paper-t0-trad
   border: 1px solid var(--line);
   border-radius: var(--radius);
   overflow: hidden;
-  font-size: 0.82rem;
+  font-size: var(--sys-fs-body);
 }
 
 .paper-watchlist-table thead th {
@@ -5605,7 +5608,7 @@ body[data-page="replay"] .replay-t0-section .paper-t0-trades-wrap .paper-t0-trad
   border-bottom: 2px solid var(--line);
   color: var(--ink-3);
   font-weight: 600;
-  font-size: 0.7rem;
+  font-size: var(--sys-fs-micro);
   padding: 12px 16px 10px;
   text-align: right;
   letter-spacing: 0.02em;
@@ -5700,7 +5703,7 @@ html[data-density="compact"] .follow-page #paper-chart.lw-host {
 }
 
 .paper-holdings-react-grid .paper-wl-code {
-  font-size: 0.72rem;
+  font-size: var(--sys-fs-micro);
   color: var(--ink-3);
   line-height: 1.2;
   white-space: nowrap;
@@ -5820,7 +5823,7 @@ html[data-density="compact"] .follow-page #paper-chart.lw-host {
 }
 
 .follow-stat .follow-stat-label {
-  font-size: 12px;
+  font-size: var(--sys-fs-caption);
   line-height: 18px;
   font-weight: 500;
   color: var(--ink-3);
@@ -5828,8 +5831,8 @@ html[data-density="compact"] .follow-page #paper-chart.lw-host {
 }
 
 .follow-stat .follow-stat-value {
-  font-size: 20px;              /* hero KPI size */
-  line-height: 28px;
+  font-size: var(--sys-fs-kpi);              /* hero KPI size */
+  line-height: var(--sys-desk-chip-h);
   font-weight: 700;
   font-family: var(--font-mono);
   font-variant-numeric: tabular-nums;
@@ -5838,7 +5841,7 @@ html[data-density="compact"] .follow-page #paper-chart.lw-host {
 }
 
 .follow-stat .follow-stat-sub {
-  font-size: 12px;
+  font-size: var(--sys-fs-caption);
   line-height: 18px;
   color: var(--ink-2);
   font-family: var(--font-mono);
@@ -5866,7 +5869,7 @@ html[data-density="compact"] .follow-page #paper-chart.lw-host {
 
 .follow-page .dashboard-section-desc {
   margin: 0;
-  font-size: 12px;
+  font-size: var(--sys-fs-caption);
   line-height: 18px;
   color: var(--ink-3);
 }
@@ -5915,7 +5918,7 @@ html[data-density="compact"] .follow-page #paper-chart.lw-host {
   display: inline-flex;
   gap: 2px;
   padding: 2px;
-  border-radius: 8px;
+  border-radius: var(--sys-r-tier1);
   background: var(--bg-accent);
   border: 1px solid var(--line);
 }
@@ -5925,11 +5928,11 @@ html[data-density="compact"] .follow-page #paper-chart.lw-host {
   border: 0;
   background: transparent;
   color: var(--ink-3);
-  font-size: 12px;
+  font-size: var(--sys-fs-caption);
   font-weight: 600;
   line-height: 18px;
   padding: 4px 12px;
-  border-radius: 6px;
+  border-radius: var(--sys-r-tier2);
   cursor: pointer;
   transition: background 0.12s var(--ease), color 0.12s var(--ease), box-shadow 0.12s var(--ease);
   font-family: inherit;
@@ -5948,7 +5951,7 @@ html[data-density="compact"] .follow-page #paper-chart.lw-host {
 
 .paper-chart-label {
   margin: 0;
-  font-size: 12px;
+  font-size: var(--sys-fs-caption);
   line-height: 18px;
   color: var(--ink-3);
   font-family: var(--font-mono);
@@ -5996,12 +5999,12 @@ html[data-density="compact"] .follow-page #paper-chart.lw-host {
   border-collapse: separate;
   border-spacing: 0;
   background: transparent;
-  font-size: 13px;
+  font-size: var(--sys-fs-body);
 }
 
 /* Table head — 12px bold uppercase ink-3 · row bottom-border only */
 .follow-holdings-card .paper-holdings-table thead th {
-  font-size: 11px;
+  font-size: var(--sys-fs-micro);
   font-weight: 600;
   letter-spacing: 0.04em;
   text-transform: uppercase;
@@ -6024,7 +6027,7 @@ html[data-density="compact"] .follow-page #paper-chart.lw-host {
   padding: 8px 12px;
   vertical-align: middle;
   border-bottom: 1px solid var(--line-2);
-  font-size: 13px;
+  font-size: var(--sys-fs-body);
   line-height: 20px;
   color: var(--ink);
 }
@@ -6054,7 +6057,7 @@ html[data-density="compact"] .follow-page #paper-chart.lw-host {
 
 .paper-wl-name-text {
   display: block;
-  font-size: 13px;
+  font-size: var(--sys-fs-body);
   font-weight: 600;
   color: var(--ink);
   line-height: 20px;
@@ -6062,7 +6065,7 @@ html[data-density="compact"] .follow-page #paper-chart.lw-host {
 
 .paper-wl-code {
   display: block;
-  font-size: 12px;
+  font-size: var(--sys-fs-caption);
   color: var(--ink-3);
   font-family: var(--font-mono);
   font-variant-numeric: tabular-nums;
@@ -6089,7 +6092,7 @@ html[data-density="compact"] .follow-page #paper-chart.lw-host {
 .paper-trade-status {
   margin: 8px 0 0;
   padding: 0;
-  font-size: 12px;
+  font-size: var(--sys-fs-caption);
   line-height: 18px;
   color: var(--ink-3);
   flex: 0 0 auto;
@@ -6113,7 +6116,7 @@ html[data-density="compact"] .follow-page #paper-chart.lw-host {
 .follow-ops-card {
   background: var(--surface);
   border: 1px solid var(--line);
-  border-radius: 8px;
+  border-radius: var(--sys-r-tier1);
   padding: 12px 16px;
   box-shadow: 0 1px 2px rgba(15, 23, 42, 0.03);
   box-sizing: border-box;
@@ -6130,7 +6133,7 @@ html[data-density="compact"] .follow-page #paper-chart.lw-host {
 
 .follow-ops-hint {
   margin: 0;
-  font-size: 12px;
+  font-size: var(--sys-fs-caption);
   line-height: 18px;
   color: var(--ink-3);
   white-space: nowrap;
@@ -6145,7 +6148,7 @@ html[data-density="compact"] .follow-page #paper-chart.lw-host {
   background: transparent;
   padding: 0;
   margin: 0;
-  font-size: 12px;
+  font-size: var(--sys-fs-caption);
   font-weight: 500;
   color: var(--accent);
   cursor: pointer;
@@ -6157,7 +6160,7 @@ html[data-density="compact"] .follow-page #paper-chart.lw-host {
 
 .follow-ops-note {
   margin: 0 0 8px;
-  font-size: 12px;
+  font-size: var(--sys-fs-caption);
   line-height: 18px;
   color: var(--ink-2);
 }
@@ -6172,13 +6175,13 @@ html[data-density="compact"] .follow-page #paper-chart.lw-host {
 
 /* Buttons — consistent size, radii, semantic colors */
 .follow-ops .dialog-btn {
-  font-size: 12px;
+  font-size: var(--sys-fs-caption);
   font-weight: 600;
   line-height: 18px;
   letter-spacing: 0.01em;
   text-transform: none;             /* no uppercase Chinese */
   padding: 6px 14px;
-  border-radius: 8px;
+  border-radius: var(--sys-r-tier1);
   transition: all 0.12s var(--ease);
   cursor: pointer;
   display: inline-flex;
@@ -6224,7 +6227,7 @@ body[data-page="follow"] .follow-ops .dialog-btn[hidden] {
   color: #7f1d1d !important;                       /* contrast 7.2:1 on #fff */
   border-color: #fecaca !important;
   font-weight: 600 !important;
-  border-radius: 8px;
+  border-radius: var(--sys-r-tier1);
 }
 
 .follow-reset:hover {
@@ -6244,9 +6247,9 @@ body[data-page="follow"] .follow-ops .dialog-btn[hidden] {
 /* Select / input controls — consistent */
 .follow-strategy-select {
   border: 1px solid var(--line);
-  border-radius: 8px;
+  border-radius: var(--sys-r-tier1);
   padding: 6px 28px 6px 12px;
-  font-size: 13px;
+  font-size: var(--sys-fs-body);
   line-height: 20px;
   font-family: inherit;
   color: var(--ink);
@@ -6271,7 +6274,7 @@ body[data-page="follow"] .follow-ops .dialog-btn[hidden] {
   gap: 4px;
   padding: 2px 8px 2px 2px;
   border: 1px solid var(--line);
-  border-radius: 8px;
+  border-radius: var(--sys-r-tier1);
   background: var(--surface);
   transition: border-color 0.12s var(--ease), box-shadow 0.12s var(--ease);
 }
@@ -6286,17 +6289,17 @@ body[data-page="follow"] .follow-ops .dialog-btn[hidden] {
   border: none;
   outline: none;
   padding: 6px 8px;
-  font-size: 13px;
+  font-size: var(--sys-fs-body);
   line-height: 20px;
   font-family: var(--font-mono);
   font-variant-numeric: tabular-nums;
   color: var(--ink);
   background: transparent;
-  border-radius: 6px;
+  border-radius: var(--sys-r-tier2);
 }
 
 .follow-deposit-unit {
-  font-size: 12px;
+  font-size: var(--sys-fs-caption);
   line-height: 18px;
   color: var(--ink-3);
   font-weight: 500;
@@ -6325,7 +6328,7 @@ body[data-page="follow"] .follow-ops .dialog-btn[hidden] {
 }
 
 .follow-ops-subtitle {
-  font-size: 12px;
+  font-size: var(--sys-fs-caption);
   line-height: 18px;
   font-weight: 600;
   color: var(--ink-2);
@@ -6343,9 +6346,9 @@ body[data-page="follow"] .follow-ops .dialog-btn[hidden] {
   margin: 0 0 10px;
   padding: 10px 12px;
   border: 1px solid var(--line);
-  border-radius: 8px;
+  border-radius: var(--sys-r-tier1);
   background: var(--bg-accent);
-  font-size: 12px;
+  font-size: var(--sys-fs-caption);
   line-height: 18px;
   color: var(--ink-2);
 }
@@ -6355,7 +6358,7 @@ body[data-page="follow"] .follow-ops .dialog-btn[hidden] {
   margin: 0 0 10px;
   padding: 10px 12px;
   border: 1px solid var(--line);
-  border-radius: 8px;
+  border-radius: var(--sys-r-tier1);
   background: var(--bg-accent);
 }
 
@@ -6368,14 +6371,14 @@ body[data-page="follow"] .follow-ops .dialog-btn[hidden] {
 }
 
 .paper-rebalance-cash-label {
-  font-size: 12px;
+  font-size: var(--sys-fs-caption);
   font-weight: 600;
   color: var(--ink-2);
 }
 
 .paper-rebalance-cash-note {
   margin: 0;
-  font-size: 12px;
+  font-size: var(--sys-fs-caption);
   line-height: 18px;
   color: var(--ink-3);
 }
@@ -6388,14 +6391,14 @@ body[data-page="follow"] .follow-ops .dialog-btn[hidden] {
 }
 
 .paper-rebalance-cash-grid dt {
-  font-size: 11px;
+  font-size: var(--sys-fs-micro);
   color: var(--ink-3);
   line-height: 18px;
 }
 
 .paper-rebalance-cash-grid dd {
   margin: 2px 0 0;
-  font-size: 13px;
+  font-size: var(--sys-fs-body);
   font-weight: 600;
   font-family: var(--font-mono);
   font-variant-numeric: tabular-nums;
@@ -6446,7 +6449,7 @@ body[data-page="follow"] .follow-ops .dialog-btn[hidden] {
   list-style: none;
   cursor: pointer;
   padding: 12px 16px;
-  font-size: 14px;
+  font-size: var(--sys-fs-section);
   line-height: 20px;
   font-weight: 600;
   color: var(--ink);
@@ -6489,14 +6492,14 @@ body[data-page="follow"] .follow-ops .dialog-btn[hidden] {
 .follow-fold.quant-fold .quant-fold.quant-fold {
   background: var(--bg-accent);
   border: 1px solid var(--line);
-  border-radius: 8px;
+  border-radius: var(--sys-r-tier1);
   padding: 0;
   overflow: hidden;
 }
 
 .follow-fold.quant-fold .quant-fold.quant-fold > summary {
   padding: 8px 10px;
-  font-size: 12px;
+  font-size: var(--sys-fs-caption);
   line-height: 18px;
   color: var(--ink-2);
   font-weight: 600;
@@ -6537,7 +6540,7 @@ body[data-page="follow"] .follow-ops .dialog-btn[hidden] {
     gap: 8px;
   }
   .follow-stat .follow-stat-value {
-    font-size: 18px;
+    font-size: var(--sys-fs-title);
     line-height: 26px;
   }
 }
@@ -6605,7 +6608,7 @@ body[data-page="follow"] .follow-ops .dialog-btn[hidden] {
 
 .follow-ops-t0-head .follow-ops-t0-title {
   margin: 0;
-  font-size: 14px;
+  font-size: var(--sys-fs-section);
   line-height: 20px;
   font-weight: 600;
   color: var(--ink);
@@ -6616,7 +6619,7 @@ body[data-page="follow"] .follow-ops .dialog-btn[hidden] {
 
 .follow-ops-t0-head .follow-ops-t0-desc {
   margin: 0;
-  font-size: 12px;
+  font-size: var(--sys-fs-caption);
   line-height: 18px;
   color: var(--ink-3);
   white-space: nowrap;
@@ -6649,7 +6652,7 @@ body[data-page="follow"] .follow-ops .dialog-btn[hidden] {
   display: inline-flex;
   align-items: center;
   gap: 4px;
-  font-size: 12px;
+  font-size: var(--sys-fs-caption);
   color: var(--ink-2);
   cursor: pointer;
   user-select: none;
@@ -6681,7 +6684,7 @@ body[data-page="follow"] .follow-rebalance-exec-actions #paper-path-matrix-statu
   min-height: 0;
   height: auto;
   line-height: 18px;
-  font-size: 12px;
+  font-size: var(--sys-fs-caption);
   font-weight: 500;
   white-space: nowrap;
   max-width: min(100%, 28rem);
@@ -6843,7 +6846,7 @@ body[data-page="follow"] .follow-rebalance-exec-actions #paper-path-matrix-statu
 /* Canonical title: 14/20 600 ink, uppercase kerning off, NO left accent bar */
 .follow-page .follow-ops-t0-head .follow-ops-t0-title {
   margin: 0 !important;
-  font-size: 14px !important;
+  font-size: var(--sys-fs-section) !important;
   line-height: 20px !important;
   font-weight: 600 !important;
   color: var(--ink) !important;
@@ -6858,7 +6861,7 @@ body[data-page="follow"] .follow-rebalance-exec-actions #paper-path-matrix-statu
 /* Canonical sub-desc: 12/18 ink-3, no truncation unless it's a hint chip */
 .follow-page .follow-ops-t0-head .follow-ops-t0-desc {
   margin: 0 !important;
-  font-size: 12px !important;
+  font-size: var(--sys-fs-caption) !important;
   line-height: 18px !important;
   color: var(--ink-3) !important;
   flex-shrink: 0;
@@ -6886,7 +6889,7 @@ body[data-page="follow"] .follow-rebalance-exec-actions #paper-path-matrix-statu
 /* Holdings: 加载中… status next to 刷新 button — compact, same 12/18 ink-3 as desc */
 .follow-page .follow-holdings-tools .follow-holdings-load-status {
   margin: 0 !important;
-  font-size: 12px !important;
+  font-size: var(--sys-fs-caption) !important;
   line-height: 18px !important;
   color: var(--ink-3) !important;
 }
@@ -6923,7 +6926,7 @@ body[data-page="follow"] .follow-kpi-row .dashboard-kpi-row-body {
 body[data-page="follow"] .follow-kpi-card {
   background: var(--surface);
   border: 1px solid var(--line);
-  border-radius: 8px;                          /* TIER 2 sub-card */
+  border-radius: var(--sys-r-tier1);                          /* TIER 2 sub-card */
   box-shadow: 0 1px 2px rgba(15, 23, 42, 0.03);
   padding: 12px 14px;
   min-height: 84px;
@@ -6940,27 +6943,29 @@ body[data-page="follow"] .follow-kpi-card:hover {
 }
 
 .follow-kpi-label {
-  font-size: 12px;
-  line-height: 18px;
+  font-size: var(--sys-fs-micro);
+  line-height: var(--sys-lh-tight);
   color: var(--ink-3);
-  font-weight: 400;
+  font-weight: var(--sys-fw-label);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
   margin: 0;
 }
 
 .follow-kpi-value {
   font-family: var(--font-mono);
   font-variant-numeric: tabular-nums;
-  font-size: 24px;
-  line-height: 30px;
-  font-weight: 600;
+  font-size: var(--sys-fs-kpi);
+  line-height: var(--sys-lh-tight);
+  font-weight: var(--sys-fw-display);
   color: var(--ink);
   margin: 2px 0 0;
-  letter-spacing: -0.01em;
+  letter-spacing: -0.02em;
 }
 
 .follow-kpi-sub {
-  font-size: 12px;
-  line-height: 18px;
+  font-size: var(--sys-fs-micro);
+  line-height: var(--sys-lh-snug);
   color: var(--ink-3);
   margin: 0;
 }
@@ -6976,7 +6981,7 @@ body[data-page="follow"] .follow-path-rail {
   padding: 0;
   border: 1px solid var(--line);
   background: var(--surface);
-  border-radius: 8px;
+  border-radius: var(--sys-r-tier1);
   overflow: hidden;
   width: fit-content;
   max-width: 100%;
@@ -6987,7 +6992,7 @@ body[data-page="follow"] .follow-path-rail {
   align-items: center;
   gap: 8px;
   padding: 8px 14px;
-  font-size: 13px;
+  font-size: var(--sys-fs-body);
   line-height: 20px;
   color: var(--ink-2);
   text-decoration: none;
@@ -7012,10 +7017,10 @@ body[data-page="follow"] .follow-path-rail {
   justify-content: center;
   width: 20px;
   height: 20px;
-  border-radius: 999px;
+  border-radius: var(--sys-r-full);
   background: var(--bg-active);
   color: var(--ink);
-  font-size: 11px;
+  font-size: var(--sys-fs-micro);
   line-height: 1;
   font-weight: 600;
   font-family: var(--font-mono);
@@ -7030,7 +7035,7 @@ body[data-page="follow"] .follow-path-rail {
 .follow-path-sep {
   color: var(--ink-3);
   padding: 8px 2px;
-  font-size: 12px;
+  font-size: var(--sys-fs-caption);
   line-height: 20px;
 }
 
@@ -7065,7 +7070,7 @@ body[data-page="follow"] .follow-card-head {
 
 body[data-page="follow"] .follow-card-status {
   margin: 0;
-  font-size: 12px;
+  font-size: var(--sys-fs-caption);
   line-height: 18px;
   color: var(--ink-2);
   font-family: var(--font-mono);
@@ -7131,7 +7136,7 @@ body[data-page="follow"] .follow-platform-field {
 }
 
 .follow-field-label {
-  font-size: 11px;
+  font-size: var(--sys-fs-micro);
   line-height: 18px;
   font-weight: 600;
   color: var(--ink-3);
@@ -7143,9 +7148,9 @@ body[data-page="follow"] .follow-platform-field {
 .follow-platform-field textarea {
   background: var(--surface);
   border: 1px solid var(--line);
-  border-radius: 6px;                          /* TIER 3: input = 6px (compact) */
+  border-radius: var(--sys-r-tier2);                          /* TIER 3: input = 6px (compact) */
   padding: 6px 10px;
-  font-size: 14px;
+  font-size: var(--sys-fs-section);
   line-height: 20px;
   color: var(--ink);
   font-family: inherit;
@@ -7171,14 +7176,14 @@ body[data-page="follow"] .follow-oos-band {
   padding: 8px 12px;
   background: color-mix(in srgb, var(--accent) 5%, transparent);
   border: 1px solid color-mix(in srgb, var(--accent) 16%, transparent);
-  border-radius: 6px;
+  border-radius: var(--sys-r-tier2);
   width: fit-content;
   max-width: 100%;
   box-sizing: border-box;
 }
 
 .follow-oos-band-label {
-  font-size: 11px;
+  font-size: var(--sys-fs-micro);
   line-height: 18px;
   font-weight: 600;
   color: var(--accent);
@@ -7188,7 +7193,7 @@ body[data-page="follow"] .follow-oos-band {
 }
 
 .follow-oos-band-text {
-  font-size: 12px;
+  font-size: var(--sys-fs-caption);
   line-height: 18px;
   color: var(--ink-2);
   margin: 0;
@@ -7280,14 +7285,14 @@ body[data-page="follow"] .paper-chart-modes {
   display: inline-flex;
   align-items: center;
   border: 1px solid var(--line);
-  border-radius: 6px;
+  border-radius: var(--sys-r-tier2);
   overflow: hidden;
   background: var(--surface);
 }
 
 body[data-page="follow"] .paper-chart-mode {
   padding: 4px 12px;
-  font-size: 12px;
+  font-size: var(--sys-fs-caption);
   line-height: 18px;
   color: var(--ink-2);
   background: transparent;
@@ -7327,7 +7332,7 @@ body[data-page="follow"] .paper-chart-mode:disabled {
   .follow-kpi-row .dashboard-kpi-row-body { grid-template-columns: 1fr !important; }
   .follow-card-head { padding: 8px 12px !important; }
   .follow-card-body { padding: 12px !important; }
-  .follow-path-step { padding: 6px 10px !important; font-size: 12px !important; }
+  .follow-path-step { padding: 6px 10px !important; font-size: var(--sys-fs-caption) !important; }
 }
 
 /* ── 净值曲线合并到持仓 card 内：紧凑高度 + 与表格分隔 ── */
@@ -7403,7 +7408,7 @@ body[data-page="follow"] .follow-kpi-card {
   min-height: 78px;
   padding: 12px 14px;
   border: 1px solid var(--line);
-  border-radius: 8px;
+  border-radius: var(--sys-r-tier1);
   background: var(--surface);
   box-shadow: 0 1px 2px rgba(15, 23, 42, 0.03);
   gap: 2px;
@@ -7445,13 +7450,13 @@ body[data-page="follow"] .follow-kpi-card.is-empty .follow-kpi-value {
   gap: 2px;
   padding: 8px 12px;
   border: 1px solid color-mix(in srgb, var(--line) 88%, transparent);
-  border-radius: 6px;
+  border-radius: var(--sys-r-tier2);
   background: color-mix(in srgb, var(--ink) 1.5%, var(--surface));
   min-width: 0;
 }
 
 .follow-north-star-label {
-  font-size: 11px;
+  font-size: var(--sys-fs-micro);
   line-height: 16px;
   font-weight: 600;
   letter-spacing: 0.04em;
@@ -7462,7 +7467,7 @@ body[data-page="follow"] .follow-kpi-card.is-empty .follow-kpi-value {
 .follow-north-star-val {
   font-family: var(--font-mono);
   font-variant-numeric: tabular-nums;
-  font-size: 16px;
+  font-size: var(--sys-fs-title);
   line-height: 22px;
   font-weight: 600;
   color: var(--ink);
@@ -7478,7 +7483,7 @@ body[data-page="follow"] .follow-path-rail {
   margin: 0;
   padding: 0;
   border: 1px solid var(--line);
-  border-radius: 8px;
+  border-radius: var(--sys-r-tier1);
   background: var(--surface);
   overflow: hidden;
 }
@@ -7527,7 +7532,7 @@ body[data-page="follow"] .follow-page .dashboard-section.follow-section-secondar
 .follow-secondary-fold-sum::after {
   content: "▸";
   margin-left: auto;
-  font-size: 11px;
+  font-size: var(--sys-fs-micro);
   color: var(--ink-3);
   flex-shrink: 0;
 }
@@ -7688,8 +7693,8 @@ body[data-page="follow"] .follow-kpi-value {
 }
 
 body[data-page="follow"] .follow-kpi-sub {
-  font-size: 10.5px;
-  line-height: 1.25;
+  font-size: var(--sys-fs-micro);
+  line-height: var(--sys-lh-snug);
   color: var(--ink-3);
   font-variant-numeric: tabular-nums;
 }
@@ -7790,8 +7795,8 @@ body[data-page="follow"] .follow-path-num {
   justify-content: center;
   width: 18px;
   height: 18px;
-  border-radius: 999px;
-  font-size: 10px;
+  border-radius: var(--sys-r-full);
+  font-size: var(--sys-fs-micro);
   font-weight: 700;
   font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
   background: color-mix(in srgb, var(--ink) 8%, transparent);
@@ -7866,7 +7871,7 @@ body[data-page="follow"] .follow-page .platform-field select,
 body[data-page="follow"] .follow-page .platform-field input,
 body[data-page="follow"] .follow-strategy-select,
 body[data-page="follow"] .follow-deposit-input {
-  height: 28px;
+  height: var(--sys-desk-chip-h);
   font-size: var(--f-fs-body);
   border-radius: var(--sys-r-tier3, 6px);
   font-variant-numeric: tabular-nums;
@@ -7877,7 +7882,7 @@ body[data-page="follow"] .follow-oos-band {
 }
 
 body[data-page="follow"] .follow-oos-band .quant-oos-band-label {
-  font-size: 10px;
+  font-size: var(--sys-fs-micro);
   font-weight: 700;
   letter-spacing: 0.08em;
   text-transform: uppercase;
@@ -7977,7 +7982,7 @@ body[data-page="replay"] .follow-path-matrix-actions {
 body[data-page="replay"] .follow-path-matrix-actions .follow-path-matrix-status {
   max-width: min(28rem, 55vw);
   margin: 0;
-  font-size: 0.72rem;
+  font-size: var(--sys-fs-micro);
   line-height: 1.3;
   color: var(--pm-muted);
   white-space: nowrap;
@@ -8064,7 +8069,7 @@ body[data-page="replay"] .follow-path-matrix-panel-head {
 
 body[data-page="replay"] .follow-path-matrix-panel-title {
   margin: 0;
-  font-size: 0.8rem;
+  font-size: var(--sys-fs-body);
   font-weight: 700;
   color: var(--pm-ink);
   letter-spacing: -0.01em;
@@ -8073,7 +8078,7 @@ body[data-page="replay"] .follow-path-matrix-panel-title {
 
 body[data-page="replay"] .follow-path-matrix-panel-note {
   margin: 0;
-  font-size: 0.68rem;
+  font-size: var(--sys-fs-micro);
   color: var(--pm-muted);
   line-height: 1.35;
   overflow: hidden;
@@ -8142,14 +8147,14 @@ body[data-page="replay"] .follow-path-matrix-box-text {
 }
 
 body[data-page="replay"] .follow-path-matrix-box-title {
-  font-size: 0.74rem;
+  font-size: var(--sys-fs-caption);
   font-weight: 650;
   color: var(--pm-ink);
   line-height: 1.25;
 }
 
 body[data-page="replay"] .follow-path-matrix-box-desc {
-  font-size: 0.62rem;
+  font-size: var(--sys-fs-micro);
   color: var(--pm-muted);
   line-height: 1.3;
 }
@@ -8165,7 +8170,7 @@ body[data-page="replay"] .follow-path-matrix-box select {
   border-radius: 3px;
   background: #fff;
   font: inherit;
-  font-size: 0.76rem;
+  font-size: var(--sys-fs-caption);
   font-variant-numeric: tabular-nums;
   color: var(--pm-ink);
   appearance: none;
@@ -8267,7 +8272,7 @@ body[data-page="follow"] .follow-oos-band--inline .quant-oos-band-text {
 
   body[data-page="follow"] .follow-path-step {
     padding: 6px 6px;
-    font-size: 11px;
+    font-size: var(--sys-fs-micro);
   }
 
   body[data-page="follow"] .follow-oos-band--inline {
@@ -8515,7 +8520,7 @@ body[data-page="follow"] .follow-rebalance-rules-card .follow-card-body > .quant
 body[data-page="follow"] .follow-overview-section .follow-kpi-card {
   background: var(--bg-card, #fff);
   border: 1px solid var(--line);
-  border-radius: 8px;
+  border-radius: var(--sys-r-tier1);
 }
 
 body[data-page="follow"] .follow-overview-section .follow-kpi-card[data-kpi="nav"] {
@@ -8544,7 +8549,7 @@ body[data-page="follow"] .follow-overview-fund .follow-deposit-input {
   min-width: 0;
   height: 24px !important;
   padding: 0 6px;
-  font-size: 12px;
+  font-size: var(--sys-fs-caption);
   line-height: 22px;
   background: var(--bg-card, #fff) !important;
   background-color: var(--bg-card, #fff) !important;
@@ -8582,7 +8587,7 @@ body[data-page="follow"] .follow-overview-section .follow-north-star-grid,
 body[data-page="follow"] .follow-overview-section .follow-path-rail {
   background: var(--bg-card, #fff);
   border: 1px solid var(--line);
-  border-radius: 8px;
+  border-radius: var(--sys-r-tier1);
 }
 
 /* p872b：打掉旧「卡内 padding」!important，否则 L2 卡头无法贴边成多层框 */
@@ -8711,7 +8716,7 @@ body[data-page="follow"] .follow-north-star-item .follow-kpi-value {
 
 body[data-page="follow"] .follow-north-star-item .follow-north-star-sub,
 body[data-page="follow"] .follow-north-star-item .follow-kpi-sub {
-  font-size: 10.5px;
+  font-size: var(--sys-fs-micro);
   line-height: 1.25;
   color: var(--ink-3);
 }
@@ -8738,24 +8743,24 @@ body[data-page="follow"] .follow-north-star-item.is-empty .follow-north-star-val
 /* ==========================================================================
    交易执行 · 圆角统一为最小弧度 (2px) + 持仓框去空白 (p880)
    ========================================================================== */
+/* Desk 密度：区段/卡用 2px；药丸保持 --sys-r-full=999px */
 body[data-page="follow"] .follow-page,
 body[data-page="follow"] .page-main {
-  --sys-r-tier1: 2px;
-  --sys-r-tier2: 2px;
-  --sys-r-tier3: 2px;
-  --sys-r-tier4: 2px;
-  --sys-r-full: 2px;
-  --radius: 2px;
-  --radius-sm: 2px;
-  --radius-xs: 2px;
-  --radius-md: 2px;
-  --radius-lg: 2px;
-  --r-xs: 2px;
-  --r-sm: 2px;
-  --r-md: 2px;
-  --r-lg: 2px;
-  --r-full: 2px;
-  --follow-radius: 2px;
+  --sys-desk-r: 2px;
+  --sys-r-tier1: var(--sys-desk-r);
+  --sys-r-tier2: var(--sys-desk-r);
+  --sys-r-tier3: var(--sys-desk-r);
+  --sys-r-tier4: var(--sys-desk-r);
+  --radius: var(--sys-desk-r);
+  --radius-sm: var(--sys-desk-r);
+  --radius-xs: var(--sys-desk-r);
+  --radius-md: var(--sys-desk-r);
+  --radius-lg: var(--sys-desk-r);
+  --r-xs: var(--sys-desk-r);
+  --r-sm: var(--sys-desk-r);
+  --r-md: var(--sys-desk-r);
+  --r-lg: var(--sys-desk-r);
+  --follow-radius: var(--sys-desk-r);
 }
 
 /* :where 不抬 specificity；用显式选择器压过旧 !important 8px */
@@ -8862,14 +8867,14 @@ body[data-page="follow"] .follow-desk-head {
 
 body[data-page="follow"] .follow-desk-title {
   margin: 0;
-  font-size: 0.92rem;
+  font-size: var(--sys-fs-section);
   font-weight: 650;
   letter-spacing: 0.02em;
 }
 
 body[data-page="follow"] .follow-desk-desc {
   margin: 4px 0 0;
-  font-size: 0.72rem;
+  font-size: var(--sys-fs-micro);
   color: var(--muted);
 }
 
@@ -8902,7 +8907,7 @@ body[data-page="follow"] .paper-t0-auto-switch {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  font-size: 0.78rem;
+  font-size: var(--sys-fs-body);
   cursor: pointer;
 }
 
@@ -8955,7 +8960,7 @@ body[data-page="follow"] .paper-t0-worker-title-block {
 body[data-page="follow"] .paper-t0-worker-kicker,
 body[data-page="follow"] .paper-t0-auto-kicker {
   display: block;
-  font-size: 0.62rem;
+  font-size: var(--sys-fs-micro);
   font-weight: 700;
   letter-spacing: 0.08em;
   text-transform: uppercase;
@@ -8965,7 +8970,7 @@ body[data-page="follow"] .paper-t0-auto-kicker {
 
 body[data-page="follow"] .paper-t0-worker-title {
   display: block;
-  font-size: 0.86rem;
+  font-size: var(--sys-fs-body);
   font-weight: 700;
   color: var(--ink);
   line-height: 1.3;
@@ -8974,7 +8979,7 @@ body[data-page="follow"] .paper-t0-worker-title {
 body[data-page="follow"] .paper-t0-worker-sub {
   display: block;
   margin-top: 3px;
-  font-size: 0.68rem;
+  font-size: var(--sys-fs-micro);
   color: var(--muted, var(--ink-3));
   line-height: 1.45;
 }
@@ -8995,7 +9000,7 @@ body[data-page="follow"] .paper-live-clock {
   gap: 8px;
   height: 30px;
   padding: 0 8px 0 10px;
-  border-radius: 999px;
+  border-radius: var(--sys-r-full);
   border: 1px solid color-mix(in srgb, var(--line) 85%, transparent);
   background: color-mix(in srgb, var(--surface) 92%, var(--line));
   cursor: default;
@@ -9018,7 +9023,7 @@ body[data-page="follow"] .paper-live-clock:focus-within {
 
 body[data-page="follow"] .paper-live-clock-label {
   flex: 0 0 auto;
-  font-size: 0.62rem;
+  font-size: var(--sys-fs-micro);
   font-weight: 700;
   letter-spacing: 0.06em;
   text-transform: uppercase;
@@ -9036,7 +9041,7 @@ body[data-page="follow"] .paper-live-clock-rail {
 
 body[data-page="follow"] .paper-live-clock-end {
   flex: 0 0 auto;
-  font-size: 0.6rem;
+  font-size: var(--sys-fs-micro);
   font-weight: 600;
   font-variant-numeric: tabular-nums;
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
@@ -9066,7 +9071,7 @@ body[data-page="follow"] .paper-live-clock-range:disabled {
 
 body[data-page="follow"] .paper-live-clock-range::-webkit-slider-runnable-track {
   height: 4px;
-  border-radius: 999px;
+  border-radius: var(--sys-r-full);
   background: linear-gradient(
     90deg,
     color-mix(in srgb, var(--accent, #2563eb) 55%, var(--line)),
@@ -9093,7 +9098,7 @@ body[data-page="follow"] .paper-live-clock-range:active::-webkit-slider-thumb {
 
 body[data-page="follow"] .paper-live-clock-range::-moz-range-track {
   height: 4px;
-  border-radius: 999px;
+  border-radius: var(--sys-r-full);
   background: linear-gradient(
     90deg,
     color-mix(in srgb, var(--accent, #2563eb) 55%, var(--line)),
@@ -9114,10 +9119,10 @@ body[data-page="follow"] .paper-live-clock-value {
   flex: 0 0 auto;
   min-width: 2.7rem;
   padding: 2px 6px;
-  border-radius: 999px;
+  border-radius: var(--sys-r-full);
   background: color-mix(in srgb, var(--accent, #2563eb) 10%, transparent);
   color: var(--ink);
-  font-size: 0.74rem;
+  font-size: var(--sys-fs-caption);
   font-weight: 700;
   font-variant-numeric: tabular-nums;
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
@@ -9130,8 +9135,8 @@ body[data-page="follow"] .paper-t0-worker-badge {
   align-items: center;
   gap: 6px;
   padding: 4px 10px 4px 8px;
-  border-radius: 999px;
-  font-size: 0.68rem;
+  border-radius: var(--sys-r-full);
+  font-size: var(--sys-fs-micro);
   font-weight: 600;
   line-height: 1.3;
   border: 1px solid color-mix(in srgb, var(--line) 85%, transparent);
@@ -9213,7 +9218,7 @@ body[data-page="follow"] .paper-t0-toggle-track {
   position: relative;
   width: 38px;
   height: 22px;
-  border-radius: 999px;
+  border-radius: var(--sys-r-full);
   background: color-mix(in srgb, var(--ink-3) 22%, var(--line));
   transition: background 0.18s ease;
   flex: 0 0 auto;
@@ -9246,7 +9251,7 @@ body[data-page="follow"] .paper-t0-toggle input:focus-visible + .paper-t0-toggle
 }
 
 body[data-page="follow"] .paper-t0-toggle-text {
-  font-size: 0.72rem;
+  font-size: var(--sys-fs-micro);
   font-weight: 600;
   color: var(--ink-2);
 }
@@ -9272,7 +9277,7 @@ body[data-page="follow"] .paper-t0-worker-metric-wide {
 
 body[data-page="follow"] .paper-t0-worker-metric-label {
   display: block;
-  font-size: 0.62rem;
+  font-size: var(--sys-fs-micro);
   font-weight: 600;
   letter-spacing: 0.04em;
   color: var(--ink-3);
@@ -9281,7 +9286,7 @@ body[data-page="follow"] .paper-t0-worker-metric-label {
 
 body[data-page="follow"] .paper-t0-worker-metric-val {
   display: block;
-  font-size: 0.76rem;
+  font-size: var(--sys-fs-caption);
   font-weight: 600;
   font-family: var(--font-mono);
   font-variant-numeric: tabular-nums;
@@ -9309,7 +9314,7 @@ body[data-page="follow"] .paper-t0-worker-metric-val.is-muted {
 
 body[data-page="follow"] .paper-t0-worker-hint {
   margin: 0;
-  font-size: 0.68rem;
+  font-size: var(--sys-fs-micro);
   color: var(--muted, var(--ink-3));
   line-height: 1.5;
 }
@@ -9318,7 +9323,7 @@ body[data-page="follow"] .paper-t0-worker-error {
   margin: 6px 0 0;
   padding: 6px 8px;
   border-radius: var(--paper-t0-r, 2px);
-  font-size: 0.68rem;
+  font-size: var(--sys-fs-micro);
   line-height: 1.45;
   color: var(--danger, #f5222d);
   background: color-mix(in srgb, var(--danger, #f5222d) 8%, var(--surface));
@@ -9367,7 +9372,7 @@ body[data-page="follow"] .paper-t0-desk-trades-head {
 }
 
 body[data-page="follow"] .paper-t0-desk-trades-title {
-  font-size: 0.74rem;
+  font-size: var(--sys-fs-caption);
   font-weight: 650;
   letter-spacing: 0.04em;
   color: var(--ink-2, #475569);
@@ -9401,7 +9406,7 @@ body[data-page="follow"] .paper-t0-worker-trades .paper-t0-trades-wrap {
 }
 
 body[data-page="follow"] .paper-t0-desk-fold-meta {
-  font-size: 0.72rem;
+  font-size: var(--sys-fs-micro);
   color: var(--ink-3, #64748b);
   font-family: var(--font-mono);
 }
@@ -9461,7 +9466,7 @@ body[data-page="follow"] .paper-t0-desk-fold > summary::-webkit-details-marker {
 }
 
 body[data-page="follow"] .paper-t0-desk-fold-title {
-  font-size: 0.8rem;
+  font-size: var(--sys-fs-body);
   font-weight: 650;
   letter-spacing: 0.04em;
   color: var(--ink, inherit);
@@ -9481,7 +9486,7 @@ body[data-page="follow"] .paper-t0-desk-fold[open] > summary .paper-t0-desk-fold
 
 body[data-page="follow"] .paper-t0-desk-sess {
   font-family: var(--font-mono);
-  font-size: 0.7rem;
+  font-size: var(--sys-fs-micro);
   color: var(--ink-3, #64748b);
   padding: 1px 6px;
   border: 1px solid color-mix(in srgb, var(--border) 80%, transparent);
@@ -9503,7 +9508,7 @@ body[data-page="follow"] .paper-t0-desk-chip {
   padding: 1px 7px 2px;
   border-radius: 2px;
   border: 1px solid color-mix(in srgb, var(--border) 75%, transparent);
-  font-size: 0.68rem;
+  font-size: var(--sys-fs-micro);
   line-height: 1.35;
   background: color-mix(in srgb, var(--surface, #fff) 92%, transparent);
 }
@@ -9547,7 +9552,7 @@ body[data-page="follow"] .paper-t0-desk-table {
   min-width: 68rem;
   border-collapse: separate;
   border-spacing: 0;
-  font-size: 0.74rem;
+  font-size: var(--sys-fs-caption);
 }
 
 body[data-page="follow"] .paper-t0-worker-trades .paper-t0-trades-table {
@@ -9561,7 +9566,7 @@ body[data-page="follow"] .paper-t0-desk-table thead th {
   z-index: 2;
   background: color-mix(in srgb, var(--bg, #f1f5f9) 88%, var(--surface, #fff));
   border-bottom: 1px solid color-mix(in srgb, var(--border) 85%, transparent);
-  font-size: 0.66rem;
+  font-size: var(--sys-fs-micro);
   font-weight: 600;
   letter-spacing: 0.06em;
   text-transform: none;
@@ -9712,7 +9717,7 @@ body[data-page="follow"] .paper-t0-desk-dir {
   padding: 1px 5px;
   border-radius: 2px;
   font-family: var(--font-mono);
-  font-size: 0.66rem;
+  font-size: var(--sys-fs-micro);
   letter-spacing: 0.02em;
   border: 1px solid transparent;
 }
@@ -9755,7 +9760,7 @@ body[data-page="follow"] .paper-t0-desk-phase {
   padding: 1px 6px;
   border-radius: 2px;
   border: 1px solid color-mix(in srgb, var(--border) 80%, transparent);
-  font-size: 0.66rem;
+  font-size: var(--sys-fs-micro);
   font-family: var(--font-mono);
   letter-spacing: 0.04em;
   white-space: nowrap;
@@ -9789,7 +9794,7 @@ body[data-page="follow"] .paper-t0-desk-cat {
   display: inline-block;
   padding: 1px 5px;
   border-radius: 2px;
-  font-size: 0.64rem;
+  font-size: var(--sys-fs-micro);
   font-family: var(--font-mono);
   letter-spacing: 0.02em;
   border: 1px solid color-mix(in srgb, var(--border) 70%, transparent);
@@ -9826,7 +9831,7 @@ body[data-page="follow"] .paper-t0-desk-reason {
   text-overflow: ellipsis;
   white-space: nowrap;
   font-family: var(--font-mono);
-  font-size: 0.68rem;
+  font-size: var(--sys-fs-micro);
   color: var(--ink-2, #475569);
 }
 
@@ -9834,7 +9839,7 @@ body[data-page="follow"] .paper-t0-desk-foot,
 body[data-page="follow"] .paper-t0-desk-empty {
   margin: 0;
   padding: 7px 10px;
-  font-size: 0.68rem;
+  font-size: var(--sys-fs-micro);
   color: var(--ink-3, #64748b);
   border-top: 1px solid color-mix(in srgb, var(--border) 55%, transparent);
   background: color-mix(in srgb, var(--bg, #f8fafc) 70%, transparent);
@@ -9844,7 +9849,7 @@ body[data-page="follow"] .paper-t0-desk-empty {
   border-top: none;
   margin-top: 6px;
   border: 1px dashed color-mix(in srgb, var(--border) 70%, transparent);
-  border-radius: 4px;
+  border-radius: var(--sys-r-tier4);
 }
 
 body[data-page="follow"] .paper-t0-auto-section {
@@ -9880,9 +9885,9 @@ body[data-page="follow"] .paper-log-filter-btn {
   border: 1px solid color-mix(in srgb, var(--border) 80%, transparent);
   background: color-mix(in srgb, var(--surface) 92%, var(--bg));
   color: var(--muted);
-  font-size: 0.66rem;
+  font-size: var(--sys-fs-micro);
   padding: 2px 8px;
-  border-radius: 999px;
+  border-radius: var(--sys-r-full);
   cursor: pointer;
 }
 

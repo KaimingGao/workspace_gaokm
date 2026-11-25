@@ -675,14 +675,17 @@ Arm·T 实现见 **[docs/internal/arm-t.md](internal/arm-t.md)**；拆分规划�
 | 眉题 | `--sys-fs-micro`（11px）· `letter-spacing: 0.14em` · uppercase · mono · `line-height: 18px` |
 | 标题 | `--sys-fs-title`（1.125rem）· `font-weight: 700` · `letter-spacing: -0.02em` · `line-height: 1.2` |
 | meta / path | caption 12px · mono · `margin-top: 4px` · `line-height: 1.35` |
-| 右侧 chip | 高 28px · 字 12px · 圆角 2px（badge / guard / 成本框） |
+| 右侧 chip | 高 `--sys-desk-chip-h`（28）· 字 `--sys-desk-chip-fs` · 圆角 `--sys-desk-chip-r`；class `.quant-desk-badge` / `.quant-desk-guard` |
 | **区段** | `.dashboard-section` · `.dashboard-section-head` · `.dashboard-section-title` · `.dashboard-section-desc` | 一块一事；页内可叠 `platform-section` / `strategy-section` / `quant-section` 作锚点，**标题必须用 dashboard-*** |
 | **卡片** | `.dashboard-card` · `.dashboard-card-head` · 卡体 padding 复用 `.quant-pro-card-body` | 交互/表/图的容器；勿为单页新建 `*-card-v2` |
 | **按钮** | `.dialog-btn` · `.dialog-btn.secondary` | 主/次动作 |
 | **色义** | 收益 `--color-up/--color-down`；质量/闸门 `--ok/--danger`（或 `--d-quality-*`） | 研究质量指标**禁止**误用涨跌色 |
 | **gutter** | 仅 `.page-main` 的 `--page-gutter-x/y` | `*-page` 左右 `padding:0`，勿按页覆写主列边距 |
+| **Token** | 字号/间距/圆角只用 `--sys-*`；旧 `--fs-*` / `--radius*` / `--spacing-*` 已 alias | 禁止硬编码 `11/12/13/14/18/20px`；Desk 硬边用页内 `--sys-desk-r`，**勿**把 `--sys-r-full` 改成 2px |
 
 **Eyebrow 对照**（勿自造第三种命名）：Portfolio / Research / Data / Execution / Backtest / Prior / Platform / Paper / Evals / Usage + `Desk`。
+
+**已收口（2026-11-25）**：仪表盘挂 `.quant-head`；平行 `watching-section-title` 双 class 已删；页头阶梯 / KPI label·value / desk chip 共用 `base.css` + `--sys-*`；业务页硬编码字号已批量映射到系统阶梯。
 
 ---
 

@@ -60,17 +60,17 @@ body[data-page="strategy"] .quant-head.dashboard-head .quant-desk-badge {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  height: 28px;
-  min-height: 28px;
-  max-height: 28px;
+  height: var(--sys-desk-chip-h);
+  min-height: var(--sys-desk-chip-h);
+  max-height: var(--sys-desk-chip-h);
   margin: 0;
   padding: 0 10px;
   border: 1px solid color-mix(in srgb, var(--accent) 22%, transparent);
-  border-radius: 2px;
+  border-radius: var(--sys-desk-chip-r);
   background: color-mix(in srgb, var(--accent) 8%, transparent);
   color: var(--accent);
-  font-size: 12px;
-  font-weight: 600;
+  font-size: var(--sys-desk-chip-fs);
+  font-weight: var(--sys-fw-sub);
   line-height: 1;
   white-space: nowrap;
 }
@@ -111,17 +111,17 @@ body[data-page="strategy"] .strategy-page .strategy-section-ai-tools {
 }
 
 body[data-page="strategy"] .strategy-page .strategy-section-ai-tools .dialog-btn {
-  height: 28px;
-  min-height: 28px;
+  height: var(--sys-desk-chip-h);
+  min-height: var(--sys-desk-chip-h);
   padding: 0 10px;
-  font-size: 12px;
+  font-size: var(--sys-desk-chip-fs);
 }
 
 body[data-page="strategy"] .strategy-page .dashboard-section-title {
-  font-size: var(--s-fs-section);
-  font-weight: var(--sys-fw-display, 700);
-  letter-spacing: 0.02em;
-  line-height: var(--sys-lh-tight, 1.2);
+  font-size: var(--sys-fs-section);
+  font-weight: var(--sys-fw-display);
+  letter-spacing: 0.04em;
+  line-height: var(--sys-lh-tight);
 }
 
 body[data-page="strategy"] .strategy-page .dashboard-section-title::before {
@@ -242,7 +242,7 @@ body[data-page="strategy"] .strategy-mctx-panel .quant-card-head-status {
   margin: 0;
   overflow: hidden;
   font-size: var(--sys-fs-caption);
-  line-height: 28px;
+  line-height: var(--sys-desk-chip-h);
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -252,12 +252,12 @@ body[data-page="strategy"] .strategy-mctx-panel .quant-pro-card-tools {
   flex-shrink: 0;
   align-items: center;
   gap: var(--sys-gap-block);
-  height: 28px;
+  height: var(--sys-desk-chip-h);
 }
 
 body[data-page="strategy"] .strategy-mctx-panel .quant-pro-card-tools .dialog-btn {
-  height: 28px;
-  min-height: 28px;
+  height: var(--sys-desk-chip-h);
+  min-height: var(--sys-desk-chip-h);
   padding: 0 var(--sys-gutter-sm);
 }
 
@@ -657,8 +657,8 @@ body[data-page="strategy"] .strategy-page .dialog-btn {
   align-items: center;
   justify-content: center;
   box-sizing: border-box;
-  height: 28px;
-  min-height: 28px;
+  height: var(--sys-desk-chip-h);
+  min-height: var(--sys-desk-chip-h);
   padding: 0 10px;
   border: 1px solid var(--accent);
   border-radius: 2px;
@@ -760,7 +760,7 @@ body[data-page="strategy"] .strategy-kpi-card .dashboard-kpi-value {
 body[data-page="strategy"] .strategy-kpi-card .dashboard-kpi-sub {
   margin-top: 0;
   color: var(--ink-3);
-  font-size: 10.5px;
+  font-size: var(--sys-fs-micro);
   line-height: 1.25;
   overflow-wrap: anywhere;
   font-variant-numeric: tabular-nums;
@@ -1241,7 +1241,7 @@ body[data-page="strategy"] .strategy-ops-card-body.strategy-desk-pad {
 
 .strategy-heatmap-val {
   font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
-  font-size: 0.72rem;
+  font-size: var(--sys-fs-micro);
   font-variant-numeric: tabular-nums;
   text-align: right;
   color: var(--ink-2);
