@@ -459,7 +459,7 @@ rm -rf data/cache/feature_lake data/cache/day_cubes
 - 增量未触发：中间 bar 被复权改写 → 预期全量；看 meta 是否有 `bars_fp`/`stem_fp`/`n_bars`（旧分片无 stem 时需先全量写一次）。短窗→长窗应走历史前缀；若仍全量，核对末日是否一致、旧 `bars_fp` 是否为新 bars 后缀。
 - 物化仍每票扫盘作废：确认在 `l2_invalidation_batch` 内，且进程工人 defer→父进程 `apply_deferred_stale` / `apply_stale_from_exc`（`MaterializeRequired` 挂 `_deferred_l2_stale`）。  
 - 拟合 Cube miss 全回退矩阵：先物化 open（及所需 τ 钟）；确认 `QUANTLAB_DAY_CUBE` 未关、宇宙 hash 与 watching 一致。
-- open 立方缺 `z_τc_*`：日期跨度在，列不在。按缺列的日子重跑日线物化补 L2。报错写「其中有日期缺这些列」。
+- open 立方缺 `z_τc_*`：早于第一份带齐 τc 列的日子写成 0（这段多半是 oo 面板留下的薄立方，ŷ_oo 仍用这些列）。齐全日之后再缺列，整单失败，报错写「其中有日期缺这些列」，按那些日子重跑日线物化。
 
 ### 10.4 磁盘
 

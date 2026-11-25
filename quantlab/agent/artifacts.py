@@ -38,10 +38,12 @@ OPS_TASK_TAB: Dict[str, str] = {
     "ops_snapshot": "follow",
     "rebalance_preview": "follow",
     "ops_anomaly": "follow",
-    "feedback_draft": "quant",
+    "feedback_draft": "follow",
     "prior_brief": "strategy",
+    "prior_exposure": "strategy",
+    "prior_vs_regime": "strategy",
     "post_rebalance_review": "follow",
-    "event_flags": "follow",
+    "event_flags": "strategy",
     "alpha_draft": "quant",
     "view_bundle": "quant",
 }
@@ -55,6 +57,11 @@ def resolve_tab(tool: str, params: Optional[Dict[str, Any]] = None) -> str:
             return QUANT_TASK_TAB[task]
     if tool == "ops":
         task = str(params.get("task") or "").strip().lower()
+        if task == "feedback_draft":
+            scope = str(params.get("scope") or "").strip().lower()
+            if scope in ("market_prior", "prior", "m_prior"):
+                return "strategy"
+            return "follow"
         if task in OPS_TASK_TAB:
             return OPS_TASK_TAB[task]
     return TOOL_TAB.get(tool, "reply")
@@ -66,6 +73,30 @@ def _truncate_list(items: Any, n: int = 12) -> Any:
     return items
 
 
+def _compact_dict(d: Any, *, max_keys: int = 16, max_list: int = 8) -> Any:
+    if not isinstance(d, dict):
+        return d
+    out: Dict[str, Any] = {}
+    for i, (k, v) in enumerate(d.items()):
+        if i >= max_keys:
+            out["…"] = f"+{len(d) - max_keys} keys"
+            break
+        if isinstance(v, list):
+            out[k] = _truncate_list(v, max_list)
+        elif isinstance(v, dict):
+            try:
+                raw = json.dumps(v, ensure_ascii=False)
+            except Exception:  # noqa: BLE001
+                raw = ""
+            if len(raw) > 2500:
+                out[k] = _compact_dict(v, max_keys=10, max_list=6)
+            else:
+                out[k] = v
+        else:
+            out[k] = v
+    return out
+
+
 def compact_payload(data: Dict[str, Any]) -> Dict[str, Any]:
     """缩小工具 JSON，避免 chat 响应过大。"""
     if not isinstance(data, dict):
@@ -75,8 +106,11 @@ def compact_payload(data: Dict[str, Any]) -> Dict[str, Any]:
         "success",
         "error",
         "task",
+        "scope",
+        "path",
         "stock_code",
         "stock_name",
+        "sector",
         "strategy",
         "name",
         "summary",
@@ -104,6 +138,14 @@ def compact_payload(data: Dict[str, Any]) -> Dict[str, Any]:
         "stance_label",
         "action",
         "score",
+        "prior_active",
+        "impact_note",
+        "hint",
+        "disclaimer",
+        "combined_buy_scale",
+        "formula",
+        "applied",
+        "market_prior_trim_trades",
     )
     for k in keep_scalar:
         if k in data:
@@ -166,6 +208,39 @@ def compact_payload(data: Dict[str, Any]) -> Dict[str, Any]:
             "picks": _truncate_list(cs.get("picks") or [], 10),
         }
 
+    # ── prior / ops 结构化字段（避免只剩 success+task）──
+    for k in (
+        "prior_flags",
+        "prior_warnings",
+        "checklist",
+        "suggested_checks",
+        "regime_summary",
+        "prior_scale",
+        "freshness",
+        "macro",
+        "sentiment",
+        "regulatory",
+        "ipo",
+        "exposure",
+        "preview",
+        "draft",
+        "baseline_ref",
+        "flags",
+        "codes_scanned",
+        "market_prior_trades_sample",
+        "consistent",
+        "concerns",
+    ):
+        if k not in data:
+            continue
+        v = data[k]
+        if isinstance(v, list):
+            out[k] = _truncate_list(v, 12)
+        elif isinstance(v, dict):
+            out[k] = _compact_dict(v)
+        else:
+            out[k] = v
+
     # 兜底：若几乎为空，保留原 dict 的浅拷贝（截断长 list）
     if len(out) <= 1 and data:
         for k, v in list(data.items())[:30]:
@@ -201,6 +276,8 @@ def build_artifact(
         summary_parts.append(str(params["task"]))
     if tool == "ops" and params.get("path"):
         summary_parts.append(str(params["path"]))
+    if tool == "ops" and params.get("scope"):
+        summary_parts.append(str(params["scope"]))
     if parsed.get("stock_code") or parsed.get("stock_name"):
         summary_parts.append(str(parsed.get("stock_name") or parsed.get("stock_code")))
     if isinstance(parsed.get("metrics"), dict):
@@ -209,6 +286,10 @@ def build_artifact(
             summary_parts.append(f"累计{m.get('total_return_pct')}%")
     if parsed.get("price") is not None:
         summary_parts.append(f"价{parsed.get('price')}")
+    if parsed.get("prior_active") is not None:
+        summary_parts.append("prior开" if parsed.get("prior_active") else "prior关")
+    if parsed.get("combined_buy_scale") is not None:
+        summary_parts.append(f"合成×{parsed.get('combined_buy_scale')}")
     if not success:
         summary_parts.append(str(parsed.get("error") or "失败")[:80])
 

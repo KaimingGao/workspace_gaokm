@@ -38,14 +38,26 @@
           type="button"
           id="strategy-prior-brief"
           class="dialog-btn dialog-btn-keep-case"
-          title="打开 AI 抽屉：ops(task=prior_brief) 盘前简报（只读）"
+          title="打开 AI 并发送：ops(task=prior_brief) 盘前简报（只读）"
         >盘前简报</button>
         <button
           type="button"
           id="strategy-prior-draft"
           class="dialog-btn secondary dialog-btn-keep-case"
-          title="打开 AI 抽屉：ops(task=feedback_draft, scope=market_prior) 仅草稿不写盘"
+          title="打开 AI 并发送：ops(task=feedback_draft, scope=market_prior) 仅草稿不写盘"
         >建议 prior 草稿</button>
+        <button
+          type="button"
+          id="strategy-prior-exposure"
+          class="dialog-btn secondary dialog-btn-keep-case"
+          title="打开 AI 并发送：ops(task=prior_exposure) 观察池/持仓暴露交集"
+        >暴露交集</button>
+        <button
+          type="button"
+          id="strategy-prior-vs-regime"
+          class="dialog-btn secondary dialog-btn-keep-case"
+          title="打开 AI 并发送：ops(task=prior_vs_regime, include_preview=true)"
+        >Prior×Regime</button>
         <button type="button" id="strategy-mctx-refresh" class="dialog-btn dialog-btn-keep-case">刷新 ingest</button>
       </div>
     </div>
@@ -71,6 +83,14 @@
     <header class="dashboard-section-head quant-section-head strategy-section-head">
       <h3 id="strategy-section-cross-title" class="dashboard-section-title">跨市场明细</h3>
       <p class="dashboard-section-desc quant-section-desc">分项 1D/5D · 隔夜涨因 · Lead-Lag · 近30日累计</p>
+      <div class="quant-pro-card-tools strategy-section-ai-tools">
+        <button
+          type="button"
+          id="strategy-prior-cross"
+          class="dialog-btn secondary dialog-btn-keep-case"
+          title="打开 AI：解读跨市场异动与 cross_market prior 是否激活"
+        >跨市场解读</button>
+      </div>
     </header>
     <div class="dashboard-card quant-pro-card strategy-ops-card">
       <div class="quant-pro-card-body strategy-ops-card-body strategy-desk-pad">
@@ -128,6 +148,14 @@
     <header class="dashboard-section-head quant-section-head strategy-section-head">
       <h3 id="strategy-section-events-title" class="dashboard-section-title">事件与暴露</h3>
       <p class="dashboard-section-desc quant-section-desc">监管 / IPO · 观察池与持仓交集 · 不改仓</p>
+      <div class="quant-pro-card-tools strategy-section-ai-tools">
+        <button
+          type="button"
+          id="strategy-prior-events"
+          class="dialog-btn secondary dialog-btn-keep-case"
+          title="打开 AI：ops(task=event_flags) + prior_exposure"
+        >事件旗标</button>
+      </div>
     </header>
     <div class="dashboard-card quant-pro-card strategy-ops-card">
       <div class="quant-pro-card-body strategy-ops-card-body strategy-desk-pad">
@@ -198,6 +226,14 @@
     <header class="dashboard-section-head quant-section-head strategy-section-head">
       <h3 id="strategy-regime-title" class="dashboard-section-title">Regime</h3>
       <p class="dashboard-section-desc quant-section-desc">分档 · 仓位缩放 · overlay defer · ŷ 不改</p>
+      <div class="quant-pro-card-tools strategy-section-ai-tools">
+        <button
+          type="button"
+          id="strategy-prior-review"
+          class="dialog-btn secondary dialog-btn-keep-case"
+          title="打开 AI：ops(task=post_rebalance_review) prior 缩仓归因"
+        >调仓 prior 归因</button>
+      </div>
     </header>
     <div class="dashboard-card quant-pro-card strategy-ops-card strategy-mctx-panel strategy-regime-panel">
       <div class="dashboard-card-head quant-pro-card-head quant-card-head--tools">

@@ -301,11 +301,11 @@ def _resolve_loss(loss: Optional[str]) -> str:
     return "mse"
 
 
-_WEIGHT_DECAY = 1e-3
+_WEIGHT_DECAY = 5e-3
 
 
 def _adamw(model, lr: float):
-    """AdamW。``bias`` 与 LayerNorm 的 ``weight`` 不衰减，其余 ``1e-3``。"""
+    """AdamW。``bias`` 与 LayerNorm 的 ``weight`` 不衰减，其余 ``5e-3``。"""
     torch = _require_torch()
     owners = {}
     for mod_name, mod in model.named_modules():
@@ -581,12 +581,17 @@ def train_arm_t(
         )
     else:
         steps_per_ep = max(1, int(math.ceil(tr_arr.size / float(bs))))
-    try:
-        warmup_steps = int(os.environ.get("TRANSFORMER_WARMUP_STEPS") or 100)
-    except ValueError:
-        warmup_steps = 100
-    warmup_steps = max(0, warmup_steps)
     total_steps = max(1, int(steps_per_ep) * max(1, int(epochs)))
+    # 默认暖机 = 总步数的 1/10；TRANSFORMER_WARMUP_STEPS 可覆盖。
+    raw_warmup = os.environ.get("TRANSFORMER_WARMUP_STEPS")
+    if raw_warmup is None or str(raw_warmup).strip() == "":
+        warmup_steps = max(0, total_steps // 10)
+    else:
+        try:
+            warmup_steps = int(raw_warmup)
+        except ValueError:
+            warmup_steps = max(0, total_steps // 10)
+    warmup_steps = max(0, min(int(warmup_steps), int(total_steps)))
     # 步日志：默认每 10 步；TRANSFORMER_LOG_EVERY=N 可覆盖
     try:
         log_every = int(os.environ.get("TRANSFORMER_LOG_EVERY") or 0)
@@ -597,7 +602,8 @@ def train_arm_t(
     loss_note = loss_name
     print(
         f"    transformer fit start loss={loss_note} lr={base_lr:.2e} "
-        f"sched=cosine warmup={warmup_steps} total_steps={total_steps} "
+        f"wd={_WEIGHT_DECAY:g} sched=cosine warmup={warmup_steps} "
+        f"total_steps={total_steps} "
         f"threads={n_threads} batch={bs} steps/ep={steps_per_ep} log_every={log_every} "
         f"epochs={epochs} save=last "
         f"n_tr={tr_arr.size} train_days={n_tr_days} n_ho={holdout_arr.size}"
@@ -870,6 +876,7 @@ def train_arm_t(
         "lr": float(base_lr),
         "lr_sched": "cosine",
         "warmup_steps": int(warmup_steps),
+        "weight_decay": float(_WEIGHT_DECAY),
         "loss": loss_name,
         "lambdarank_truncation": int(_LAMBDARANK_TRUNCATION) if grouped else None,
         "global_step": int(global_step),

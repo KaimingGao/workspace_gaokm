@@ -20,6 +20,8 @@ AVAILABLE_TASKS = (
     "ops_anomaly",
     "feedback_draft",
     "prior_brief",
+    "prior_exposure",
+    "prior_vs_regime",
     "post_rebalance_review",
     "event_flags",
     "alpha_draft",
@@ -106,6 +108,55 @@ def _paper_service(path: Optional[str] = None):
     return PaperService(path=path or PAPER_PATH)
 
 
+def _estimate_m_prior_buy_scale(
+    flags: Dict[str, Any],
+    cfg_pub: Dict[str, Any],
+) -> Dict[str, Any]:
+    """按激活 flags 与 merge_mode 估算纸面买入缩放（不进 ŷ）。"""
+    scales: List[Tuple[str, float]] = []
+    mapping = (
+        ("cross_market", "cross_market", "scale_buy_pct", 0.5),
+        ("market_sentiment", "market_sentiment_prior", "scale_buy_pct", 0.55),
+        ("regulatory", "regulatory_prior", "scale_buy_pct", 0.5),
+        ("ipo_drain", "ipo_drain_prior", "scale_buy_pct", 0.45),
+    )
+    for flag_key, cfg_key, pct_key, default in mapping:
+        if not flags.get(flag_key):
+            continue
+        block = cfg_pub.get(cfg_key) if isinstance(cfg_pub.get(cfg_key), dict) else {}
+        try:
+            sc = float(block.get(pct_key) if block.get(pct_key) is not None else default)
+        except (TypeError, ValueError):
+            sc = float(default)
+        sc = max(0.0, min(1.0, sc))
+        scales.append((flag_key, sc))
+    policy = cfg_pub.get("market_prior_policy") if isinstance(cfg_pub, dict) else {}
+    merge = str((policy or {}).get("merge_mode") or "min_scale")
+    if merge not in ("min_scale", "chain"):
+        merge = "min_scale"
+    if not scales:
+        return {
+            "prior_buy_scale": 1.0,
+            "merge_mode": merge,
+            "components": [],
+            "active": False,
+        }
+    vals = [s for _, s in scales]
+    if merge == "chain":
+        combined = 1.0
+        for s in vals:
+            combined *= s
+        combined = max(0.0, min(1.0, combined))
+    else:
+        combined = min(vals)
+    return {
+        "prior_buy_scale": round(combined, 4),
+        "merge_mode": merge,
+        "components": [{"flag": k, "scale": v} for k, v in scales],
+        "active": True,
+    }
+
+
 def _truncate_trades(trades: Any, n: int = 20) -> List[Dict[str, Any]]:
     if not isinstance(trades, list):
         return []
@@ -165,6 +216,8 @@ class AgentOpsService:
             "ops_anomaly": self.ops_anomaly,
             "feedback_draft": self.feedback_draft,
             "prior_brief": self.prior_brief,
+            "prior_exposure": self.prior_exposure,
+            "prior_vs_regime": self.prior_vs_regime,
             "post_rebalance_review": self.post_rebalance_review,
             "event_flags": self.event_flags,
             "alpha_draft": self.alpha_draft,
@@ -507,12 +560,40 @@ class AgentOpsService:
         prior_active = bool(summary.get("prior_active"))
         warnings = list(summary.get("prior_warnings") or [])[:8]
 
-        exposure_note = "未指定个股：请对照 Prior Desk「事件与暴露」与观察池/持仓交集。"
-        if code_s:
+        exposure: Dict[str, Any] = {}
+        try:
+            exposure_pack = self.prior_exposure({"paper_path": params.get("paper_path")})
+            if isinstance(exposure_pack, dict) and exposure_pack.get("success"):
+                raw_ex = exposure_pack.get("exposure")
+                exposure = raw_ex if isinstance(raw_ex, dict) else {}
+        except Exception:  # noqa: BLE001 — 简报降级
+            exposure = {}
+        w_hit = int(exposure.get("watching_hit_n") or 0)
+        h_hit = int(exposure.get("holding_hit_n") or 0)
+        if exposure:
             exposure_note = (
-                f"已按 {code_s}"
+                f"观察池命中 {w_hit}/{exposure.get('watching_n') or 0}；"
+                f"持仓命中 {h_hit}/{exposure.get('holding_n') or 0}"
+            )
+        else:
+            exposure_note = "暴露交集暂不可用；请对照 Prior Desk「事件与暴露」。"
+        if code_s:
+            code6 = code_s[-6:]
+            in_w = any(
+                str(x.get("code") or "")[-6:] == code6
+                for x in (exposure.get("watching_hits") or [])
+                if isinstance(x, dict)
+            )
+            in_h = any(
+                str(x.get("code") or "")[-6:] == code6
+                for x in (exposure.get("holding_hits") or [])
+                if isinstance(x, dict)
+            )
+            exposure_note = (
+                f"{code_s}"
                 + (f" / {sector_s}" if sector_s else "")
-                + " 裁剪 prior warnings；是否命中监管/IPO 见 prior_flags。"
+                + f"：观察池命中={'是' if in_w else '否'}；持仓命中={'是' if in_h else '否'}；"
+                + f"池内合计 {w_hit} · 仓内合计 {h_hit}"
             )
 
         checklist = [
@@ -570,6 +651,14 @@ class AgentOpsService:
             "prior_flags": flags,
             "prior_warnings": warnings,
             "regime_summary": regime_summary,
+            "exposure": {
+                "watching_hit_n": w_hit,
+                "holding_hit_n": h_hit,
+                "watching_n": exposure.get("watching_n"),
+                "holding_n": exposure.get("holding_n"),
+                "watching_hits": list(exposure.get("watching_hits") or [])[:6],
+                "holding_hits": list(exposure.get("holding_hits") or [])[:6],
+            },
             "checklist": checklist,
             "impact_note": "不进 ŷ；仅纸面买/持仓缩放",
             "disclaimer": "只读简报；数字来自 market_context；AI 不得改写；不写 signal_config。",
@@ -578,6 +667,128 @@ class AgentOpsService:
                 if (stale or missing)
                 else None
             ),
+        }
+
+    def prior_exposure(self, params: Optional[dict] = None) -> Dict[str, Any]:
+        """观察池 / 持仓相对监管·IPO 概念的真实交集（只读）。"""
+        params = params or {}
+        try:
+            from core.market.context import load_market_context, summarize_market_context
+            from web.dashboard.market import _exposure_desk
+
+            ctx = load_market_context(use_cache=True)
+            announcement = ctx.get("announcement") if isinstance(ctx, dict) else {}
+            exposure = _exposure_desk(announcement if isinstance(announcement, dict) else {})
+            summary = summarize_market_context()
+        except Exception as e:  # noqa: BLE001
+            return {
+                "success": False,
+                "task": "prior_exposure",
+                "error": f"暴露计算失败：{e}",
+            }
+        flags = summary.get("prior_flags") if isinstance(summary.get("prior_flags"), dict) else {}
+        return {
+            "success": True,
+            "task": "prior_exposure",
+            "as_of": _utc_now(),
+            "prior_active": bool(summary.get("prior_active")),
+            "prior_flags": flags,
+            "prior_warnings": list(summary.get("prior_warnings") or [])[:8],
+            "exposure": exposure,
+            "impact_note": "只读交集；不改仓、不进 ŷ",
+            "disclaimer": "概念/代码命中供人审；AI 不得改写数字。",
+        }
+
+    def prior_vs_regime(self, params: Optional[dict] = None) -> Dict[str, Any]:
+        """M prior 买入缩放 × Regime 仓位上限对照；可选附带调仓 dry_run 摘要。"""
+        params = params or {}
+        from core.market.context import summarize_market_context
+        from core.signal.market_prior_config import read_market_prior_public
+
+        summary = summarize_market_context()
+        flags = summary.get("prior_flags") if isinstance(summary.get("prior_flags"), dict) else {}
+        cfg_pub = read_market_prior_public()
+        prior_scale = _estimate_m_prior_buy_scale(flags, cfg_pub)
+
+        regime_summary: Dict[str, Any] = {}
+        regime_scale = 1.0
+        try:
+            from core.signal.config import load_signal_config
+            from core.signal.live_features import fetch_live_index_bars
+            from core.signal.regime import assess_regime
+            from core.pro_core import regime_position_scale
+
+            sig_cfg = load_signal_config() or {}
+            idx_pack = fetch_live_index_bars(limit=75, use_cache=True)
+            regime_info = assess_regime(
+                idx_pack.get("bars") or [],
+                sig_cfg.get("regime"),
+                macro=None,
+            )
+            scale_info = regime_position_scale(regime=regime_info)
+            regime_scale = float(scale_info.get("scale") or 1.0)
+            regime_summary = {
+                "regime": regime_info.get("regime"),
+                "position_scale": regime_scale,
+                "apply_position_scale": (sig_cfg.get("regime") or {}).get(
+                    "apply_position_scale"
+                )
+                is not False,
+                "reason": regime_info.get("reason"),
+            }
+        except Exception:  # noqa: BLE001
+            regime_summary = {"regime": None, "position_scale": 1.0, "reason": "regime 降级"}
+
+        prior_buy = float(prior_scale.get("prior_buy_scale") or 1.0)
+        combined = round(max(0.0, min(1.0, prior_buy * regime_scale)), 4)
+
+        preview_summary: Optional[Dict[str, Any]] = None
+        # 默认不做 dry_run（可能较慢）；UI/提示词显式 include_preview=true 时附带
+        include_preview = bool(params.get("include_preview"))
+        if include_preview:
+            try:
+                prev = self.rebalance_preview(
+                    {
+                        "path": params.get("path") or "holding_cycle",
+                        "simulate_buy": bool(params.get("simulate_buy")),
+                        "paper_path": params.get("paper_path"),
+                        "strategy": params.get("strategy"),
+                    }
+                )
+                if isinstance(prev, dict) and prev.get("success"):
+                    trades_s = prev.get("trades_summary") or []
+                    preview_summary = {
+                        "path": prev.get("path"),
+                        "dry_run": True,
+                        "buys_blocked": prev.get("buys_blocked"),
+                        "trade_count": len(trades_s) if isinstance(trades_s, list) else 0,
+                        "checklist": list(prev.get("checklist") or [])[:6],
+                        "note": prev.get("message") or prev.get("disclaimer"),
+                        "hint": "预演≠成交；缩放已在纸面规则侧体现时可对照 trades note",
+                    }
+                elif isinstance(prev, dict):
+                    preview_summary = {
+                        "path": params.get("path") or "holding_cycle",
+                        "dry_run": True,
+                        "error": prev.get("error"),
+                    }
+            except Exception as e:  # noqa: BLE001
+                preview_summary = {"dry_run": True, "error": str(e)}
+
+        return {
+            "success": True,
+            "task": "prior_vs_regime",
+            "as_of": _utc_now(),
+            "prior_active": bool(summary.get("prior_active")),
+            "prior_flags": flags,
+            "prior_warnings": list(summary.get("prior_warnings") or [])[:8],
+            "prior_scale": prior_scale,
+            "regime_summary": regime_summary,
+            "combined_buy_scale": combined,
+            "formula": "combined ≈ prior_buy_scale × regime_position_scale（示意串联；实际以纸面规则为准）",
+            "preview": preview_summary,
+            "impact_note": "不进 ŷ；仅解释纸面买/持仓可能缩放",
+            "disclaimer": "只读对照；预演≠成交；不写 signal_config。",
         }
 
     def feedback_draft(self, params: Optional[dict] = None) -> Dict[str, Any]:
@@ -786,6 +997,31 @@ class AgentOpsService:
         if alerts:
             concerns.append(f"monitor_alerts×{len(alerts)}")
 
+        paper, _err = _load_paper(params.get("paper_path") or self.paper_path)
+        prior_trades: List[Dict[str, Any]] = []
+        prior_trim_n = 0
+        if paper:
+            for t in list(paper.get("trades") or [])[-80:]:
+                if not isinstance(t, dict):
+                    continue
+                note = str(t.get("reason") or t.get("note") or "")
+                if t.get("market_prior") or "market_prior" in note or "市场先验" in note:
+                    prior_trim_n += 1
+                    if len(prior_trades) < 8:
+                        prior_trades.append(
+                            {
+                                "stock_code": t.get("stock_code") or t.get("code"),
+                                "side": t.get("side") or t.get("action"),
+                                "note": note[:120] or None,
+                                "market_prior": t.get("market_prior"),
+                            }
+                        )
+        if prior_trim_n:
+            concerns.append(
+                f"近端 trades 含 market_prior 标记约 {prior_trim_n} 笔 → 缩仓归因 prior，勿说成 ŷ 变差"
+            )
+            consistent.append("已检出 market_prior 纸面缩放痕迹")
+
         return {
             "success": True,
             "task": "post_rebalance_review",
@@ -796,11 +1032,14 @@ class AgentOpsService:
                 "buys_blocked": ops.get("buys_blocked"),
                 "fallback_count": ops.get("fallback_count"),
             },
+            "market_prior_trim_trades": prior_trim_n,
+            "market_prior_trades_sample": prior_trades,
             "consistent": consistent,
             "concerns": concerns,
             "do_not_auto_patch": [
                 "本工具不产生 signal_config patch",
-                "若需改参：ops(task=feedback_draft) → 人审 promote",
+                "策略草稿：ops(task=feedback_draft) → 人审 POST /api/strategy/promote",
+                "M prior 草稿：ops(task=feedback_draft, scope=market_prior) → 人审 POST /api/signal/config/market-prior",
             ],
             "disclaimer": "只读对照；不改仓、不 promote。",
         }
@@ -972,7 +1211,7 @@ class AgentOpsService:
 
 
 def truncate_tool_json_for_llm(result: str, *, max_chars: int = 6000) -> str:
-    """压缩写入 messages 的 tool JSON；artifact 仍可用原文。"""
+    """压缩写入 messages 的 tool JSON；artifact 走 compact_payload（保留 prior 关键字段）。"""
     if not isinstance(result, str) or len(result) <= max_chars:
         return result
     try:

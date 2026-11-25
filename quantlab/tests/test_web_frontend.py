@@ -264,6 +264,16 @@ class TestP95P96WebPages(unittest.TestCase):
         self.assertNotIn("四路看板", strategy.text)
         self.assertIn('id="strategy-desk-boundary"', strategy.text)
         self.assertIn('id="strategy-mctx-refresh"', strategy.text)
+        for ai_id in (
+            "strategy-prior-brief",
+            "strategy-prior-draft",
+            "strategy-prior-exposure",
+            "strategy-prior-vs-regime",
+            "strategy-prior-cross",
+            "strategy-prior-events",
+            "strategy-prior-review",
+        ):
+            self.assertIn(f'id="{ai_id}"', strategy.text)
         # 刷新行在 M 环境 strip 之上
         self.assertLess(
             strategy.text.index('id="strategy-mctx-refresh"'),

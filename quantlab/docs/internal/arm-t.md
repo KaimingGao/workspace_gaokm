@@ -149,7 +149,7 @@ x_seq (B, L, F+1) ── Linear ── sin PE ── Pre-LN Encoder × nlayers
 
 磁盘缓存键是 `facv3` 加每只股票的价量指纹（`bars_fingerprint`）。τc 的 kind 是 `tc_compact_v3`（开盘面板丢掉 15 个分钟 `z_τc_*` 和 14 个 `raw_atc_*` 前缀；`Z_TC_FIT_FEATURES` 本身不改，盘中钟仍用这些列）。固定 lookback 下滑窗、复权或中间一根价量改动都会 miss。oo 单票失败由枢纽组装抬异常，不落半成品。缺测在面板里保持 NaN。开盘 full 218，core 61。隔夜锚和 `tau_lag1` / `tau_ma5` 保留。
 
-`assemble_oo_panels` 在非物化路径会尝试把 oo 面板落成 open 立方。面板没有 τc 列，已有 open 立方时不覆盖。截面 z 缺的是列时，报错给出本地跨度，并要求重跑日线物化补缺列的日子。
+`assemble_oo_panels` 在非物化路径会尝试把 oo 面板落成 open 立方。面板没有 τc 列，已有 open 立方时不覆盖。开盘 τc 截面 z 从第一份带齐 τc 列的立方算起，更早的日子写 0。齐全日之后再缺列，报错给出本地跨度，并要求重跑日线物化补那些日子。
 
 ### 5.2 `slice_arm_t_panel`（仅 Arm·T 序列档）
 
@@ -389,3 +389,4 @@ PYTHONUNBUFFERED=1 .venv/bin/python scripts/run_yhat_transformer_holdout.py --he
 | 2026-11-22 | 这套拟合缺省收到 `heads.py`。desk、CLI、训练入口和页面用同一份 |
 | 2026-11-22 | 回测缺了序列长度或网络宽度时改用这套缺省。序列档提示改为 `[T−(L−1) … T]` |
 | 2026-11-22 | 训练步日志默认每 10 步一行。`TRANSFORMER_LOG_EVERY` 仍可覆盖 |
+| 2026-11-25 | 开盘 τc 截面 z：早于第一份带齐 τc 列的立方写 0。齐全日之后缺列仍整段失败。ŷ_oo 不改 |

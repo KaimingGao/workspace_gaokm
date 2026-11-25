@@ -515,16 +515,25 @@ def mark_to_market(paper: dict) -> Dict[str, Any]:
         )
 
     invested_pct = round(stock_value / equity * 100.0, 1) if equity > 0 else 0.0
-    peak = max(initial, equity)
+    # 峰值只随已经出现过的净值抬高。当前净值是路径终点，不能在扫历史之前当峰值，
+    # 否则上涨也会被记成回撤。没有快照时，初始资金才是起点。
+    peak = 0.0
     max_dd = 0.0
     for snap in paper.get("snapshots") or []:
-        eq = float(snap.get("equity") or 0)
-        if eq > peak:
+        try:
+            eq = float((snap or {}).get("equity") or 0)
+        except (TypeError, ValueError):
+            continue
+        if not eq > 0:
+            continue
+        if peak <= 0 or eq > peak:
             peak = eq
-        if peak > 0:
-            dd = (peak - eq) / peak
-            if dd > max_dd:
-                max_dd = dd
+            continue
+        dd = (peak - eq) / peak
+        if dd > max_dd:
+            max_dd = dd
+    if peak <= 0 and initial > 0:
+        peak = initial
     if peak > 0 and equity < peak:
         max_dd = max(max_dd, (peak - equity) / peak)
 

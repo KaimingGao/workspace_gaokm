@@ -155,16 +155,18 @@ Agent：`quant(task=health)` · `quant(task=package_info)` 查看包模块树。
 | `ops_snapshot` | 读 `last_ops_report` 五问 | 否 |
 | `rebalance_preview` | `path=holding_cycle\|watching_matrix\|sync_paper` dry_run | 否 |
 | `ops_anomaly` | 告警 / risk_block / 审计尾 | 否 |
-| `feedback_draft` | 配置建议 + `suggested_checks`；`scope=market_prior` 仅建议 M 层 prior 键 | 否（人审 promote / `POST /api/signal/config/market-prior`） |
-| `prior_brief` | 盘前市场先验结构化简报（freshness · flags · checklist · regime） | 否 |
-| `post_rebalance_review` | 调仓后只读对照 | 否 |
+| `feedback_draft` | 配置建议 + `suggested_checks`；`scope=market_prior` 仅建议 M 层 prior 键 | 否（策略：人审 promote；M prior：`POST /api/signal/config/market-prior`） |
+| `prior_brief` | 盘前市场先验结构化简报（freshness · flags · checklist · exposure · regime） | 否 |
+| `prior_exposure` | 观察池 / 持仓相对监管·IPO 真实交集 | 否 |
+| `prior_vs_regime` | M prior × Regime 合成缩放；`include_preview=true` 附 dry_run 摘要 | 否 |
+| `post_rebalance_review` | 调仓后只读对照（含 `market_prior` 缩仓归因） | 否 |
 | `event_flags` | 新闻启发式旗标 | 否（规则消费另接） |
 | `alpha_draft` | 因子假设草稿 | 否 |
 | `view_bundle` | 观点包（默认不融合） | 否 |
 
 CLI 抽查：`python3 -c "from services.agent_ops import AgentOpsService; print(AgentOpsService().run({'task':'prior_brief'}))"`
 
-市场先验 × AI：Prior Desk「盘前简报 / 建议 prior 草稿」→ AI 抽屉 prefill；观察台行内 `AI` → `advise` + `market_prior`。数字不进 ŷ；Agent 不写盘。
+市场先验 × AI：Prior Desk「盘前简报 / 建议 prior 草稿 / 暴露交集 / Prior×Regime / 跨市场解读 / 事件旗标 / 调仓 prior 归因」→ AI 抽屉自动发送；观察台行内 `AI` → `prior_brief(stock_code)` + `advise`；持仓操作条 `Prior` → 个股 prior 简报。数字不进 ŷ；Agent 不写盘。
 
 量化 CI（9 quant_* + preset）与 daily 走 CLI / Eval API；包模块树见 `GET /api/quant/package`。归档报告的 `share_url` 由 API 取出。
 

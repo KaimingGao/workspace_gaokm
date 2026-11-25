@@ -46,6 +46,48 @@ const COMMANDS = [
     },
   },
   {
+    id: "ai-prior-brief",
+    label: "AI · 盘前 prior 简报",
+    hint: "ops prior_brief",
+    keywords: "盘前简报 prior_brief 市场先验 跨市场 情绪",
+    run: () => {
+      if (typeof window.__quantlabOpenAi === "function") {
+        window.__quantlabOpenAi(
+          "请调用 ops(task=prior_brief) 做今日盘前市场先验简报：按 checklist 说明 freshness、激活的 prior、对观察池/持仓影响与失效条件。不要改配置，不要改 score/stance。",
+          { send: true }
+        );
+      }
+    },
+  },
+  {
+    id: "ai-prior-exposure",
+    label: "AI · prior 暴露交集",
+    hint: "ops prior_exposure",
+    keywords: "暴露交集 prior_exposure 观察池 持仓 监管 IPO",
+    run: () => {
+      if (typeof window.__quantlabOpenAi === "function") {
+        window.__quantlabOpenAi(
+          "请调用 ops(task=prior_exposure) 说明今日监管/IPO 概念与观察池、纸面持仓的真实交集；不改仓、不改 ŷ。",
+          { send: true }
+        );
+      }
+    },
+  },
+  {
+    id: "ai-prior-vs-regime",
+    label: "AI · Prior×Regime 缩放",
+    hint: "ops prior_vs_regime",
+    keywords: "prior_vs_regime 合成缩放 Regime 预演",
+    run: () => {
+      if (typeof window.__quantlabOpenAi === "function") {
+        window.__quantlabOpenAi(
+          "请调用 ops(task=prior_vs_regime, include_preview=true) 对照 M prior 与 Regime 合成缩放；预演≠成交、ŷ 不变。",
+          { send: true }
+        );
+      }
+    },
+  },
+  {
     id: "theme-toggle",
     label: "切换深浅色",
     hint: "theme",

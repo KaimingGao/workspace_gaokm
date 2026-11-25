@@ -144,6 +144,9 @@ export function buildPaperHoldActionBarHtml({ selectedHoldCode, holdings }) {
     `<button type="button" class="dialog-btn secondary paper-hold-flat" data-code="${escapeText(
       actionCode
     )}">清仓</button>` +
+    `<button type="button" class="dialog-btn secondary paper-hold-prior-ai" data-code="${escapeText(
+      actionCode
+    )}" title="打开 AI：ops(task=prior_brief) 个股盘前 prior">Prior</button>` +
     `<button type="button" class="dialog-btn secondary paper-hold-action-dismiss" title="取消选中，关闭操作条">取消</button>` +
     `</div></div>`;
   return { actionBarHtml, selectedHoldCode: nextSelectedHoldCode };

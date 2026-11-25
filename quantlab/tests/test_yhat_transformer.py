@@ -659,7 +659,7 @@ class TestYhatModelSmoke(unittest.TestCase):
         self.assertEqual(float(_regression_batch_loss(empty, empty)), 0.0)
 
     def test_bias_and_layernorm_skip_weight_decay(self):
-        """bias 与 LayerNorm.weight 不衰减，其余参数衰减 1e-3。"""
+        """bias 与 LayerNorm.weight 不衰减，其余参数衰减 5e-3。"""
         import torch
 
         from core.research.yhat_transformer.model import ArmTModel
@@ -680,7 +680,7 @@ class TestYhatModelSmoke(unittest.TestCase):
         self.assertEqual(decay_groups[0]["weight_decay"], _WEIGHT_DECAY)
         decay = {id(p) for p in decay_groups[0]["params"]}
         free = {id(p) for g in free_groups for p in g["params"]}
-        self.assertEqual(_WEIGHT_DECAY, 1e-3)
+        self.assertEqual(_WEIGHT_DECAY, 5e-3)
         for name, param in model.named_parameters():
             leaf = name.rsplit(".", 1)[-1]
             owner = dict(model.named_modules()).get(name.rsplit(".", 1)[0], model)

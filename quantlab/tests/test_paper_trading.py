@@ -3707,9 +3707,34 @@ class TestHoldingOrigin(_QuotePatchMixin, unittest.TestCase):
                 with patch("adapters.market.quote_api.StockAPI.query", side_effect=_fake_query):
                     summary = mark_to_market(paper)
         # cash 5000 + mv 1000 = 6000；仓位 1000/6000
+        # 快照 12000 → 9000，现净值 6000：从已出现的高点 12000 回落
         self.assertAlmostEqual(summary["invested_pct"], round(1000 / 6000 * 100, 1))
         self.assertEqual(summary["cost_model"], "zero")
-        self.assertGreater(summary["max_drawdown_pct"], 0)
+        self.assertEqual(summary["max_drawdown_pct"], 50.0)
+        self.assertEqual(summary["current_drawdown_pct"], 50.0)
+
+    def test_max_drawdown_ignores_later_high_as_prior_peak(self):
+        """当前净值高于早期点时，不能把早期点算成从当前净值回撤。"""
+        paper = _paper(cash=130.0)
+        paper["initial_cash"] = 100.0
+        paper["snapshots"] = [
+            {"equity": 100.0},
+            {"equity": 110.0},
+        ]
+        summary = mark_to_market(paper)
+        self.assertEqual(summary["equity"], 130.0)
+        self.assertEqual(summary["max_drawdown_pct"], 0.0)
+        self.assertEqual(summary["current_drawdown_pct"], 0.0)
+
+        paper["cash"] = 140.0
+        paper["snapshots"] = [
+            {"equity": 100.0},
+            {"equity": 150.0},
+            {"equity": 120.0},
+        ]
+        summary = mark_to_market(paper)
+        self.assertEqual(summary["max_drawdown_pct"], 20.0)
+        self.assertEqual(summary["current_drawdown_pct"], 6.67)
 
     def test_mark_to_market_today_pnl_from_change_pct(self):
         """今日收益 = Σ MV·chg/(100+chg)；账户%相对昨收净值。"""

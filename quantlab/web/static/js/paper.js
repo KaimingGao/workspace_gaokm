@@ -2189,6 +2189,19 @@ export function initPaper(ctx) {
         clearHoldSelection();
         return;
       }
+      const priorAiBtn = e.target.closest(".paper-hold-prior-ai");
+      if (priorAiBtn) {
+        e.preventDefault();
+        e.stopPropagation();
+        const code = String(priorAiBtn.dataset.code || "").trim();
+        if (code && typeof window.__quantlabOpenAi === "function") {
+          window.__quantlabOpenAi(
+            `对持仓 ${code} 调用 ops(task=prior_brief, stock_code=${code})：说明该票今日 prior 命中、暴露与纸面缩放风险；不要改配置、不要改 score/stance。`,
+            { send: true }
+          );
+        }
+        return;
+      }
       const sortThEl = e.target.closest("th.paper-hold-sort");
       if (sortThEl) {
         e.preventDefault();

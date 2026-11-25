@@ -112,6 +112,78 @@ class OpenTcColumnGateTests(unittest.TestCase):
         self.assertEqual(miss, tc[:2])
         self.assertEqual(_critical_open_tc_missing(tc[:2], ["z_oo_mom"]), [])
 
+    def test_tc_prefix_without_columns_stays_zero(self) -> None:
+        """早段只有 oo 列时 τc 写 0；第一份齐全日之后再缺列仍失败。ŷ_oo 不走这条。"""
+        from unittest import mock
+
+        import numpy as np
+
+        from core.research.materialize.cube_z import apply_day_cube_mu_sigma_matrix
+
+        class _Cube:
+            def __init__(self, names):
+                self.names = list(names)
+                self.z_mean = np.zeros(len(names))
+                self.z_std = np.ones(len(names))
+
+        oo = _Cube(["z_oo_mom"])
+        full = _Cube(["z_oo_mom", "z_τc_gap_pct"])
+
+        def _load(day, _codes, clock="open", **_kw):
+            day = str(day)[:10]
+            if day == "2022-04-28":
+                return oo
+            if day in ("2022-07-12", "2022-08-01"):
+                return full
+            return None
+
+        x = np.array(
+            [[2.0, 5.0], [4.0, 9.0], [1.0, 3.0], [3.0, 7.0]],
+            dtype=np.float64,
+        )
+        groups = ["2022-04-28", "2022-04-28", "2022-07-12", "2022-07-12"]
+        with mock.patch(
+            "core.research.day_cube.enabled", return_value=True
+        ), mock.patch(
+            "core.research.day_cube.load_day_cube", side_effect=_load
+        ), mock.patch(
+            "core.research.materialize.cube_z.universe_codes",
+            return_value=["000001", "000002"],
+        ):
+            z, meta = apply_day_cube_mu_sigma_matrix(
+                x, ["z_oo_mom", "z_τc_gap_pct"], groups, clock="open"
+            )
+        self.assertTrue(meta.get("ok"), meta)
+        self.assertEqual(int(meta.get("tc_prefix_zeroed") or 0), 1)
+        self.assertEqual(meta.get("tc_column_start"), "2022-07-12")
+        self.assertAlmostEqual(float(z[0, 0]), 2.0, places=5)
+        self.assertAlmostEqual(float(z[0, 1]), 0.0, places=5)
+        self.assertAlmostEqual(float(z[2, 1]), 3.0, places=5)
+
+        hole = ["2022-07-12", "2022-07-12", "2022-08-01", "2022-08-01"]
+
+        def _load_hole(day, _codes, clock="open", **_kw):
+            day = str(day)[:10]
+            if day == "2022-07-12":
+                return full
+            if day == "2022-08-01":
+                return oo
+            return None
+
+        with mock.patch(
+            "core.research.day_cube.enabled", return_value=True
+        ), mock.patch(
+            "core.research.day_cube.load_day_cube", side_effect=_load_hole
+        ), mock.patch(
+            "core.research.materialize.cube_z.universe_codes",
+            return_value=["000001", "000002"],
+        ):
+            z_hole, meta_hole = apply_day_cube_mu_sigma_matrix(
+                x, ["z_oo_mom", "z_τc_gap_pct"], hole, clock="open"
+            )
+        self.assertIsNone(z_hole)
+        self.assertIn("z_τc_gap_pct", str(meta_hole.get("error") or ""))
+
 
 class StemEmptyPanelTests(unittest.TestCase):
     def test_empty_panel_dates_skip_scored_through(self) -> None:

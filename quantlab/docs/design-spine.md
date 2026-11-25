@@ -476,7 +476,7 @@ N2 ──offline──► research/ml artifact ──promote only──► N5
 | 轨 | 职责 | 落点 | 硬边界 |
 |----|------|------|--------|
 | **量化主轴** | 算分、定倾向、模拟买卖、历史回测 | `core/signal` · `stance` · `paper` · `backtest` · `data/signal_config.json` | 数字只来自 Python；live / 纸面 / 回测 **共用 `score_bars`** |
-| **AI 旁路** | 意图理解、选 Skill、研究话术；盘前 prior 简报 / M 层配置草稿 | `agent/` · Skills · prompts · `ops(task=prior_brief\|feedback_draft)` | 「能否买入」须 **逐字引用** `advise.stance_label`；**不得改写** `score` / `stance_label`；prior 只解释与草稿，不静默改生产配置 |
+| **AI 旁路** | 意图理解、选 Skill、研究话术；盘前 prior 简报 / 暴露交集 / prior×Regime / M 层配置草稿 | `agent/` · Skills · prompts · `ops(task=prior_brief\|prior_exposure\|prior_vs_regime\|feedback_draft)` | 「能否买入」须 **逐字引用** `advise.stance_label`；**不得改写** `score` / `stance_label`；prior 只解释与草稿，不静默改生产配置 |
 
 ```text
 ┌─────────────────────────────────────────────────────────┐
@@ -595,13 +595,13 @@ StrategySpec（如 `short_conservative` + 成本模型 `simple_cn`）把信号�
 ① 观察台选池与人工建仓
     → ② 历史回测：验证规则（Top-K / WF / 成本）
     → ③ 交易执行：纸面落地（手管仓 · 策略调仓 · 可选做 T）
-    → ④ 市场先验：盘前可信度 · 跨市场/事件/暴露 · Regime（只读；AI 旁路 prior_brief / prior 草稿；未接调仓）
+    → ④ 市场先验：盘前可信度 · 跨市场/事件/暴露 · Regime（只读；AI 旁路 prior_brief / prior_exposure / prior_vs_regime / prior 草稿；未接调仓）
     → ⑤ 交易执行：北极星拟合 · 告警 · 审计
 ```
 
 **(1)(2) 落在第 ③ 步**；②④⑤ 常「有能力、少感知」。UI 应用短引导把回测与晋升接在调仓/做 T 之后，而不是在交易页堆更多旋钮。
 
-常被忽略但仍可用的能力：观察评分/倾向与建仓流水；组合回测与参数扫描/导出；策略 IC·草稿·promote；开盘调仓与调仓五问；账户风控（只数/单票/行业/回撤）；手动加减仓与成本模型；告警→建议（不写盘）；AI 解读与盘前 prior 简报（不改 `score`/`stance`）；`/ws/live` 与命令面板。收盘纸面日更已下线。
+常被忽略但仍可用的能力：观察评分/倾向与建仓流水；组合回测与参数扫描/导出；策略 IC·草稿·promote；开盘调仓与调仓五问；账户风控（只数/单票/行业/回撤）；手动加减仓与成本模型；告警→建议（不写盘）；AI 解读与盘前 prior 简报/暴露/合成缩放（不改 `score`/`stance`）；`/ws/live` 与命令面板。收盘纸面日更已下线。
 
 Web 文案与页面落点见 [quant-ui · 用户心智与验证闭环](quant-ui.md#用户心智与验证闭环)。
 

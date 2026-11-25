@@ -214,7 +214,7 @@ export async function mountWatchingTableIsland(host, options = {}) {
           : `<button type="button" class="watching-build-btn" data-code="${codeAttr}" title="按金额确认后，现价假买进模拟账户">建仓</button>`;
         return (
           main +
-          `<button type="button" class="watching-ai-btn" data-code="${codeAttr}" title="打开 AI：advise + market_prior 解释能否买">AI</button>`
+          `<button type="button" class="watching-ai-btn" data-code="${codeAttr}" title="打开 AI：prior_brief + advise 解释能否买">AI</button>`
         );
       }
       if (col.id === "sent") return d.sentHtml || "—";

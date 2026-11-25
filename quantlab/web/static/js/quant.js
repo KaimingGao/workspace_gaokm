@@ -4245,7 +4245,8 @@ export function initQuant(ctx) {
         const code = String(aiBtn.dataset.code || "").trim();
         if (code && typeof window.__quantlabOpenAi === "function") {
           window.__quantlabOpenAi(
-            `对 ${code} 调用 advise，并结合 market_prior 解释能否买与失效条件。若 prior_active，须列出 prior_warnings，并说明 ŷ 未改、纸面可能缩放。不要改配置。`
+            `对 ${code}：先 ops(task=prior_brief, stock_code=${code})，再 advise。结合 market_prior 解释能否买与失效条件；若 prior_active 须列出 prior_warnings，并说明 ŷ 未改、纸面可能缩放。不要改配置。`,
+            { send: true }
           );
         }
         return;
@@ -6560,23 +6561,37 @@ export function initQuant(ctx) {
   const PRIOR_BRIEF_PREFILL =
     "请调用 ops(task=prior_brief) 做今日盘前市场先验简报：按 checklist 说明 freshness、激活的 prior、对观察池/持仓影响与失效条件。不要改配置，不要改 score/stance。";
   const PRIOR_DRAFT_PREFILL =
-    "请调用 ops(task=feedback_draft, scope=market_prior) 给出 M 层 prior 配置建议草稿：只建议 cross_market / market_sentiment_prior / regulatory_prior / ipo_drain_prior / market_prior_policy，不改 weights/ŷ；不写盘，须人审。";
-  const priorBriefBtn = document.getElementById("strategy-prior-brief");
-  if (priorBriefBtn) {
-    priorBriefBtn.addEventListener("click", (e) => {
-      e.preventDefault();
-      if (typeof window.__quantlabOpenAi === "function") {
-        window.__quantlabOpenAi(PRIOR_BRIEF_PREFILL);
-      }
-    });
+    "请调用 ops(task=feedback_draft, scope=market_prior) 给出 M 层 prior 配置建议草稿：只建议 cross_market / market_sentiment_prior / regulatory_prior / ipo_drain_prior / market_prior_policy，不改 weights/ŷ；不写盘，须人审 POST /api/signal/config/market-prior。";
+  const PRIOR_EXPOSURE_PREFILL =
+    "请调用 ops(task=prior_exposure) 说明今日监管/IPO 概念与观察池、纸面持仓的真实交集：列出 watching_hits / holding_hits 与 prior_flags；不改仓、不改 ŷ。";
+  const PRIOR_VS_REGIME_PREFILL =
+    "请调用 ops(task=prior_vs_regime, include_preview=true) 对照 M prior 买入缩放与 Regime 仓位上限：给出 combined_buy_scale、components 与 dry_run 预演摘要；强调预演≠成交、ŷ 不变。";
+  const PRIOR_CROSS_PREFILL =
+    "请调用 ops(task=prior_brief) 重点解读跨市场：overseas_tech / A50 / lead-lag / liquidity，说明 cross_market prior 是否激活及失效条件；不要改配置。";
+  const PRIOR_EVENTS_PREFILL =
+    "请先 ops(task=event_flags)，再 ops(task=prior_exposure)：解读监管/IPO 事件旗标与观察池·持仓命中；给出失效条件；不改 ŷ、不写盘。";
+  const PRIOR_REVIEW_PREFILL =
+    "请调用 ops(task=post_rebalance_review) 做调仓后对照，重点看 market_prior_trim_trades / market_prior_trades_sample：缩仓归因 prior_warnings，勿说成 ŷ 变差；不写盘。";
+  function openPriorAi(prefill) {
+    if (typeof window.__quantlabOpenAi === "function") {
+      window.__quantlabOpenAi(prefill, { send: true });
+    }
   }
-  const priorDraftBtn = document.getElementById("strategy-prior-draft");
-  if (priorDraftBtn) {
-    priorDraftBtn.addEventListener("click", (e) => {
+  const priorAiBindings = [
+    ["strategy-prior-brief", PRIOR_BRIEF_PREFILL],
+    ["strategy-prior-draft", PRIOR_DRAFT_PREFILL],
+    ["strategy-prior-exposure", PRIOR_EXPOSURE_PREFILL],
+    ["strategy-prior-vs-regime", PRIOR_VS_REGIME_PREFILL],
+    ["strategy-prior-cross", PRIOR_CROSS_PREFILL],
+    ["strategy-prior-events", PRIOR_EVENTS_PREFILL],
+    ["strategy-prior-review", PRIOR_REVIEW_PREFILL],
+  ];
+  for (const [id, prefill] of priorAiBindings) {
+    const btn = document.getElementById(id);
+    if (!btn) continue;
+    btn.addEventListener("click", (e) => {
       e.preventDefault();
-      if (typeof window.__quantlabOpenAi === "function") {
-        window.__quantlabOpenAi(PRIOR_DRAFT_PREFILL);
-      }
+      openPriorAi(prefill);
     });
   }
   if (page === "strategy") {

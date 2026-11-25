@@ -102,6 +102,21 @@ body[data-page="strategy"] .strategy-page .dashboard-section-head {
   padding: 0 0 2px;
 }
 
+body[data-page="strategy"] .strategy-page .strategy-section-ai-tools {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-left: auto;
+  align-items: center;
+}
+
+body[data-page="strategy"] .strategy-page .strategy-section-ai-tools .dialog-btn {
+  height: 28px;
+  min-height: 28px;
+  padding: 0 10px;
+  font-size: 12px;
+}
+
 body[data-page="strategy"] .strategy-page .dashboard-section-title {
   font-size: var(--s-fs-section);
   font-weight: var(--sys-fw-display, 700);

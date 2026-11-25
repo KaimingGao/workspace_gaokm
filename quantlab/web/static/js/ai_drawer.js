@@ -195,13 +195,19 @@ function resolveArtifactTab(art, fallback) {
     const task = String(
       (art.params && art.params.task) || (art.data && art.data.task) || ""
     ).toLowerCase();
+    const scope = String((art.params && art.params.scope) || "").toLowerCase();
     if (task.includes("t0") || task.includes("paper") || task.includes("bridge")) {
       tab = "follow";
     } else if (task.includes("backtest") || task.includes("cross") || task.includes("neutral")) {
       tab = "replay";
-    } else {
+    } else if (
+      task.includes("prior") ||
+      scope.includes("market_prior") ||
+      task === "event_flags"
+    ) {
       tab = "strategy";
     }
+    // 其余 quant 结果留在研究枢纽，勿误跳 Prior Desk
   }
   return tab;
 }
@@ -375,7 +381,14 @@ function appendMsg(container, role, text, pending, extras) {
   return el;
 }
 
-export function openAiDrawer(prefill) {
+/** @type {null | ((text: string) => void | Promise<void>)} */
+let _aiSend = null;
+
+/**
+ * @param {string} [prefill]
+ * @param {{ send?: boolean }} [opts] send=true 时打开后立即发送（Prior Desk / 行内 AI）
+ */
+export function openAiDrawer(prefill, opts) {
   const drawer = document.getElementById("ai-drawer");
   if (!drawer) return;
   drawer.classList.add("open");
@@ -384,12 +397,27 @@ export function openAiDrawer(prefill) {
   syncEmptyState();
   loadLlmPrefs().catch(() => {});
   const input = document.getElementById("ai-drawer-input");
+  const text = prefill != null ? String(prefill) : "";
   if (input) {
-    if (prefill) input.value = prefill;
+    if (text) input.value = text;
     setTimeout(() => {
       if (isSettingsOpen()) return;
       input.focus();
     }, 40);
+  }
+  if (opts && opts.send && text) {
+    const trySend = (attempt) => {
+      if (typeof _aiSend === "function") {
+        try {
+          _aiSend(text);
+        } catch (err) {
+          console.error("[QuantLab] ai auto-send", err);
+        }
+        return;
+      }
+      if (attempt < 8) setTimeout(() => trySend(attempt + 1), 50);
+    };
+    setTimeout(() => trySend(0), 60);
   }
 }
 
@@ -597,6 +625,8 @@ export function initAiDrawer() {
     send(q);
   });
 
+  _aiSend = send;
   window.__quantlabOpenAi = openAiDrawer;
   window.__quantlabCloseAi = closeAiDrawer;
+  window.__quantlabAiSend = send;
 }

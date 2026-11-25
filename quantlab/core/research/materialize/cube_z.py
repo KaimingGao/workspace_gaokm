@@ -223,6 +223,29 @@ def _format_l2_miss_error(meta: Optional[Mapping[str, Any]], *, default_clock: s
 _FIT_TIME_CS_Z = frozenset({"raw_ath_H_LAG1", "raw_ath_H_MA5"})
 
 
+def _requested_open_tc_names(requested_names: Sequence[str]) -> List[str]:
+    """本次请求里属于开盘 τc 的列。ŷ_oo 的请求这里是空的。"""
+    try:
+        from core.research.materialize.horizon_names import open_tc_required_names
+
+        critical = set(open_tc_required_names())
+    except Exception:  # noqa: BLE001
+        return []
+    return [str(n) for n in requested_names if str(n or "").strip() and str(n) in critical]
+
+
+def _day_covers_names(
+    names: Sequence[str],
+    mu_map: Mapping[str, float],
+    sd_map: Mapping[str, float],
+) -> bool:
+    for name in names:
+        mu, _sd = _cube_mu_sd_for_name(str(name), mu_map, sd_map)
+        if mu is None:
+            return False
+    return True
+
+
 def _critical_open_tc_missing(
     missing_cols: Sequence[str],
     requested_names: Sequence[str],
@@ -336,6 +359,8 @@ def apply_day_cube_mu_sigma_matrix(
 
     任一日缺 Cube → ``ok=False``。Cube 缺列：尝试裸名 /
     ``z_τh_*``/``z_τc_*`` 别名；仍无则该列填 0（不桶内现算）。
+    开盘 τc 列只缺在第一份齐全立方之前时，这些行保持 0，整单仍成功。
+    齐全日之后再缺 τc 列则整单失败。ŷ_oo 不请求这些列。
     ``raw_ath_H_LAG1`` / ``raw_ath_H_MA5`` 不在立方里，缺列时按当日该钟点截面现算 z。
     """
     from core.research.day_cube import enabled, load_day_cube
@@ -393,6 +418,11 @@ def apply_day_cube_mu_sigma_matrix(
     miss_buckets: List[Tuple[str, str, List[int]]] = []
     missing_col_seen: List[str] = []
     missing_col_set: set = set()
+    # 早段 open 立方往往只有 oo 列。ŷ_oo 能用；ŷ_τc 从第一份带齐 τc 列的日子算起，
+    # 更早的行保持 0。齐全日之后再缺列仍整段失败。
+    critical_need = _requested_open_tc_names(name_list)
+    days_missing_critical: List[str] = []
+    days_cover_critical: List[str] = []
     for (day, clk), idxs in buckets.items():
         cube = None
         try:
@@ -433,6 +463,11 @@ def apply_day_cube_mu_sigma_matrix(
         hit += 1
         mu_map = {str(cube_names[j]): float(z_mean[j]) for j in range(width)}
         sd_map = {str(cube_names[j]): float(z_std[j]) for j in range(width)}
+        if critical_need:
+            if _day_covers_names(critical_need, mu_map, sd_map):
+                days_cover_critical.append(day)
+            else:
+                days_missing_critical.append(day)
         ix = np.asarray(
             [int(i) for i in idxs if 0 <= int(i) < n],
             dtype=np.int64,
@@ -482,6 +517,18 @@ def apply_day_cube_mu_sigma_matrix(
         }
 
     critical_miss = _critical_open_tc_missing(missing_col_seen, name_list)
+    prefix_zeroed = 0
+    tc_column_start = ""
+    if critical_miss and days_cover_critical:
+        tc_column_start = min(days_cover_critical)
+        if days_missing_critical and all(d < tc_column_start for d in days_missing_critical):
+            prefix_zeroed = len(set(days_missing_critical))
+            critical_miss = []
+            logger.warning(
+                "open τc columns start %s; %s earlier cube days stay 0",
+                tc_column_start,
+                prefix_zeroed,
+            )
     if critical_miss:
         return None, {
             "ok": False,
@@ -504,6 +551,8 @@ def apply_day_cube_mu_sigma_matrix(
         "fallback_open": allow_open_fb,
         "clock": clock,
         "n_buckets": len(buckets),
+        "tc_prefix_zeroed": prefix_zeroed,
+        "tc_column_start": tc_column_start,
     }
 
 

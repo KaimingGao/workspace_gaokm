@@ -19,7 +19,24 @@ class TestAgentOpsContracts(unittest.TestCase):
         self.assertIn("ops_snapshot", AVAILABLE_TASKS)
         self.assertIn("rebalance_preview", AVAILABLE_TASKS)
         self.assertIn("prior_brief", AVAILABLE_TASKS)
+        self.assertIn("prior_exposure", AVAILABLE_TASKS)
+        self.assertIn("prior_vs_regime", AVAILABLE_TASKS)
         self.assertIn("view_bundle", AVAILABLE_TASKS)
+
+    def test_ops_task_catalog_aligned(self):
+        """AVAILABLE_TASKS · tool_config enum · OPS_TASK_ENUM · OPS_TASK_TAB 对齐。"""
+        import json
+        from pathlib import Path
+
+        from agent.artifacts import OPS_TASK_TAB
+        from agent.prompts import OPS_TASK_ENUM
+
+        cfg_path = Path(__file__).resolve().parents[1] / "skills" / "ops" / "tool_config.json"
+        enum = tuple(json.loads(cfg_path.read_text(encoding="utf-8"))["parameters"]["properties"]["task"]["enum"])
+        prompt_tasks = tuple(OPS_TASK_ENUM.strip().split("|"))
+        self.assertEqual(AVAILABLE_TASKS, enum)
+        self.assertEqual(AVAILABLE_TASKS, prompt_tasks)
+        self.assertEqual(set(AVAILABLE_TASKS), set(OPS_TASK_TAB))
 
     def test_empty_task_lists_available(self):
         out = AgentOpsService().run({})
@@ -164,6 +181,83 @@ class TestAgentOpsContracts(unittest.TestCase):
         self.assertEqual(out["impact_note"], "不进 ŷ；仅纸面买/持仓缩放")
         self.assertIn("cross_market", out["prior_flags"])
 
+    def test_prior_exposure_ok(self):
+        fake_exposure = {
+            "watching_n": 3,
+            "holding_n": 1,
+            "watching_hit_n": 1,
+            "holding_hit_n": 0,
+            "watching_hits": [{"code": "600519", "name": "茅台", "concepts": ["白酒"]}],
+            "holding_hits": [],
+            "hot_concepts": ["白酒"],
+            "concept_chips": [],
+            "note": "只读",
+        }
+        fake_summary = {
+            "prior_active": True,
+            "prior_warnings": ["监管·测试"],
+            "prior_flags": {
+                "cross_market": False,
+                "market_sentiment": False,
+                "regulatory": True,
+                "ipo_drain": False,
+            },
+        }
+        with mock.patch(
+            "core.market.context.load_market_context",
+            return_value={"announcement": {}},
+        ):
+            with mock.patch(
+                "web.dashboard.market._exposure_desk",
+                return_value=fake_exposure,
+            ):
+                with mock.patch(
+                    "core.market.context.summarize_market_context",
+                    return_value=fake_summary,
+                ):
+                    out = AgentOpsService().prior_exposure({})
+        self.assertTrue(out["success"])
+        self.assertEqual(out["task"], "prior_exposure")
+        self.assertEqual(out["exposure"]["watching_hit_n"], 1)
+        self.assertTrue(out["prior_flags"]["regulatory"])
+
+    def test_prior_vs_regime_scale(self):
+        fake_summary = {
+            "prior_active": True,
+            "prior_warnings": ["情绪·炸板"],
+            "prior_flags": {
+                "cross_market": False,
+                "market_sentiment": True,
+                "regulatory": False,
+                "ipo_drain": False,
+            },
+        }
+        fake_cfg = {
+            "cross_market": {"scale_buy_pct": 0.5},
+            "market_sentiment_prior": {"scale_buy_pct": 0.55},
+            "regulatory_prior": {"scale_buy_pct": 0.5},
+            "ipo_drain_prior": {"scale_buy_pct": 0.45},
+            "market_prior_policy": {"merge_mode": "min_scale"},
+        }
+        with mock.patch(
+            "core.market.context.summarize_market_context",
+            return_value=fake_summary,
+        ):
+            with mock.patch(
+                "core.signal.market_prior_config.read_market_prior_public",
+                return_value=fake_cfg,
+            ):
+                with mock.patch(
+                    "core.signal.live_features.fetch_live_index_bars",
+                    side_effect=RuntimeError("skip"),
+                ):
+                    out = AgentOpsService().prior_vs_regime({})
+        self.assertTrue(out["success"])
+        self.assertEqual(out["task"], "prior_vs_regime")
+        self.assertAlmostEqual(out["prior_scale"]["prior_buy_scale"], 0.55)
+        self.assertIsNone(out.get("preview"))
+        self.assertIn("combined_buy_scale", out)
+
     def test_feedback_draft_market_prior_scope(self):
         fake_summary = {
             "freshness": {},
@@ -306,15 +400,46 @@ class TestOpsRouting(unittest.TestCase):
         self.assertEqual(infer_ops_task("为什么没买成"), "ops_anomaly")
         self.assertTrue(is_ops_question("今日盘前简报"))
         self.assertEqual(infer_ops_task("今日盘前市场先验简报"), "prior_brief")
+        self.assertEqual(infer_ops_task("观察池命中与暴露交集"), "prior_exposure")
+        self.assertEqual(infer_ops_task("prior 与 Regime 合成缩放"), "prior_vs_regime")
         params = prepare_tool_params("ops", {}, "请预演矩阵调仓")
         self.assertEqual(params.get("task"), "rebalance_preview")
         self.assertEqual(params.get("path"), "watching_matrix")
         prior_params = prepare_tool_params("ops", {}, "请给市场先验配置建议草稿")
         self.assertEqual(prior_params.get("task"), "feedback_draft")
         self.assertEqual(prior_params.get("scope"), "market_prior")
+        vs = prepare_tool_params("ops", {}, "请做 prior×Regime 缩放预演对照")
+        self.assertEqual(vs.get("task"), "prior_vs_regime")
+        self.assertTrue(vs.get("include_preview"))
+        brief = prepare_tool_params("ops", {}, "请对 600519 做盘前简报")
+        self.assertEqual(brief.get("task"), "prior_brief")
+        self.assertEqual(brief.get("stock_code"), "600519")
         subset = resolve_tool_subset("解释调仓五问")
         self.assertIsNotNone(subset)
         self.assertIn("ops", subset)
+
+    def test_prior_artifact_keeps_checklist(self):
+        from agent.artifacts import build_artifact, compact_payload, resolve_tab
+
+        prior = {
+            "success": True,
+            "task": "prior_brief",
+            "prior_active": True,
+            "prior_warnings": ["情绪·炸板率 55%"],
+            "prior_flags": {"market_sentiment": True},
+            "checklist": [{"id": "freshness", "ok": True}],
+            "impact_note": "不进 ŷ",
+        }
+        c = compact_payload(prior)
+        self.assertIn("checklist", c)
+        self.assertIn("prior_active", c)
+        self.assertTrue(c["prior_active"])
+        art = build_artifact("ops", {"task": "prior_brief"}, json.dumps(prior, ensure_ascii=False))
+        self.assertEqual(art["tab"], "strategy")
+        self.assertIn("checklist", art["data"])
+        self.assertEqual(resolve_tab("ops", {"task": "feedback_draft", "scope": "market_prior"}), "strategy")
+        self.assertEqual(resolve_tab("ops", {"task": "feedback_draft"}), "follow")
+        self.assertEqual(resolve_tab("ops", {"task": "prior_exposure"}), "strategy")
 
     def test_ops_hint_injected(self):
         from agent.prompts import OPS_HINT

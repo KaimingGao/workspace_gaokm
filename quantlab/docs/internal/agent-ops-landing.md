@@ -203,7 +203,7 @@ Agent（编排旁路）
    - `quant` health / `assess_strategy_health` 摘要
    - `GET` risk-blocks 摘要（`summarize_risk_blocks`）
    - `GET /api/audit/timeline` 尾部（只读）
-2. **`feedback_draft`（B 轨入口）**：包装 `feedback/suggest`，返回建议 patch **不写盘**；prompts 要求「仅展示，人审 `POST /api/strategy/promote`，不在市场先验页操作」
+2. **`feedback_draft`（B 轨入口）**：包装 `feedback/suggest`，返回建议 patch **不写盘**；`scope=strategy` 人审 `POST /api/strategy/promote`；`scope=market_prior` 人审 `POST /api/signal/config/market-prior`（不在市场先验页写盘）。盘前旁路另有 `prior_brief` / `prior_exposure` / `prior_vs_regime`
 3. **对照包钩子（效果验收）**：草稿响应附带机器可读字段建议：
    - `baseline_ref`（当前 strategy_version / config hash）
    - `suggested_checks[]`（须跑的回测/纸面 dry 项，如 `portfolio_backtest`、滚动 IC）

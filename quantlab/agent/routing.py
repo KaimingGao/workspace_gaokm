@@ -1,6 +1,7 @@
 """用户意图路由：LLM 意图分类优先，关键词兜底（单一事实源）。"""
 
 import json
+import re
 from typing import Any, Dict, List, Optional
 
 from agent.intent import (
@@ -127,9 +128,14 @@ OPS_KEYS = (
     "盘前简报",
     "市场先验",
     "prior_brief",
+    "prior_exposure",
+    "prior_vs_regime",
+    "market_prior",
     "盘前上下文",
     "跨市场",
     "大盘环境",
+    "暴露交集",
+    "合成缩放",
 )
 
 POSITION_KEYS = (
@@ -275,6 +281,31 @@ def is_ops_question(text: str) -> bool:
 
 def infer_ops_task(text: str) -> str:
     t = (text or "").strip().lower()
+    # prior 专用 task 须先于泛化「预演」，避免「缩放预演」误进 rebalance_preview
+    if any(
+        k in t
+        for k in (
+            "prior_exposure",
+            "暴露交集",
+            "观察池命中",
+            "持仓命中",
+            "监管概念",
+        )
+    ):
+        return "prior_exposure"
+    if any(
+        k in t
+        for k in (
+            "prior_vs_regime",
+            "合成缩放",
+            "prior×regime",
+            "prior x regime",
+            "prior和regime",
+            "prior 与 regime",
+            "缩放对照",
+        )
+    ):
+        return "prior_vs_regime"
     if any(k in t for k in ("预演", "dry_run", "preview")):
         return "rebalance_preview"
     if any(k in t for k in ("为什么没买", "拦仓", "risk_block", "告警", "异常")):
@@ -292,8 +323,10 @@ def infer_ops_task(text: str) -> str:
             "先验配置",
             "改 prior",
             "建议草稿",
-            "market_prior",
         )
+    ) or (
+        "market_prior" in t
+        and any(k in t for k in ("草稿", "配置", "建议", "feedback", "draft"))
     ):
         return "feedback_draft"
     if any(
@@ -306,12 +339,13 @@ def infer_ops_task(text: str) -> str:
             "跨市场",
             "大盘环境",
             "今天大盘",
+            "market_prior",
         )
     ):
         return "prior_brief"
-    if any(k in t for k in ("对照", "复盘调仓", "调仓后")):
+    if any(k in t for k in ("对照", "复盘调仓", "调仓后", "prior 归因", "prior归因")):
         return "post_rebalance_review"
-    if any(k in t for k in ("事件", "公告旗标", "event_flag")):
+    if any(k in t for k in ("事件旗标", "公告旗标", "event_flag")):
         return "event_flags"
     if any(k in t for k in ("因子假设", "alpha", "挖因子")):
         return "alpha_draft"
@@ -504,6 +538,17 @@ def prepare_tool_params(tool_name: str, params: Dict[str, Any], user_input: str)
                 )
             ):
                 out["scope"] = "market_prior"
+        if out.get("task") == "prior_vs_regime" and "include_preview" not in out:
+            t = (user_input or "").lower()
+            if any(k in t for k in ("预演", "preview", "dry_run", "对照缩放", "缩放预演")):
+                out["include_preview"] = True
+        if out.get("task") == "prior_brief":
+            # 若用户已点选观察台/持仓个股，可由前端写入；此处仅认自然语言代码
+            t = user_input or ""
+            if not out.get("stock_code"):
+                m = re.search(r"(?<!\d)([036]\d{5})(?!\d)", t)
+                if m:
+                    out["stock_code"] = m.group(1)
     return out
 
 
