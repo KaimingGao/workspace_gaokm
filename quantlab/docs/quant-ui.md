@@ -685,7 +685,7 @@ Arm·T 实现见 **[docs/internal/arm-t.md](internal/arm-t.md)**；拆分规划�
 
 **Eyebrow 对照**（勿自造第三种命名）：Portfolio / Research / Data / Execution / Backtest / Prior / Platform / Paper / Evals / Usage + `Desk`。
 
-**已收口（2026-11-25）**：仪表盘挂 `.quant-head`；平行 `watching-section-title` 双 class 已删；页头阶梯 / KPI label·value / desk chip 共用 `base.css` + `--sys-*`；业务页硬编码字号已批量映射到系统阶梯。
+**已收口（2026-11-25）**：仪表盘挂 `.quant-head`；平行 `watching-section-title` / `*-eyebrow` 死 CSS 已清；页头阶梯 / KPI / desk chip 共用 `base.css` + `--sys-*`；硬编码字号已映射系统阶梯；业务页 Desk 硬边用 `--sys-desk-r`，不压 `--sys-r-full`。
 
 ---
 

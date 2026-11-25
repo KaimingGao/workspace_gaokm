@@ -247,35 +247,6 @@
   padding: 4px 2px 0;
 }
 
-/* 废弃：页头只用 .dashboard-eyebrow / h2 */
-.follow-eyebrow {
-  margin: 0 0 2px;
-  font-size: var(--sys-fs-micro);
-  font-weight: var(--sys-fw-label);
-  letter-spacing: 0.14em;
-  line-height: 18px;
-  text-transform: uppercase;
-  color: var(--ink-3);
-  font-family: var(--font-mono);
-}
-
-.follow-title {
-  margin: 0;
-  font-size: var(--sys-fs-title);
-  font-weight: var(--sys-fw-display);
-  letter-spacing: -0.02em;
-  color: var(--ink);
-  line-height: var(--sys-lh-tight);
-}
-
-.follow-lede {
-  margin: 8px 0 0;
-  max-width: 36em;
-  font-size: var(--sys-fs-body);
-  line-height: 1.5;
-  color: var(--ink-2);
-}
-
 .follow-meta {
   margin: 6px 0 0 !important;
 }
@@ -2937,11 +2908,11 @@ body[data-page="replay"] .replay-t0-section .paper-t0-viz-stock-table {
 }
 
 .paper-t0-report-net {
-  font-size: 1.65rem;
-  font-weight: 700;
+  font-size: var(--sys-fs-hero);
+  font-weight: var(--sys-fw-display);
   font-variant-numeric: tabular-nums;
   font-family: var(--font-mono);
-  line-height: 1.15;
+  line-height: var(--sys-lh-tight);
   letter-spacing: -0.02em;
 }
 
@@ -4174,7 +4145,6 @@ body[data-page="replay"] .replay-t0-section .paper-t0-trades-wrap .paper-t0-trad
   border-left: 1px solid color-mix(in srgb, var(--ink) 10%, transparent);
   box-shadow: inset 3px 0 0 color-mix(in srgb, #0f766e 22%, transparent);
 }
-
 
 
 .paper-t0-trades-table thead th.paper-t0-col-ytw,

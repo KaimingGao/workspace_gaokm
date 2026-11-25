@@ -746,16 +746,8 @@ html[data-theme="dark"] .dashboard-sector-legend span {
   color: rgba(255, 255, 255, 0.45);
 }
 
-html[data-theme="dark"] .quant-page .quant-section-title.watching-section-title {
-  color: rgba(255, 255, 255, 0.72);
-}
-
 html[data-theme="dark"] .quant-page .quant-section-hint {
   color: rgba(255, 255, 255, 0.42);
-}
-
-html[data-theme="dark"] .quant-head .quant-eyebrow {
-  color: rgba(255, 255, 255, 0.4);
 }
 
 html[data-theme="dark"] .quant-page .quant-path-rail {

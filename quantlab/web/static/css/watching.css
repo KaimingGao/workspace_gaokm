@@ -169,9 +169,6 @@ body[data-page="watching"] .watching-react-grid-cell.watching-col-score_tau .wat
   margin: 0 0 8px;
 }
 
-.watching-log-head .watching-section-title {
-  margin: 0;
-}
 
 .watching-log-hint {
   margin: 0;
@@ -421,12 +418,6 @@ body[data-page="watching"] .watching-react-grid-cell.watching-col-score_tau .wat
   letter-spacing: -0.005em;
 }
 
-.follow-page .follow-holdings-head .watching-section-title {
-  font-size: var(--sys-fs-section);
-  font-weight: var(--sys-fw-display);
-  letter-spacing: 0.04em;
-  color: var(--ink);
-}
 
 .follow-page .watching-section-count {
   font-size: var(--sys-fs-micro);
@@ -569,34 +560,6 @@ body[data-page="watching"] .watching-react-grid-cell.watching-col-score_tau .wat
   background: color-mix(in srgb, var(--danger) 6%, var(--surface));
 }
 
-.quant-page .quant-section-title.watching-section-title {
-  margin: 0;
-  font-size: var(--sys-fs-section);
-  font-weight: var(--sys-fw-display);
-  letter-spacing: 0.04em;
-  color: var(--ink);
-  display: inline-flex;
-  align-items: center;
-}
-
-.quant-page .quant-section-title.watching-section-title::before {
-  content: "";
-  display: inline-block;
-  width: 3px;
-  height: 0.75em;
-  margin-right: 8px;
-  vertical-align: -0.05em;
-  border-radius: 1px;
-  background: var(--accent);
-}
-
-.quant-page .quant-section-subtitle.watching-section-title {
-  margin: 0;
-  font-size: var(--sys-fs-body);
-  font-weight: var(--sys-fw-sub);
-  letter-spacing: 0.02em;
-  color: var(--ink);
-}
 
 .quant-page .quant-research-grid .watching-react-grid-head {
   position: sticky;
@@ -761,13 +724,6 @@ body[data-page="watching"] .watching-react-grid-cell.watching-col-score_tau .wat
   background: color-mix(in srgb, var(--gold) 4%, var(--surface));
 }
 
-.quant-page .quant-fold > summary > .watching-section-title {
-  display: inline;
-  margin: 0;
-  font-size: var(--sys-fs-section);
-  font-weight: var(--sys-fw-display);
-  color: var(--ink);
-}
 
 .quant-page .watching-table-empty.is-busy {
   color: var(--ink);
@@ -779,31 +735,6 @@ body[data-page="watching"] .watching-react-grid-cell.watching-col-score_tau .wat
   overflow: visible;
   text-overflow: unset;
   white-space: nowrap;
-}
-
-.watching-hero {
-  padding: 2px 0 0;
-}
-
-/* 废弃：页头只用 .dashboard-eyebrow / h2 */
-.watching-eyebrow {
-  margin: 0 0 2px;
-  font-size: var(--sys-fs-micro);
-  font-weight: var(--sys-fw-label);
-  letter-spacing: 0.14em;
-  line-height: 18px;
-  text-transform: uppercase;
-  color: var(--ink-3);
-  font-family: var(--font-mono);
-}
-
-.watching-title {
-  margin: 0 0 8px;
-  font-size: var(--sys-fs-title);
-  font-weight: var(--sys-fw-display);
-  letter-spacing: -0.02em;
-  color: var(--ink);
-  line-height: var(--sys-lh-tight);
 }
 
 .watching-page .watching-job-hint {
@@ -972,13 +903,6 @@ body[data-page="watching"] .watching-react-grid-cell.watching-col-score_tau .wat
   margin-bottom: 6px;
 }
 
-.watching-page .watching-section-title {
-  /* 同 Desk Shell section title；颜色跟区段主色 */
-  font-size: var(--sys-fs-section);
-  font-weight: var(--sys-fw-display);
-  letter-spacing: 0.04em;
-  color: var(--ink);
-}
 
 .watching-page .watching-log-hint {
   font-size: var(--sys-fs-micro);
@@ -1027,16 +951,6 @@ body[data-page="watching"] .watching-react-grid-cell.watching-col-score_tau .wat
   align-items: baseline;
   gap: 8px;
   margin: 0 0 10px;
-}
-
-/* 废弃平行标题族：与 .dashboard-section-title 同阶；勿再覆写字号 */
-.watching-section-title {
-  margin: 0;
-  font-size: var(--sys-fs-section);
-  font-weight: var(--sys-fw-display);
-  color: var(--ink);
-  letter-spacing: 0.04em;
-  line-height: 1.25;
 }
 
 .watching-section-count {
@@ -2117,9 +2031,6 @@ html[data-theme="dark"] .watching-fit-tier-badge.is-C {
   margin-top: 0;
 }
 
-html[data-density="compact"] .watching-section-title {
-  margin-bottom: 4px;
-}
 
 html[data-density="compact"] .watching-page {
   --watching-gap: 6px;
@@ -2304,43 +2215,6 @@ html[data-density="compact"] .quant-page .quant-research-grid .watching-react-gr
   background: color-mix(in srgb, var(--danger, #f5222d) 7%, var(--surface));
 }
 
-.quant-page .quant-fold > summary > .watching-section-title {
-  font-size: var(--sys-fs-section);
-  font-weight: var(--sys-fw-display);
-  letter-spacing: 0.04em;
-  display: inline-flex;
-  align-items: center;
-  gap: var(--sys-gap-inline);
-}
-
-.quant-page .quant-fold > summary > .watching-section-title::before {
-  content: "";
-  display: inline-block;
-  width: 3px;
-  height: 0.75em;
-  background: var(--accent);
-  border-radius: 1px;
-  vertical-align: -0.05em;
-}
-
-.quant-page .quant-section-toolbar .watching-section-title {
-  font-size: var(--sys-fs-section);
-  font-weight: var(--sys-fw-display);
-  letter-spacing: 0.04em;
-  display: inline-flex;
-  align-items: center;
-  gap: var(--sys-gap-inline);
-}
-
-.quant-page .quant-section-toolbar .watching-section-title::before {
-  content: "";
-  display: inline-block;
-  width: 3px;
-  height: 0.75em;
-  background: var(--accent);
-  border-radius: 2px;
-  vertical-align: -0.05em;
-}
 
 /* 研究表表头 */
 .quant-page .quant-research-grid .watching-react-grid-head {
@@ -2438,32 +2312,6 @@ html[data-density="compact"] .quant-page .quant-research-grid .watching-react-gr
   font-size: var(--sys-fs-micro);
 }
 
-.quant-pro-section-title.watching-section-title::before {
-  height: 0.85em;
-  background: var(--accent);
-  border-radius: 1px;
-  width: 2px;
-  margin-right: 8px;
-}
-
-/* 双 class 已从 HTML 移除；若残留则抑制双条 ::before */
-.quant-page .dashboard-section-title.watching-section-title::before {
-  content: none;
-}
-
-.quant-page .dashboard-card.quant-pro-card h3.watching-section-title {
-  margin: 0;
-  padding: 0;
-  font-size: var(--sys-fs-body);
-  font-weight: var(--sys-fw-label);
-  letter-spacing: 0.02em;
-  color: var(--ink);
-  line-height: 1.25;
-}
-
-.quant-page .dashboard-card.quant-pro-card .watching-section-title::before {
-  display: none;
-}
 
 /* Toolbar meta text (loading status) */
 .follow-page .watching-toolbar-meta {

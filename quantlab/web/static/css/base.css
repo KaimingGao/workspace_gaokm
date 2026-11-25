@@ -1337,8 +1337,8 @@ dialog::backdrop {
 
 dialog h2 {
   margin: 0 0 14px;
-  font-size: 1.15rem;
-  font-weight: 700;
+  font-size: var(--sys-fs-title);
+  font-weight: var(--sys-fw-display);
 }
 
 .dialog-btn {
@@ -1592,7 +1592,7 @@ a.dialog-btn[aria-disabled="true"] {
   border-radius: var(--sys-r-tier2);
   background: #fff;
   color: #64748b;
-  font-size: 1.15rem;
+  font-size: var(--sys-fs-title);
   line-height: 1;
   cursor: pointer;
   box-shadow: 0 1px 2px rgba(15, 23, 42, 0.06);
@@ -1808,7 +1808,7 @@ a.dialog-btn[aria-disabled="true"] {
 
 .score-layer-head .score-hero-value {
   margin-top: 0;
-  font-size: 1.15rem;
+  font-size: var(--sys-fs-title);
 }
 
 .score-layer-compose {
@@ -1857,10 +1857,10 @@ a.dialog-btn[aria-disabled="true"] {
 
 .score-hero-value {
   margin-top: 2px;
-  font-size: 1.35rem;
-  font-weight: 700;
+  font-size: var(--sys-fs-kpi);
+  font-weight: var(--sys-fw-display);
   font-variant-numeric: tabular-nums;
-  line-height: 1.2;
+  line-height: var(--sys-lh-tight);
   color: #0f172a;
 }
 

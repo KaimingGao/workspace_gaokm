@@ -2269,18 +2269,6 @@
   box-sizing: border-box;
 }
 
-/* 废弃平行 eyebrow：HTML 只用 .dashboard-eyebrow */
-.quant-head .quant-eyebrow {
-  margin: 0 0 2px;
-  font-size: var(--sys-fs-micro);
-  font-weight: var(--sys-fw-label);
-  letter-spacing: 0.14em;
-  line-height: 18px;
-  text-transform: uppercase;
-  color: var(--ink-3);
-  font-family: var(--font-mono);
-}
-
 .page-panel.quant-panel .quant-head h2 {
   margin: 0;
   font-size: var(--sys-fs-title, 1.125rem);
@@ -4500,17 +4488,6 @@ body[data-page="replay"] .replay-page .quant-bt-trades-host .watching-react-grid
 .quant-pro-head .quant-head-text {
   min-width: 0;
   flex: 1;
-}
-
-.quant-pro-eyebrow {
-  font-size: var(--sys-fs-micro);
-  font-weight: var(--sys-fw-label);
-  letter-spacing: 0.14em;
-  text-transform: uppercase;
-  color: var(--ink-3);
-  margin: 0 0 2px;
-  line-height: 18px;
-  font-family: var(--font-mono);
 }
 
 .quant-pro-title {
@@ -7849,21 +7826,6 @@ body[data-page="quant"] .quant-page .quant-bars-mat-card > .quant-bars-mat-body:
   font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
 }
 
-.quant-head.dashboard-head .quant-desk-note {
-  font-size: var(--q-fs-micro, 0.6875rem);
-  font-weight: 650;
-  letter-spacing: 0.04em;
-  text-transform: none;
-  font-family: var(--font-mono);
-  height: 22px;
-  line-height: 22px;
-  padding: 0 8px;
-  border-radius: 2px;
-  display: inline-flex;
-  align-items: center;
-  white-space: nowrap;
-}
-
 .quant-head.dashboard-head .quant-desk-badge {
   color: var(--ink-2);
   border: 1px solid var(--line);
@@ -8794,17 +8756,6 @@ html[data-density="compact"] .quant-body.dashboard-page {
   justify-content: space-between;
   flex-wrap: wrap;
   gap: 8px 16px;
-}
-
-.quant-head .dashboard-eyebrow {
-  margin: 0 0 2px;
-  font-size: var(--sys-fs-micro, 0.6875rem);
-  font-weight: var(--sys-fw-label, 650);
-  letter-spacing: 0.14em;
-  line-height: 18px;
-  text-transform: uppercase;
-  color: var(--ink-3);
-  font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
 }
 
 /* 回测图定高；勿叠 .dashboard-chart-host 的 flex:1（会在 dashboard-card 内撑满） */
