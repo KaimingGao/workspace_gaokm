@@ -78,7 +78,7 @@ x_seq (B, L, F+1) ── Linear ── sin PE ── Pre-LN Encoder × nlayers
                                             └── 末步 LayerNorm ── 拼 gap ── Linear ── ŷ
 ```
 
-标量头没有激活。回归头外面用逐点 MSE；排序头外面用 LambdaRank，不减日内均值。网络本身不包 softmax / sigmoid。
+标量头没有激活。回归头默认 ``MSE + λ·ListNet``；排序头默认 ``(1-α)·ΛRank + α·ListNet``。网络本身不包 softmax / sigmoid。
 
 ### 3.1 编码器
 
@@ -183,29 +183,31 @@ x_seq (B, L, F+1) ── Linear ── sin PE ── Pre-LN Encoder × nlayers
 | **保存** | 最后一个 epoch 的权重 |
 | **eval** | 每个 epoch 在 Holdout 上做一次 `no_grad` 测试。排序头打 Rank IC / Pearson ICIR / Rank ICIR / NDCG@30 / Top10% y。回归头同一行再打 MSE。训练日用到 Holdout 隔离之前的全部交易日。不反传，不选权重，不改学习率日程 |
 | **曲线** | 步日志默认每 10 步一行，`TRANSFORMER_LOG_EVERY` 可覆盖；每个 epoch 也追加 `{head}_fit.curve.jsonl`（`YHAT_FIT_CURVE`）。运行台卡片下面画两张图，各自有坐标轴。训练损失左轴是步均 `avg`，底轴是 step。Holdout 左轴是 Rank IC；排序头右轴是 NDCG@30，回归头右轴是 MSE；底轴是 epoch。跑完随版本归档。只显示，不选权重 |
-| **optimizer** | AdamW，`weight_decay=1e-3`。`bias` 与 LayerNorm 的 `weight` 为 0。初始学习率见下 |
-| **LR** | cosine + warmup；`TRANSFORMER_WARMUP_STEPS` 默认 100；`min_ratio=0.01`。沪深300从头训练的峰值是 **1e-4**，暖机后到这个值，再余弦降到 1e-6。大池预训练峰值仍是 **1e-3**。两段连着训时，微调段改用 1e-4。页面没有这个旋钮；草稿里的 1e-3 / 1e-4 随截面换。请求里写明的其它学习率保留 |
+| **optimizer** | AdamW，`weight_decay=5e-3`。`bias` 与 LayerNorm 的 `weight` 为 0。初始学习率见下 |
+| **LR** | cosine + warmup；默认暖机 = **总步数的 1/10**（`TRANSFORMER_WARMUP_STEPS` 可覆盖）；`min_ratio=0.01`。沪深300从头训练的峰值是 **1e-4**，暖机后到这个值，再余弦降到 1e-6。大池预训练峰值仍是 **1e-3**。两段连着训时，微调段改用 1e-4。页面没有这个旋钮；草稿里的 1e-3 / 1e-4 随截面换。请求里写明的其它学习率保留 |
 | **grad clip** | 1.0 |
 | **batch** | 默认 2048；范围 16–4096 |
-| **subsample** | `t_sample_frac` 默认 **1**（不截断）；小于 1 才抽训练日。点损失行级；排序头 **整日组**，一组放不进剩余名额即停。抽样只作用在训练日，Holdout 不进训练 |
+| **subsample** | `t_sample_frac` 默认 **1**（不截断）；小于 1 才抽训练日。排序头与带 ListNet 的回归融合都走 **整日组**，一组放不进剩余名额即停；仅纯 MSE 时行级抽样。抽样只作用在训练日，Holdout 不进训练 |
 | **序列预处理** | 因子列：开盘立方截面 z，缺测写 0；排序头再裁 ±`LAMBDARANK_Z_CLIP`。`age_td` 不做 z。gap 按 train 行 1%/99% clip。因子序列不展开成 `(N,L,F)` |
 | **线程** | `TORCH_NUM_THREADS` 默认 **4**；interop=1；BLAS/OMP 仍为 1 |
 | **取数** | numpy 切片再 `as_tensor`（避免大张量高级索引 OpenMP SIGSEGV） |
 
 ### 损失
 
-| task | loss | 说明 |
+| task | 训练损失（落地默认） | 说明 |
 |--|--|--|
-| regression（oo / tc） | `mse` | 百分点上的逐点均方 |
-| rank（oo_rank / tc_rank） | LambdaRank | 只比较名次，不减日内均值，不拟合分数数值 |
+| regression（oo / tc） | ``MSE + λ·ListNet``，**λ=0.3** | 主损失 MSE（百分点逐点均方）；辅助 ListNet 按日，标签用日内 z。``TRANSFORMER_LISTNET_WEIGHT`` / `listnet_weight` 可改；**0** 退回纯 MSE |
+| rank（oo_rank / tc_rank） | ``(1-α)·ΛRank + α·ListNet``，**α=0.3** | 主损失 LambdaRank；辅助 ListNet 按日，标签用日内 z。``TRANSFORMER_RANK_LISTNET_ALPHA`` / `rank_listnet_alpha` 可改；**0** 退回纯 ΛRank |
 
-回归头是逐点 MSE，对批取均值。预测和标签都是百分点。`bias` 与 LayerNorm 的 weight 不衰减。
+HeadSpec 上仍写 `mse` / `lambdarank`（工厂锁名）；实际反传是上表融合。启动日志形如 `mse+listnetλ=0.3`、`lambdarank+listnetα=0.3`。权重 meta 记 `listnet_weight` / `rank_listnet_alpha`。
 
-排序头标签与 Arm·L 相同：收益越高名次越大，`label_gain` 就是名次本身。权重按当前排序计算后断开梯度，只沿分数差反传。`truncation=30`，IDCG 只累加这前 30 名。整天 λ 质量乘 `log2(1+S)/S`（LightGBM `lambdarank_norm`）。不再除以 `|分数差|`，也不在损失里做日内减均值。序列因子列裁 ±`LAMBDARANK_Z_CLIP`。
+回归 MSE 对批取均值。带 ListNet 时按整日组 batch。`bias` 与 LayerNorm 的 weight 不衰减。
+
+排序主路标签与 Arm·L 相同：收益越高名次越大。ΛRank 权重按当前排序断开梯度，只沿分数差反传。`truncation=30`，IDCG 只累加这前 30 名。整天 λ 质量乘 `log2(1+S)/S`（LightGBM `lambdarank_norm`）。不再除以 `|分数差|`，也不在损失里做日内减均值。序列因子列裁 ±`LAMBDARANK_Z_CLIP`。
 
 Arm·L 排序树：120 棵、`max_depth=5`、`num_leaves=32`、`subsample=0.85`、`colsample=0.9`、L2=1。
 
-排序损失只在训练日反传。每个 epoch 的 Holdout 测试另打 NDCG@30，只记日志。训练结束后的完成行再打一次同一份最后权重的 Holdout。
+排序（及回归融合）损失只在训练日反传。每个 epoch 的 Holdout 测试另打 NDCG@30（排序）或 MSE（回归），只记日志。训练结束后的完成行再打一次同一份最后权重的 Holdout。
 
 ---
 
@@ -330,6 +332,7 @@ PYTHONUNBUFFERED=1 .venv/bin/python scripts/run_yhat_transformer_holdout.py --he
 
 | 日期 | 说明 |
 |--|--|
+| 2026-11-25 | 训练落地：`weight_decay=5e-3`；warmup 默认总步数 1/10。回归默认 `MSE+0.3·ListNet`；排序默认 `(1-0.3)·ΛRank+0.3·ListNet`。可用环境变量退回纯主损失 |
 | 2026-11-22 | 回归头版本名用 Holdout MSE。排序头仍是 RankIC。已有归档在快照里有 MSE 时，列表显示换成 MSE |
 | 2026-11-22 | 训练函数改为 `train_arm_t` / `predict_arm_t`。去掉 SmoothL1 旁路、`mlp_hidden` 和因子支路参数。权重键不变 |
 | 2026-11-22 | 模型类由 `SeqFactorTransformer` 改名为 `ArmTModel`。权重键不变 |

@@ -44,11 +44,14 @@ def _seed_all(seed: int) -> None:
 def _cosine_warmup_lr_mult(
     step: int,
     *,
-    warmup: int = 100,
+    warmup: int = 0,
     total: int,
     min_ratio: float = 0.01,
 ) -> float:
-    """线性 warmup → cosine 衰减到 ``min_ratio * base_lr``。``step`` 为已完成步数（≥1）。"""
+    """线性 warmup → cosine 衰减到 ``min_ratio * base_lr``。``step`` 为已完成步数（≥1）。
+
+    训练入口默认传入 ``total_steps // 10``；此处 ``warmup`` 缺省 0 仅作函数默认。
+    """
     s = max(0, int(step))
     w = max(0, int(warmup))
     t = max(1, int(total))
@@ -270,6 +273,87 @@ def _regression_batch_loss(pred, yb):
     return torch.nn.functional.mse_loss(pred, yb, reduction="mean")
 
 
+def _listnet_group_loss(
+    pred,
+    yb,
+    *,
+    tau_y: float = 1.0,
+    tau_s: float = 1.0,
+):
+    """一天一组的 ListNet：标签日内 z → P，分数 → Q，交叉熵。
+
+    ``P=softmax(z(y)/τ_y)``，``Q=softmax(s/τ_s)``，``L=-Σ P log Q``。
+    不对 n 取平均，便于和 MSE 用 λ 加权。
+    """
+    torch = _require_torch()
+    finite = torch.isfinite(pred) & torch.isfinite(yb)
+    if int(finite.sum().item()) < 2:
+        return pred.sum() * 0.0
+    if not bool(finite.all().item()):
+        pred = pred[finite]
+        yb = yb[finite]
+    y_det = yb.detach()
+    y_z = (y_det - y_det.mean()) / (y_det.std(unbiased=False) + 1e-6)
+    ty = max(float(tau_y), 1e-6)
+    ts = max(float(tau_s), 1e-6)
+    p = torch.softmax(y_z / ty, dim=0)
+    log_q = torch.log_softmax(pred / ts, dim=0)
+    return -(p * log_q).sum()
+
+
+def _listnet_batch_loss(
+    pred,
+    yb,
+    dates_batch: Sequence[str],
+    *,
+    tau_y: float = 1.0,
+    tau_s: float = 1.0,
+):
+    """多日 ListNet：各日损失取均值。"""
+    torch = _require_torch()
+    if pred.numel() <= 1:
+        return pred.sum() * 0.0
+    uniq = _uniq_days(dates_batch)
+    if len(uniq) <= 1:
+        return _listnet_group_loss(pred, yb, tau_y=tau_y, tau_s=tau_s)
+    losses = []
+    for d in uniq:
+        idx = _day_row_index(dates_batch, d).to(device=pred.device)
+        if int(idx.numel()) < 2:
+            continue
+        losses.append(
+            _listnet_group_loss(
+                pred.index_select(0, idx),
+                yb.index_select(0, idx),
+                tau_y=tau_y,
+                tau_s=tau_s,
+            )
+        )
+    if not losses:
+        return pred.sum() * 0.0
+    return torch.stack(losses).mean()
+
+
+def _regression_fused_batch_loss(
+    pred,
+    yb,
+    dates_batch: Sequence[str],
+    *,
+    listnet_weight: float,
+    tau_y: float = 1.0,
+    tau_s: float = 1.0,
+):
+    """回归融合：逐点 MSE + λ·ListNet（按日）。"""
+    mse = _regression_batch_loss(pred, yb)
+    w = float(listnet_weight)
+    if w <= 0.0:
+        return mse
+    ln = _listnet_batch_loss(
+        pred, yb, dates_batch, tau_y=tau_y, tau_s=tau_s
+    )
+    return mse + w * ln
+
+
 def _rank_batch_loss(pred, yb, dates_batch: Sequence[str]):
     """排序头损失：LambdaRank。只比较名次，不拟合分数数值，也不减日内均值。"""
     torch = _require_torch()
@@ -293,12 +377,95 @@ def _rank_batch_loss(pred, yb, dates_batch: Sequence[str]):
     return torch.stack(losses).mean()
 
 
+def _rank_fused_batch_loss(
+    pred,
+    yb,
+    dates_batch: Sequence[str],
+    *,
+    listnet_alpha: float,
+    tau_y: float = 1.0,
+    tau_s: float = 1.0,
+):
+    """排序融合：``(1-α)·ΛRank + α·ListNet``（按日）。
+
+    ``α=0`` 纯 LambdaRank；``α=1`` 纯 ListNet。
+    """
+    a = float(listnet_alpha)
+    if a != a:
+        a = 0.0
+    a = min(1.0, max(0.0, a))
+    if a <= 0.0:
+        return _rank_batch_loss(pred, yb, dates_batch)
+    if a >= 1.0:
+        return _listnet_batch_loss(
+            pred, yb, dates_batch, tau_y=tau_y, tau_s=tau_s
+        )
+    lr = _rank_batch_loss(pred, yb, dates_batch)
+    ln = _listnet_batch_loss(
+        pred, yb, dates_batch, tau_y=tau_y, tau_s=tau_s
+    )
+    return (1.0 - a) * lr + a * ln
+
+
 def _resolve_loss(loss: Optional[str]) -> str:
-    """排序头走 LambdaRank。回归头是 MSE。"""
+    """工厂锁名：排序 ``lambdarank``，回归 ``mse``。融合权重另见 ListNet 解析。"""
     name = str(loss or "mse").strip().lower()
     if name == "lambdarank":
         return "lambdarank"
     return "mse"
+
+
+def _parse_nonneg_float(raw: Any, default: float = 0.0) -> float:
+    try:
+        w = float(raw)
+    except (TypeError, ValueError):
+        return float(default)
+    if w != w:
+        return float(default)
+    return max(0.0, w)
+
+
+# 回归头融合默认：MSE + 0.3·ListNet。排序头融合默认：30% ListNet + 70% ΛRank。
+_DEFAULT_LISTNET_WEIGHT = 0.3
+_DEFAULT_RANK_LISTNET_ALPHA = 0.3
+
+
+def _resolve_listnet_weight(
+    loss_name: str, listnet_weight: Optional[float] = None
+) -> float:
+    """回归头 ListNet 辅助权重 λ≥0。排序头强制 0。
+
+    优先函数入参；否则 ``TRANSFORMER_LISTNET_WEIGHT``；
+    再否则默认 ``0.3``（落地：``MSE + λ·ListNet``）。显式 ``0`` 可退回纯 MSE。
+    """
+    if str(loss_name) == "lambdarank":
+        return 0.0
+    if listnet_weight is not None:
+        return _parse_nonneg_float(listnet_weight, _DEFAULT_LISTNET_WEIGHT)
+    raw = os.environ.get("TRANSFORMER_LISTNET_WEIGHT")
+    if raw is None or str(raw).strip() == "":
+        return float(_DEFAULT_LISTNET_WEIGHT)
+    return _parse_nonneg_float(raw, _DEFAULT_LISTNET_WEIGHT)
+
+
+def _resolve_rank_listnet_alpha(
+    loss_name: str, rank_listnet_alpha: Optional[float] = None
+) -> float:
+    """排序头 ListNet 混合系数 α∈[0,1]。回归头强制 0。
+
+    优先函数入参；否则 ``TRANSFORMER_RANK_LISTNET_ALPHA``；
+    再否则默认 ``0.3``（落地融合）。显式 ``0`` 可退回纯 ΛRank。
+    """
+    if str(loss_name) != "lambdarank":
+        return 0.0
+    if rank_listnet_alpha is not None:
+        a = _parse_nonneg_float(rank_listnet_alpha, _DEFAULT_RANK_LISTNET_ALPHA)
+        return min(1.0, a)
+    raw = os.environ.get("TRANSFORMER_RANK_LISTNET_ALPHA")
+    if raw is None or str(raw).strip() == "":
+        return float(_DEFAULT_RANK_LISTNET_ALPHA)
+    a = _parse_nonneg_float(raw, _DEFAULT_RANK_LISTNET_ALPHA)
+    return min(1.0, a)
 
 
 _WEIGHT_DECAY = 5e-3
@@ -437,6 +604,8 @@ def train_arm_t(
     device: Optional[str] = None,
     max_train_rows: Optional[int] = None,
     loss: str = "mse",
+    listnet_weight: Optional[float] = None,
+    rank_listnet_alpha: Optional[float] = None,
     holdout_idx: Optional[Sequence[int]] = None,
     init_state: Optional[Dict[str, Any]] = None,
 ) -> Tuple[Any, Dict[str, Any]]:
@@ -444,8 +613,11 @@ def train_arm_t(
 
     不切验证集，跑满 ``epochs``，保存最后一个 epoch 的权重。
     ``holdout_idx`` 每个 epoch 结束后 ``no_grad`` 打指标，不反传，不选权重。
-    ``loss=lambdarank`` 时只做 LambdaRank。
-    回归头是逐点 MSE。``bias`` 与 LayerNorm 的 weight 不进权重衰减。
+    ``loss=lambdarank``：默认 ``(1-α)·ΛRank + α·ListNet``（α=0.3；
+    ``rank_listnet_alpha`` / ``TRANSFORMER_RANK_LISTNET_ALPHA`` 可改，``0`` 纯 ΛRank）。
+    回归头默认 ``MSE + λ·ListNet``（λ=0.3；``listnet_weight`` /
+    ``TRANSFORMER_LISTNET_WEIGHT`` 可改，``0`` 纯 MSE），并按整日组 batch。
+    ``bias`` 与 LayerNorm 的 weight 不进权重衰减。
     """
     torch = _require_torch()
     from core.research.yhat_transformer.model import (
@@ -460,9 +632,15 @@ def train_arm_t(
     n_threads = _configure_torch_threads()
     dev = pick_device(device)
     loss_name = _resolve_loss(loss)
-    grouped = loss_name == "lambdarank"
+    rank_task = loss_name == "lambdarank"
+    listnet_w = _resolve_listnet_weight(loss_name, listnet_weight)
+    rank_alpha = _resolve_rank_listnet_alpha(loss_name, rank_listnet_alpha)
+    # 排序，或回归融合 ListNet：都按整日组取 batch。
+    day_batched = rank_task or listnet_w > 0.0
+    # Holdout 卡片：排序头打 NDCG；回归（含融合）仍打 MSE。
+    grouped = rank_task
     # 不切验证日。抽样只作用在拟合日。Holdout 每个 epoch 结束后只读一次。
-    if grouped:
+    if day_batched:
         tr = _subsample_whole_groups(
             seq_panel.dates,
             list(train_idx),
@@ -567,9 +745,9 @@ def train_arm_t(
             (holdout_arr >= 0) & (holdout_arr < int(y.shape[0]))
         ]
     tr_groups = (
-        _group_row_lists(day_s, tr_arr.tolist(), min_group=2) if grouped else []
+        _group_row_lists(day_s, tr_arr.tolist(), min_group=2) if day_batched else []
     )
-    if grouped and tr_groups:
+    if day_batched and tr_groups:
         steps_per_ep = max(
             1,
             sum(
@@ -599,7 +777,16 @@ def train_arm_t(
         log_every = 0
     if log_every <= 0:
         log_every = 10
-    loss_note = loss_name
+    if rank_task and rank_alpha > 0.0:
+        loss_note = (
+            f"lambdarank+listnetα={rank_alpha:g}"
+            if rank_alpha < 1.0
+            else "listnet"
+        )
+    elif listnet_w > 0.0:
+        loss_note = f"{loss_name}+listnetλ={listnet_w:g}"
+    else:
+        loss_note = loss_name
     print(
         f"    transformer fit start loss={loss_note} lr={base_lr:.2e} "
         f"wd={_WEIGHT_DECAY:g} sched=cosine warmup={warmup_steps} "
@@ -610,7 +797,7 @@ def train_arm_t(
         + (
             f" n_groups={len(tr_groups)} "
             f"group_med={sorted(len(g) for g in tr_groups)[len(tr_groups) // 2]}"
-            if grouped and tr_groups
+            if day_batched and tr_groups
             else ""
         ),
         flush=True,
@@ -643,7 +830,7 @@ def train_arm_t(
         total = 0.0
         n_seen = 0
         last_gn = float("nan")
-        if grouped:
+        if day_batched:
             groups = _group_row_lists(day_s, row_ids.tolist(), min_group=2)
             if not groups:
                 return float("nan"), float("nan")
@@ -665,9 +852,17 @@ def train_arm_t(
                 xs, gg, yb = _batch_to_device(Xseq, gap, y, rows=rows_np, device=dev)
                 opt.zero_grad(set_to_none=True)
                 pred = model(xs, gg)
-                if grouped:
-                    loss = _rank_batch_loss(
-                        pred, yb, [day_s[int(r)] for r in rows]
+                day_batch = [day_s[int(r)] for r in rows]
+                if rank_task:
+                    loss = _rank_fused_batch_loss(
+                        pred,
+                        yb,
+                        day_batch,
+                        listnet_alpha=rank_alpha,
+                    )
+                elif listnet_w > 0.0:
+                    loss = _regression_fused_batch_loss(
+                        pred, yb, day_batch, listnet_weight=listnet_w
                     )
                 else:
                     loss = _regression_batch_loss(pred, yb)
@@ -877,8 +1072,10 @@ def train_arm_t(
         "lr_sched": "cosine",
         "warmup_steps": int(warmup_steps),
         "weight_decay": float(_WEIGHT_DECAY),
-        "loss": loss_name,
-        "lambdarank_truncation": int(_LAMBDARANK_TRUNCATION) if grouped else None,
+        "loss": loss_note,
+        "listnet_weight": None if rank_task else float(listnet_w),
+        "rank_listnet_alpha": float(rank_alpha) if rank_task else None,
+        "lambdarank_truncation": int(_LAMBDARANK_TRUNCATION) if rank_task else None,
         "global_step": int(global_step),
         "holdout_by_epoch": holdout_by_epoch,
         "seq_clip": seq_clip,

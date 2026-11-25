@@ -2058,7 +2058,7 @@ def main() -> int:
         "--head",
         type=str,
         default="oo",
-        help="oo|tc|oo_rank|tc_rank；排序头 Arm·L 与 Arm·T 都是 LambdaRank",
+        help="oo|tc|oo_rank|tc_rank；Arm·T 回归/排序默认再融 ListNet（见 train.py）",
     )
     p.add_argument(
         "--tau-end",
@@ -2189,7 +2189,7 @@ def _run_holdout(args: argparse.Namespace) -> int:
     args.factory = factory
     from core.research.yhat_tf_desk import loss_for_factory
 
-    # 日志和 Arm·T 训练都读这一份。L 是 l2 / lambdarank，R 是 ridge，T 回归头是 mse。
+    # 日志和 Arm·T 训练都读这一份。L=l2/lambdarank，R=ridge；T 锁名 mse/lambdarank，训练内再融 ListNet。
     args.loss = loss_for_factory(head_spec, "T" if factory == "LT" else factory)
     if "T" in arms:
         from core.research.yhat_tf_desk import resolve_arm_t_lr

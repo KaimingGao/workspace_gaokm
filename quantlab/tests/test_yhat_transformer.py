@@ -658,6 +658,34 @@ class TestYhatModelSmoke(unittest.TestCase):
         empty = torch.empty(0)
         self.assertEqual(float(_regression_batch_loss(empty, empty)), 0.0)
 
+    def test_listnet_shift_invariant_and_fuse(self):
+        """ListNet 对分数平移不变；融合损失 = MSE + λ·ListNet；默认 λ=0.3。"""
+        import torch
+
+        from core.research.yhat_transformer.train import (
+            _listnet_batch_loss,
+            _regression_batch_loss,
+            _regression_fused_batch_loss,
+            _resolve_listnet_weight,
+        )
+
+        dates = ["2024-01-02"] * 5
+        y = torch.tensor([-1.0, 0.0, 0.5, 1.5, 2.0])
+        pred = torch.tensor([0.2, -0.3, 0.1, 0.8, -0.5], requires_grad=True)
+        a = _listnet_batch_loss(pred, y, dates)
+        b = _listnet_batch_loss(pred.detach() + 3.0, y, dates)
+        self.assertTrue(torch.allclose(a.detach(), b, atol=1e-5))
+        fused = _regression_fused_batch_loss(
+            pred, y, dates, listnet_weight=0.3
+        )
+        expect = _regression_batch_loss(pred, y) + 0.3 * a
+        self.assertTrue(torch.allclose(fused, expect, atol=1e-5))
+        fused.backward()
+        self.assertGreater(float(pred.grad.abs().sum()), 0.0)
+        self.assertEqual(_resolve_listnet_weight("lambdarank"), 0.0)
+        self.assertAlmostEqual(_resolve_listnet_weight("mse", None), 0.3)
+        self.assertEqual(_resolve_listnet_weight("mse", 0.0), 0.0)
+
     def test_bias_and_layernorm_skip_weight_decay(self):
         """bias 与 LayerNorm.weight 不衰减，其余参数衰减 5e-3。"""
         import torch
@@ -702,6 +730,51 @@ class TestYhatModelSmoke(unittest.TestCase):
         order_only = _rank_batch_loss(sunk, y, dates)
         shifted = _rank_batch_loss(sunk + 7.0, y, dates)
         self.assertTrue(torch.allclose(order_only, shifted, atol=1e-5))
+
+    def test_rank_fused_listnet_mix(self):
+        """排序融合：(1-α)·ΛRank + α·ListNet；α=0/1 退化为单路。"""
+        import torch
+
+        from core.research.yhat_transformer.train import (
+            _listnet_batch_loss,
+            _rank_batch_loss,
+            _rank_fused_batch_loss,
+            _resolve_rank_listnet_alpha,
+        )
+
+        dates = ["2024-01-02"] * 5
+        y = torch.tensor([-1.0, 0.0, 0.5, 1.5, 2.0])
+        pred = torch.tensor([0.2, -0.3, 0.1, 0.8, -0.5], requires_grad=True)
+        lr = _rank_batch_loss(pred, y, dates)
+        ln = _listnet_batch_loss(pred, y, dates)
+        self.assertTrue(
+            torch.allclose(
+                _rank_fused_batch_loss(pred, y, dates, listnet_alpha=0.0),
+                lr,
+                atol=1e-5,
+            )
+        )
+        self.assertTrue(
+            torch.allclose(
+                _rank_fused_batch_loss(pred, y, dates, listnet_alpha=1.0),
+                ln,
+                atol=1e-5,
+            )
+        )
+        fused = _rank_fused_batch_loss(
+            pred, y, dates, listnet_alpha=0.3
+        )
+        expect = 0.7 * lr + 0.3 * ln
+        self.assertTrue(torch.allclose(fused, expect, atol=1e-5))
+        fused.backward()
+        self.assertGreater(float(pred.grad.abs().sum()), 0.0)
+        self.assertEqual(_resolve_rank_listnet_alpha("mse"), 0.0)
+        self.assertAlmostEqual(
+            _resolve_rank_listnet_alpha("lambdarank", None), 0.3
+        )
+        self.assertEqual(
+            _resolve_rank_listnet_alpha("lambdarank", 0.0), 0.0
+        )
 
     def test_mean_daily_ndcg_perfect_order(self):
         from core.research.yhat_transformer.metrics import mean_daily_ndcg
